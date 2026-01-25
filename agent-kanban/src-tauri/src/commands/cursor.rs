@@ -87,4 +87,67 @@ mod tests {
         assert!(json.contains("globalHooksInstalled"));
         assert!(json.contains("hookScriptPath"));
     }
+
+    #[test]
+    fn cursor_status_serializes_with_none_values() {
+        let status = CursorStatus {
+            is_available: false,
+            version: None,
+            global_hooks_installed: false,
+            hook_script_path: None,
+        };
+        
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"isAvailable\":false"));
+        assert!(json.contains("\"version\":null"));
+        assert!(json.contains("\"hookScriptPath\":null"));
+    }
+
+    #[test]
+    fn cursor_status_deserializes_json_values() {
+        let status = CursorStatus {
+            is_available: true,
+            version: Some("1.0.0".to_string()),
+            global_hooks_installed: true,
+            hook_script_path: Some("/usr/local/bin/hook.js".to_string()),
+        };
+        
+        let json = serde_json::to_string(&status).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed["isAvailable"], true);
+        assert_eq!(parsed["version"], "1.0.0");
+        assert_eq!(parsed["globalHooksInstalled"], true);
+        assert_eq!(parsed["hookScriptPath"], "/usr/local/bin/hook.js");
+    }
+
+    #[test]
+    fn cursor_status_debug_impl() {
+        let status = CursorStatus {
+            is_available: true,
+            version: Some("0.43.0".to_string()),
+            global_hooks_installed: false,
+            hook_script_path: None,
+        };
+        
+        let debug = format!("{:?}", status);
+        assert!(debug.contains("CursorStatus"));
+        assert!(debug.contains("is_available: true"));
+    }
+
+    #[test]
+    fn cursor_status_clone() {
+        let status = CursorStatus {
+            is_available: true,
+            version: Some("0.43.0".to_string()),
+            global_hooks_installed: true,
+            hook_script_path: Some("/path".to_string()),
+        };
+        
+        let cloned = status.clone();
+        assert_eq!(cloned.is_available, status.is_available);
+        assert_eq!(cloned.version, status.version);
+        assert_eq!(cloned.global_hooks_installed, status.global_hooks_installed);
+        assert_eq!(cloned.hook_script_path, status.hook_script_path);
+    }
 }

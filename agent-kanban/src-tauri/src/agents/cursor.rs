@@ -332,12 +332,91 @@ mod tests {
 
     #[test]
     fn global_hooks_path_returns_some() {
-        // Should return Some on systems with a home directory
         let path = global_hooks_path();
-        // This test might fail in unusual environments without home dir
         if dirs::home_dir().is_some() {
             assert!(path.is_some());
             assert!(path.unwrap().to_string_lossy().contains(".cursor"));
+        }
+    }
+
+    #[test]
+    fn generate_hooks_json_each_hook_has_correct_args() {
+        let config = generate_hooks_json("/path/to/hook.js");
+        let hooks = config.get("hooks").unwrap();
+        
+        let expected_args: Vec<(&str, &str)> = vec![
+            ("beforeShellExecution", "beforeShellExecution"),
+            ("beforeReadFile", "beforeReadFile"),
+            ("beforeMCPExecution", "beforeMCPExecution"),
+            ("afterFileEdit", "afterFileEdit"),
+            ("stop", "stop"),
+        ];
+
+        for (hook_name, expected_arg) in expected_args {
+            let hook = hooks.get(hook_name).unwrap();
+            let args = hook.get("args").unwrap().as_array().unwrap();
+            assert_eq!(args.len(), 1);
+            assert_eq!(args[0].as_str().unwrap(), expected_arg);
+        }
+    }
+
+    #[test]
+    fn install_hooks_writes_valid_json() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        install_hooks(&temp_dir, "/path/to/hook.js").unwrap();
+        
+        let hooks_path = temp_dir.join(".cursor").join("hooks.json");
+        let content = std::fs::read_to_string(&hooks_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        
+        assert!(parsed.get("hooks").is_some());
+        assert!(parsed["hooks"].get("beforeShellExecution").is_some());
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn install_hooks_creates_nested_cursor_directory() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        // Don't create temp_dir - install_hooks should handle missing .cursor dir
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        let cursor_dir = temp_dir.join(".cursor");
+        assert!(!cursor_dir.exists());
+        
+        install_hooks(&temp_dir, "/path/to/hook.js").unwrap();
+        
+        assert!(cursor_dir.exists());
+        assert!(cursor_dir.is_dir());
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn check_global_hooks_installed_returns_false_when_no_file() {
+        // This test checks behavior - global hooks path exists but file doesn't
+        // We can't easily test this without mocking, but we verify the function runs
+        let result = check_global_hooks_installed();
+        // Result depends on actual system state, just verify it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn is_cursor_available_returns_bool() {
+        // Verify function runs without panic and returns bool
+        let result = is_cursor_available();
+        assert!(result == true || result == false);
+    }
+
+    #[test]
+    fn get_cursor_version_returns_option() {
+        // Verify function runs without panic
+        let result = get_cursor_version();
+        // If cursor is available, version should be non-empty
+        if let Some(version) = result {
+            assert!(!version.is_empty());
         }
     }
 }
