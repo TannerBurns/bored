@@ -124,7 +124,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       });
       set((state) => ({
         tickets: [...state.tickets, ticket],
-        isCreateModalOpen: false,
       }));
       return ticket;
     }
@@ -144,7 +143,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     };
     set((state) => ({
       tickets: [...state.tickets, ticket],
-      isCreateModalOpen: false,
     }));
     return ticket;
   },

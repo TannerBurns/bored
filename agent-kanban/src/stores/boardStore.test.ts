@@ -167,7 +167,7 @@ describe('useBoardStore', () => {
       expect(useBoardStore.getState().tickets).toHaveLength(2);
     });
 
-    it('closes create modal after creating ticket', async () => {
+    it('does not close create modal (caller is responsible)', async () => {
       useBoardStore.setState({ currentBoard: mockBoard, isCreateModalOpen: true });
       await useBoardStore.getState().createTicket({
         title: 'New Ticket',
@@ -176,7 +176,8 @@ describe('useBoardStore', () => {
         labels: [],
         columnId: 'col-1',
       });
-      expect(useBoardStore.getState().isCreateModalOpen).toBe(false);
+      // Modal state should remain unchanged - caller controls when to close
+      expect(useBoardStore.getState().isCreateModalOpen).toBe(true);
     });
   });
 
