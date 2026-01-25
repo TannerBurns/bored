@@ -44,11 +44,27 @@ pub fn build_command_with_settings(
 }
 
 pub fn generate_hooks_json(hook_script_path: &str) -> serde_json::Value {
-    generate_hooks_json_with_api(hook_script_path, None)
+    generate_hooks_json_with_api(hook_script_path, None, None)
 }
 
-pub fn generate_hooks_json_with_api(hook_script_path: &str, api_url: Option<&str>) -> serde_json::Value {
-    let env = api_url.map(|url| serde_json::json!({ "AGENT_KANBAN_API_URL": url }));
+pub fn generate_hooks_json_with_api(
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+) -> serde_json::Value {
+    let env = match (api_url, api_token) {
+        (Some(url), Some(token)) => Some(serde_json::json!({
+            "AGENT_KANBAN_API_URL": url,
+            "AGENT_KANBAN_API_TOKEN": token
+        })),
+        (Some(url), None) => Some(serde_json::json!({
+            "AGENT_KANBAN_API_URL": url
+        })),
+        (None, Some(token)) => Some(serde_json::json!({
+            "AGENT_KANBAN_API_TOKEN": token
+        })),
+        (None, None) => None,
+    };
     
     let make_hook = |event: &str| {
         let mut hook = serde_json::json!({
@@ -101,11 +117,16 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
     })
 }
 
-pub fn install_hooks(repo_path: &Path, hook_script_path: &str, api_url: Option<&str>) -> std::io::Result<()> {
+pub fn install_hooks(
+    repo_path: &Path,
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+) -> std::io::Result<()> {
     let cursor_dir = repo_path.join(".cursor");
     std::fs::create_dir_all(&cursor_dir)?;
 
-    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url);
+    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token);
     let hooks_path = cursor_dir.join("hooks.json");
     
     std::fs::write(
@@ -120,7 +141,11 @@ pub fn global_hooks_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".cursor").join("hooks.json"))
 }
 
-pub fn install_global_hooks(hook_script_path: &str, api_url: Option<&str>) -> std::io::Result<()> {
+pub fn install_global_hooks(
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+) -> std::io::Result<()> {
     let hooks_path = global_hooks_path().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -132,7 +157,7 @@ pub fn install_global_hooks(hook_script_path: &str, api_url: Option<&str>) -> st
         std::fs::create_dir_all(parent)?;
     }
 
-    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url);
+    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token);
     std::fs::write(
         hooks_path,
         serde_json::to_string_pretty(&hooks_json).unwrap(),
@@ -299,7 +324,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
-        let result = install_hooks(&temp_dir, "/path/to/hook.js", None);
+        let result = install_hooks(&temp_dir, "/path/to/hook.js", None, None);
         assert!(result.is_ok());
         
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
@@ -325,7 +350,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
-        install_hooks(&temp_dir, "/path/to/hook.js", None).unwrap();
+        install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
         assert!(check_project_hooks_installed(&temp_dir));
         
         // Cleanup
@@ -367,7 +392,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
-        install_hooks(&temp_dir, "/path/to/hook.js", None).unwrap();
+        install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
         
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         let content = std::fs::read_to_string(&hooks_path).unwrap();
@@ -388,7 +413,7 @@ mod tests {
         let cursor_dir = temp_dir.join(".cursor");
         assert!(!cursor_dir.exists());
         
-        install_hooks(&temp_dir, "/path/to/hook.js", None).unwrap();
+        install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
         
         assert!(cursor_dir.exists());
         assert!(cursor_dir.is_dir());
@@ -424,7 +449,7 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_api_includes_env() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"));
+        let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"), None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
         
@@ -434,7 +459,7 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_api_none_has_no_env() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", None);
+        let config = generate_hooks_json_with_api("/path/to/hook.js", None, None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
         
@@ -446,7 +471,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
-        install_hooks(&temp_dir, "/path/to/hook.js", Some("http://localhost:7432")).unwrap();
+        install_hooks(&temp_dir, "/path/to/hook.js", Some("http://localhost:7432"), None).unwrap();
         
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         let content = std::fs::read_to_string(&hooks_path).unwrap();
@@ -454,6 +479,71 @@ mod tests {
         
         let env = parsed["hooks"]["beforeShellExecution"]["env"].as_object().unwrap();
         assert_eq!(env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(), "http://localhost:7432");
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn generate_hooks_json_with_api_and_token_includes_both_env_vars() {
+        let config = generate_hooks_json_with_api(
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            Some("test-token-123"),
+        );
+        let hooks = config.get("hooks").unwrap();
+        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        
+        let env = shell_hook.get("env").unwrap();
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
+            "http://localhost:7432"
+        );
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
+            "test-token-123"
+        );
+    }
+
+    #[test]
+    fn generate_hooks_json_with_token_only_includes_token_env() {
+        let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"));
+        let hooks = config.get("hooks").unwrap();
+        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        
+        let env = shell_hook.get("env").unwrap();
+        assert!(env.get("AGENT_KANBAN_API_URL").is_none());
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
+            "test-token-456"
+        );
+    }
+
+    #[test]
+    fn install_hooks_with_api_url_and_token_includes_both() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        install_hooks(
+            &temp_dir,
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            Some("my-secret-token"),
+        )
+        .unwrap();
+        
+        let hooks_path = temp_dir.join(".cursor").join("hooks.json");
+        let content = std::fs::read_to_string(&hooks_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        
+        let env = parsed["hooks"]["beforeShellExecution"]["env"].as_object().unwrap();
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
+            "http://localhost:7432"
+        );
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
+            "my-secret-token"
+        );
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }

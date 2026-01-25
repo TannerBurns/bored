@@ -30,9 +30,10 @@ const DEFAULT_API_URL: &str = "http://127.0.0.1:7432";
 pub async fn install_cursor_hooks_global(
     hook_script_path: String,
     api_url: Option<String>,
+    api_token: Option<String>,
 ) -> Result<(), String> {
     let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
-    cursor::install_global_hooks(&hook_script_path, Some(url))
+    cursor::install_global_hooks(&hook_script_path, Some(url), api_token.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -41,9 +42,10 @@ pub async fn install_cursor_hooks_project(
     hook_script_path: String,
     project_path: String,
     api_url: Option<String>,
+    api_token: Option<String>,
 ) -> Result<(), String> {
     let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
-    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(url))
+    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(url), api_token.as_deref())
         .map_err(|e| e.to_string())
 }
 
