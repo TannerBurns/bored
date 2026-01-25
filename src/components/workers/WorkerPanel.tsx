@@ -31,6 +31,7 @@ export function WorkerPanel({ projects }: Props) {
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isFixing, setIsFixing] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     if (!isTauri()) return;
@@ -59,22 +60,26 @@ export function WorkerPanel({ projects }: Props) {
   const runValidation = useCallback(async () => {
     if (!isTauri() || !newWorkerProject) {
       setValidationResult(null);
+      setValidationError(null);
       return;
     }
 
     const project = projects.find(p => p.id === newWorkerProject);
     if (!project) {
       setValidationResult(null);
+      setValidationError(null);
       return;
     }
 
     setIsValidating(true);
+    setValidationError(null);
     try {
       const result = await validateWorker(newWorkerType, project.path);
       setValidationResult(result);
     } catch (err) {
       console.error('Validation failed:', err);
       setValidationResult(null);
+      setValidationError(String(err));
     } finally {
       setIsValidating(false);
     }
@@ -310,9 +315,19 @@ export function WorkerPanel({ projects }: Props) {
             <div className="text-sm text-board-text-muted text-center">Validating environment...</div>
           )}
 
+          {validationError && (
+            <div className="rounded-xl p-4 border bg-status-error/10 border-status-error/30">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-status-error" />
+                <span className="font-medium text-status-error">Validation Error</span>
+              </div>
+              <p className="text-sm text-board-text-secondary mt-2">{validationError}</p>
+            </div>
+          )}
+
           <button
             onClick={handleStartWorker}
-            disabled={isStarting || isValidating || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
+            disabled={isStarting || isValidating || !!validationError || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
             className="w-full px-4 py-2.5 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
             {isStarting ? 'Starting...' : isValidating ? 'Validating...' : 'Start Worker'}
