@@ -292,6 +292,12 @@ describe('useBoardStore', () => {
       expect(useBoardStore.getState().selectedTicket).toEqual(mockTicket);
     });
 
+    it('clears comments immediately when opening ticket modal', () => {
+      useBoardStore.setState({ comments: [mockComment] });
+      useBoardStore.getState().openTicketModal(mockTicket);
+      expect(useBoardStore.getState().comments).toEqual([]);
+    });
+
     it('closes ticket modal and clears state', () => {
       useBoardStore.setState({
         isTicketModalOpen: true,
@@ -314,10 +320,26 @@ describe('useBoardStore', () => {
   });
 
   describe('loadComments', () => {
-    it('sets empty comments in demo mode', async () => {
-      useBoardStore.setState({ comments: [mockComment] });
+    it('sets empty comments in demo mode when ticket is selected', async () => {
+      useBoardStore.setState({ comments: [mockComment], selectedTicket: mockTicket });
       await useBoardStore.getState().loadComments('ticket-1');
       expect(useBoardStore.getState().comments).toEqual([]);
+    });
+
+    it('does not update comments if selected ticket changed (race condition guard)', async () => {
+      const ticket2: Ticket = { ...mockTicket, id: 'ticket-2' };
+      useBoardStore.setState({ comments: [mockComment], selectedTicket: ticket2 });
+      // Load comments for ticket-1 but ticket-2 is now selected
+      await useBoardStore.getState().loadComments('ticket-1');
+      // Comments should remain unchanged since selected ticket differs
+      expect(useBoardStore.getState().comments).toEqual([mockComment]);
+    });
+
+    it('does not update comments if no ticket is selected', async () => {
+      useBoardStore.setState({ comments: [mockComment], selectedTicket: null });
+      await useBoardStore.getState().loadComments('ticket-1');
+      // Comments should remain unchanged since no ticket is selected
+      expect(useBoardStore.getState().comments).toEqual([mockComment]);
     });
   });
 

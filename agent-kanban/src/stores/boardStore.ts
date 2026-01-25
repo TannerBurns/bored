@@ -190,13 +190,22 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     try {
       if (isTauri()) {
         const comments = await invoke<Comment[]>('get_comments', { ticketId });
-        set({ comments });
+        // Guard against race condition: only update if this ticket is still selected
+        if (get().selectedTicket?.id === ticketId) {
+          set({ comments });
+        }
       } else {
-        set({ comments: [] });
+        // Guard against race condition for non-Tauri mode too
+        if (get().selectedTicket?.id === ticketId) {
+          set({ comments: [] });
+        }
       }
     } catch (error) {
       console.error('Failed to load comments:', error);
-      set({ comments: [] });
+      // Only clear comments if this ticket is still selected
+      if (get().selectedTicket?.id === ticketId) {
+        set({ comments: [] });
+      }
     }
   },
 
@@ -221,7 +230,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   openTicketModal: (ticket: Ticket) => {
-    set({ selectedTicket: ticket, isTicketModalOpen: true });
+    // Clear comments immediately to prevent showing stale data from previous ticket
+    set({ selectedTicket: ticket, isTicketModalOpen: true, comments: [] });
     get().loadComments(ticket.id);
   },
 
