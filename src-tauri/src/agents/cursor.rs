@@ -254,12 +254,32 @@ pub fn check_project_commands_installed(repo_path: &Path) -> bool {
     COMMAND_TEMPLATES.iter().all(|name| commands_dir.join(name).exists())
 }
 
+/// Get the bundled commands path, checking development path first.
+/// This version doesn't have access to Tauri's resource resolver.
 pub fn get_bundled_commands_path() -> Option<PathBuf> {
+    // Check development path (only works in dev builds)
     let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts").join("commands");
     if dev_path.exists() {
         return Some(dev_path);
     }
     None
+}
+
+/// Get the bundled commands path with Tauri resource resolver fallback.
+/// In production builds, uses Tauri's resource API to locate bundled commands.
+pub fn get_bundled_commands_path_with_app<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<PathBuf> {
+    // First, check development path
+    if let Some(path) = get_bundled_commands_path() {
+        return Some(path);
+    }
+    
+    // In production, resolve via Tauri's resource API
+    // The commands are bundled under scripts/commands/
+    app.path_resolver()
+        .resolve_resource("scripts/commands")
+        .filter(|p| p.exists())
 }
 
 pub fn install_commands(

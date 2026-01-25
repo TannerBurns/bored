@@ -162,16 +162,16 @@ pub async fn validate_worker(
 }
 
 #[tauri::command]
-pub async fn get_commands_path() -> Result<Option<String>, String> {
-    if let Some(path) = cursor::get_bundled_commands_path() {
+pub async fn get_commands_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    if let Some(path) = cursor::get_bundled_commands_path_with_app(&app) {
         return Ok(Some(path.to_string_lossy().to_string()));
     }
     Ok(None)
 }
 
 #[tauri::command]
-pub async fn get_available_commands() -> Result<Vec<String>, String> {
-    if let Some(path) = cursor::get_bundled_commands_path() {
+pub async fn get_available_commands(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    if let Some(path) = cursor::get_bundled_commands_path_with_app(&app) {
         return Ok(cursor::get_available_commands(&path));
     }
     Ok(vec![])
@@ -179,10 +179,11 @@ pub async fn get_available_commands() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn install_commands_to_project(
+    app: tauri::AppHandle,
     agent_type: String,
     repo_path: String,
 ) -> Result<Vec<String>, String> {
-    let commands_source = cursor::get_bundled_commands_path()
+    let commands_source = cursor::get_bundled_commands_path_with_app(&app)
         .ok_or_else(|| "Command templates not found".to_string())?;
 
     let repo = PathBuf::from(&repo_path);
