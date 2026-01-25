@@ -173,6 +173,12 @@ fn main() {
             commands::check_claude_available,
             commands::check_claude_project_hooks_installed,
             commands::get_claude_hook_script_path,
+            // Worker management
+            commands::workers::start_worker,
+            commands::workers::stop_worker,
+            commands::workers::stop_all_workers,
+            commands::workers::get_workers,
+            commands::workers::get_worker_queue_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

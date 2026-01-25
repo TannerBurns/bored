@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Board } from './components/board/Board';
 import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
+import { WorkerPanel } from './components/workers';
 import { useBoardStore } from './stores/boardStore';
-import type { Column, Ticket } from './types';
+import { getProjects } from './lib/tauri';
+import { isTauri } from './lib/utils';
+import type { Column, Ticket, Project } from './types';
 import './index.css';
 
 const demoColumns: Column[] = [
@@ -82,6 +85,7 @@ const demoTickets: Ticket[] = [
 const navItems = [
   { id: 'boards', label: 'Boards' },
   { id: 'runs', label: 'Agent Runs' },
+  { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -89,6 +93,21 @@ function App() {
   const [activeNav, setActiveNav] = useState('boards');
   const [columns] = useState<Column[]>(demoColumns);
   const [tickets, setTickets] = useState<Ticket[]>(demoTickets);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      if (isTauri()) {
+        try {
+          const data = await getProjects();
+          setProjects(data);
+        } catch (error) {
+          console.error('Failed to load projects:', error);
+        }
+      }
+    };
+    loadProjects();
+  }, []);
 
   const {
     currentBoard,
@@ -275,6 +294,12 @@ function App() {
                 <p className="text-gray-500 text-sm">No active runs</p>
               )}
             </div>
+          </div>
+        )}
+
+        {activeNav === 'workers' && (
+          <div className="flex-1 overflow-auto bg-board-column rounded-lg">
+            <WorkerPanel projects={projects} />
           </div>
         )}
 

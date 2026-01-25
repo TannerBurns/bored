@@ -17,6 +17,7 @@ dependencies = [
  "chrono",
  "dirs",
  "futures",
+ "once_cell",
  "rand 0.8.5",
  "rusqlite",
  "serde",

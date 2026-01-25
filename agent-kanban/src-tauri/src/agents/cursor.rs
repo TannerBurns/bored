@@ -470,9 +470,7 @@ mod tests {
 
     #[test]
     fn is_cursor_available_returns_bool() {
-        // Verify function runs without panic and returns bool
-        let result = is_cursor_available();
-        assert!(result == true || result == false);
+        let _result = is_cursor_available();
     }
 
     #[test]

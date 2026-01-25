@@ -2,6 +2,7 @@ pub mod spawner;
 pub mod cursor;
 pub mod claude;
 pub mod prompt;
+pub mod worker;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

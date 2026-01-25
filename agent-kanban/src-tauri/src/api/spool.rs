@@ -138,7 +138,7 @@ mod tests {
         Database::open_in_memory().unwrap()
     }
 
-    fn create_spool_file(spool_dir: &PathBuf, event_json: &str) -> PathBuf {
+    fn create_spool_file(spool_dir: &std::path::Path, event_json: &str) -> PathBuf {
         let filename = format!("{}-test.json", chrono::Utc::now().timestamp_millis());
         let filepath = spool_dir.join(filename);
         let mut file = fs::File::create(&filepath).unwrap();

@@ -38,6 +38,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 anyhow = "1"
+once_cell = "1"
 
 # API server additional deps
 rand = "0.8"

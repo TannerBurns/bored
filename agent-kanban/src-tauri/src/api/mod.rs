@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cleanup;
 pub mod error;
 pub mod events;
 pub mod handlers;
@@ -13,6 +14,7 @@ use tokio::sync::oneshot;
 use crate::db::Database;
 
 pub use auth::generate_token;
+pub use cleanup::{start_cleanup_service, CleanupConfig};
 pub use state::AppState;
 pub use error::{ApiError, AppError, ApiResult};
 pub use spool::{start_spool_processor, get_default_spool_dir};
@@ -52,7 +54,7 @@ pub async fn start_server(
     db: Arc<Database>,
     config: ApiConfig,
 ) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
-    let state = AppState::new(db, config.token.clone());
+    let state = AppState::new(db.clone(), config.token.clone());
     let router = routes::create_router(state);
 
     let addr = SocketAddr::from((config.host, config.port));
@@ -63,6 +65,9 @@ pub async fn start_server(
 
     tracing::info!("API server listening on http://{}", actual_addr);
     tracing::info!("API token: {}", config.token);
+
+    // Start the lock cleanup background service
+    start_cleanup_service(db, CleanupConfig::default());
 
     tokio::spawn(async move {
         axum::serve(listener, router)
