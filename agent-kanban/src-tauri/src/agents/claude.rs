@@ -1,12 +1,8 @@
 use super::AgentRunConfig;
 
-/// Build the command and arguments for Claude Code
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
-
-    // Build the prompt with system instructions
     let args = vec!["-p".to_string(), config.prompt.clone()];
-
     (command, args)
 }
 
@@ -54,7 +50,6 @@ pub fn build_command_with_settings(
 
     let mut args = vec![];
 
-    // Add system prompt if provided
     if let Some(ref prompt) = settings.system_prompt {
         args.push("--append-system-prompt".to_string());
         args.push(prompt.clone());
@@ -63,17 +58,13 @@ pub fn build_command_with_settings(
         args.push(file.clone());
     }
 
-    // Add permission mode
     if let Some(ref mode) = settings.permission_mode {
         args.push("--permission-mode".to_string());
         args.push(mode.clone());
     }
 
-    // Add the prompt
     args.push("-p".to_string());
     args.push(config.prompt.clone());
-
-    // Add extra flags
     args.extend(settings.extra_flags.clone());
 
     (command, args)

@@ -68,15 +68,10 @@ pub async fn start_agent_run(
     agent_type: String,
     repo_path: String,
     db: State<'_, Arc<Database>>,
-    running_agents: State<'_, RunningAgents>,
+    _running_agents: State<'_, RunningAgents>,
 ) -> Result<String, String> {
-    tracing::info!(
-        "Starting {:?} agent run for ticket: {}",
-        agent_type,
-        ticket_id
-    );
+    tracing::info!("Starting {} agent run for ticket: {}", agent_type, ticket_id);
 
-    // Parse agent type
     let db_agent_type = match agent_type.as_str() {
         "cursor" => AgentType::Cursor,
         "claude" => AgentType::Claude,
@@ -88,12 +83,10 @@ pub async fn start_agent_run(
         _ => AgentKind::Claude,
     };
 
-    // Get ticket to generate prompt
     let ticket = db
         .get_ticket(&ticket_id)
         .map_err(|e| format!("Failed to get ticket: {}", e))?;
 
-    // Create run record in database
     let run = db
         .create_run(&CreateRun {
             ticket_id: ticket_id.clone(),
@@ -104,7 +97,6 @@ pub async fn start_agent_run(
 
     let run_id = run.id.clone();
 
-    // Get API config from environment
     let api_url = std::env::var("AGENT_KANBAN_API_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", 
             std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string())
@@ -112,10 +104,8 @@ pub async fn start_agent_run(
     let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
         .unwrap_or_else(|_| "default-token".to_string());
 
-    // Generate prompt from ticket
     let prompt = agents::prompt::generate_ticket_prompt(&ticket);
 
-    // Build config
     let config = AgentRunConfig {
         kind: agent_kind,
         ticket_id: ticket_id.clone(),
@@ -127,22 +117,16 @@ pub async fn start_agent_run(
         api_token,
     };
 
-    // Clone what we need for the async task
     let db_clone = db.inner().clone();
     let run_id_for_task = run_id.clone();
-    let running_agents_handles = running_agents.handles.lock().unwrap().clone();
-    drop(running_agents_handles);
-
-    // Spawn agent in background
     let window_clone = window.clone();
+
     tauri::async_runtime::spawn(async move {
-        // Update status to running
         if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
         {
             tracing::error!("Failed to update run status: {}", e);
         }
 
-        // Create log callback that emits to frontend
         let window_for_logs = window_clone.clone();
         let run_id_for_logs = run_id_for_task.clone();
         let on_log: Arc<agents::LogCallback> = Arc::new(Box::new(move |log: LogLine| {
@@ -158,7 +142,6 @@ pub async fn start_agent_run(
             let _ = window_for_logs.emit("agent-log", event);
         }));
 
-        // Run the agent (blocking operation wrapped in spawn_blocking)
         let config_clone = config.clone();
         let on_log_clone = on_log.clone();
         let result =

@@ -1,10 +1,8 @@
 use crate::db::models::{Priority, Ticket};
 
-/// Generate a prompt for the agent based on a ticket
 pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
     let mut prompt = String::new();
 
-    // Title and description
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
 
     if !ticket.description_md.is_empty() {
@@ -13,7 +11,6 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
         prompt.push_str("\n\n");
     }
 
-    // Priority context
     let priority_context = match ticket.priority {
         Priority::Urgent => {
             "This is an URGENT task. Please prioritize speed while maintaining quality."
@@ -27,7 +24,6 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
         prompt.push_str(&format!("{}\n\n", priority_context));
     }
 
-    // Labels as context
     if !ticket.labels.is_empty() {
         prompt.push_str("## Labels\n\n");
         for label in &ticket.labels {
@@ -36,7 +32,6 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
         prompt.push('\n');
     }
 
-    // Standard instructions
     prompt.push_str("## Instructions\n\n");
     prompt.push_str("1. Carefully read and understand the task requirements\n");
     prompt.push_str("2. Implement the requested changes\n");
@@ -46,21 +41,16 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
     prompt
 }
 
-/// Generate a prompt with custom template
 #[allow(dead_code)]
 pub fn generate_custom_prompt(ticket: &Ticket, template: &str) -> String {
     let mut result = template.to_string();
-
-    // Replace placeholders
     result = result.replace("{{title}}", &ticket.title);
     result = result.replace("{{description}}", &ticket.description_md);
     result = result.replace("{{priority}}", ticket.priority.as_str());
     result = result.replace("{{labels}}", &ticket.labels.join(", "));
-
     result
 }
 
-/// System prompt for agent behavior
 #[allow(dead_code)]
 pub fn generate_system_prompt(api_url: &str, ticket_id: &str, run_id: &str) -> String {
     format!(

@@ -46,7 +46,6 @@ impl AgentProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Add environment variables
         for (key, value) in env_vars {
             cmd.env(key, value);
         }
@@ -83,7 +82,6 @@ impl AgentProcess {
         let stderr = self.child.stderr.take();
         let cancelled = self.cancelled.clone();
 
-        // Spawn threads to read stdout/stderr
         let on_log_stdout = on_log.clone();
         let stdout_handle = stdout.map(|out| {
             thread::spawn(move || read_stream(out, LogStream::Stdout, on_log_stdout))
@@ -94,17 +92,14 @@ impl AgentProcess {
             thread::spawn(move || read_stream(err, LogStream::Stderr, on_log_stderr))
         });
 
-        // Wait for process with timeout
         let deadline = timeout.map(|t| Instant::now() + t);
 
         loop {
-            // Check if cancelled
             if cancelled.load(Ordering::Relaxed) {
                 let _ = self.child.kill();
                 return Err(SpawnError::Cancelled);
             }
 
-            // Check timeout
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     let _ = self.child.kill();
@@ -112,10 +107,8 @@ impl AgentProcess {
                 }
             }
 
-            // Try to get exit status
             match self.child.try_wait() {
                 Ok(Some(status)) => {
-                    // Process exited
                     if let Some(h) = stdout_handle {
                         let _ = h.join();
                     }
@@ -133,7 +126,6 @@ impl AgentProcess {
                     return Ok((exit_code, outcome));
                 }
                 Ok(None) => {
-                    // Still running
                     thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => {
@@ -183,27 +175,36 @@ fn read_stream<R: std::io::Read>(reader: R, stream: LogStream, on_log: Option<Ar
     }
 }
 
+/// Callback for receiving the cancel handle after spawn
+pub type OnSpawnCallback = Box<dyn FnOnce(CancelHandle) + Send>;
+
 /// Run an agent with the given configuration
 pub fn run_agent(
     config: AgentRunConfig,
     on_log: Option<Arc<LogCallback>>,
 ) -> Result<AgentRunResult, SpawnError> {
+    run_agent_with_cancel_callback(config, on_log, None)
+}
+
+/// Run an agent with the given configuration, providing a callback to receive the cancel handle
+pub fn run_agent_with_cancel_callback(
+    config: AgentRunConfig,
+    on_log: Option<Arc<LogCallback>>,
+    on_spawn: Option<OnSpawnCallback>,
+) -> Result<AgentRunResult, SpawnError> {
     let start_time = Instant::now();
 
-    // Build command based on agent type
     let (command, args) = match config.kind {
         AgentKind::Cursor => super::cursor::build_command(&config),
         AgentKind::Claude => super::claude::build_command(&config),
     };
 
-    // Build environment variables
     let env_vars = build_env_vars(&config);
     let env_refs: Vec<(&str, &str)> = env_vars
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    // Spawn process
     let process = AgentProcess::spawn(
         &command,
         &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -211,7 +212,11 @@ pub fn run_agent(
         &env_refs,
     )?;
 
-    // Wait for completion
+    // Provide the cancel handle to the caller before we start waiting
+    if let Some(callback) = on_spawn {
+        callback(process.cancel_handle());
+    }
+
     let timeout = config.timeout_secs.map(Duration::from_secs);
     let result = process.wait_with_output(timeout, on_log);
 

@@ -40,7 +40,6 @@ export function AgentControls({
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // Load previous runs
   useEffect(() => {
     const loadRuns = async () => {
       try {
@@ -55,7 +54,6 @@ export function AgentControls({
     loadRuns();
   }, [ticket.id]);
 
-  // Listen for agent events
   useEffect(() => {
     const unlisteners: UnlistenFn[] = [];
 
@@ -112,13 +110,11 @@ export function AgentControls({
     };
   }, [currentRunId, ticket.id, onRunCompleted]);
 
-  // Auto-scroll logs
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
   const handleRunAgent = async (agentType: AgentType) => {
-    // Check if ticket has a project
     if (!ticket.projectId) {
       setError('Please assign a project to this ticket before running an agent.');
       return;
@@ -129,13 +125,10 @@ export function AgentControls({
     setError(null);
 
     try {
-      // We need to get the project path
-      // For now, we'll use the project ID as a placeholder
-      // In a real implementation, we'd fetch the project details
       const runId = await invoke<string>('start_agent_run', {
         ticketId: ticket.id,
         agentType,
-        repoPath: '.', // This would be resolved from the project
+        repoPath: '.'
       });
 
       setCurrentRunId(runId);
@@ -164,7 +157,6 @@ export function AgentControls({
 
   return (
     <div className="space-y-4">
-      {/* Error display */}
       {error && (
         <div className="p-3 bg-red-900 bg-opacity-30 rounded border border-red-700">
           <p className="text-sm text-red-200">{error}</p>
@@ -177,7 +169,6 @@ export function AgentControls({
         </div>
       )}
 
-      {/* Run buttons */}
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => handleRunAgent('cursor')}
@@ -236,14 +227,12 @@ export function AgentControls({
         )}
       </div>
 
-      {/* No project warning */}
       {!ticket.projectId && (
         <p className="text-sm text-yellow-400">
           Assign a project to this ticket to enable agent runs.
         </p>
       )}
 
-      {/* Log output */}
       {logs.length > 0 && (
         <div className="mt-4">
           <h4 className="text-sm font-medium text-gray-400 mb-2">Output</h4>
@@ -263,7 +252,6 @@ export function AgentControls({
         </div>
       )}
 
-      {/* Previous runs */}
       {runs.length > 0 && (
         <div className="mt-4">
           <h4 className="text-sm font-medium text-gray-400 mb-2">

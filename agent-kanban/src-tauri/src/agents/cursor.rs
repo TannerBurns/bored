@@ -1,13 +1,7 @@
 use super::AgentRunConfig;
 
-/// Build the command and arguments for Cursor agent
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
-    // The Cursor CLI command
-    // Note: The exact command may vary based on Cursor version and platform
     let command = "cursor".to_string();
-
-    // Build arguments
-    // Based on Cursor CLI documentation: cursor agent -p "prompt"
     let args = vec![
         "agent".to_string(),
         "-p".to_string(),
@@ -15,7 +9,6 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--output-format".to_string(),
         "text".to_string(),
     ];
-
     (command, args)
 }
 
@@ -54,17 +47,12 @@ pub fn build_command_with_settings(
         .unwrap_or_else(|| "cursor".to_string());
 
     let mut args = vec!["agent".to_string(), "-p".to_string(), config.prompt.clone()];
-
-    // Add output format
     args.push("--output-format".to_string());
     args.push("text".to_string());
 
-    // Add yolo mode if enabled
     if settings.yolo_mode {
         args.push("--yolo".to_string());
     }
-
-    // Add extra flags
     args.extend(settings.extra_flags.clone());
 
     (command, args)
