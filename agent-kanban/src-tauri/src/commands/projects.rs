@@ -105,8 +105,8 @@ mod tests {
         assert!(json.contains("ready"));
         assert!(json.contains("proj-1"));
 
-        let no_project = ReadinessCheck::NoProject;
+        let no_project = ReadinessCheck::NoProject(None);
         let json = serde_json::to_string(&no_project).unwrap();
-        assert_eq!(json, "\"noProject\"");
+        assert_eq!(json, r#"{"noProject":null}"#);
     }
 }

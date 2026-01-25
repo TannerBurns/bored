@@ -319,8 +319,10 @@ pub struct CreateRun {
 #[serde(rename_all = "camelCase")]
 pub enum ReadinessCheck {
     Ready { project_id: String },
-    NoProject,
-    ProjectNotFound,
+    /// Serializes as `{ "noProject": null }` to match TypeScript discriminated union
+    NoProject(Option<()>),
+    /// Serializes as `{ "projectNotFound": null }` to match TypeScript discriminated union
+    ProjectNotFound(Option<()>),
     ProjectPathMissing { path: String },
 }
 

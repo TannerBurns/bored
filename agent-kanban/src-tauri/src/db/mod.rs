@@ -370,10 +370,10 @@ impl Database {
                             Ok(ReadinessCheck::ProjectPathMissing { path: p })
                         }
                     } else {
-                        Ok(ReadinessCheck::ProjectNotFound)
+                        Ok(ReadinessCheck::ProjectNotFound(None))
                     }
                 }
-                None => Ok(ReadinessCheck::NoProject),
+                None => Ok(ReadinessCheck::NoProject(None)),
             }
         })
     }
@@ -1141,7 +1141,7 @@ mod tests {
             }).unwrap();
             
             let check = db.can_move_to_ready(&ticket.id).unwrap();
-            assert!(matches!(check, ReadinessCheck::NoProject));
+            assert!(matches!(check, ReadinessCheck::NoProject(_)));
         }
     }
 
