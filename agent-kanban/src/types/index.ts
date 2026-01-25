@@ -138,3 +138,24 @@ export interface CreateTicketInput {
   projectId?: string;
   agentPref?: 'cursor' | 'claude' | 'any';
 }
+
+// Worker types
+export type WorkerState = 'idle' | 'running' | 'stopped';
+
+export interface WorkerStatus {
+  id: string;
+  agentType: AgentType;
+  projectId?: string;
+  status: WorkerState;
+  currentTicketId?: string;
+  currentRunId?: string;
+  ticketsProcessed: number;
+  startedAt: Date;
+  lastPollAt?: Date;
+}
+
+export interface WorkerQueueStatus {
+  readyCount: number;
+  inProgressCount: number;
+  workerCount: number;
+}

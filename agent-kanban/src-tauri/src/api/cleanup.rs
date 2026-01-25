@@ -1,0 +1,302 @@
+//! Background service for cleaning up expired locks
+//!
+//! This service runs periodically to detect and recover tickets that have
+//! been locked by agent runs that have crashed or otherwise failed to
+//! complete properly.
+
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::interval;
+
+use crate::db::{Database, DbError, RunStatus};
+
+/// Configuration for the cleanup service
+pub struct CleanupConfig {
+    /// How often to check for expired locks (in seconds)
+    pub check_interval_secs: u64,
+}
+
+impl Default for CleanupConfig {
+    fn default() -> Self {
+        Self {
+            check_interval_secs: 60, // Check every minute
+        }
+    }
+}
+
+/// Result of a cleanup run
+#[derive(Debug, Clone)]
+pub struct CleanupResult {
+    /// Ticket IDs that had their locks released
+    pub released_tickets: Vec<String>,
+    /// Run IDs that were marked as aborted
+    pub aborted_runs: Vec<String>,
+}
+
+impl CleanupResult {
+    pub fn is_empty(&self) -> bool {
+        self.released_tickets.is_empty() && self.aborted_runs.is_empty()
+    }
+}
+
+/// Clean up expired locks in the database
+///
+/// This function:
+/// 1. Finds all tickets with expired locks
+/// 2. Releases those locks
+/// 3. Marks associated runs as aborted
+pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
+    db.with_conn(|conn| {
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Find all tickets with expired locks
+        let mut stmt = conn.prepare(
+            r#"SELECT id, locked_by_run_id 
+               FROM tickets 
+               WHERE locked_by_run_id IS NOT NULL 
+               AND lock_expires_at IS NOT NULL 
+               AND lock_expires_at < ?"#,
+        )?;
+
+        let expired: Vec<(String, String)> = stmt
+            .query_map([&now], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if expired.is_empty() {
+            return Ok(CleanupResult {
+                released_tickets: vec![],
+                aborted_runs: vec![],
+            });
+        }
+
+        let ticket_ids: Vec<String> = expired.iter().map(|(id, _)| id.clone()).collect();
+        let run_ids: Vec<String> = expired.iter().map(|(_, run_id)| run_id.clone()).collect();
+
+        // Release all expired locks
+        conn.execute(
+            r#"UPDATE tickets 
+               SET locked_by_run_id = NULL, 
+                   lock_expires_at = NULL, 
+                   updated_at = ?
+               WHERE lock_expires_at IS NOT NULL 
+               AND lock_expires_at < ?"#,
+            rusqlite::params![&now, &now],
+        )?;
+
+        // Mark associated runs as aborted if they're still running
+        for run_id in &run_ids {
+            conn.execute(
+                r#"UPDATE agent_runs 
+                   SET status = ?, 
+                       ended_at = ?,
+                       summary_md = COALESCE(summary_md, 'Lock expired - run may have crashed')
+                   WHERE id = ? AND status IN ('queued', 'running')"#,
+                rusqlite::params![RunStatus::Aborted.as_str(), &now, run_id],
+            )?;
+        }
+
+        Ok(CleanupResult {
+            released_tickets: ticket_ids,
+            aborted_runs: run_ids,
+        })
+    })
+}
+
+/// Start the background cleanup service
+///
+/// This spawns a Tokio task that periodically checks for and cleans up
+/// expired locks. The task runs until the application shuts down.
+pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(config.check_interval_secs));
+
+        tracing::info!(
+            "Lock cleanup service started (interval: {}s)",
+            config.check_interval_secs
+        );
+
+        loop {
+            ticker.tick().await;
+
+            match cleanup_expired_locks(&db) {
+                Ok(result) => {
+                    if !result.is_empty() {
+                        tracing::info!(
+                            "Cleanup: released {} expired locks, aborted {} runs",
+                            result.released_tickets.len(),
+                            result.aborted_runs.len()
+                        );
+
+                        for ticket_id in &result.released_tickets {
+                            tracing::debug!("Released expired lock on ticket {}", ticket_id);
+                        }
+
+                        for run_id in &result.aborted_runs {
+                            tracing::debug!("Marked run {} as aborted due to lock expiration", run_id);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Lock cleanup error: {}", e);
+                }
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{CreateRun, CreateTicket, AgentType, Priority};
+    use chrono::{Duration as ChronoDuration, Utc};
+
+    fn setup_test_db() -> Database {
+        Database::open_in_memory().unwrap()
+    }
+
+    #[test]
+    fn cleanup_with_no_expired_locks() {
+        let db = setup_test_db();
+        let result = cleanup_expired_locks(&db).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn cleanup_releases_expired_lock() {
+        let db = setup_test_db();
+
+        // Create a board and ticket
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+
+        // Create a run and lock the ticket with an expired time
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/test".to_string(),
+        }).unwrap();
+
+        let expired_time = Utc::now() - ChronoDuration::minutes(5);
+        db.lock_ticket(&ticket.id, &run.id, expired_time).unwrap();
+
+        // Run cleanup
+        let result = cleanup_expired_locks(&db).unwrap();
+
+        assert_eq!(result.released_tickets.len(), 1);
+        assert_eq!(result.released_tickets[0], ticket.id);
+
+        // Verify ticket is now unlocked
+        let updated_ticket = db.get_ticket(&ticket.id).unwrap();
+        assert!(updated_ticket.locked_by_run_id.is_none());
+        assert!(updated_ticket.lock_expires_at.is_none());
+    }
+
+    #[test]
+    fn cleanup_does_not_release_valid_lock() {
+        let db = setup_test_db();
+
+        // Create a board and ticket
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+
+        // Create a run and lock the ticket with a future expiration
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/test".to_string(),
+        }).unwrap();
+
+        let future_time = Utc::now() + ChronoDuration::minutes(30);
+        db.lock_ticket(&ticket.id, &run.id, future_time).unwrap();
+
+        // Run cleanup
+        let result = cleanup_expired_locks(&db).unwrap();
+
+        assert!(result.is_empty());
+
+        // Verify ticket is still locked
+        let updated_ticket = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated_ticket.locked_by_run_id, Some(run.id));
+    }
+
+    #[test]
+    fn cleanup_marks_run_as_aborted() {
+        let db = setup_test_db();
+
+        // Create a board and ticket
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+
+        // Create a run with running status
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/test".to_string(),
+        }).unwrap();
+
+        db.update_run_status(&run.id, RunStatus::Running, None, None).unwrap();
+
+        let expired_time = Utc::now() - ChronoDuration::minutes(5);
+        db.lock_ticket(&ticket.id, &run.id, expired_time).unwrap();
+
+        // Run cleanup
+        let result = cleanup_expired_locks(&db).unwrap();
+
+        assert_eq!(result.aborted_runs.len(), 1);
+
+        // Verify run is now aborted
+        let updated_run = db.get_run(&run.id).unwrap();
+        assert_eq!(updated_run.status, RunStatus::Aborted);
+    }
+
+    #[test]
+    fn cleanup_result_is_empty_check() {
+        let empty = CleanupResult {
+            released_tickets: vec![],
+            aborted_runs: vec![],
+        };
+        assert!(empty.is_empty());
+
+        let with_tickets = CleanupResult {
+            released_tickets: vec!["t1".to_string()],
+            aborted_runs: vec![],
+        };
+        assert!(!with_tickets.is_empty());
+
+        let with_runs = CleanupResult {
+            released_tickets: vec![],
+            aborted_runs: vec!["r1".to_string()],
+        };
+        assert!(!with_runs.is_empty());
+    }
+}
