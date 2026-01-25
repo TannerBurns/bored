@@ -72,7 +72,6 @@ export function CursorSettings() {
         setSuccess(`Hooks installed in ${path}! Restart Cursor to apply changes.`);
       }
       
-      // Refresh status
       await loadData();
     } catch (e) {
       setError(`Failed to install hooks: ${e}`);

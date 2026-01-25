@@ -3,7 +3,6 @@ use tauri::AppHandle;
 
 use crate::agents::cursor;
 
-/// Get information about Cursor installation and hooks
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CursorStatus {
@@ -63,7 +62,6 @@ pub async fn get_hook_script_path_cmd(app: AppHandle) -> Result<Option<String>, 
     Ok(get_hook_script_path(&app))
 }
 
-/// Get the path to the hook script in app data directory
 fn get_hook_script_path(app: &AppHandle) -> Option<String> {
     app.path_resolver()
         .app_data_dir()

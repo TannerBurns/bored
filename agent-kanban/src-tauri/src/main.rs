@@ -6,7 +6,6 @@ use tauri::Manager;
 use agent_kanban::{api, commands, db, logging};
 use agent_kanban::commands::runs::RunningAgents;
 
-/// Setup hook scripts by copying from bundled resources to app data directory
 fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
         .path_resolver()
@@ -16,17 +15,14 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     let scripts_dir = app_data_dir.join("scripts");
     std::fs::create_dir_all(&scripts_dir)?;
 
-    // Try to copy the hook script from resources
     if let Some(resource_path) = app
         .path_resolver()
         .resolve_resource("scripts/cursor-hook.js")
     {
         let target_path = scripts_dir.join("cursor-hook.js");
         
-        // Only copy if resource exists and target doesn't exist or is older
         if resource_path.exists() {
             let should_copy = if target_path.exists() {
-                // Compare modification times
                 let resource_modified = std::fs::metadata(&resource_path)?.modified()?;
                 let target_modified = std::fs::metadata(&target_path)?.modified()?;
                 resource_modified > target_modified
@@ -38,7 +34,6 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
                 std::fs::copy(&resource_path, &target_path)?;
                 tracing::info!("Copied cursor-hook.js to {:?}", target_path);
                 
-                // Make executable on Unix
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -72,10 +67,8 @@ fn main() {
             tracing::info!("Agent Kanban starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
 
-            // Setup hook scripts
             if let Err(e) = setup_hook_scripts(app) {
                 tracing::warn!("Failed to setup hook scripts: {}", e);
-                // Non-fatal - app can still run without pre-copied scripts
             }
 
             let db_path = app_data_dir.join("agent-kanban.db");
@@ -140,7 +133,6 @@ fn main() {
             commands::check_ticket_readiness,
             commands::update_project_hooks,
             commands::browse_for_directory,
-            // Cursor integration commands
             commands::get_cursor_status,
             commands::install_cursor_hooks_global,
             commands::install_cursor_hooks_project,

@@ -21,7 +21,6 @@ pub struct CursorSettings {
     pub yolo_mode: bool,
 }
 
-/// Build command with custom settings
 #[allow(dead_code)]
 pub fn build_command_with_settings(
     config: &AgentRunConfig,
@@ -44,7 +43,6 @@ pub fn build_command_with_settings(
     (command, args)
 }
 
-/// Generate the hooks.json content for Cursor
 pub fn generate_hooks_json(hook_script_path: &str) -> serde_json::Value {
     serde_json::json!({
         "hooks": {
@@ -72,7 +70,6 @@ pub fn generate_hooks_json(hook_script_path: &str) -> serde_json::Value {
     })
 }
 
-/// Generate the hooks.json content for Cursor (legacy with API URL)
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
     serde_json::json!({
@@ -102,7 +99,6 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
     })
 }
 
-/// Install hooks for a specific repository/project
 pub fn install_hooks(repo_path: &PathBuf, hook_script_path: &str) -> std::io::Result<()> {
     let cursor_dir = repo_path.join(".cursor");
     std::fs::create_dir_all(&cursor_dir)?;
@@ -118,12 +114,10 @@ pub fn install_hooks(repo_path: &PathBuf, hook_script_path: &str) -> std::io::Re
     Ok(())
 }
 
-/// Get the global hooks path
 pub fn global_hooks_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".cursor").join("hooks.json"))
 }
 
-/// Install hooks globally (applies to all projects)
 pub fn install_global_hooks(hook_script_path: &str) -> std::io::Result<()> {
     if let Some(hooks_path) = global_hooks_path() {
         if let Some(parent) = hooks_path.parent() {
@@ -139,7 +133,6 @@ pub fn install_global_hooks(hook_script_path: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Check if Cursor CLI is available
 pub fn is_cursor_available() -> bool {
     Command::new("cursor")
         .arg("--version")
@@ -148,7 +141,6 @@ pub fn is_cursor_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Get Cursor CLI version
 pub fn get_cursor_version() -> Option<String> {
     Command::new("cursor")
         .arg("--version")
@@ -164,14 +156,12 @@ pub fn get_cursor_version() -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
-/// Check if global hooks are installed
 pub fn check_global_hooks_installed() -> bool {
     global_hooks_path()
         .map(|p| p.exists())
         .unwrap_or(false)
 }
 
-/// Check if project hooks are installed
 pub fn check_project_hooks_installed(repo_path: &PathBuf) -> bool {
     repo_path.join(".cursor").join("hooks.json").exists()
 }

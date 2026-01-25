@@ -1,26 +1,18 @@
 #!/usr/bin/env node
 /**
- * Cursor hook script for Agent Kanban
- * 
- * This script is called by Cursor at various lifecycle events.
- * It reads JSON from stdin, processes the event, and writes JSON to stdout.
+ * Cursor hook script for Agent Kanban.
+ * Called by Cursor at lifecycle events; reads JSON from stdin, writes JSON to stdout.
  */
 
 const https = require('https');
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 
-// Get environment variables
-const TICKET_ID = process.env.AGENT_KANBAN_TICKET_ID;
 const RUN_ID = process.env.AGENT_KANBAN_RUN_ID;
 const API_URL = process.env.AGENT_KANBAN_API_URL || 'http://127.0.0.1:7432';
 const API_TOKEN = process.env.AGENT_KANBAN_API_TOKEN;
 
-// Get the hook event type from args
 const hookEvent = process.argv[2];
 
-// Read stdin
 let inputData = '';
 process.stdin.setEncoding('utf8');
 
@@ -32,60 +24,42 @@ process.stdin.on('end', async () => {
   try {
     const input = inputData ? JSON.parse(inputData) : {};
     const result = await handleHook(hookEvent, input);
-    
-    // Write result to stdout
     console.log(JSON.stringify(result));
     process.exit(0);
   } catch (error) {
     console.error('Hook error:', error.message);
-    // Return continue: true to not block on errors
     console.log(JSON.stringify({ continue: true }));
     process.exit(0);
   }
 });
 
-/**
- * Handle a hook event
- */
 async function handleHook(event, input) {
-  // Post event to API
   await postEvent(event, input);
 
-  // Return appropriate response based on event type
   switch (event) {
     case 'beforeShellExecution':
       return handleBeforeShellExecution(input);
-    
     case 'beforeReadFile':
       return handleBeforeReadFile(input);
-    
     case 'beforeMCPExecution':
-      return handleBeforeMCPExecution(input);
-    
+      return { continue: true };
     case 'afterFileEdit':
-      return handleAfterFileEdit(input);
-    
+      return { continue: true };
     case 'stop':
       return await handleStop(input);
-    
     default:
       return { continue: true };
   }
 }
 
-/**
- * Handle beforeShellExecution hook
- * Can block dangerous commands
- */
 function handleBeforeShellExecution(input) {
   const command = input.command || '';
   
-  // Check for dangerous commands (optional blocking)
   const dangerousPatterns = [
-    /rm\s+-rf\s+\//,           // rm -rf /
-    /rm\s+-rf\s+~\//,          // rm -rf ~/
-    /git\s+push\s+.*--force/,  // force push
-    /:\(\)\{\s*:\|:&\s*\};:/,  // fork bomb
+    /rm\s+-rf\s+\//,
+    /rm\s+-rf\s+~\//,
+    /git\s+push\s+.*--force/,
+    /:\(\)\{\s*:\|:&\s*\};:/,
   ];
 
   for (const pattern of dangerousPatterns) {
@@ -99,21 +73,12 @@ function handleBeforeShellExecution(input) {
     }
   }
 
-  // Allow the command
-  return {
-    continue: true,
-    permission: 'allow',
-  };
+  return { continue: true, permission: 'allow' };
 }
 
-/**
- * Handle beforeReadFile hook
- * Can block reading sensitive files
- */
 function handleBeforeReadFile(input) {
   const filePath = input.path || '';
   
-  // Check for sensitive files
   const sensitivePatterns = [
     /\.env$/,
     /\.env\.local$/,
@@ -125,8 +90,6 @@ function handleBeforeReadFile(input) {
 
   for (const pattern of sensitivePatterns) {
     if (pattern.test(filePath)) {
-      // Log but allow (or deny based on settings)
-      // For now, just log
       console.error(`Warning: Reading sensitive file: ${filePath}`);
     }
   }
@@ -134,32 +97,10 @@ function handleBeforeReadFile(input) {
   return { continue: true };
 }
 
-/**
- * Handle beforeMCPExecution hook
- */
-function handleBeforeMCPExecution(input) {
-  // Log MCP calls, allow by default
-  return { continue: true };
-}
-
-/**
- * Handle afterFileEdit hook
- */
-function handleAfterFileEdit(input) {
-  // This is informational only - Cursor doesn't read our response
-  // But we still post the event to the API
-  return { continue: true };
-}
-
-/**
- * Handle stop hook
- * Finalize the run
- */
 async function handleStop(input) {
   const status = input.status || 'completed';
   const exitCode = status === 'completed' ? 0 : 1;
   
-  // Update run status
   if (RUN_ID) {
     try {
       await updateRunStatus({
@@ -175,14 +116,8 @@ async function handleStop(input) {
   return { continue: true };
 }
 
-/**
- * Post an event to the API
- */
 async function postEvent(eventType, payload) {
-  if (!RUN_ID || !API_TOKEN) {
-    console.error('Missing RUN_ID or API_TOKEN');
-    return;
-  }
+  if (!RUN_ID || !API_TOKEN) return;
 
   const normalizedEvent = {
     eventType: normalizeEventType(eventType),
@@ -193,24 +128,14 @@ async function postEvent(eventType, payload) {
     timestamp: new Date().toISOString(),
   };
 
-  const url = `${API_URL}/v1/runs/${RUN_ID}/events`;
-  
-  await httpRequest('POST', url, normalizedEvent);
+  await httpRequest('POST', `${API_URL}/v1/runs/${RUN_ID}/events`, normalizedEvent);
 }
 
-/**
- * Update run status
- */
 async function updateRunStatus(data) {
   if (!RUN_ID || !API_TOKEN) return;
-
-  const url = `${API_URL}/v1/runs/${RUN_ID}`;
-  await httpRequest('PATCH', url, data);
+  await httpRequest('PATCH', `${API_URL}/v1/runs/${RUN_ID}`, data);
 }
 
-/**
- * Normalize Cursor event type to canonical type
- */
 function normalizeEventType(cursorEvent) {
   const mapping = {
     'beforeShellExecution': 'command_requested',
@@ -222,57 +147,28 @@ function normalizeEventType(cursorEvent) {
   return mapping[cursorEvent] || cursorEvent;
 }
 
-/**
- * Extract structured data from event payload
- */
 function extractStructuredData(eventType, payload) {
   switch (eventType) {
     case 'beforeShellExecution':
-      return {
-        command: payload.command,
-        workingDirectory: payload.cwd,
-      };
-    
+      return { command: payload.command, workingDirectory: payload.cwd };
     case 'afterFileEdit':
-      return {
-        filePath: payload.path,
-        // Note: Cursor may provide old/new content
-        hasChanges: true,
-      };
-    
+      return { filePath: payload.path, hasChanges: true };
     case 'beforeReadFile':
-      return {
-        filePath: payload.path,
-      };
-    
+      return { filePath: payload.path };
     case 'stop':
-      return {
-        status: payload.status,
-        reason: payload.reason,
-      };
-    
+      return { status: payload.status, reason: payload.reason };
     default:
       return payload;
   }
 }
 
-/**
- * Generate a summary for the stop event
- */
 function generateSummary(status) {
-  if (status === 'completed') {
-    return 'Agent completed successfully.';
-  } else if (status === 'error') {
-    return 'Agent encountered an error and stopped.';
-  } else if (status === 'aborted') {
-    return 'Agent was aborted by user.';
-  }
+  if (status === 'completed') return 'Agent completed successfully.';
+  if (status === 'error') return 'Agent encountered an error and stopped.';
+  if (status === 'aborted') return 'Agent was aborted by user.';
   return `Agent stopped with status: ${status}`;
 }
 
-/**
- * Make an HTTP request
- */
 function httpRequest(method, url, data) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
