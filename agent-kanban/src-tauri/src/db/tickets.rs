@@ -580,4 +580,61 @@ mod tests {
         let result = db.extend_lock(&ticket.id, "run-wrong", expires);
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
+
+    #[test]
+    fn release_lock_correct_run() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "run-123", expires).unwrap();
+        
+        let locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(locked.locked_by_run_id, Some("run-123".to_string()));
+        
+        db.release_lock(&ticket.id, "run-123").unwrap();
+        
+        let released = db.get_ticket(&ticket.id).unwrap();
+        assert!(released.locked_by_run_id.is_none());
+        assert!(released.lock_expires_at.is_none());
+    }
+
+    #[test]
+    fn release_lock_wrong_run_no_effect() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "run-correct", expires).unwrap();
+        
+        // Try to release with wrong run_id - should have no effect
+        db.release_lock(&ticket.id, "run-wrong").unwrap();
+        
+        let still_locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(still_locked.locked_by_run_id, Some("run-correct".to_string()));
+    }
 }

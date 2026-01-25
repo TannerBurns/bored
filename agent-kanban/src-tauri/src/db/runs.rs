@@ -241,4 +241,97 @@ mod tests {
         let result = db.get_run("nonexistent-run-id");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
+
+    #[test]
+    fn update_and_get_run_artifacts() {
+        use crate::db::RunArtifacts;
+        
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/repo".to_string(),
+        }).unwrap();
+        
+        let artifacts = RunArtifacts {
+            commit_hash: Some("abc123".to_string()),
+            files_changed: vec!["src/main.rs".to_string(), "Cargo.toml".to_string()],
+            diff_path: Some("/tmp/diff.patch".to_string()),
+            transcript_path: None,
+            log_path: Some("/tmp/log.txt".to_string()),
+        };
+        
+        db.update_run_artifacts(&run.id, &artifacts).unwrap();
+        
+        let fetched = db.get_run_artifacts(&run.id).unwrap();
+        assert!(fetched.is_some());
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.commit_hash, Some("abc123".to_string()));
+        assert_eq!(fetched.files_changed.len(), 2);
+        assert_eq!(fetched.diff_path, Some("/tmp/diff.patch".to_string()));
+        assert!(fetched.transcript_path.is_none());
+        assert_eq!(fetched.log_path, Some("/tmp/log.txt".to_string()));
+    }
+
+    #[test]
+    fn get_run_artifacts_none_when_not_set() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Claude,
+            repo_path: "/tmp".to_string(),
+        }).unwrap();
+        
+        let fetched = db.get_run_artifacts(&run.id).unwrap();
+        assert!(fetched.is_none());
+    }
+
+    #[test]
+    fn run_artifacts_serialization() {
+        use crate::db::RunArtifacts;
+        
+        let artifacts = RunArtifacts {
+            commit_hash: Some("def456".to_string()),
+            files_changed: vec!["file.txt".to_string()],
+            diff_path: None,
+            transcript_path: Some("/path/to/transcript".to_string()),
+            log_path: None,
+        };
+        
+        let json = serde_json::to_string(&artifacts).unwrap();
+        assert!(json.contains("commitHash"));
+        assert!(json.contains("filesChanged"));
+        
+        let parsed: RunArtifacts = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.commit_hash, artifacts.commit_hash);
+        assert_eq!(parsed.files_changed, artifacts.files_changed);
+    }
 }
