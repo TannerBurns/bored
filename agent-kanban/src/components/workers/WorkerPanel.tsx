@@ -96,8 +96,6 @@ export function WorkerPanel({ projects }: Props) {
         return 'bg-yellow-500';
       case 'stopped':
         return 'bg-gray-500';
-      default:
-        return 'bg-gray-500';
     }
   };
 
@@ -127,7 +125,6 @@ export function WorkerPanel({ projects }: Props) {
         </div>
       )}
 
-      {/* Queue Status */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-400 mb-3">Queue Status</h3>
         <div className="grid grid-cols-3 gap-4">
@@ -146,7 +143,6 @@ export function WorkerPanel({ projects }: Props) {
         </div>
       </div>
 
-      {/* Start New Worker */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-400 mb-3">Start New Worker</h3>
 
@@ -197,7 +193,6 @@ export function WorkerPanel({ projects }: Props) {
         </div>
       </div>
 
-      {/* Active Workers */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h3 className="text-sm font-medium text-gray-400 mb-3">Active Workers</h3>
 
@@ -250,7 +245,6 @@ export function WorkerPanel({ projects }: Props) {
         )}
       </div>
 
-      {/* Info */}
       <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-4 text-sm">
         <h4 className="font-medium text-blue-200 mb-2">How Workers Operate</h4>
         <ul className="text-blue-100/70 space-y-1 list-disc list-inside">

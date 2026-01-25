@@ -1,8 +1,4 @@
-//! Background service for cleaning up expired locks
-//!
-//! This service runs periodically to detect and recover tickets that have
-//! been locked by agent runs that have crashed or otherwise failed to
-//! complete properly.
+//! Background service for cleaning up expired ticket locks.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,26 +6,21 @@ use tokio::time::interval;
 
 use crate::db::{Database, DbError, RunStatus};
 
-/// Configuration for the cleanup service
 pub struct CleanupConfig {
-    /// How often to check for expired locks (in seconds)
     pub check_interval_secs: u64,
 }
 
 impl Default for CleanupConfig {
     fn default() -> Self {
         Self {
-            check_interval_secs: 60, // Check every minute
+            check_interval_secs: 60,
         }
     }
 }
 
-/// Result of a cleanup run
 #[derive(Debug, Clone)]
 pub struct CleanupResult {
-    /// Ticket IDs that had their locks released
     pub released_tickets: Vec<String>,
-    /// Run IDs that were marked as aborted
     pub aborted_runs: Vec<String>,
 }
 
@@ -39,17 +30,10 @@ impl CleanupResult {
     }
 }
 
-/// Clean up expired locks in the database
-///
-/// This function:
-/// 1. Finds all tickets with expired locks
-/// 2. Releases those locks
-/// 3. Marks associated runs as aborted
 pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
     db.with_conn(|conn| {
         let now = chrono::Utc::now().to_rfc3339();
 
-        // Find all tickets with expired locks
         let mut stmt = conn.prepare(
             r#"SELECT id, locked_by_run_id 
                FROM tickets 
@@ -72,7 +56,6 @@ pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
         let ticket_ids: Vec<String> = expired.iter().map(|(id, _)| id.clone()).collect();
         let run_ids: Vec<String> = expired.iter().map(|(_, run_id)| run_id.clone()).collect();
 
-        // Release all expired locks
         conn.execute(
             r#"UPDATE tickets 
                SET locked_by_run_id = NULL, 
@@ -83,7 +66,6 @@ pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
             rusqlite::params![&now, &now],
         )?;
 
-        // Mark associated runs as aborted if they're still running
         for run_id in &run_ids {
             conn.execute(
                 r#"UPDATE agent_runs 
@@ -102,10 +84,6 @@ pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
     })
 }
 
-/// Start the background cleanup service
-///
-/// This spawns a Tokio task that periodically checks for and cleans up
-/// expired locks. The task runs until the application shuts down.
 pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(config.check_interval_secs));

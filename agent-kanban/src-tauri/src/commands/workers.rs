@@ -1,7 +1,4 @@
-//! Tauri commands for worker management
-//!
-//! Provides commands to start, stop, and monitor background workers
-//! that continuously process tickets from the queue.
+//! Tauri commands for worker management.
 
 use std::sync::Arc;
 use once_cell::sync::Lazy;
@@ -11,10 +8,8 @@ use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::AgentKind;
 use crate::db::Database;
 
-/// Global worker manager instance
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
 
-/// Request to start a new worker
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartWorkerRequest {
@@ -22,14 +17,12 @@ pub struct StartWorkerRequest {
     pub project_id: Option<String>,
 }
 
-/// Response after starting a worker
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartWorkerResponse {
     pub worker_id: String,
 }
 
-/// Queue status response
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerQueueStatus {
@@ -38,7 +31,6 @@ pub struct WorkerQueueStatus {
     pub worker_count: usize,
 }
 
-/// Start a new worker
 #[tauri::command]
 pub async fn start_worker(
     agent_type: String,
@@ -57,7 +49,6 @@ pub async fn start_worker(
         _ => return Err(format!("Invalid agent type: {}", agent_type)),
     };
 
-    // Get API configuration from environment
     let api_url = std::env::var("AGENT_KANBAN_API_URL").unwrap_or_else(|_| {
         format!(
             "http://127.0.0.1:{}",
@@ -82,7 +73,6 @@ pub async fn start_worker(
     Ok(StartWorkerResponse { worker_id })
 }
 
-/// Stop a specific worker
 #[tauri::command]
 pub async fn stop_worker(worker_id: String) -> Result<bool, String> {
     tracing::info!("Stopping worker: {}", worker_id);
@@ -95,7 +85,6 @@ pub async fn stop_worker(worker_id: String) -> Result<bool, String> {
     Ok(stopped)
 }
 
-/// Stop all workers
 #[tauri::command]
 pub async fn stop_all_workers() -> Result<(), String> {
     tracing::info!("Stopping all workers");
@@ -104,13 +93,11 @@ pub async fn stop_all_workers() -> Result<(), String> {
     Ok(())
 }
 
-/// Get status of all workers
 #[tauri::command]
 pub async fn get_workers() -> Result<Vec<WorkerStatus>, String> {
     Ok(WORKER_MANAGER.get_all_status())
 }
 
-/// Get queue and worker status
 #[tauri::command]
 pub async fn get_worker_queue_status(
     db: State<'_, Arc<Database>>,
@@ -127,7 +114,6 @@ pub async fn get_worker_queue_status(
             let tickets = db
                 .get_tickets(&board.id, Some(&ready_col.id))
                 .map_err(|e| e.to_string())?;
-            // Count unlocked Ready tickets
             ready_count += tickets
                 .iter()
                 .filter(|t| {
