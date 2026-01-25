@@ -9,10 +9,6 @@ import type {
   ReadinessCheck,
 } from '../types';
 
-// ============================================================================
-// Project Commands
-// ============================================================================
-
 export async function getProjects(): Promise<Project[]> {
   return invoke('get_projects');
 }
@@ -72,10 +68,6 @@ export async function browseForDirectory(): Promise<string | null> {
   return invoke('browse_for_directory');
 }
 
-// ============================================================================
-// Board Commands
-// ============================================================================
-
 export async function getBoards(): Promise<Board[]> {
   return invoke('get_boards');
 }
@@ -83,10 +75,6 @@ export async function getBoards(): Promise<Board[]> {
 export async function createBoard(name: string): Promise<Board> {
   return invoke('create_board', { name });
 }
-
-// ============================================================================
-// Ticket Commands
-// ============================================================================
 
 export async function getTickets(boardId: string): Promise<Ticket[]> {
   return invoke('get_tickets', { boardId });
@@ -104,10 +92,6 @@ export async function moveTicket(
 ): Promise<void> {
   return invoke('move_ticket', { ticketId, columnId });
 }
-
-// ============================================================================
-// Agent Run Commands
-// ============================================================================
 
 export async function startAgentRun(
   ticketId: string,

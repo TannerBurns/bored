@@ -1,36 +1,23 @@
-//! Database models with serde serialization
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// A registered project/repository
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
-    
-    // Hook status
     pub cursor_hooks_installed: bool,
     pub claude_hooks_installed: bool,
-    
-    // Preferences
     pub preferred_agent: Option<AgentPref>,
-    
-    // Safety
     pub allow_shell_commands: bool,
     pub allow_file_writes: bool,
     pub blocked_patterns: Vec<String>,
-    
-    // General
     pub settings: serde_json::Value,
-    
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-/// Input for creating a project
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProject {
@@ -39,7 +26,6 @@ pub struct CreateProject {
     pub preferred_agent: Option<AgentPref>,
 }
 
-/// Input for updating a project
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProject {
@@ -50,7 +36,6 @@ pub struct UpdateProject {
     pub blocked_patterns: Option<Vec<String>>,
 }
 
-/// Board represents a kanban board
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
@@ -61,7 +46,6 @@ pub struct Board {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Column represents a kanban column within a board
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Column {
@@ -72,7 +56,6 @@ pub struct Column {
     pub wip_limit: Option<i32>,
 }
 
-/// Priority levels for tickets
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
@@ -103,7 +86,6 @@ impl Priority {
     }
 }
 
-/// Agent preference for ticket execution
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentPref {
@@ -131,7 +113,6 @@ impl AgentPref {
     }
 }
 
-/// Ticket represents a work item
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
@@ -150,7 +131,6 @@ pub struct Ticket {
     pub agent_pref: Option<AgentPref>,
 }
 
-/// Author type for comments
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthorType {
@@ -169,7 +149,6 @@ impl AuthorType {
     }
 }
 
-/// Comment on a ticket
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
@@ -181,7 +160,6 @@ pub struct Comment {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// Agent type (Cursor or Claude)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
@@ -198,7 +176,6 @@ impl AgentType {
     }
 }
 
-/// Status of an agent run
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum RunStatus {
@@ -232,7 +209,6 @@ impl RunStatus {
     }
 }
 
-/// Agent run record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRun {
@@ -248,25 +224,16 @@ pub struct AgentRun {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// Canonical event types for the hook bridge
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
-    /// Agent requested to run a shell command
     CommandRequested,
-    /// Shell command was executed
     CommandExecuted,
-    /// Agent read a file
     FileRead,
-    /// Agent edited/created a file
     FileEdited,
-    /// Agent run started
     RunStarted,
-    /// Agent run stopped (finished, error, or aborted)
     RunStopped,
-    /// An error occurred
     Error,
-    /// Custom/unknown event type
     Custom(String),
 }
 
@@ -298,7 +265,6 @@ impl EventType {
     }
 }
 
-/// Agent event for audit trail
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
@@ -310,18 +276,13 @@ pub struct AgentEvent {
     pub created_at: DateTime<Utc>,
 }
 
-/// Payload for agent events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEventPayload {
-    /// Raw event data from the agent hook
     pub raw: Option<String>,
-    /// Structured/parsed event data
     pub structured: Option<serde_json::Value>,
 }
 
-/// Normalized event schema for hook bridge
-/// This is what hook scripts send to the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NormalizedEvent {
@@ -333,7 +294,6 @@ pub struct NormalizedEvent {
     pub timestamp: DateTime<Utc>,
 }
 
-/// Input for creating a ticket
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTicket {
@@ -347,7 +307,6 @@ pub struct CreateTicket {
     pub agent_pref: Option<AgentPref>,
 }
 
-/// Input for creating a run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRun {
@@ -356,7 +315,6 @@ pub struct CreateRun {
     pub repo_path: String,
 }
 
-/// Result of checking if a ticket can be moved to Ready
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReadinessCheck {

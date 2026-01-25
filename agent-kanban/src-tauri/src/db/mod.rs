@@ -1,5 +1,3 @@
-//! Database module with connection management
-
 pub mod schema;
 pub mod models;
 
@@ -29,41 +27,31 @@ pub enum DbError {
     Validation(String),
 }
 
-/// Thread-safe database handle
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
 }
 
 impl Database {
-    /// Open or create database at the given path
     pub fn open(db_path: PathBuf) -> Result<Self, DbError> {
-        // Ensure parent directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|_e| DbError::Validation(format!("Failed to create directory: {:?}", parent)))?;
         }
 
         let conn = Connection::open(&db_path)?;
-        
-        // Enable foreign keys
         conn.execute("PRAGMA foreign_keys = ON", [])?;
-        
-        // Enable WAL mode for better concurrent access
         conn.execute("PRAGMA journal_mode = WAL", [])?;
         
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
-        
-        // Run migrations
         db.migrate()?;
         
         tracing::info!("Database opened at {:?}", db_path);
         Ok(db)
     }
 
-    /// Open an in-memory database (useful for testing)
     pub fn open_in_memory() -> Result<Self, DbError> {
         let conn = Connection::open_in_memory()?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -76,12 +64,10 @@ impl Database {
         Ok(db)
     }
 
-    /// Run database migrations
     fn migrate(&self) -> Result<(), DbError> {
         let conn = self.conn.lock()
             .map_err(|e| DbError::Lock(e.to_string()))?;
 
-        // Check current schema version
         let current_version: i32 = conn
             .query_row(
                 "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
@@ -97,10 +83,7 @@ impl Database {
                 SCHEMA_VERSION
             );
 
-            // Run schema creation (idempotent with IF NOT EXISTS)
             conn.execute_batch(CREATE_TABLES)?;
-
-            // Record new schema version
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -112,7 +95,6 @@ impl Database {
         Ok(())
     }
 
-    /// Execute a function with the database connection
     pub fn with_conn<F, T>(&self, f: F) -> Result<T, DbError>
     where
         F: FnOnce(&Connection) -> Result<T, DbError>,
@@ -122,7 +104,6 @@ impl Database {
         f(&conn)
     }
 
-    /// Execute a function with a mutable database connection (for transactions)
     pub fn with_conn_mut<F, T>(&self, f: F) -> Result<T, DbError>
     where
         F: FnOnce(&mut Connection) -> Result<T, DbError>,
@@ -133,14 +114,8 @@ impl Database {
     }
 }
 
-// ============================================================================
-// Project Operations
-// ============================================================================
-
 impl Database {
-    /// Create a new project
     pub fn create_project(&self, input: &CreateProject) -> Result<Project, DbError> {
-        // Validate path exists and is a directory
         let path = std::path::Path::new(&input.path);
         if !path.exists() {
             return Err(DbError::Validation(format!(
@@ -197,7 +172,6 @@ impl Database {
         })
     }
 
-    /// Get all projects
     pub fn get_projects(&self) -> Result<Vec<Project>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -234,14 +208,12 @@ impl Database {
         })
     }
 
-    /// Get a project by ID
     pub fn get_project(&self, project_id: &str) -> Result<Option<Project>, DbError> {
         self.get_projects().map(|projects| {
             projects.into_iter().find(|p| p.id == project_id)
         })
     }
 
-    /// Get a project by path
     pub fn get_project_by_path(&self, path: &str) -> Result<Option<Project>, DbError> {
         // Canonicalize the input path for comparison
         let canonical = std::path::Path::new(path)
@@ -256,7 +228,6 @@ impl Database {
         })
     }
 
-    /// Update a project
     pub fn update_project(&self, project_id: &str, input: &UpdateProject) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
@@ -301,7 +272,6 @@ impl Database {
         })
     }
 
-    /// Update hook installation status
     pub fn update_project_hooks(
         &self,
         project_id: &str,
@@ -329,7 +299,6 @@ impl Database {
         })
     }
 
-    /// Delete a project
     pub fn delete_project(&self, project_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             // Check if any boards use this as default
@@ -351,7 +320,6 @@ impl Database {
         })
     }
 
-    /// Set a board's default project
     pub fn set_board_project(
         &self,
         board_id: &str,
@@ -367,7 +335,6 @@ impl Database {
         })
     }
 
-    /// Check if a ticket can be moved to Ready
     pub fn can_move_to_ready(&self, ticket_id: &str) -> Result<ReadinessCheck, DbError> {
         self.with_conn(|conn| {
             // Get ticket and its board
@@ -414,7 +381,6 @@ impl Database {
         })
     }
 
-    /// Resolve the project for a ticket (ticket override or board default)
     pub fn resolve_project_for_ticket(&self, ticket_id: &str) -> Result<Option<Project>, DbError> {
         match self.can_move_to_ready(ticket_id)? {
             ReadinessCheck::Ready { project_id } => self.get_project(&project_id),
@@ -423,12 +389,7 @@ impl Database {
     }
 }
 
-// ============================================================================
-// Board Operations
-// ============================================================================
-
 impl Database {
-    /// Create a new board with default columns
     pub fn create_board(&self, name: &str) -> Result<Board, DbError> {
         self.with_conn_mut(|conn| {
             let tx = conn.transaction()?;
@@ -462,7 +423,6 @@ impl Database {
         })
     }
 
-    /// Get all boards
     pub fn get_boards(&self) -> Result<Vec<Board>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -484,14 +444,12 @@ impl Database {
         })
     }
 
-    /// Get a board by ID
     pub fn get_board(&self, board_id: &str) -> Result<Option<Board>, DbError> {
         self.get_boards().map(|boards| {
             boards.into_iter().find(|b| b.id == board_id)
         })
     }
 
-    /// Get columns for a board
     pub fn get_columns(&self, board_id: &str) -> Result<Vec<Column>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -515,12 +473,7 @@ impl Database {
     }
 }
 
-// ============================================================================
-// Ticket Operations
-// ============================================================================
-
 impl Database {
-    /// Create a new ticket
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
         self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
@@ -565,7 +518,6 @@ impl Database {
         })
     }
 
-    /// Get tickets for a board, optionally filtered by column
     pub fn get_tickets(&self, board_id: &str, column_id: Option<&str>) -> Result<Vec<Ticket>, DbError> {
         self.with_conn(|conn| {
             let sql = match column_id {
@@ -594,7 +546,6 @@ impl Database {
         })
     }
 
-    /// Move a ticket to a different column
     pub fn move_ticket(&self, ticket_id: &str, column_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now();
@@ -610,7 +561,6 @@ impl Database {
         })
     }
 
-    /// Set ticket's project override
     pub fn set_ticket_project(&self, ticket_id: &str, project_id: Option<&str>) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
@@ -650,12 +600,7 @@ impl Database {
     }
 }
 
-// ============================================================================
-// Agent Run Operations
-// ============================================================================
-
 impl Database {
-    /// Create a new agent run
     pub fn create_run(&self, run: &CreateRun) -> Result<AgentRun, DbError> {
         self.with_conn(|conn| {
             let run_id = uuid::Uuid::new_v4().to_string();
@@ -690,7 +635,6 @@ impl Database {
         })
     }
 
-    /// Update run status
     pub fn update_run_status(
         &self,
         run_id: &str,
@@ -714,7 +658,6 @@ impl Database {
         })
     }
 
-    /// Get runs for a ticket
     pub fn get_runs(&self, ticket_id: &str) -> Result<Vec<AgentRun>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -751,12 +694,7 @@ impl Database {
     }
 }
 
-// ============================================================================
-// Agent Event Operations
-// ============================================================================
-
 impl Database {
-    /// Record an agent event
     pub fn create_event(&self, event: &NormalizedEvent) -> Result<AgentEvent, DbError> {
         self.with_conn(|conn| {
             let event_id = uuid::Uuid::new_v4().to_string();
@@ -788,7 +726,6 @@ impl Database {
         })
     }
 
-    /// Get events for a run
     pub fn get_events(&self, run_id: &str) -> Result<Vec<AgentEvent>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -818,7 +755,6 @@ impl Database {
     }
 }
 
-/// Helper to parse datetime strings
 fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::parse_from_rfc3339(&s)
         .map(|dt| dt.with_timezone(&chrono::Utc))
