@@ -184,7 +184,6 @@ pub async fn move_ticket(
 
     let columns = state.db.get_columns(&ticket.board_id)?;
     
-    // Find current and target columns
     let current_column = columns.iter()
         .find(|c| c.id == from_column_id)
         .ok_or_else(|| AppError::not_found("Current column"))?;
@@ -193,7 +192,6 @@ pub async fn move_ticket(
         .find(|c| c.id == req.column_id)
         .ok_or_else(|| AppError::not_found("Target column"))?;
 
-    // Parse states from column names
     let current_state = TicketState::from_column_name(&current_column.name)
         .ok_or_else(|| AppError::validation(format!(
             "Unknown column state: {}", current_column.name
@@ -204,12 +202,9 @@ pub async fn move_ticket(
             "Unknown target state: {}", target_column.name
         )))?;
 
-    // Check if transition is allowed (user transition, not system)
     let is_locked = ticket.locked_by_run_id.is_some();
     match can_transition(current_state, target_state, is_locked, false) {
-        TransitionPermission::Allowed => {
-            // Proceed with the move
-        }
+        TransitionPermission::Allowed => {}
         TransitionPermission::RequiresUnlock => {
             return Err(AppError::conflict("Ticket is locked by an active run"));
         }

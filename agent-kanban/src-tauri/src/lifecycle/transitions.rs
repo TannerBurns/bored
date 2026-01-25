@@ -1,7 +1,6 @@
 use super::{TicketState, LifecycleOutcome, TransitionPermission, can_transition};
 use crate::db::{Database, DbError};
 
-/// Execute a ticket state transition
 pub struct TransitionExecutor<'a> {
     db: &'a Database,
 }
@@ -11,21 +10,18 @@ impl<'a> TransitionExecutor<'a> {
         Self { db }
     }
 
-    /// Attempt to move a ticket to a new state
     pub fn move_ticket(
         &self,
         ticket_id: &str,
         target_state: TicketState,
         is_system: bool,
     ) -> Result<TransitionResult, DbError> {
-        // Get current ticket info
         let ticket = self.get_ticket(ticket_id)?;
         let current_state = TicketState::from_column_name(&ticket.column_name)
             .ok_or_else(|| DbError::Validation("Unknown column state".into()))?;
         
         let is_locked = ticket.locked_by_run_id.is_some();
 
-        // Check if transition is allowed
         match can_transition(current_state, target_state, is_locked, is_system) {
             TransitionPermission::Allowed => {
                 self.execute_transition(ticket_id, &ticket.board_id, target_state)?;
@@ -50,17 +46,14 @@ impl<'a> TransitionExecutor<'a> {
         }
     }
 
-    /// Handle run completion and transition ticket accordingly
     pub fn handle_run_completion(
         &self,
         ticket_id: &str,
         outcome: LifecycleOutcome,
     ) -> Result<TransitionResult, DbError> {
-        let target_state = outcome.target_state();
-        self.move_ticket(ticket_id, target_state, true)
+        self.move_ticket(ticket_id, outcome.target_state(), true)
     }
 
-    /// Get ticket info for transition checking
     fn get_ticket(&self, ticket_id: &str) -> Result<TicketInfo, DbError> {
         self.db.with_conn(|conn| {
             conn.query_row(
@@ -81,7 +74,6 @@ impl<'a> TransitionExecutor<'a> {
         })
     }
 
-    /// Execute the actual transition
     fn execute_transition(
         &self,
         ticket_id: &str,
@@ -89,7 +81,6 @@ impl<'a> TransitionExecutor<'a> {
         target_state: TicketState,
     ) -> Result<(), DbError> {
         self.db.with_conn(|conn| {
-            // Find target column
             let target_column_id: String = conn.query_row(
                 "SELECT id FROM columns WHERE board_id = ? AND name = ?",
                 rusqlite::params![board_id, target_state.to_column_name()],
@@ -100,7 +91,6 @@ impl<'a> TransitionExecutor<'a> {
                 board_id
             )))?;
 
-            // Update ticket
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
                 "UPDATE tickets SET column_id = ?, updated_at = ? WHERE id = ?",
@@ -112,22 +102,11 @@ impl<'a> TransitionExecutor<'a> {
     }
 }
 
-/// Result of a transition attempt
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransitionResult {
-    Success {
-        from: TicketState,
-        to: TicketState,
-    },
-    RequiresUnlock {
-        from: TicketState,
-        to: TicketState,
-    },
-    Denied {
-        from: TicketState,
-        to: TicketState,
-        reason: String,
-    },
+    Success { from: TicketState, to: TicketState },
+    RequiresUnlock { from: TicketState, to: TicketState },
+    Denied { from: TicketState, to: TicketState, reason: String },
 }
 
 impl TransitionResult {
@@ -136,7 +115,6 @@ impl TransitionResult {
     }
 }
 
-/// Internal ticket info for transitions
 #[allow(dead_code)]
 struct TicketInfo {
     id: String,

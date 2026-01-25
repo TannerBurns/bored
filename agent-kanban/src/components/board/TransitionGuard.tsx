@@ -3,41 +3,27 @@ import type { Column, Ticket } from '../../types';
 
 type TicketState = 'Backlog' | 'Ready' | 'In Progress' | 'Blocked' | 'Review' | 'Done';
 
-/**
- * Allowed user transitions between ticket states.
- * Note: InProgress transitions are restricted when the ticket is locked.
- */
 const ALLOWED_TRANSITIONS: Record<TicketState, TicketState[]> = {
   'Backlog': ['Backlog', 'Ready'],
   'Ready': ['Ready', 'Backlog'],
-  'In Progress': ['In Progress', 'Ready', 'Blocked'], // Only if unlocked
+  'In Progress': ['In Progress', 'Ready', 'Blocked'],
   'Blocked': ['Blocked', 'Ready', 'Backlog'],
   'Review': ['Review', 'Done', 'Blocked', 'Ready', 'In Progress'],
   'Done': ['Done', 'Review'],
 };
 
-/**
- * Maps column names to normalized state names
- */
 function normalizeColumnName(name: string): TicketState | null {
   const normalized = name.toLowerCase();
   switch (normalized) {
-    case 'backlog':
-      return 'Backlog';
-    case 'ready':
-      return 'Ready';
+    case 'backlog': return 'Backlog';
+    case 'ready': return 'Ready';
     case 'in progress':
     case 'in_progress':
-    case 'inprogress':
-      return 'In Progress';
-    case 'blocked':
-      return 'Blocked';
-    case 'review':
-      return 'Review';
-    case 'done':
-      return 'Done';
-    default:
-      return null;
+    case 'inprogress': return 'In Progress';
+    case 'blocked': return 'Blocked';
+    case 'review': return 'Review';
+    case 'done': return 'Done';
+    default: return null;
   }
 }
 
@@ -46,9 +32,6 @@ export interface TransitionValidation {
   reason?: string;
 }
 
-/**
- * Validates if a ticket can be moved from its current column to a target column.
- */
 export function validateTransition(
   ticket: Ticket,
   columns: Column[],
@@ -65,38 +48,25 @@ export function validateTransition(
   const targetState = normalizeColumnName(targetColumn.name);
 
   if (!currentState || !targetState) {
-    // Unknown column type - allow the move and let backend validate
     return { valid: true };
   }
 
-  // Same column is always valid
   if (currentState === targetState) {
     return { valid: true };
   }
 
-  // Check if ticket is locked
   if (ticket.lockedByRunId && currentState === 'In Progress') {
-    return { 
-      valid: false, 
-      reason: 'Ticket is locked by an active agent run' 
-    };
+    return { valid: false, reason: 'Ticket is locked by an active agent run' };
   }
 
-  // Check allowed transitions
   const allowed = ALLOWED_TRANSITIONS[currentState] || [];
   if (allowed.includes(targetState)) {
     return { valid: true };
   }
 
-  return {
-    valid: false,
-    reason: `Cannot move from ${currentState} to ${targetState}`,
-  };
+  return { valid: false, reason: `Cannot move from ${currentState} to ${targetState}` };
 }
 
-/**
- * Hook to validate a ticket transition.
- */
 export function useTransitionValidation(
   ticket: Ticket | null | undefined,
   columns: Column[],
@@ -110,17 +80,8 @@ export function useTransitionValidation(
   }, [ticket, columns, targetColumnId]);
 }
 
-/**
- * Get all valid target columns for a ticket
- */
-export function getValidTargets(
-  ticket: Ticket,
-  columns: Column[]
-): Column[] {
-  return columns.filter(column => {
-    const validation = validateTransition(ticket, columns, column.id);
-    return validation.valid;
-  });
+export function getValidTargets(ticket: Ticket, columns: Column[]): Column[] {
+  return columns.filter(column => validateTransition(ticket, columns, column.id).valid);
 }
 
 interface TransitionErrorToastProps {
@@ -128,9 +89,6 @@ interface TransitionErrorToastProps {
   onDismiss?: () => void;
 }
 
-/**
- * Toast component for displaying transition errors
- */
 export function TransitionErrorToast({ message, onDismiss }: TransitionErrorToastProps) {
   return (
     <div className="fixed bottom-4 right-4 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in slide-in-from-bottom-2 z-50">

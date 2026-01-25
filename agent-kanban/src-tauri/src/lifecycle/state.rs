@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Ticket column states
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TicketState {
@@ -36,38 +35,29 @@ impl TicketState {
         }
     }
 
-    /// Can agents pick up tickets from this state?
     pub fn is_queueable(&self) -> bool {
         matches!(self, Self::Ready)
     }
 
-    /// Is this a terminal state?
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Done)
     }
 
-    /// Does this state require a lock?
     pub fn requires_lock(&self) -> bool {
         matches!(self, Self::InProgress)
     }
 }
 
-/// Run outcome states for lifecycle transitions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LifecycleOutcome {
-    /// Run completed successfully
     Success,
-    /// Run failed with error
     Error,
-    /// Run was aborted by user
     Aborted,
-    /// Run timed out
     Timeout,
 }
 
 impl LifecycleOutcome {
-    /// Get the target ticket state for this outcome
     pub fn target_state(&self) -> TicketState {
         match self {
             Self::Success => TicketState::Review,
@@ -77,7 +67,6 @@ impl LifecycleOutcome {
         }
     }
 
-    /// Convert from agents::RunOutcome
     pub fn from_run_outcome(outcome: crate::agents::RunOutcome) -> Self {
         match outcome {
             crate::agents::RunOutcome::Success => Self::Success,

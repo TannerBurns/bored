@@ -33,7 +33,6 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
 
   const showError = useCallback((message: string) => {
     setErrorMessage(message);
-    // Auto-dismiss after 4 seconds
     setTimeout(() => setErrorMessage(null), 4000);
   }, []);
 
@@ -65,14 +64,11 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
     if (targetColumnId) {
       const ticket = tickets.find((t) => t.id === ticketId);
       if (ticket && ticket.columnId !== targetColumnId) {
-        // Validate the transition before attempting it
         const validation = validateTransition(ticket, columns, targetColumnId);
-        
         if (!validation.valid) {
           showError(validation.reason || 'Invalid transition');
           return;
         }
-        
         onTicketMove(ticketId, targetColumnId);
       }
     }
