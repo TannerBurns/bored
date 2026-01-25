@@ -488,8 +488,7 @@ mod tests {
 
     #[test]
     fn is_claude_available_returns_bool() {
-        let result = is_claude_available();
-        assert!(result == true || result == false);
+        let _result = is_claude_available();
     }
 
     #[test]
