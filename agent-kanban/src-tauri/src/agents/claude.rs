@@ -2,6 +2,22 @@ use super::AgentRunConfig;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Shell-escape a string for safe use in shell commands.
+/// Uses single quotes and escapes embedded single quotes as '\''
+fn shell_escape(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    
+    // If the string contains only safe characters, return as-is
+    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.') {
+        return s.to_string();
+    }
+    
+    // Otherwise, wrap in single quotes and escape any embedded single quotes
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
     let args = vec!["-p".to_string(), config.prompt.clone()];
@@ -74,34 +90,35 @@ pub fn build_command_with_settings(
 
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
+    let escaped_path = shell_escape(hook_script_path);
     serde_json::json!({
         "hooks": {
             "UserPromptSubmit": [{
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
-                    "command": format!("{} UserPromptSubmit", hook_script_path)
+                    "command": format!("{} UserPromptSubmit", escaped_path)
                 }]
             }],
             "PreToolUse": [{
                 "matcher": ".*",
                 "hooks": [{
                     "type": "command",
-                    "command": format!("{} PreToolUse", hook_script_path)
+                    "command": format!("{} PreToolUse", escaped_path)
                 }]
             }],
             "PostToolUse": [{
                 "matcher": ".*",
                 "hooks": [{
                     "type": "command",
-                    "command": format!("{} PostToolUse", hook_script_path)
+                    "command": format!("{} PostToolUse", escaped_path)
                 }]
             }],
             "Stop": [{
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
-                    "command": format!("{} Stop", hook_script_path)
+                    "command": format!("{} Stop", escaped_path)
                 }]
             }]
         },
@@ -139,28 +156,31 @@ pub fn generate_hooks_settings_with_api(
 }
 
 pub fn generate_hooks_settings_with_config(config: HooksConfig) -> serde_json::Value {
-    // Build environment variables for the hook script
+    // Build environment variables for the hook script, with proper shell escaping
     let mut env_vars = String::new();
     
     if let Some(url) = config.api_url {
-        env_vars.push_str(&format!("AGENT_KANBAN_API_URL={} ", url));
+        env_vars.push_str(&format!("AGENT_KANBAN_API_URL={} ", shell_escape(url)));
     }
     if let Some(token) = config.api_token {
-        env_vars.push_str(&format!("AGENT_KANBAN_API_TOKEN={} ", token));
+        env_vars.push_str(&format!("AGENT_KANBAN_API_TOKEN={} ", shell_escape(token)));
     }
     if let Some(run_id) = config.run_id {
-        env_vars.push_str(&format!("AGENT_KANBAN_RUN_ID={} ", run_id));
+        env_vars.push_str(&format!("AGENT_KANBAN_RUN_ID={} ", shell_escape(run_id)));
     }
     if let Some(ticket_id) = config.ticket_id {
-        env_vars.push_str(&format!("AGENT_KANBAN_TICKET_ID={} ", ticket_id));
+        env_vars.push_str(&format!("AGENT_KANBAN_TICKET_ID={} ", shell_escape(ticket_id)));
     }
+    
+    // Shell-escape the hook script path to handle spaces and special characters
+    let escaped_path = shell_escape(config.hook_script_path);
     
     let make_command = |event: &str| {
         if env_vars.is_empty() {
-            format!("{} {}", config.hook_script_path, event)
+            format!("{} {}", escaped_path, event)
         } else {
             // Use env to set environment variables
-            format!("env {}{}  {}", env_vars, config.hook_script_path, event)
+            format!("env {}{} {}", env_vars, escaped_path, event)
         }
     };
 
@@ -611,7 +631,168 @@ mod tests {
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
         
-        assert!(command.contains("AGENT_KANBAN_API_URL=http://localhost:7432"));
+        // URL contains ':' which is not a safe character, so it gets quoted
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        // Token only contains safe chars, so not quoted
         assert!(command.contains("AGENT_KANBAN_API_TOKEN=my-token"));
+    }
+
+    #[test]
+    fn generate_hooks_settings_with_config_includes_run_and_ticket_id() {
+        let config = generate_hooks_settings_with_config(HooksConfig {
+            hook_script_path: "/path/to/hook.js",
+            api_url: None,
+            api_token: None,
+            run_id: Some("run-123"),
+            ticket_id: Some("ticket-456"),
+        });
+        let hooks = config.get("hooks").unwrap();
+        let user_prompt = hooks.get("UserPromptSubmit").unwrap();
+        let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        assert!(command.contains("AGENT_KANBAN_RUN_ID=run-123"));
+        assert!(command.contains("AGENT_KANBAN_TICKET_ID=ticket-456"));
+    }
+
+    #[test]
+    fn generate_hooks_settings_without_env_vars_uses_simple_command() {
+        let config = generate_hooks_settings("/path/to/hook.js");
+        let hooks = config.get("hooks").unwrap();
+        let user_prompt = hooks.get("UserPromptSubmit").unwrap();
+        let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        // Should be simple command without env prefix
+        assert_eq!(command, "/path/to/hook.js UserPromptSubmit");
+        assert!(!command.contains("env "));
+    }
+
+    #[test]
+    fn generate_hooks_settings_includes_pretooluse_matchers() {
+        let config = generate_hooks_settings("/path/to/hook.js");
+        let hooks = config.get("hooks").unwrap();
+        let pre_tool_use = hooks.get("PreToolUse").unwrap().as_array().unwrap();
+        
+        // Should have two matchers: Bash and Read|Edit|Write
+        assert_eq!(pre_tool_use.len(), 2);
+        
+        let matchers: Vec<&str> = pre_tool_use
+            .iter()
+            .map(|m| m.get("matcher").unwrap().as_str().unwrap())
+            .collect();
+        assert!(matchers.contains(&"Bash"));
+        assert!(matchers.contains(&"Read|Edit|Write"));
+    }
+
+    // Tests for shell_escape function
+    #[test]
+    fn shell_escape_simple_path() {
+        assert_eq!(shell_escape("/path/to/hook.js"), "/path/to/hook.js");
+    }
+
+    #[test]
+    fn shell_escape_empty_string() {
+        assert_eq!(shell_escape(""), "''");
+    }
+
+    #[test]
+    fn shell_escape_path_with_spaces() {
+        assert_eq!(shell_escape("/my path/to/hook.js"), "'/my path/to/hook.js'");
+    }
+
+    #[test]
+    fn shell_escape_path_with_single_quote() {
+        assert_eq!(shell_escape("/path/it's/hook.js"), "'/path/it'\\''s/hook.js'");
+    }
+
+    #[test]
+    fn shell_escape_special_characters() {
+        assert_eq!(shell_escape("value with $var"), "'value with $var'");
+        assert_eq!(shell_escape("value;rm -rf /"), "'value;rm -rf /'");
+    }
+
+    #[test]
+    fn shell_escape_alphanumeric_unchanged() {
+        assert_eq!(shell_escape("simple_value-123"), "simple_value-123");
+    }
+
+    #[test]
+    fn shell_escape_url_with_colon() {
+        // URLs contain ':' which is not safe, so they get quoted
+        assert_eq!(shell_escape("http://localhost:7432"), "'http://localhost:7432'");
+    }
+
+    // Tests for path escaping in hooks
+    #[test]
+    fn generate_hooks_settings_escapes_path_with_spaces() {
+        let script_path = "/my path/with spaces/hook.js";
+        let config = generate_hooks_settings(script_path);
+        let hooks = config.get("hooks").unwrap();
+        let user_prompt = hooks.get("UserPromptSubmit").unwrap();
+        let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        // The path should be quoted
+        assert!(command.contains("'/my path/with spaces/hook.js'"));
+        assert!(command.ends_with(" UserPromptSubmit"));
+    }
+
+    #[test]
+    fn generate_hooks_config_escapes_path_with_spaces() {
+        let config = generate_hooks_config("http://localhost:7432", "/my path/hook.js");
+        let hooks = config.get("hooks").unwrap();
+        let stop = hooks.get("Stop").unwrap();
+        let first_matcher = stop.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        // The path should be quoted
+        assert!(command.contains("'/my path/hook.js'"));
+    }
+
+    #[test]
+    fn generate_hooks_settings_with_api_escapes_special_token() {
+        let config = generate_hooks_settings_with_api(
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            Some("token with spaces"),
+        );
+        let hooks = config.get("hooks").unwrap();
+        let user_prompt = hooks.get("UserPromptSubmit").unwrap();
+        let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        // The token should be quoted
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='token with spaces'"));
+    }
+
+    #[test]
+    fn generate_hooks_settings_with_config_full_escaping() {
+        let config = generate_hooks_settings_with_config(HooksConfig {
+            hook_script_path: "/path with spaces/hook.js",
+            api_url: Some("http://localhost:7432"),
+            api_token: Some("my$token"),
+            run_id: Some("run-123"),
+            ticket_id: Some("ticket 456"),
+        });
+        let hooks = config.get("hooks").unwrap();
+        let stop = hooks.get("Stop").unwrap();
+        let first_matcher = stop.as_array().unwrap().first().unwrap();
+        let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
+        let command = first_hook.get("command").unwrap().as_str().unwrap();
+        
+        // Path should be quoted
+        assert!(command.contains("'/path with spaces/hook.js'"));
+        // Token with special char should be quoted
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='my$token'"));
+        // Ticket ID with space should be quoted
+        assert!(command.contains("AGENT_KANBAN_TICKET_ID='ticket 456'"));
+        // Simple run ID should not be quoted
+        assert!(command.contains("AGENT_KANBAN_RUN_ID=run-123"));
     }
 }

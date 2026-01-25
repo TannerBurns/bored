@@ -197,4 +197,30 @@ mod tests {
         assert_eq!(cloned.user_hooks_installed, status.user_hooks_installed);
         assert_eq!(cloned.hook_script_path, status.hook_script_path);
     }
+
+    #[test]
+    fn get_api_token_uses_provided_value() {
+        let result = get_api_token(Some("my-token".to_string()));
+        assert_eq!(result, Some("my-token".to_string()));
+    }
+
+    #[test]
+    fn get_api_token_returns_none_when_not_provided() {
+        std::env::remove_var("AGENT_KANBAN_API_TOKEN");
+        let result = get_api_token(None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn get_api_url_uses_provided_value() {
+        let result = get_api_url(Some("http://custom:8080".to_string()));
+        assert_eq!(result, "http://custom:8080");
+    }
+
+    #[test]
+    fn get_api_url_uses_default_when_not_provided() {
+        std::env::remove_var("AGENT_KANBAN_API_URL");
+        let result = get_api_url(None);
+        assert_eq!(result, DEFAULT_API_URL);
+    }
 }

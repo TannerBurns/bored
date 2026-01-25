@@ -41,6 +41,9 @@ async function handleHook(event, input) {
     case 'PreToolUse':
       handlePreToolUse(input);
       break;
+    case 'PostToolUse':
+      handlePostToolUse(input);
+      break;
     case 'PostToolUseFailure':
       console.error(`Tool ${input.tool_name || 'unknown'} failed: ${input.error || ''}`);
       break;
@@ -117,8 +120,21 @@ function handlePreToolUse(input) {
 
     for (const pattern of sensitivePatterns) {
       if (pattern.test(filePath)) {
-        console.error(`Warning: Accessing sensitive file: ${filePath}`);
+        console.error(`Blocked access to sensitive file: ${filePath}`);
+        process.exit(2);
       }
+    }
+  }
+}
+
+function handlePostToolUse(input) {
+  const tool = input.tool_name || '';
+  const toolOutput = input.tool_output || {};
+  
+  if (tool === 'Bash') {
+    const exitCode = toolOutput.exit_code;
+    if (typeof exitCode === 'number' && exitCode !== 0) {
+      console.error(`Command exited with code ${exitCode}`);
     }
   }
 }
