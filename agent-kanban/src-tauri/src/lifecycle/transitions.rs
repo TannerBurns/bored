@@ -57,17 +57,16 @@ impl<'a> TransitionExecutor<'a> {
     fn get_ticket(&self, ticket_id: &str) -> Result<TicketInfo, DbError> {
         self.db.with_conn(|conn| {
             conn.query_row(
-                r#"SELECT t.id, t.board_id, c.name as column_name, t.locked_by_run_id
+                r#"SELECT t.board_id, c.name as column_name, t.locked_by_run_id
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.id = ?"#,
                 [ticket_id],
                 |row| {
                     Ok(TicketInfo {
-                        id: row.get(0)?,
-                        board_id: row.get(1)?,
-                        column_name: row.get(2)?,
-                        locked_by_run_id: row.get(3)?,
+                        board_id: row.get(0)?,
+                        column_name: row.get(1)?,
+                        locked_by_run_id: row.get(2)?,
                     })
                 },
             ).map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))
@@ -115,9 +114,7 @@ impl TransitionResult {
     }
 }
 
-#[allow(dead_code)]
 struct TicketInfo {
-    id: String,
     board_id: String,
     column_name: String,
     locked_by_run_id: Option<String>,
