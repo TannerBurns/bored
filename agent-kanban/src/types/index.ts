@@ -126,3 +126,15 @@ export interface NormalizedEvent {
   };
   timestamp: Date;
 }
+
+export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface CreateTicketInput {
+  title: string;
+  descriptionMd: string;
+  priority: Priority;
+  labels: string[];
+  columnId: string;
+  projectId?: string;
+  agentPref?: 'cursor' | 'claude' | 'any';
+}

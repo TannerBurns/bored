@@ -4,7 +4,7 @@ import * as tauri from '../lib/tauri';
 
 export function useBoard(boardId?: string) {
   const {
-    activeBoard,
+    currentBoard,
     columns,
     tickets,
     isLoading,
@@ -30,12 +30,10 @@ export function useBoard(boardId?: string) {
 
   const moveTicket = useCallback(async (ticketId: string, columnId: string) => {
     try {
-      // Optimistic update
-      moveTicketInStore(ticketId, columnId);
+      await moveTicketInStore(ticketId, columnId);
       await tauri.moveTicket(ticketId, columnId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to move ticket');
-      // Reload tickets to reset state
       if (boardId) {
         loadTickets(boardId);
       }
@@ -49,7 +47,7 @@ export function useBoard(boardId?: string) {
   }, [boardId, loadTickets]);
 
   return {
-    activeBoard,
+    currentBoard,
     columns,
     tickets,
     isLoading,

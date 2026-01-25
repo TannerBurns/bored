@@ -1,5 +1,16 @@
-import { DndContext, DragEndEvent, closestCenter } from '@dnd-kit/core';
+import { useState } from 'react';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCorners,
+} from '@dnd-kit/core';
 import { Column } from './Column';
+import { TicketPreview } from './TicketPreview';
 import type { Column as ColumnType, Ticket as TicketType } from '../../types';
 
 interface BoardProps {
@@ -10,30 +21,59 @@ interface BoardProps {
 }
 
 export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardProps) {
+  const [activeTicket, setActiveTicket] = useState<TicketType | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const ticket = tickets.find((t) => t.id === event.active.id);
+    setActiveTicket(ticket || null);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    
+    setActiveTicket(null);
+
     if (!over) return;
-    
+
     const ticketId = active.id as string;
-    const newColumnId = over.id as string;
-    const isColumn = columns.some(col => col.id === newColumnId);
-    if (isColumn) {
-      const ticket = tickets.find(t => t.id === ticketId);
-      if (ticket && ticket.columnId !== newColumnId) {
-        onTicketMove(ticketId, newColumnId);
+    const overId = over.id as string;
+
+    let targetColumnId: string | null = null;
+    const column = columns.find((c) => c.id === overId);
+    if (column) {
+      targetColumnId = column.id;
+    } else {
+      const targetTicket = tickets.find((t) => t.id === overId);
+      if (targetTicket) {
+        targetColumnId = targetTicket.columnId;
+      }
+    }
+
+    if (targetColumnId) {
+      const ticket = tickets.find((t) => t.id === ticketId);
+      if (ticket && ticket.columnId !== targetColumnId) {
+        onTicketMove(ticketId, targetColumnId);
       }
     }
   };
 
-  const getTicketsForColumn = (columnId: string) => {
-    return tickets.filter(t => t.columnId === columnId);
-  };
+  const handleDragCancel = () => setActiveTicket(null);
+
+  const getTicketsForColumn = (columnId: string) =>
+    tickets.filter((t) => t.columnId === columnId);
 
   return (
     <DndContext
-      collisionDetection={closestCenter}
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="flex gap-4 h-full overflow-x-auto pb-4">
         {columns
@@ -47,6 +87,14 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
             />
           ))}
       </div>
+
+      <DragOverlay dropAnimation={null}>
+        {activeTicket && (
+          <div className="rotate-3 opacity-90">
+            <TicketPreview ticket={activeTicket} />
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   );
 }

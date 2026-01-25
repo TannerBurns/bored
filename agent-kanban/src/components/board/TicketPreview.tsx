@@ -1,41 +1,23 @@
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
 import { PRIORITY_BORDER_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType } from '../../types';
 
-interface TicketProps {
+interface TicketPreviewProps {
   ticket: TicketType;
-  onClick?: () => void;
 }
 
-export function Ticket({ ticket, onClick }: TicketProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: ticket.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
+/**
+ * A non-interactive preview of a ticket for use in DragOverlay.
+ * Unlike Ticket, this component does not use useSortable since DragOverlay
+ * renders outside of SortableContext.
+ */
+export function TicketPreview({ ticket }: TicketPreviewProps) {
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={onClick}
       className={cn(
-        'bg-board-card p-3 rounded-md cursor-pointer border-l-4',
-        'hover:ring-1 hover:ring-board-accent transition-all',
-        PRIORITY_BORDER_COLORS[ticket.priority],
-        isDragging && 'opacity-50 ring-2 ring-board-accent shadow-lg'
+        'bg-board-card p-3 rounded-md cursor-grabbing border-l-4',
+        'ring-2 ring-board-accent shadow-lg',
+        PRIORITY_BORDER_COLORS[ticket.priority]
       )}
     >
       <h4 className="font-medium text-white text-sm mb-2">{ticket.title}</h4>
