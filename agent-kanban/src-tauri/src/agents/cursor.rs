@@ -44,31 +44,50 @@ pub fn build_command_with_settings(
 }
 
 pub fn generate_hooks_json(hook_script_path: &str) -> serde_json::Value {
-    generate_hooks_json_with_api(hook_script_path, None, None)
+    generate_hooks_json_with_api(hook_script_path, None, None, None)
+}
+
+/// Configuration for generating hooks.json
+#[derive(Debug, Clone, Default)]
+pub struct HooksConfig<'a> {
+    pub hook_script_path: &'a str,
+    pub api_url: Option<&'a str>,
+    pub api_token: Option<&'a str>,
+    pub run_id: Option<&'a str>,
 }
 
 pub fn generate_hooks_json_with_api(
     hook_script_path: &str,
     api_url: Option<&str>,
     api_token: Option<&str>,
+    run_id: Option<&str>,
 ) -> serde_json::Value {
-    let env = match (api_url, api_token) {
-        (Some(url), Some(token)) => Some(serde_json::json!({
-            "AGENT_KANBAN_API_URL": url,
-            "AGENT_KANBAN_API_TOKEN": token
-        })),
-        (Some(url), None) => Some(serde_json::json!({
-            "AGENT_KANBAN_API_URL": url
-        })),
-        (None, Some(token)) => Some(serde_json::json!({
-            "AGENT_KANBAN_API_TOKEN": token
-        })),
-        (None, None) => None,
-    };
+    generate_hooks_json_with_config(HooksConfig {
+        hook_script_path,
+        api_url,
+        api_token,
+        run_id,
+    })
+}
+
+pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value {
+    let mut env_map = serde_json::Map::new();
+    
+    if let Some(url) = config.api_url {
+        env_map.insert("AGENT_KANBAN_API_URL".to_string(), serde_json::json!(url));
+    }
+    if let Some(token) = config.api_token {
+        env_map.insert("AGENT_KANBAN_API_TOKEN".to_string(), serde_json::json!(token));
+    }
+    if let Some(run_id) = config.run_id {
+        env_map.insert("AGENT_KANBAN_RUN_ID".to_string(), serde_json::json!(run_id));
+    }
+    
+    let env = if env_map.is_empty() { None } else { Some(serde_json::Value::Object(env_map)) };
     
     let make_hook = |event: &str| {
         let mut hook = serde_json::json!({
-            "command": hook_script_path,
+            "command": config.hook_script_path,
             "args": [event]
         });
         if let Some(ref env_obj) = env {
@@ -123,10 +142,20 @@ pub fn install_hooks(
     api_url: Option<&str>,
     api_token: Option<&str>,
 ) -> std::io::Result<()> {
+    install_hooks_with_run_id(repo_path, hook_script_path, api_url, api_token, None)
+}
+
+pub fn install_hooks_with_run_id(
+    repo_path: &Path,
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+    run_id: Option<&str>,
+) -> std::io::Result<()> {
     let cursor_dir = repo_path.join(".cursor");
     std::fs::create_dir_all(&cursor_dir)?;
 
-    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token);
+    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token, run_id);
     let hooks_path = cursor_dir.join("hooks.json");
     
     std::fs::write(
@@ -146,6 +175,15 @@ pub fn install_global_hooks(
     api_url: Option<&str>,
     api_token: Option<&str>,
 ) -> std::io::Result<()> {
+    install_global_hooks_with_run_id(hook_script_path, api_url, api_token, None)
+}
+
+pub fn install_global_hooks_with_run_id(
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+    run_id: Option<&str>,
+) -> std::io::Result<()> {
     let hooks_path = global_hooks_path().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -157,7 +195,7 @@ pub fn install_global_hooks(
         std::fs::create_dir_all(parent)?;
     }
 
-    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token);
+    let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token, run_id);
     std::fs::write(
         hooks_path,
         serde_json::to_string_pretty(&hooks_json).unwrap(),
@@ -449,7 +487,7 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_api_includes_env() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"), None);
+        let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"), None, None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
         
@@ -459,7 +497,7 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_api_none_has_no_env() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", None, None);
+        let config = generate_hooks_json_with_api("/path/to/hook.js", None, None, None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
         
@@ -489,6 +527,7 @@ mod tests {
             "/path/to/hook.js",
             Some("http://localhost:7432"),
             Some("test-token-123"),
+            None,
         );
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
@@ -506,7 +545,7 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_token_only_includes_token_env() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"));
+        let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"), None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook = hooks.get("beforeShellExecution").unwrap();
         
@@ -515,6 +554,32 @@ mod tests {
         assert_eq!(
             env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
             "test-token-456"
+        );
+    }
+
+    #[test]
+    fn generate_hooks_json_with_run_id_includes_run_id_env() {
+        let config = generate_hooks_json_with_api(
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            Some("test-token"),
+            Some("run-12345"),
+        );
+        let hooks = config.get("hooks").unwrap();
+        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        
+        let env = shell_hook.get("env").unwrap();
+        assert_eq!(
+            env.get("AGENT_KANBAN_RUN_ID").unwrap().as_str().unwrap(),
+            "run-12345"
+        );
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
+            "http://localhost:7432"
+        );
+        assert_eq!(
+            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
+            "test-token"
         );
     }
 

@@ -26,14 +26,27 @@ pub async fn get_cursor_status(app: AppHandle) -> Result<CursorStatus, String> {
 
 const DEFAULT_API_URL: &str = "http://127.0.0.1:7432";
 
+/// Get the API token, preferring the provided value, falling back to env var
+fn get_api_token(provided: Option<String>) -> Option<String> {
+    provided.or_else(|| std::env::var("AGENT_KANBAN_API_TOKEN").ok())
+}
+
+/// Get the API URL, preferring the provided value, falling back to env var
+fn get_api_url(provided: Option<String>) -> String {
+    provided
+        .or_else(|| std::env::var("AGENT_KANBAN_API_URL").ok())
+        .unwrap_or_else(|| DEFAULT_API_URL.to_string())
+}
+
 #[tauri::command]
 pub async fn install_cursor_hooks_global(
     hook_script_path: String,
     api_url: Option<String>,
     api_token: Option<String>,
 ) -> Result<(), String> {
-    let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
-    cursor::install_global_hooks(&hook_script_path, Some(url), api_token.as_deref())
+    let url = get_api_url(api_url);
+    let token = get_api_token(api_token);
+    cursor::install_global_hooks(&hook_script_path, Some(&url), token.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -44,8 +57,9 @@ pub async fn install_cursor_hooks_project(
     api_url: Option<String>,
     api_token: Option<String>,
 ) -> Result<(), String> {
-    let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
-    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(url), api_token.as_deref())
+    let url = get_api_url(api_url);
+    let token = get_api_token(api_token);
+    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(&url), token.as_deref())
         .map_err(|e| e.to_string())
 }
 
