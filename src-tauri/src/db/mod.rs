@@ -199,6 +199,28 @@ impl Database {
         })
     }
     
+    /// Update the run_id that owns a repository lock.
+    /// Used when a temporary run_id is replaced with the actual run ID after creation.
+    /// Only updates if the lock is currently held by old_run_id.
+    pub fn update_repo_lock_owner(
+        &self,
+        project_id: &str,
+        old_run_id: &str,
+        new_run_id: &str,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                "UPDATE repo_locks SET locked_by_run_id = ? WHERE project_id = ? AND locked_by_run_id = ?",
+                rusqlite::params![new_run_id, project_id, old_run_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound("Repo lock not found or not owned by this run".to_string()));
+            }
+            Ok(())
+        })
+    }
+    
     /// Extend an existing repository lock.
     /// Only extends if the lock is held by the specified run_id.
     pub fn extend_repo_lock(
@@ -393,6 +415,45 @@ mod tests {
             
             // Try to extend with wrong run_id
             let result = db.extend_repo_lock(&project_id, "run-wrong", expires);
+            
+            assert!(matches!(result, Err(DbError::NotFound(_))));
+        }
+
+        #[test]
+        fn update_repo_lock_owner_success() {
+            let db = create_test_db();
+            let project_id = setup_project(&db);
+            
+            let expires = Utc::now() + Duration::minutes(30);
+            db.acquire_repo_lock(&project_id, "temp-run-id", expires).unwrap();
+            
+            // Update owner from temp to actual run id
+            let result = db.update_repo_lock_owner(&project_id, "temp-run-id", "actual-run-id");
+            assert!(result.is_ok());
+            
+            // Now extend should work with new run id
+            let new_expires = Utc::now() + Duration::minutes(60);
+            let extend_result = db.extend_repo_lock(&project_id, "actual-run-id", new_expires);
+            assert!(extend_result.is_ok());
+            
+            // And release should work with new run id
+            db.release_repo_lock(&project_id, "actual-run-id").unwrap();
+            
+            // Lock should now be released
+            let acquired = db.acquire_repo_lock(&project_id, "run-3", expires).unwrap();
+            assert!(acquired);
+        }
+
+        #[test]
+        fn update_repo_lock_owner_wrong_old_id_fails() {
+            let db = create_test_db();
+            let project_id = setup_project(&db);
+            
+            let expires = Utc::now() + Duration::minutes(30);
+            db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
+            
+            // Try to update with wrong old_run_id
+            let result = db.update_repo_lock_owner(&project_id, "wrong-id", "new-id");
             
             assert!(matches!(result, Err(DbError::NotFound(_))));
         }

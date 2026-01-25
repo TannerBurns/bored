@@ -198,6 +198,13 @@ impl Worker {
 
         // Re-lock with actual run ID (atomic reservation used temporary ID)
         self.db.lock_ticket(&ticket.id, &run.id, lock_expires)?;
+        
+        // Update repo lock to use actual run ID (was acquired with temporary run_id)
+        if let Some(ref pid) = project_id {
+            if let Err(e) = self.db.update_repo_lock_owner(pid, &run_id, &run.id) {
+                tracing::warn!("Failed to update repo lock owner for project {}: {}", pid, e);
+            }
+        }
 
         if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
             if let Some(in_progress) = columns.iter().find(|c| c.name == "In Progress") {
