@@ -11,13 +11,13 @@ use crate::db::Database;
 
 /// Shared state for tracking running agents
 pub struct RunningAgents {
-    pub handles: Mutex<HashMap<String, CancelHandle>>,
+    pub handles: Arc<Mutex<HashMap<String, CancelHandle>>>,
 }
 
 impl RunningAgents {
     pub fn new() -> Self {
         Self {
-            handles: Mutex::new(HashMap::new()),
+            handles: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -68,7 +68,7 @@ pub async fn start_agent_run(
     agent_type: String,
     repo_path: String,
     db: State<'_, Arc<Database>>,
-    running_agents: State<'_, Arc<RunningAgents>>,
+    running_agents: State<'_, RunningAgents>,
 ) -> Result<String, String> {
     tracing::info!("Starting {} agent run for ticket: {}", agent_type, ticket_id);
 
@@ -122,8 +122,8 @@ pub async fn start_agent_run(
     let run_id_for_cleanup = run_id.clone();
     let window_clone = window.clone();
 
-    // Clone the Arc<RunningAgents> so we can move it into the async task
-    let running_agents_clone = running_agents.inner().clone();
+    // Clone the Arc<Mutex<HashMap>> so we can move it into the async task
+    let running_agents_handles = running_agents.handles.clone();
 
     tauri::async_runtime::spawn(async move {
         if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
@@ -149,14 +149,13 @@ pub async fn start_agent_run(
         let config_clone = config.clone();
         let on_log_clone = on_log.clone();
 
-        // Clone running_agents for use in the spawn callback
-        let running_agents_for_spawn = running_agents_clone.clone();
+        // Clone handles for use in the spawn callback
+        let handles_for_spawn = running_agents_handles.clone();
         let run_id_for_spawn = run_id_for_task.clone();
 
         // Create the callback to store the cancel handle when the process spawns
         let on_spawn: agents::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
-            running_agents_for_spawn
-                .handles
+            handles_for_spawn
                 .lock()
                 .unwrap()
                 .insert(run_id_for_spawn.clone(), cancel_handle);
@@ -172,8 +171,7 @@ pub async fn start_agent_run(
         .await;
 
         // Clean up the cancel handle now that the run is complete
-        running_agents_clone
-            .handles
+        running_agents_handles
             .lock()
             .unwrap()
             .remove(&run_id_for_cleanup);
@@ -248,7 +246,7 @@ pub async fn start_agent_run(
 pub async fn cancel_agent_run(
     run_id: String,
     db: State<'_, Arc<Database>>,
-    running_agents: State<'_, Arc<RunningAgents>>,
+    running_agents: State<'_, RunningAgents>,
 ) -> Result<(), String> {
     tracing::info!("Cancelling agent run: {}", run_id);
 
