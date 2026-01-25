@@ -209,40 +209,48 @@ export function TicketModal({
 
           {/* Comments */}
           <div>
-            <h3 className="text-sm font-medium text-gray-400 mb-3">
-              Comments ({comments.length})
-            </h3>
+            {/* Filter comments to only show those for this ticket as a defensive measure */}
+            {(() => {
+              const ticketComments = comments.filter((c) => c.ticketId === ticket.id);
+              return (
+                <>
+                  <h3 className="text-sm font-medium text-gray-400 mb-3">
+                    Comments ({ticketComments.length})
+                  </h3>
 
-            <div className="space-y-3 mb-4">
-              {comments.map((comment) => (
-                <div key={comment.id} className="p-3 bg-gray-800 rounded">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className={cn(
-                        'text-xs px-1.5 py-0.5 rounded',
-                        comment.authorType === 'agent'
-                          ? 'bg-purple-600'
-                          : comment.authorType === 'system'
-                          ? 'bg-gray-600'
-                          : 'bg-blue-600'
-                      )}
-                    >
-                      {comment.authorType}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {formatDistanceToNow(new Date(comment.createdAt))} ago
-                    </span>
+                  <div className="space-y-3 mb-4">
+                    {ticketComments.map((comment) => (
+                      <div key={comment.id} className="p-3 bg-gray-800 rounded">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={cn(
+                              'text-xs px-1.5 py-0.5 rounded',
+                              comment.authorType === 'agent'
+                                ? 'bg-purple-600'
+                                : comment.authorType === 'system'
+                                ? 'bg-gray-600'
+                                : 'bg-blue-600'
+                            )}
+                          >
+                            {comment.authorType}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {formatDistanceToNow(new Date(comment.createdAt))} ago
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                          {comment.bodyMd}
+                        </p>
+                      </div>
+                    ))}
+
+                    {ticketComments.length === 0 && (
+                      <p className="text-sm text-gray-500">No comments yet</p>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                    {comment.bodyMd}
-                  </p>
-                </div>
-              ))}
-
-              {comments.length === 0 && (
-                <p className="text-sm text-gray-500">No comments yet</p>
-              )}
-            </div>
+                </>
+              );
+            })()}
 
             {/* Add comment */}
             <div className="flex gap-2">
