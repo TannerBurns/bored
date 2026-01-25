@@ -1,7 +1,22 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { EventTimeline } from '../timeline/EventTimeline';
+import { isTauri } from '../../lib/utils';
 import type { AgentRun, RunStatus } from '../../types';
+
+interface AgentLogEvent {
+  runId: string;
+  stream: 'stdout' | 'stderr';
+  content: string;
+  timestamp: string;
+}
+
+interface LogEntry {
+  id: string;
+  stream: 'stdout' | 'stderr';
+  content: string;
+  timestamp: Date;
+}
 
 interface RunDetailsPanelProps {
   runId: string;
@@ -38,14 +53,20 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'timeline' | 'logs'>('timeline');
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   
-  // Use ref to track status for polling without triggering effect re-runs
   const statusRef = useRef<RunStatus | undefined>(undefined);
+  const logsEndRef = useRef<HTMLDivElement>(null);
   
-  // Keep ref in sync with run status
   useEffect(() => {
     statusRef.current = run?.status;
   }, [run?.status]);
+
+  useEffect(() => {
+    if (activeTab === 'logs' && logsEndRef.current?.scrollIntoView) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, activeTab]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -53,11 +74,53 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
       setRun(data);
       setError(null);
     } catch (err) {
-      console.error('Failed to load run:', err);
       setError(err instanceof Error ? err.message : 'Failed to load run');
     } finally {
       setIsLoading(false);
     }
+  }, [runId]);
+
+  useEffect(() => {
+    setLogs([]);
+    
+    if (!isTauri()) return;
+    
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    
+    const setupListener = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        const unlistenFn = await listen<AgentLogEvent>('agent-log', (event) => {
+          if (event.payload.runId === runId) {
+            const entry: LogEntry = {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              stream: event.payload.stream,
+              content: event.payload.content,
+              timestamp: new Date(event.payload.timestamp),
+            };
+            setLogs((prev) => [...prev, entry]);
+          }
+        });
+        
+        if (cancelled) {
+          unlistenFn();
+        } else {
+          unlisten = unlistenFn;
+        }
+      } catch {
+        // Tauri events unavailable
+      }
+    };
+    
+    setupListener();
+    
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
   }, [runId]);
 
   useEffect(() => {
@@ -173,11 +236,29 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         {activeTab === 'timeline' ? (
           <EventTimeline runId={runId} />
         ) : (
-          <div className="font-mono text-xs text-gray-300 whitespace-pre-wrap">
-            <p className="text-gray-500 italic">
-              Log output will appear here during execution.
-            </p>
-            {/* TODO: Integrate with agent-log events from Tauri */}
+          <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5">
+            {logs.length === 0 ? (
+              <p className="text-board-text-muted italic">
+                {run?.status === 'running' || run?.status === 'queued'
+                  ? 'Waiting for log output...'
+                  : 'No log output captured for this run.'}
+              </p>
+            ) : (
+              logs.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`py-0.5 ${
+                    entry.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
+                  }`}
+                >
+                  <span className="text-board-text-muted select-none">
+                    [{entry.timestamp.toLocaleTimeString()}]
+                  </span>{' '}
+                  {entry.content}
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
           </div>
         )}
       </div>

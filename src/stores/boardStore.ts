@@ -201,27 +201,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           const currentComments = get().comments;
           const fetchedIds = new Set(fetchedComments.map((c) => c.id));
           const localComments = currentComments.filter(
-            (c) => c.id.startsWith('comment-') && !fetchedIds.has(c.id)
+            (c) => c.id.startsWith('comment-') && c.ticketId === ticketId && !fetchedIds.has(c.id)
           );
           set({ comments: [...fetchedComments, ...localComments] });
         }
-      } else {
-        // Guard against race condition for non-Tauri mode too
-        if (get().selectedTicket?.id === ticketId) {
-          // Preserve any locally-added comments in non-Tauri mode
-          const currentComments = get().comments;
-          const localComments = currentComments.filter((c) => c.id.startsWith('comment-'));
-          set({ comments: localComments });
-        }
       }
+      // In non-Tauri (demo) mode, comments are stored in memory and persist for the session
+      // No action needed - comments are already in the store and TicketModal filters by ticketId
     } catch (error) {
       console.error('Failed to load comments:', error);
-      // On error, preserve locally-added comments if this ticket is still selected
-      if (get().selectedTicket?.id === ticketId) {
-        const currentComments = get().comments;
-        const localComments = currentComments.filter((c) => c.id.startsWith('comment-'));
-        set({ comments: localComments });
-      }
+      // On error in Tauri mode, keep existing comments for this ticket
     }
   },
 
@@ -246,13 +235,17 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   openTicketModal: (ticket: Ticket) => {
-    // Clear comments immediately to prevent showing stale data from previous ticket
-    set({ selectedTicket: ticket, isTicketModalOpen: true, comments: [] });
+    // In demo mode, we keep all comments in memory and filter by ticketId when displaying
+    // In Tauri mode, comments are loaded from the backend
+    // We don't clear comments here to preserve locally-added comments in demo mode
+    set({ selectedTicket: ticket, isTicketModalOpen: true });
     get().loadComments(ticket.id);
   },
 
   closeTicketModal: () => {
-    set({ isTicketModalOpen: false, selectedTicket: null, comments: [] });
+    // Don't clear comments - in demo mode they should persist in memory for the session
+    // In Tauri mode, they'll be reloaded from the backend anyway
+    set({ isTicketModalOpen: false, selectedTicket: null });
   },
 
   openCreateModal: () => set({ isCreateModalOpen: true }),

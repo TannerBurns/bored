@@ -293,13 +293,14 @@ describe('useBoardStore', () => {
       expect(useBoardStore.getState().selectedTicket).toEqual(mockTicket);
     });
 
-    it('clears comments immediately when opening ticket modal', () => {
+    it('preserves comments when opening ticket modal (for demo mode persistence)', () => {
       useBoardStore.setState({ comments: [mockComment] });
       useBoardStore.getState().openTicketModal(mockTicket);
-      expect(useBoardStore.getState().comments).toEqual([]);
+      // Comments are preserved so they persist across modal opens in demo mode
+      expect(useBoardStore.getState().comments).toEqual([mockComment]);
     });
 
-    it('closes ticket modal and clears state', () => {
+    it('closes ticket modal and clears selectedTicket but preserves comments', () => {
       useBoardStore.setState({
         isTicketModalOpen: true,
         selectedTicket: mockTicket,
@@ -308,7 +309,8 @@ describe('useBoardStore', () => {
       useBoardStore.getState().closeTicketModal();
       expect(useBoardStore.getState().isTicketModalOpen).toBe(false);
       expect(useBoardStore.getState().selectedTicket).toBeNull();
-      expect(useBoardStore.getState().comments).toEqual([]);
+      // Comments are preserved for demo mode - they persist for the session
+      expect(useBoardStore.getState().comments).toEqual([mockComment]);
     });
 
     it('opens and closes create modal', () => {
@@ -321,12 +323,14 @@ describe('useBoardStore', () => {
   });
 
   describe('loadComments', () => {
-    it('clears server-fetched comments in demo mode when ticket is selected', async () => {
+    it('preserves all comments in demo mode when ticket is selected', async () => {
+      // In demo mode, all comments are preserved for session persistence
       // Server-fetched comments have IDs that don't start with "comment-"
       const serverComment: Comment = { ...mockComment, id: 'server-comment-1' };
       useBoardStore.setState({ comments: [serverComment], selectedTicket: mockTicket });
       await useBoardStore.getState().loadComments('ticket-1');
-      expect(useBoardStore.getState().comments).toEqual([]);
+      // Comments are preserved in demo mode
+      expect(useBoardStore.getState().comments).toEqual([serverComment]);
     });
 
     it('preserves locally-added comments in demo mode (race condition fix)', async () => {

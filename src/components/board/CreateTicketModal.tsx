@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cn } from '../../lib/utils';
+import { useSettingsStore } from '../../stores/settingsStore';
 import type { Column, Ticket, CreateTicketInput } from '../../types';
 
 interface CreateTicketModalProps {
@@ -15,13 +16,15 @@ export function CreateTicketModal({
   onClose,
   onCreate,
 }: CreateTicketModalProps) {
+  const { defaultAgentPref } = useSettingsStore();
+  
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [labelsInput, setLabelsInput] = useState('');
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
   const [projectId, setProjectId] = useState('');
-  const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>('any');
+  const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>(defaultAgentPref);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,15 +86,15 @@ export function CreateTicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-board-column rounded-lg shadow-xl">
+      <div className="relative w-full max-w-lg bg-board-column rounded-xl shadow-2xl border border-board-border">
         <form onSubmit={handleSubmit}>
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-700">
-            <h2 className="text-lg font-semibold text-white">Create Ticket</h2>
+          <div className="flex items-center justify-between p-4 border-b border-board-border">
+            <h2 className="text-lg font-semibold text-board-text">Create Ticket</h2>
             <button
               type="button"
               onClick={onClose}
-              className="p-1 text-gray-400 hover:text-white transition-colors"
+              className="p-1 text-board-text-muted hover:text-board-text transition-colors"
               aria-label="Close"
             >
               <svg
@@ -115,7 +118,7 @@ export function CreateTicketModal({
           <div className="p-4 space-y-4">
             {/* Error message */}
             {error && (
-              <div className="p-3 bg-red-900 bg-opacity-30 border border-red-700 rounded text-sm text-red-200">
+              <div className="p-3 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error">
                 {error}
               </div>
             )}
@@ -124,9 +127,9 @@ export function CreateTicketModal({
             <div>
               <label
                 htmlFor="title"
-                className="block text-sm font-medium text-gray-400 mb-1"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
-                Title <span className="text-red-400">*</span>
+                Title <span className="text-status-error">*</span>
               </label>
               <input
                 id="title"
@@ -134,7 +137,7 @@ export function CreateTicketModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What needs to be done?"
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 autoFocus
               />
             </div>
@@ -143,7 +146,7 @@ export function CreateTicketModal({
             <div>
               <label
                 htmlFor="description"
-                className="block text-sm font-medium text-gray-400 mb-1"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
                 Description
               </label>
@@ -153,7 +156,7 @@ export function CreateTicketModal({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Add more details, acceptance criteria, etc."
                 rows={4}
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
             </div>
 
@@ -162,7 +165,7 @@ export function CreateTicketModal({
               <div>
                 <label
                   htmlFor="column"
-                  className="block text-sm font-medium text-gray-400 mb-1"
+                  className="block text-sm font-medium text-board-text-secondary mb-1.5"
                 >
                   Column
                 </label>
@@ -170,7 +173,7 @@ export function CreateTicketModal({
                   id="column"
                   value={columnId}
                   onChange={(e) => setColumnId(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-board-accent"
+                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 >
                   {columns.map((col) => (
                     <option key={col.id} value={col.id}>
@@ -183,7 +186,7 @@ export function CreateTicketModal({
               <div>
                 <label
                   htmlFor="priority"
-                  className="block text-sm font-medium text-gray-400 mb-1"
+                  className="block text-sm font-medium text-board-text-secondary mb-1.5"
                 >
                   Priority
                 </label>
@@ -193,7 +196,7 @@ export function CreateTicketModal({
                   onChange={(e) =>
                     setPriority(e.target.value as 'low' | 'medium' | 'high' | 'urgent')
                   }
-                  className="w-full px-3 py-2 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-board-accent"
+                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 >
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
@@ -207,7 +210,7 @@ export function CreateTicketModal({
             <div>
               <label
                 htmlFor="agentPref"
-                className="block text-sm font-medium text-gray-400 mb-1"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
                 Agent Preference
               </label>
@@ -217,7 +220,7 @@ export function CreateTicketModal({
                 onChange={(e) =>
                   setAgentPref(e.target.value as 'cursor' | 'claude' | 'any')
                 }
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               >
                 <option value="any">Any Agent</option>
                 <option value="cursor">Cursor</option>
@@ -229,7 +232,7 @@ export function CreateTicketModal({
             <div>
               <label
                 htmlFor="labels"
-                className="block text-sm font-medium text-gray-400 mb-1"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
                 Labels (comma-separated)
               </label>
@@ -239,7 +242,7 @@ export function CreateTicketModal({
                 value={labelsInput}
                 onChange={(e) => setLabelsInput(e.target.value)}
                 placeholder="bug, frontend, urgent"
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
             </div>
 
@@ -247,7 +250,7 @@ export function CreateTicketModal({
             <div>
               <label
                 htmlFor="projectId"
-                className="block text-sm font-medium text-gray-400 mb-1"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
                 Project ID
               </label>
@@ -257,17 +260,17 @@ export function CreateTicketModal({
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
                 placeholder="Optional project identifier"
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
             </div>
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end gap-2 p-4 border-t border-gray-700">
+          <div className="flex justify-end gap-2 p-4 border-t border-board-border">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+              className="px-4 py-2 text-board-text-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
@@ -275,8 +278,8 @@ export function CreateTicketModal({
               type="submit"
               disabled={isSubmitting || !title.trim()}
               className={cn(
-                'px-4 py-2 bg-board-accent text-white rounded transition-colors',
-                'hover:bg-opacity-80 disabled:opacity-50 disabled:cursor-not-allowed'
+                'px-4 py-2 bg-board-accent text-white rounded-lg transition-colors',
+                'hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed'
               )}
             >
               {isSubmitting ? 'Creating...' : 'Create Ticket'}

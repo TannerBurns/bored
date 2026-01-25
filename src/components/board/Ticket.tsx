@@ -32,36 +32,36 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       {...listeners}
       onClick={onClick}
       className={cn(
-        'bg-board-card p-3 rounded-md cursor-pointer border-l-4',
-        'hover:ring-1 hover:ring-board-accent transition-all',
+        'bg-board-card p-3 rounded-lg cursor-pointer border-l-4 border border-board-border border-l-4',
+        'hover:bg-board-card-hover hover:shadow-md transition-all duration-150',
         PRIORITY_BORDER_COLORS[ticket.priority],
         isDragging && 'opacity-50 ring-2 ring-board-accent shadow-lg'
       )}
     >
-      <h4 className="font-medium text-white text-sm mb-2">{ticket.title}</h4>
+      <h4 className="font-medium text-board-text text-sm mb-2">{ticket.title}</h4>
       
       {ticket.labels.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {ticket.labels.slice(0, 3).map((label) => (
             <span
               key={label}
-              className="text-xs px-2 py-0.5 bg-board-column rounded-full text-gray-300"
+              className="text-xs px-2 py-0.5 bg-board-surface rounded-full text-board-text-secondary"
             >
               {label}
             </span>
           ))}
           {ticket.labels.length > 3 && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-board-text-muted">
               +{ticket.labels.length - 3}
             </span>
           )}
         </div>
       )}
       
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-board-text-muted">
         <span>{ticket.agentPref || 'any'}</span>
         {ticket.lockedByRunId && (
-          <span className="text-yellow-500">Running</span>
+          <span className="text-status-warning font-medium">Running</span>
         )}
       </div>
     </div>

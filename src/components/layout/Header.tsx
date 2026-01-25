@@ -10,9 +10,9 @@ export function Header({ title, subtitle, action }: HeaderProps) {
   return (
     <header className="mb-6 flex items-start justify-between">
       <div>
-        <h2 className="text-2xl font-semibold text-white">{title}</h2>
+        <h2 className="text-2xl font-semibold text-board-text">{title}</h2>
         {subtitle && (
-          <p className="text-gray-400 mt-1">{subtitle}</p>
+          <p className="text-board-text-muted mt-1">{subtitle}</p>
         )}
       </div>
       {action && <div>{action}</div>}

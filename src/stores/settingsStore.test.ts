@@ -30,6 +30,11 @@ describe('useSettingsStore', () => {
       useSettingsStore.getState().setTheme('dark');
       expect(useSettingsStore.getState().theme).toBe('dark');
     });
+
+    it('sets theme to system', () => {
+      useSettingsStore.getState().setTheme('system');
+      expect(useSettingsStore.getState().theme).toBe('system');
+    });
   });
 
   describe('setDefaultAgentPref', () => {

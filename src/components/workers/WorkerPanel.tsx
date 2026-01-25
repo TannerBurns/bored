@@ -90,11 +90,11 @@ export function WorkerPanel({ projects }: Props) {
   const getStatusColor = (status: WorkerStatus['status']) => {
     switch (status) {
       case 'running':
-        return 'bg-green-500';
+        return 'bg-status-success';
       case 'idle':
-        return 'bg-yellow-500';
+        return 'bg-status-warning';
       case 'stopped':
-        return 'bg-gray-500';
+        return 'bg-board-text-muted';
     }
   };
 
@@ -107,11 +107,11 @@ export function WorkerPanel({ projects }: Props) {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-gray-100">Agent Workers</h2>
+        <h2 className="text-xl font-semibold text-board-text">Agent Workers</h2>
         {workers.length > 0 && (
           <button
             onClick={handleStopAll}
-            className="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+            className="px-3 py-1.5 bg-status-error text-white text-sm rounded-lg hover:opacity-90 transition-colors"
           >
             Stop All
           </button>
@@ -119,43 +119,45 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {error && (
-        <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-200 text-sm">
+        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-3 text-status-error text-sm">
           {error}
         </div>
       )}
 
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-400 mb-3">Queue Status</h3>
+      {/* Queue Status Cards */}
+      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+        <h3 className="text-sm font-medium text-board-text-muted mb-4">Queue Status</h3>
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-gray-700 rounded p-3 text-center">
-            <div className="text-3xl font-bold text-gray-100">{queueStatus.readyCount}</div>
-            <div className="text-sm text-gray-400">Ready</div>
+          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+            <div className="text-3xl font-bold text-board-text">{queueStatus.readyCount}</div>
+            <div className="text-sm text-board-text-muted mt-1">Ready</div>
           </div>
-          <div className="bg-gray-700 rounded p-3 text-center">
-            <div className="text-3xl font-bold text-gray-100">{queueStatus.inProgressCount}</div>
-            <div className="text-sm text-gray-400">In Progress</div>
+          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+            <div className="text-3xl font-bold text-status-warning">{queueStatus.inProgressCount}</div>
+            <div className="text-sm text-board-text-muted mt-1">In Progress</div>
           </div>
-          <div className="bg-gray-700 rounded p-3 text-center">
-            <div className="text-3xl font-bold text-gray-100">{queueStatus.workerCount}</div>
-            <div className="text-sm text-gray-400">Workers</div>
+          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+            <div className="text-3xl font-bold text-status-success">{queueStatus.workerCount}</div>
+            <div className="text-sm text-board-text-muted mt-1">Workers</div>
           </div>
         </div>
       </div>
 
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-400 mb-3">Start New Worker</h3>
+      {/* Start New Worker */}
+      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+        <h3 className="text-sm font-medium text-board-text-muted mb-4">Start New Worker</h3>
 
-        <div className="space-y-3">
-          <div className="flex gap-4">
+        <div className="space-y-4">
+          <div className="flex gap-6">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="agentType"
                 checked={newWorkerType === 'cursor'}
                 onChange={() => setNewWorkerType('cursor')}
-                className="w-4 h-4 text-blue-600"
+                className="w-4 h-4 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-gray-200">Cursor</span>
+              <span className="text-board-text">Cursor</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -163,16 +165,16 @@ export function WorkerPanel({ projects }: Props) {
                 name="agentType"
                 checked={newWorkerType === 'claude'}
                 onChange={() => setNewWorkerType('claude')}
-                className="w-4 h-4 text-blue-600"
+                className="w-4 h-4 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-gray-200">Claude</span>
+              <span className="text-board-text">Claude</span>
             </label>
           </div>
 
           <select
             value={newWorkerProject}
             onChange={(e) => setNewWorkerProject(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-700 rounded text-sm text-gray-200 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
           >
             <option value="">All projects (no filter)</option>
             {projects.map((project) => (
@@ -185,18 +187,22 @@ export function WorkerPanel({ projects }: Props) {
           <button
             onClick={handleStartWorker}
             disabled={isStarting}
-            className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full px-4 py-2.5 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
             {isStarting ? 'Starting...' : 'Start Worker'}
           </button>
         </div>
       </div>
 
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-400 mb-3">Active Workers</h3>
+      {/* Active Workers */}
+      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+        <h3 className="text-sm font-medium text-board-text-muted mb-4">Active Workers</h3>
 
         {workers.length === 0 ? (
-          <p className="text-gray-500 text-sm">No workers running</p>
+          <div className="text-center py-8">
+            <div className="text-board-text-muted text-sm">No workers running</div>
+            <p className="text-board-text-muted/60 text-xs mt-1">Start a worker above to begin processing tickets</p>
+          </div>
         ) : (
           <div className="space-y-3">
             {workers.map((worker) => {
@@ -204,36 +210,36 @@ export function WorkerPanel({ projects }: Props) {
               return (
                 <div
                   key={worker.id}
-                  className="flex items-center justify-between bg-gray-700 rounded p-3"
+                  className="flex items-center justify-between bg-board-surface-raised rounded-xl p-4 border border-board-border"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span
                         className={`w-2 h-2 rounded-full ${getStatusColor(worker.status)}`}
                       />
-                      <span className="font-medium text-gray-200">
+                      <span className="font-medium text-board-text">
                         {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
                       </span>
-                      <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-600 rounded">
+                      <span className="text-xs text-board-text-muted px-2 py-0.5 bg-board-surface rounded-full">
                         {worker.status}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-400 mt-1 truncate">
+                    <div className="text-xs text-board-text-muted mt-1.5 truncate">
                       {project ? project.name : 'All projects'} •{' '}
                       {worker.ticketsProcessed} processed
                     </div>
                     {worker.currentTicketId && (
-                      <div className="text-xs text-blue-400 mt-1 truncate">
+                      <div className="text-xs text-board-accent mt-1 truncate">
                         Working on: {worker.currentTicketId.substring(0, 8)}...
                       </div>
                     )}
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-xs text-board-text-muted/60 mt-1">
                       Last poll: {formatDate(worker.lastPollAt)}
                     </div>
                   </div>
                   <button
                     onClick={() => handleStopWorker(worker.id)}
-                    className="px-3 py-1 bg-gray-600 text-sm text-gray-200 rounded hover:bg-gray-500 transition-colors ml-3"
+                    className="px-3 py-1.5 bg-board-surface border border-board-border text-sm text-board-text-secondary rounded-lg hover:bg-board-card-hover transition-colors ml-3"
                   >
                     Stop
                   </button>
@@ -244,9 +250,10 @@ export function WorkerPanel({ projects }: Props) {
         )}
       </div>
 
-      <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-4 text-sm">
-        <h4 className="font-medium text-blue-200 mb-2">How Workers Operate</h4>
-        <ul className="text-blue-100/70 space-y-1 list-disc list-inside">
+      {/* Info Card */}
+      <div className="bg-status-info/10 border border-status-info/30 rounded-xl p-4 text-sm">
+        <h4 className="font-medium text-status-info mb-2">How Workers Operate</h4>
+        <ul className="text-board-text-secondary space-y-1 list-disc list-inside">
           <li>Workers continuously poll for tickets in the Ready column</li>
           <li>Each ticket is locked while being processed</li>
           <li>Heartbeats prevent lock expiration during work</li>

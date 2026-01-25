@@ -80,22 +80,22 @@ export function TicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] bg-board-column rounded-lg shadow-xl overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-2xl max-h-[90vh] bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
         {/* Header */}
-        <div className="flex items-start justify-between p-4 border-b border-gray-700">
+        <div className="flex items-start justify-between p-4 border-b border-board-border">
           <div className="flex-1 pr-4">
             {isEditing ? (
               <input
                 type="text"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="w-full px-2 py-1 bg-gray-700 rounded text-white text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-2 py-1 bg-board-surface-raised rounded-lg text-board-text text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 autoFocus
               />
             ) : (
-              <h2 className="text-lg font-semibold text-white">{ticket.title}</h2>
+              <h2 className="text-lg font-semibold text-board-text">{ticket.title}</h2>
             )}
-            <div className="flex items-center gap-2 mt-2 text-sm text-gray-400">
+            <div className="flex items-center gap-2 mt-2 text-sm text-board-text-muted">
               <span
                 className={cn(
                   'px-2 py-0.5 rounded text-white text-xs',
@@ -113,7 +113,7 @@ export function TicketModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1 text-board-text-muted hover:text-board-text transition-colors"
             aria-label="Close"
           >
             <svg
@@ -141,7 +141,7 @@ export function TicketModal({
               {ticket.labels.map((label) => (
                 <span
                   key={label}
-                  className="px-2 py-1 text-sm bg-gray-600 rounded text-gray-200"
+                  className="px-2 py-1 text-sm bg-board-surface rounded-full text-board-text-secondary"
                 >
                   {label}
                 </span>
@@ -151,7 +151,7 @@ export function TicketModal({
 
           {/* Description */}
           <div>
-            <h3 className="text-sm font-medium text-gray-400 mb-2">
+            <h3 className="text-sm font-medium text-board-text-muted mb-2">
               Description
             </h3>
             {isEditing ? (
@@ -159,13 +159,13 @@ export function TicketModal({
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={6}
-                className="w-full px-3 py-2 bg-gray-700 rounded text-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 placeholder="Add a description..."
               />
             ) : (
-              <div className="prose prose-sm prose-invert max-w-none bg-gray-800 rounded p-3">
+              <div className="prose prose-sm max-w-none bg-board-surface rounded-lg p-3 text-board-text-secondary">
                 {ticket.descriptionMd || (
-                  <span className="text-gray-500 italic">No description</span>
+                  <span className="text-board-text-muted italic">No description</span>
                 )}
               </div>
             )}
@@ -174,8 +174,8 @@ export function TicketModal({
           {/* Project info */}
           {ticket.projectId && (
             <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-1">Project</h3>
-              <code className="text-sm text-gray-300 bg-gray-800 px-2 py-1 rounded">
+              <h3 className="text-sm font-medium text-board-text-muted mb-1">Project</h3>
+              <code className="text-sm text-board-text-secondary bg-board-surface px-2 py-1 rounded">
                 {ticket.projectId}
               </code>
             </div>
@@ -184,10 +184,10 @@ export function TicketModal({
           {/* Agent preference */}
           {ticket.agentPref && (
             <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-1">
+              <h3 className="text-sm font-medium text-board-text-muted mb-1">
                 Agent Preference
               </h3>
-              <span className="text-sm text-gray-300">
+              <span className="text-sm text-board-text-secondary">
                 {ticket.agentPref === 'cursor'
                   ? 'Cursor'
                   : ticket.agentPref === 'claude'
@@ -199,9 +199,9 @@ export function TicketModal({
 
           {/* Running agent indicator */}
           {ticket.lockedByRunId && (
-            <div className="p-3 bg-yellow-900 bg-opacity-30 rounded border border-yellow-700">
-              <p className="text-sm text-yellow-200 flex items-center gap-2">
-                <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+            <div className="p-3 bg-status-warning/10 rounded-lg border border-status-warning/30">
+              <p className="text-sm text-status-warning flex items-center gap-2">
+                <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
                 This ticket is currently being worked on by an agent
               </p>
             </div>
@@ -214,38 +214,38 @@ export function TicketModal({
               const ticketComments = comments.filter((c) => c.ticketId === ticket.id);
               return (
                 <>
-                  <h3 className="text-sm font-medium text-gray-400 mb-3">
+                  <h3 className="text-sm font-medium text-board-text-muted mb-3">
                     Comments ({ticketComments.length})
                   </h3>
 
                   <div className="space-y-3 mb-4">
                     {ticketComments.map((comment) => (
-                      <div key={comment.id} className="p-3 bg-gray-800 rounded">
+                      <div key={comment.id} className="p-3 bg-board-surface rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
                           <span
                             className={cn(
-                              'text-xs px-1.5 py-0.5 rounded',
+                              'text-xs px-1.5 py-0.5 rounded-full text-white',
                               comment.authorType === 'agent'
-                                ? 'bg-purple-600'
+                                ? 'bg-board-accent'
                                 : comment.authorType === 'system'
-                                ? 'bg-gray-600'
-                                : 'bg-blue-600'
+                                ? 'bg-board-text-muted'
+                                : 'bg-status-info'
                             )}
                           >
                             {comment.authorType}
                           </span>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-board-text-muted">
                             {formatDistanceToNow(new Date(comment.createdAt))} ago
                           </span>
                         </div>
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                        <p className="text-sm text-board-text-secondary whitespace-pre-wrap">
                           {comment.bodyMd}
                         </p>
                       </div>
                     ))}
 
                     {ticketComments.length === 0 && (
-                      <p className="text-sm text-gray-500">No comments yet</p>
+                      <p className="text-sm text-board-text-muted">No comments yet</p>
                     )}
                   </div>
                 </>
@@ -260,12 +260,12 @@ export function TicketModal({
                 onChange={(e) => setNewComment(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
                 placeholder="Add a comment..."
-                className="flex-1 px-3 py-2 bg-gray-700 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-board-accent"
+                className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
               <button
                 onClick={handleAddComment}
                 disabled={isSubmitting || !newComment.trim()}
-                className="px-4 py-2 bg-board-accent text-white text-sm rounded hover:bg-opacity-80 disabled:opacity-50 transition-colors"
+                className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
               >
                 {isSubmitting ? 'Sending...' : 'Send'}
               </button>
@@ -274,19 +274,19 @@ export function TicketModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-700">
+        <div className="flex items-center justify-between p-4 border-t border-board-border">
           <div className="flex gap-2">
             {!ticket.lockedByRunId && onRunWithAgent && (
               <>
                 <button
                   onClick={() => onRunWithAgent(ticket.id, 'cursor')}
-                  className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded hover:bg-opacity-80 transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover transition-colors flex items-center gap-1"
                 >
                   <span>Run with Cursor</span>
                 </button>
                 <button
                   onClick={() => onRunWithAgent(ticket.id, 'claude')}
-                  className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-opacity-80 transition-colors flex items-center gap-1"
+                  className="px-3 py-1.5 bg-status-success text-white text-sm rounded-lg hover:opacity-90 transition-colors flex items-center gap-1"
                 >
                   <span>Run with Claude</span>
                 </button>
@@ -303,14 +303,14 @@ export function TicketModal({
                     setEditTitle(ticket.title);
                     setEditDescription(ticket.descriptionMd);
                   }}
-                  className="px-3 py-1.5 text-gray-400 text-sm hover:text-white transition-colors"
+                  className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-opacity-80 disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
                 >
                   {isSaving ? 'Saving...' : 'Save'}
                 </button>
@@ -318,7 +318,7 @@ export function TicketModal({
             ) : (
               <button
                 onClick={() => setIsEditing(true)}
-                className="px-3 py-1.5 text-gray-400 text-sm hover:text-white transition-colors"
+                className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
               >
                 Edit
               </button>
