@@ -22,6 +22,11 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
 
 /// Generate a ticket prompt with optional workflow instructions for the given agent type
 pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<AgentKind>) -> String {
+    generate_ticket_prompt_full(ticket, agent_kind, true)
+}
+
+/// Generate a ticket prompt with full control over workflow options
+pub fn generate_ticket_prompt_full(ticket: &Ticket, agent_kind: Option<AgentKind>, requires_git: bool) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
@@ -54,13 +59,22 @@ pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<
     }
 
     if let Some(kind) = agent_kind {
-        // Use char-based iteration to safely handle multi-byte UTF-8 characters
-        let id_prefix: String = ticket.id.chars().take(8).collect();
-        let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
         prompt.push_str("## Workflow\n\n");
-        prompt.push_str(&format!("1. Create a branch: `{}`\n", branch_name));
-        prompt.push_str("2. Create a plan before implementing\n");
-        prompt.push_str("3. After implementation, run this QA sequence:\n\n");
+        
+        let mut step = 1;
+        
+        // Only include git branch step if git is required
+        if requires_git {
+            // Use char-based iteration to safely handle multi-byte UTF-8 characters
+            let id_prefix: String = ticket.id.chars().take(8).collect();
+            let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
+            prompt.push_str(&format!("{}. Create a branch: `{}`\n", step, branch_name));
+            step += 1;
+        }
+        
+        prompt.push_str(&format!("{}. Create a plan before implementing\n", step));
+        step += 1;
+        prompt.push_str(&format!("{}. After implementation, run this QA sequence:\n\n", step));
         
         match kind {
             AgentKind::Cursor => {
@@ -71,7 +85,9 @@ pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<
                 prompt.push_str("   - `/review-changes` - Apply best practices\n");
                 prompt.push_str("   - `/cleanup` - Final lint pass\n");
                 prompt.push_str("   - `/review-changes` - Second review pass\n");
-                prompt.push_str("   - `/add-and-commit` - Stage and commit with detailed message\n");
+                if requires_git {
+                    prompt.push_str("   - `/add-and-commit` - Stage and commit with detailed message\n");
+                }
             }
             AgentKind::Claude => {
                 prompt.push_str("   Read and follow each command file in order:\n");
@@ -82,7 +98,9 @@ pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<
                 prompt.push_str("   - `.claude/commands/review-changes.md` - Apply best practices\n");
                 prompt.push_str("   - `.claude/commands/cleanup.md` - Final lint pass\n");
                 prompt.push_str("   - `.claude/commands/review-changes.md` - Second review pass\n");
-                prompt.push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
+                if requires_git {
+                    prompt.push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
+                }
             }
         }
         prompt.push('\n');
@@ -354,5 +372,52 @@ mod tests {
         let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
         // Takes first 8 chars: a, 🎉, b, c, d, e, f, g
         assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
+    }
+    
+    #[test]
+    fn generate_ticket_prompt_full_without_git_cursor() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), false);
+        
+        // Should have workflow section
+        assert!(prompt.contains("## Workflow"));
+        
+        // Should NOT have git-related steps
+        assert!(!prompt.contains("Create a branch:"));
+        assert!(!prompt.contains("/add-and-commit"));
+        
+        // Should still have non-git workflow steps
+        assert!(prompt.contains("/deslop"));
+        assert!(prompt.contains("/cleanup"));
+        assert!(prompt.contains("/unit-tests"));
+        assert!(prompt.contains("/review-changes"));
+    }
+    
+    #[test]
+    fn generate_ticket_prompt_full_without_git_claude() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Claude), false);
+        
+        // Should have workflow section
+        assert!(prompt.contains("## Workflow"));
+        
+        // Should NOT have git-related steps
+        assert!(!prompt.contains("Create a branch:"));
+        assert!(!prompt.contains("add-and-commit.md"));
+        
+        // Should still have non-git workflow steps
+        assert!(prompt.contains("deslop.md"));
+        assert!(prompt.contains("cleanup.md"));
+        assert!(prompt.contains("unit-tests.md"));
+    }
+    
+    #[test]
+    fn generate_ticket_prompt_full_with_git_includes_all_steps() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), true);
+        
+        // Should have all workflow steps including git
+        assert!(prompt.contains("Create a branch:"));
+        assert!(prompt.contains("/add-and-commit"));
     }
 }

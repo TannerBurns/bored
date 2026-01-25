@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 2;
+pub const SCHEMA_VERSION: i32 = 3;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS projects (
     
     -- General settings
     settings_json TEXT NOT NULL DEFAULT '{}',
+    
+    -- Whether this project requires git (default true for backward compatibility)
+    requires_git INTEGER NOT NULL DEFAULT 1,
     
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -125,6 +128,33 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Repository-level locks to prevent multiple workers processing same repo
+CREATE TABLE IF NOT EXISTS repo_locks (
+    project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    locked_by_run_id TEXT NOT NULL,
+    lock_expires_at TEXT NOT NULL,
+    locked_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_locks_expires ON repo_locks(lock_expires_at);
+"#;
+
+/// Migration SQL for schema version 3
+/// Adds repo_locks table and requires_git column to projects
+pub const MIGRATION_V3: &str = r#"
+-- Add requires_git column to projects (defaults to true for backward compatibility)
+ALTER TABLE projects ADD COLUMN requires_git INTEGER NOT NULL DEFAULT 1;
+
+-- Repository-level locks to prevent multiple workers processing same repo
+CREATE TABLE IF NOT EXISTS repo_locks (
+    project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    locked_by_run_id TEXT NOT NULL,
+    lock_expires_at TEXT NOT NULL,
+    locked_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_locks_expires ON repo_locks(lock_expires_at);
 "#;
 
 /// Default columns for a new board

@@ -22,15 +22,17 @@ impl Default for CleanupConfig {
 pub struct CleanupResult {
     pub released_tickets: Vec<String>,
     pub aborted_runs: Vec<String>,
+    pub released_repo_locks: usize,
 }
 
 impl CleanupResult {
     pub fn is_empty(&self) -> bool {
-        self.released_tickets.is_empty() && self.aborted_runs.is_empty()
+        self.released_tickets.is_empty() && self.aborted_runs.is_empty() && self.released_repo_locks == 0
     }
 }
 
 pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
+    let released_repo_locks = db.cleanup_expired_repo_locks()?;
     db.with_conn(|conn| {
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -50,6 +52,7 @@ pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
             return Ok(CleanupResult {
                 released_tickets: vec![],
                 aborted_runs: vec![],
+                released_repo_locks,
             });
         }
 
@@ -80,6 +83,7 @@ pub fn cleanup_expired_locks(db: &Database) -> Result<CleanupResult, DbError> {
         Ok(CleanupResult {
             released_tickets: ticket_ids,
             aborted_runs: run_ids,
+            released_repo_locks,
         })
     })
 }
@@ -100,8 +104,9 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
                 Ok(result) => {
                     if !result.is_empty() {
                         tracing::info!(
-                            "Cleanup: released {} expired locks, aborted {} runs",
+                            "Cleanup: released {} expired ticket locks, {} repo locks, aborted {} runs",
                             result.released_tickets.len(),
+                            result.released_repo_locks,
                             result.aborted_runs.len()
                         );
 
@@ -111,6 +116,10 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
 
                         for run_id in &result.aborted_runs {
                             tracing::debug!("Marked run {} as aborted due to lock expiration", run_id);
+                        }
+                        
+                        if result.released_repo_locks > 0 {
+                            tracing::debug!("Released {} expired repo locks", result.released_repo_locks);
                         }
                     }
                 }
@@ -262,20 +271,30 @@ mod tests {
         let empty = CleanupResult {
             released_tickets: vec![],
             aborted_runs: vec![],
+            released_repo_locks: 0,
         };
         assert!(empty.is_empty());
 
         let with_tickets = CleanupResult {
             released_tickets: vec!["t1".to_string()],
             aborted_runs: vec![],
+            released_repo_locks: 0,
         };
         assert!(!with_tickets.is_empty());
 
         let with_runs = CleanupResult {
             released_tickets: vec![],
             aborted_runs: vec!["r1".to_string()],
+            released_repo_locks: 0,
         };
         assert!(!with_runs.is_empty());
+        
+        let with_repo_locks = CleanupResult {
+            released_tickets: vec![],
+            aborted_runs: vec![],
+            released_repo_locks: 1,
+        };
+        assert!(!with_repo_locks.is_empty());
     }
 
     #[test]
@@ -333,5 +352,64 @@ mod tests {
 
         assert_eq!(result.released_tickets.len(), 2);
         assert_eq!(result.aborted_runs.len(), 2);
+    }
+    
+    #[test]
+    fn cleanup_releases_expired_repo_locks() {
+        use crate::db::models::CreateProject;
+        
+        let db = setup_test_db();
+        
+        // Create a project
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: std::env::temp_dir().to_string_lossy().to_string(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        // Acquire an expired repo lock
+        let expired_time = Utc::now() - ChronoDuration::minutes(5);
+        db.acquire_repo_lock(&project.id, "old-run", expired_time).unwrap();
+        
+        // Run cleanup
+        let result = cleanup_expired_locks(&db).unwrap();
+        
+        // Should have released the repo lock
+        assert_eq!(result.released_repo_locks, 1);
+        
+        // New acquisition should succeed
+        let new_expires = Utc::now() + ChronoDuration::minutes(30);
+        let acquired = db.acquire_repo_lock(&project.id, "new-run", new_expires).unwrap();
+        assert!(acquired);
+    }
+    
+    #[test]
+    fn cleanup_does_not_release_valid_repo_locks() {
+        use crate::db::models::CreateProject;
+        
+        let db = setup_test_db();
+        
+        // Create a project
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: std::env::temp_dir().to_string_lossy().to_string(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        // Acquire a valid repo lock
+        let valid_time = Utc::now() + ChronoDuration::minutes(30);
+        db.acquire_repo_lock(&project.id, "current-run", valid_time).unwrap();
+        
+        // Run cleanup
+        let result = cleanup_expired_locks(&db).unwrap();
+        
+        // Should not have released the repo lock
+        assert_eq!(result.released_repo_locks, 0);
+        
+        // New acquisition should fail
+        let acquired = db.acquire_repo_lock(&project.id, "new-run", valid_time).unwrap();
+        assert!(!acquired);
     }
 }

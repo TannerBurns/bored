@@ -31,13 +31,14 @@ impl Database {
 
             conn.execute(
                 r#"INSERT INTO projects 
-                   (id, name, path, preferred_agent, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)"#,
+                   (id, name, path, preferred_agent, requires_git, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     project_id,
                     input.name,
                     canonical_path,
                     input.preferred_agent.as_ref().map(|p| p.as_str()),
+                    input.requires_git as i32,
                     now.to_rfc3339(),
                     now.to_rfc3339(),
                 ],
@@ -54,6 +55,7 @@ impl Database {
                 allow_file_writes: true,
                 blocked_patterns: vec![],
                 settings: serde_json::json!({}),
+                requires_git: input.requires_git,
                 created_at: now,
                 updated_at: now,
             })
@@ -65,7 +67,8 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, name, path, cursor_hooks_installed, claude_hooks_installed,
                           preferred_agent, allow_shell_commands, allow_file_writes,
-                          blocked_patterns_json, settings_json, created_at, updated_at
+                          blocked_patterns_json, settings_json, created_at, updated_at,
+                          requires_git
                    FROM projects ORDER BY name"#,
             )?;
 
@@ -86,6 +89,7 @@ impl Database {
                         allow_file_writes: row.get::<_, i32>(7)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
                         settings: serde_json::from_str(&settings_json).unwrap_or(serde_json::json!({})),
+                        requires_git: row.get::<_, i32>(12).unwrap_or(1) != 0,
                         created_at: parse_datetime(row.get(10)?),
                         updated_at: parse_datetime(row.get(11)?),
                     })
@@ -152,6 +156,13 @@ impl Database {
                 conn.execute(
                     "UPDATE projects SET blocked_patterns_json = ?, updated_at = ? WHERE id = ?",
                     rusqlite::params![json, now, project_id],
+                )?;
+            }
+
+            if let Some(requires_git) = input.requires_git {
+                conn.execute(
+                    "UPDATE projects SET requires_git = ?, updated_at = ? WHERE id = ?",
+                    rusqlite::params![requires_git as i32, now, project_id],
                 )?;
             }
 
@@ -293,6 +304,7 @@ mod tests {
             name: "Bad".to_string(),
             path: "/nonexistent/path/12345".to_string(),
             preferred_agent: None,
+            requires_git: true,
         });
         
         assert!(result.is_err());
@@ -309,6 +321,7 @@ mod tests {
             name: "Bad".to_string(),
             path: file_path.to_string_lossy().to_string(),
             preferred_agent: None,
+            requires_git: true,
         });
         
         assert!(result.is_err());
@@ -325,6 +338,7 @@ mod tests {
             name: "Test".to_string(),
             path: temp.clone(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let found = db.get_project_by_path(&temp).unwrap();
@@ -343,6 +357,7 @@ mod tests {
             name: "Test".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         assert!(!project.cursor_hooks_installed);
@@ -367,6 +382,7 @@ mod tests {
             name: "Test".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let board = db.create_board("Board").unwrap();
@@ -385,6 +401,7 @@ mod tests {
             name: "Test".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let board = db.create_board("Board").unwrap();
@@ -408,6 +425,7 @@ mod tests {
             name: "Test".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         assert!(project.blocked_patterns.is_empty());
@@ -418,6 +436,7 @@ mod tests {
             allow_shell_commands: None,
             allow_file_writes: None,
             blocked_patterns: Some(vec!["*.log".to_string(), "node_modules".to_string()]),
+            requires_git: None,
         }).unwrap();
         
         let updated = db.get_project(&project.id).unwrap().unwrap();
@@ -432,6 +451,7 @@ mod tests {
             name: "Proj".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let board = db.create_board("Board").unwrap();
@@ -463,6 +483,7 @@ mod tests {
             name: "Proj".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let board = db.create_board("Board").unwrap();
@@ -507,5 +528,50 @@ mod tests {
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
         assert!(matches!(check, ReadinessCheck::NoProject(_)));
+    }
+    
+    #[test]
+    fn create_project_with_requires_git_false() {
+        let db = create_test_db();
+        
+        let project = db.create_project(&CreateProject {
+            name: "No Git Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: false,
+        }).unwrap();
+        
+        assert!(!project.requires_git);
+        
+        // Verify it persists
+        let fetched = db.get_project(&project.id).unwrap().unwrap();
+        assert!(!fetched.requires_git);
+    }
+    
+    #[test]
+    fn update_project_requires_git() {
+        let db = create_test_db();
+        
+        let project = db.create_project(&CreateProject {
+            name: "Test".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        assert!(project.requires_git);
+        
+        // Update to not require git
+        db.update_project(&project.id, &UpdateProject {
+            name: None,
+            preferred_agent: None,
+            allow_shell_commands: None,
+            allow_file_writes: None,
+            blocked_patterns: None,
+            requires_git: Some(false),
+        }).unwrap();
+        
+        let updated = db.get_project(&project.id).unwrap().unwrap();
+        assert!(!updated.requires_git);
     }
 }
