@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_done_to_review_allowed() {
-        assert_eq!(can_transition(Review, Done, false, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(Done, Review, false, false), TransitionPermission::Allowed);
     }
 
     #[test]
