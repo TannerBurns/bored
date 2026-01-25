@@ -301,7 +301,7 @@ function getHookResponse(eventType, payload) {
       const command = payload.command || '';
       if (isDangerousCommand(command)) {
         return {
-          continue: true,
+          continue: false,
           permission: 'deny',
           userMessage: 'Blocked by Agent Kanban for safety',
           agentMessage: 'This command was blocked. Please use a safer alternative.',
