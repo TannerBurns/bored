@@ -5,9 +5,4 @@ export { TicketPreview } from './TicketPreview';
 export { TicketModal } from './TicketModal';
 export { CreateTicketModal } from './CreateTicketModal';
 export { AgentControls } from './AgentControls';
-export { 
-  TransitionErrorToast, 
-  validateTransition, 
-  useTransitionValidation,
-  getValidTargets,
-} from './TransitionGuard';
+export { TransitionErrorToast, validateTransition } from './TransitionGuard';

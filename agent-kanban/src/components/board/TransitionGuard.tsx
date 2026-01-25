@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import type { Column, Ticket } from '../../types';
 
 type TicketState = 'Backlog' | 'Ready' | 'In Progress' | 'Blocked' | 'Review' | 'Done';
@@ -65,23 +64,6 @@ export function validateTransition(
   }
 
   return { valid: false, reason: `Cannot move from ${currentState} to ${targetState}` };
-}
-
-export function useTransitionValidation(
-  ticket: Ticket | null | undefined,
-  columns: Column[],
-  targetColumnId: string | null
-): TransitionValidation {
-  return useMemo(() => {
-    if (!ticket || !targetColumnId) {
-      return { valid: true };
-    }
-    return validateTransition(ticket, columns, targetColumnId);
-  }, [ticket, columns, targetColumnId]);
-}
-
-export function getValidTargets(ticket: Ticket, columns: Column[]): Column[] {
-  return columns.filter(column => validateTransition(ticket, columns, column.id).valid);
 }
 
 interface TransitionErrorToastProps {
