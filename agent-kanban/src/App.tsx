@@ -102,15 +102,17 @@ function App() {
     addComment,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
+    setTickets: setStoreTickets,
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
+    const updatedAt = new Date();
     setTickets((prev) =>
       prev.map((t) =>
-        t.id === ticketId ? { ...t, columnId: newColumnId, updatedAt: new Date() } : t
+        t.id === ticketId ? { ...t, columnId: newColumnId, updatedAt } : t
       )
     );
-    await storeMoveTicket(ticketId, newColumnId);
+    await storeMoveTicket(ticketId, newColumnId, updatedAt);
   };
 
   const handleTicketClick = (ticket: Ticket) => openTicketModal(ticket);
@@ -124,6 +126,7 @@ function App() {
     projectId?: string;
     agentPref?: 'cursor' | 'claude' | 'any';
   }) => {
+    const now = new Date();
     const newTicket: Ticket = {
       id: `ticket-${Date.now()}`,
       boardId: 'demo',
@@ -134,10 +137,12 @@ function App() {
       labels: input.labels,
       projectId: input.projectId,
       agentPref: input.agentPref,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
     setTickets((prev) => [...prev, newTicket]);
+    // Sync with store to maintain data consistency
+    setStoreTickets([...tickets, newTicket]);
     return newTicket;
   };
 

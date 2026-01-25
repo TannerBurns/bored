@@ -20,7 +20,7 @@ interface BoardState {
   createBoard: (name: string) => Promise<Board>;
   createTicket: (input: CreateTicketInput) => Promise<Ticket>;
   updateTicket: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
-  moveTicket: (ticketId: string, columnId: string) => Promise<void>;
+  moveTicket: (ticketId: string, columnId: string, updatedAt?: Date) => Promise<void>;
   selectTicket: (ticket: Ticket | null) => void;
   loadComments: (ticketId: string) => Promise<void>;
   addComment: (ticketId: string, body: string) => Promise<void>;
@@ -166,11 +166,16 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }));
   },
 
-  moveTicket: async (ticketId: string, columnId: string) => {
+  moveTicket: async (ticketId: string, columnId: string, updatedAt?: Date) => {
+    const timestamp = updatedAt ?? new Date();
     set((state) => ({
       tickets: state.tickets.map((t) =>
-        t.id === ticketId ? { ...t, columnId, updatedAt: new Date() } : t
+        t.id === ticketId ? { ...t, columnId, updatedAt: timestamp } : t
       ),
+      selectedTicket:
+        state.selectedTicket?.id === ticketId
+          ? { ...state.selectedTicket, columnId, updatedAt: timestamp }
+          : state.selectedTicket,
     }));
 
     try {
