@@ -1,6 +1,45 @@
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  
+  // Hook status
+  cursorHooksInstalled: boolean;
+  claudeHooksInstalled: boolean;
+  
+  // Preferences
+  preferredAgent?: 'cursor' | 'claude' | 'any';
+  
+  // Safety settings
+  allowShellCommands: boolean;
+  allowFileWrites: boolean;
+  blockedPatterns: string[];
+  
+  // General
+  settings: Record<string, unknown>;
+  
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateProjectInput {
+  name: string;
+  path: string;
+  preferredAgent?: 'cursor' | 'claude' | 'any';
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  preferredAgent?: 'cursor' | 'claude' | 'any';
+  allowShellCommands?: boolean;
+  allowFileWrites?: boolean;
+  blockedPatterns?: string[];
+}
+
 export interface Board {
   id: string;
   name: string;
+  defaultProjectId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,9 +64,15 @@ export interface Ticket {
   updatedAt: Date;
   lockedByRunId?: string;
   lockExpiresAt?: Date;
-  repoPath?: string;
+  projectId?: string;
   agentPref?: 'cursor' | 'claude' | 'any';
 }
+
+export type ReadinessCheck =
+  | { ready: { projectId: string } }
+  | { noProject: null }
+  | { projectNotFound: null }
+  | { projectPathMissing: { path: string } };
 
 export interface Comment {
   id: string;
