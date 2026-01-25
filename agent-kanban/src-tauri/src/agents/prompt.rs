@@ -175,4 +175,31 @@ mod tests {
         assert!(prompt.contains("run-1"));
         assert!(prompt.contains("http://localhost:7432"));
     }
+
+    #[test]
+    fn generate_ticket_prompt_low_priority() {
+        let mut ticket = create_test_ticket();
+        ticket.priority = Priority::Low;
+        let prompt = generate_ticket_prompt(&ticket);
+        assert!(prompt.contains("low-priority"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_medium_priority_no_context() {
+        let mut ticket = create_test_ticket();
+        ticket.priority = Priority::Medium;
+        let prompt = generate_ticket_prompt(&ticket);
+        // Medium priority should not add any priority context
+        assert!(!prompt.contains("URGENT"));
+        assert!(!prompt.contains("high-priority"));
+        assert!(!prompt.contains("low-priority"));
+    }
+
+    #[test]
+    fn generate_custom_prompt_with_labels() {
+        let ticket = create_test_ticket();
+        let template = "Labels: {{labels}}";
+        let result = generate_custom_prompt(&ticket, template);
+        assert_eq!(result, "Labels: bug, urgent");
+    }
 }

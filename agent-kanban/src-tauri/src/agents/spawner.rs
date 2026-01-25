@@ -97,12 +97,26 @@ impl AgentProcess {
         loop {
             if cancelled.load(Ordering::Relaxed) {
                 let _ = self.child.kill();
+                // Wait for reader threads to finish before returning
+                if let Some(h) = stdout_handle {
+                    let _ = h.join();
+                }
+                if let Some(h) = stderr_handle {
+                    let _ = h.join();
+                }
                 return Err(SpawnError::Cancelled);
             }
 
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     let _ = self.child.kill();
+                    // Wait for reader threads to finish before returning
+                    if let Some(h) = stdout_handle {
+                        let _ = h.join();
+                    }
+                    if let Some(h) = stderr_handle {
+                        let _ = h.join();
+                    }
                     return Err(SpawnError::Timeout(timeout.unwrap().as_secs()));
                 }
             }
@@ -327,5 +341,34 @@ mod tests {
     fn spawn_error_timeout_message() {
         let err = SpawnError::Timeout(300);
         assert_eq!(err.to_string(), "Process timed out after 300 seconds");
+    }
+
+    #[test]
+    fn spawn_error_cancelled_message() {
+        let err = SpawnError::Cancelled;
+        assert_eq!(err.to_string(), "Process was cancelled");
+    }
+
+    #[test]
+    fn spawn_error_spawn_failed_message() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
+        let err = SpawnError::SpawnFailed(io_err);
+        assert!(err.to_string().contains("Failed to spawn process"));
+    }
+
+    #[test]
+    fn env_vars_count() {
+        let config = AgentRunConfig {
+            kind: AgentKind::Claude,
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/"),
+            prompt: "p".to_string(),
+            timeout_secs: None,
+            api_url: "http://x".to_string(),
+            api_token: "tok".to_string(),
+        };
+        let env_vars = build_env_vars(&config);
+        assert_eq!(env_vars.len(), 5);
     }
 }

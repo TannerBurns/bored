@@ -312,4 +312,46 @@ mod tests {
         assert!(json.contains("durationSecs"));
         assert!(json.contains("exitCode"));
     }
+
+    #[test]
+    fn running_agents_default_same_as_new() {
+        let default = RunningAgents::default();
+        let new = RunningAgents::new();
+        assert!(default.handles.lock().unwrap().is_empty());
+        assert!(new.handles.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn agent_error_event_serializes() {
+        let event = AgentErrorEvent {
+            run_id: "run-1".to_string(),
+            error: "Something went wrong".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("runId"));
+        assert!(json.contains("error"));
+        assert!(json.contains("Something went wrong"));
+    }
+
+    #[test]
+    fn start_run_input_deserializes() {
+        let json = r#"{"ticketId":"t1","agentType":"cursor","repoPath":"/tmp"}"#;
+        let input: StartRunInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.ticket_id, "t1");
+        assert_eq!(input.agent_type, "cursor");
+        assert_eq!(input.repo_path, "/tmp");
+    }
+
+    #[test]
+    fn agent_complete_event_null_exit_code() {
+        let event = AgentCompleteEvent {
+            run_id: "run-1".to_string(),
+            status: "timeout".to_string(),
+            exit_code: None,
+            duration_secs: 3600.0,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"exitCode\":null"));
+    }
+
 }

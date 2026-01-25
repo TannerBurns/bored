@@ -174,4 +174,41 @@ mod tests {
         assert!(hooks.get("PostToolUse").is_some());
         assert!(hooks.get("Stop").is_some());
     }
+
+    #[test]
+    fn build_with_system_prompt_file() {
+        let config = create_test_config();
+        let settings = ClaudeSettings {
+            system_prompt_file: Some("/path/to/prompt.txt".to_string()),
+            ..Default::default()
+        };
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(args.contains(&"--system-prompt-file".to_string()));
+        assert!(args.contains(&"/path/to/prompt.txt".to_string()));
+    }
+
+    #[test]
+    fn build_with_extra_flags() {
+        let config = create_test_config();
+        let settings = ClaudeSettings {
+            extra_flags: vec!["--verbose".to_string(), "--debug".to_string()],
+            ..Default::default()
+        };
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(args.contains(&"--verbose".to_string()));
+        assert!(args.contains(&"--debug".to_string()));
+    }
+
+    #[test]
+    fn system_prompt_takes_precedence_over_file() {
+        let config = create_test_config();
+        let settings = ClaudeSettings {
+            system_prompt: Some("Inline prompt".to_string()),
+            system_prompt_file: Some("/path/to/prompt.txt".to_string()),
+            ..Default::default()
+        };
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(args.contains(&"--append-system-prompt".to_string()));
+        assert!(!args.contains(&"--system-prompt-file".to_string()));
+    }
 }

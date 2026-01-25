@@ -151,4 +151,24 @@ mod tests {
         assert!(hooks.get("afterFileEdit").is_some());
         assert!(hooks.get("stop").is_some());
     }
+
+    #[test]
+    fn build_with_extra_flags() {
+        let config = create_test_config();
+        let settings = CursorSettings {
+            extra_flags: vec!["--verbose".to_string(), "--no-cache".to_string()],
+            ..Default::default()
+        };
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(args.contains(&"--verbose".to_string()));
+        assert!(args.contains(&"--no-cache".to_string()));
+    }
+
+    #[test]
+    fn build_command_includes_output_format() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--output-format".to_string()));
+        assert!(args.contains(&"text".to_string()));
+    }
 }

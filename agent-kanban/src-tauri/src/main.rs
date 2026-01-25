@@ -25,7 +25,7 @@ fn main() {
             let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
 
             app.manage(database.clone());
-            app.manage(Arc::new(RunningAgents::new()));
+            app.manage(RunningAgents::new());
 
             // Configure API server
             let api_config = api::ApiConfig::default();
