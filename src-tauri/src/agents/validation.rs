@@ -63,6 +63,16 @@ pub fn validate_worker_environment(
     repo_path: &Path,
     api_url: Option<&str>,
 ) -> ValidationResult {
+    validate_worker_environment_with_options(agent_type, repo_path, api_url, true)
+}
+
+/// Validate worker environment with configurable git requirement.
+pub fn validate_worker_environment_with_options(
+    agent_type: AgentKind,
+    repo_path: &Path,
+    api_url: Option<&str>,
+    requires_git: bool,
+) -> ValidationResult {
     let mut checks = Vec::new();
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -85,11 +95,18 @@ pub fn validate_worker_environment(
     }
     checks.push(commands_check);
 
-    let git_check = check_git_repository(repo_path);
-    if !git_check.passed {
-        errors.push(git_check.message.clone());
+    if requires_git {
+        let git_check = check_git_repository(repo_path);
+        if !git_check.passed {
+            errors.push(git_check.message.clone());
+        }
+        checks.push(git_check);
+    } else {
+        checks.push(ValidationCheck::pass(
+            "git_repository",
+            "Git not required for this project",
+        ));
     }
-    checks.push(git_check);
 
     if let Some(url) = api_url {
         let api_check = check_api_url_configured(url);
@@ -99,11 +116,11 @@ pub fn validate_worker_environment(
         checks.push(api_check);
     }
 
-    let clean_check = check_git_clean_state(repo_path);
-    if clean_check.is_warning {
-        // Only add to warnings array, not to checks - avoids duplicate display
-        warnings.push(clean_check.message.clone());
-    } else {
+    if requires_git {
+        let clean_check = check_git_clean_state(repo_path);
+        if clean_check.is_warning {
+            warnings.push(clean_check.message.clone());
+        }
         checks.push(clean_check);
     }
 
@@ -259,6 +276,12 @@ pub fn is_environment_valid(agent_type: AgentKind, repo_path: &Path) -> bool {
     result.valid
 }
 
+/// Check if environment is valid with configurable git requirement.
+pub fn is_environment_valid_with_options(agent_type: AgentKind, repo_path: &Path, requires_git: bool) -> bool {
+    let result = validate_worker_environment_with_options(agent_type, repo_path, None, requires_git);
+    result.valid
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +414,49 @@ mod tests {
         assert!(check.is_warning, "Git clean state check should be a warning when there are uncommitted changes");
         assert!(check.passed, "Warnings should have passed=true");
         assert!(check.message.contains("uncommitted"), "Warning message should mention uncommitted changes");
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn validate_with_requires_git_false_skips_git_check() {
+        let temp_dir = std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Validate with requires_git=false - should not fail on missing git
+        let result = validate_worker_environment_with_options(
+            AgentKind::Cursor, 
+            &temp_dir, 
+            None, 
+            false  // requires_git = false
+        );
+        
+        // Check that git_repository check shows "not required"
+        let git_check = result.checks.iter().find(|c| c.name == "git_repository");
+        assert!(git_check.is_some());
+        assert!(git_check.unwrap().passed);
+        assert!(git_check.unwrap().message.contains("not required"));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn validate_with_requires_git_true_fails_on_missing_git() {
+        let temp_dir = std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Validate with requires_git=true - should fail on missing git
+        let result = validate_worker_environment_with_options(
+            AgentKind::Cursor, 
+            &temp_dir, 
+            None, 
+            true  // requires_git = true
+        );
+        
+        // Check that git_repository check fails
+        let git_check = result.checks.iter().find(|c| c.name == "git_repository");
+        assert!(git_check.is_some());
+        assert!(!git_check.unwrap().passed);
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }

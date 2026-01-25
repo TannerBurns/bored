@@ -77,6 +77,9 @@ function App() {
           setBoards(boardsData);
           
           if (boardsData.length > 0) {
+            // Set current board in store so createTicket works
+            setCurrentBoard(boardsData[0]);
+            
             const [columnsData, ticketsData] = await Promise.all([
               getColumns(boardsData[0].id),
               getTickets(boardsData[0].id),
@@ -108,6 +111,7 @@ function App() {
     createTicket: storeCreateTicket,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
+    setCurrentBoard,
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
@@ -149,6 +153,9 @@ function App() {
     try {
       const board = await createBoard('My Board');
       setBoards((prev) => [...prev, board]);
+      
+      // Set as current board so createTicket works
+      setCurrentBoard(board);
       
       // Load the columns for the new board
       const columnsData = await getColumns(board.id);

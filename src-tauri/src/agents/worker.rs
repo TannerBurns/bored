@@ -150,24 +150,101 @@ impl Worker {
             status.last_poll_at = Some(Utc::now());
         }
 
-        let Some(ticket) = self.find_next_ticket()? else {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(self.config.lock_duration_mins);
+
+        let Some(ticket) = self.db.reserve_next_ticket(
+            self.config.project_id.as_deref(),
+            self.config.agent_type,
+            &run_id,
+            lock_expires,
+        )? else {
             return Ok(false);
         };
 
-        tracing::info!("Worker {} processing ticket: {}", self.id, ticket.id);
+        tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
 
-        let repo_path = self.get_repo_path(&ticket)?;
-        let run = self.db.create_run(&CreateRun {
+        let repo_path = match self.get_repo_path(&ticket) {
+            Ok(path) => path,
+            Err(e) => {
+                self.db.unlock_ticket(&ticket.id)?;
+                return Err(e);
+            }
+        };
+
+        let project_id = ticket.project_id.as_ref()
+            .or(self.config.project_id.as_ref())
+            .cloned();
+        
+        if let Some(ref pid) = project_id {
+            if !self.db.acquire_repo_lock(pid, &run_id, lock_expires)? {
+                tracing::debug!(
+                    "Worker {} could not acquire repo lock for project {}, skipping ticket {}",
+                    self.id, pid, ticket.id
+                );
+                self.db.unlock_ticket(&ticket.id)?;
+                return Ok(false);
+            }
+        }
+
+        let run = match self.db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: match self.config.agent_type {
                 AgentKind::Cursor => AgentType::Cursor,
                 AgentKind::Claude => AgentType::Claude,
             },
             repo_path: repo_path.clone(),
-        })?;
+        }) {
+            Ok(run) => run,
+            Err(e) => {
+                // Clean up: unlock ticket and release repo lock (both use temporary run_id)
+                let _ = self.db.unlock_ticket(&ticket.id);
+                if let Some(ref pid) = project_id {
+                    let _ = self.db.release_repo_lock(pid, &run_id);
+                }
+                return Err(e.into());
+            }
+        };
 
-        let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(self.config.lock_duration_mins);
-        self.db.lock_ticket(&ticket.id, &run.id, lock_expires)?;
+        // Re-lock with actual run ID (atomic reservation used temporary ID)
+        if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
+            // Clean up: mark run as error, unlock ticket (still uses temp run_id), release repo lock
+            let _ = self.db.update_run_status(
+                &run.id,
+                RunStatus::Error,
+                None,
+                Some("Failed to re-lock ticket with actual run ID"),
+            );
+            let _ = self.db.unlock_ticket(&ticket.id);
+            if let Some(ref pid) = project_id {
+                let _ = self.db.release_repo_lock(pid, &run_id);
+            }
+            return Err(e.into());
+        }
+        
+        // Update repo lock to use actual run ID (was acquired with temporary run_id).
+        // This MUST succeed; otherwise, the heartbeat and cleanup will use run.id
+        // but the lock is still owned by the temporary run_id, causing both to fail
+        // and leaving the lock held indefinitely.
+        if let Some(ref pid) = project_id {
+            if let Err(e) = self.db.update_repo_lock_owner(pid, &run_id, &run.id) {
+                tracing::error!(
+                    "Failed to update repo lock owner for project {}: {}. Aborting run to prevent orphaned lock.",
+                    pid, e
+                );
+                // Clean up: mark run as error, unlock ticket, release repo lock with original run_id
+                let _ = self.db.update_run_status(
+                    &run.id,
+                    RunStatus::Error,
+                    None,
+                    Some("Failed to update repo lock owner"),
+                );
+                let _ = self.db.unlock_ticket(&ticket.id);
+                // Release with the ORIGINAL temporary run_id since the update failed
+                let _ = self.db.release_repo_lock(pid, &run_id);
+                return Err(format!("Failed to update repo lock owner: {}", e).into());
+            }
+        }
 
         if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
             if let Some(in_progress) = columns.iter().find(|c| c.name == "In Progress") {
@@ -184,8 +261,16 @@ impl Worker {
             status.current_run_id = Some(run.id.clone());
         }
 
-        let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id);
-        let prompt = super::prompt::generate_ticket_prompt_with_workflow(&ticket, Some(self.config.agent_type));
+        let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id, project_id.as_deref());
+        
+        // Determine if this project requires git for workflow instructions
+        let requires_git = project_id
+            .as_ref()
+            .and_then(|pid| self.db.get_project(pid).ok().flatten())
+            .map(|p| p.requires_git)
+            .unwrap_or(true);
+        
+        let prompt = super::prompt::generate_ticket_prompt_full(&ticket, Some(self.config.agent_type), requires_git);
         let result = self.run_agent(&run.id, &repo_path, &prompt).await;
         heartbeat_handle.abort();
 
@@ -238,6 +323,11 @@ impl Worker {
         }
 
         self.db.unlock_ticket(&ticket.id)?;
+        if let Some(ref pid) = project_id {
+            if let Err(e) = self.db.release_repo_lock(pid, &run.id) {
+                tracing::warn!("Failed to release repo lock for project {}: {}", pid, e);
+            }
+        }
 
         {
             let mut status = self.status.lock().expect("status mutex poisoned");
@@ -250,48 +340,6 @@ impl Worker {
         *self.cancel_handle.lock().expect("cancel mutex poisoned") = None;
 
         Ok(true)
-    }
-
-    fn find_next_ticket(&self) -> Result<Option<Ticket>, crate::db::DbError> {
-        let boards = self.db.get_boards()?;
-
-        for board in boards {
-            let columns = self.db.get_columns(&board.id)?;
-
-            let ready_column = match columns.iter().find(|c| c.name == "Ready") {
-                Some(c) => c,
-                None => continue,
-            };
-
-            let tickets = self.db.get_tickets(&board.id, Some(&ready_column.id))?;
-
-            for ticket in tickets {
-                if let Some(ref lock_expires) = ticket.lock_expires_at {
-                    if *lock_expires > Utc::now() {
-                        continue;
-                    }
-                }
-
-                if let Some(ref filter_project_id) = self.config.project_id {
-                    if ticket.project_id.as_ref() != Some(filter_project_id) {
-                        continue;
-                    }
-                }
-
-                if let Some(ref pref) = ticket.agent_pref {
-                    use crate::db::AgentPref;
-                    match (pref, self.config.agent_type) {
-                        (AgentPref::Cursor, AgentKind::Claude) => continue,
-                        (AgentPref::Claude, AgentKind::Cursor) => continue,
-                        _ => {}
-                    }
-                }
-
-                return Ok(Some(ticket));
-            }
-        }
-
-        Ok(None)
     }
 
     fn get_repo_path(&self, ticket: &Ticket) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -310,10 +358,11 @@ impl Worker {
         Err("No project configured for ticket".into())
     }
 
-    fn start_heartbeat(&self, ticket_id: &str, run_id: &str) -> tokio::task::JoinHandle<()> {
+    fn start_heartbeat(&self, ticket_id: &str, run_id: &str, project_id: Option<&str>) -> tokio::task::JoinHandle<()> {
         let db = self.db.clone();
         let ticket_id = ticket_id.to_string();
         let run_id = run_id.to_string();
+        let project_id = project_id.map(|s| s.to_string());
         let interval_secs = self.config.heartbeat_interval_secs;
         let lock_mins = self.config.lock_duration_mins;
         let running = self.running.clone();
@@ -325,12 +374,21 @@ impl Worker {
                 ticker.tick().await;
 
                 let new_expires = chrono::Utc::now() + chrono::Duration::minutes(lock_mins);
-                match db.extend_lock(&ticket_id, &run_id, new_expires) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
+
+                // Extend repo lock first (if applicable) to avoid race condition where
+                // ticket lock is extended but repo lock is not. This ensures we never
+                // have an extended ticket lock without a matching repo lock.
+                if let Some(ref pid) = project_id {
+                    if let Err(e) = db.extend_repo_lock(pid, &run_id, new_expires) {
+                        tracing::error!("Heartbeat failed for repo lock on project {}: {}", pid, e);
                         break;
                     }
+                }
+
+                // Only extend ticket lock after repo lock succeeds
+                if let Err(e) = db.extend_lock(&ticket_id, &run_id, new_expires) {
+                    tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
+                    break;
                 }
             }
         })

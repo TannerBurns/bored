@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use crate::db::{Database, DbError, parse_datetime};
 use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref};
+use crate::agents::AgentKind;
 
 impl Database {
     pub fn get_ticket(&self, ticket_id: &str) -> Result<Ticket, DbError> {
@@ -158,6 +159,76 @@ impl Database {
         })
     }
 
+    /// Atomically reserve the next available ticket from the Ready column.
+    /// 
+    /// This method uses a single UPDATE...WHERE statement to atomically find and lock
+    /// a ticket, preventing race conditions where multiple workers might grab the same ticket.
+    /// 
+    /// Returns Some(ticket) if a ticket was reserved, None if no tickets are available.
+    pub fn reserve_next_ticket(
+        &self,
+        project_filter: Option<&str>,
+        agent_type: AgentKind,
+        run_id: &str,
+        lock_expires_at: DateTime<Utc>,
+    ) -> Result<Option<Ticket>, DbError> {
+        self.with_conn_mut(|conn| {
+            let tx = conn.transaction()?;
+            let now = Utc::now();
+            let now_str = now.to_rfc3339();
+            let expires_str = lock_expires_at.to_rfc3339();
+            
+            let agent_type_str = agent_type.as_str();
+            
+            // Subquery finds next ticket; outer WHERE double-checks lock status for atomicity
+            let affected = tx.execute(
+                r#"UPDATE tickets 
+                   SET locked_by_run_id = ?1, lock_expires_at = ?2, updated_at = ?3
+                   WHERE id = (
+                       SELECT t.id FROM tickets t
+                       JOIN columns c ON t.column_id = c.id
+                       WHERE c.name = 'Ready'
+                         AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
+                         AND (?4 IS NULL OR t.project_id = ?4)
+                         AND (
+                             t.agent_pref IS NULL 
+                             OR t.agent_pref = 'any' 
+                             OR t.agent_pref = ?5
+                         )
+                       ORDER BY 
+                         CASE t.priority 
+                           WHEN 'urgent' THEN 0 
+                           WHEN 'high' THEN 1 
+                           WHEN 'medium' THEN 2 
+                           WHEN 'low' THEN 3 
+                         END,
+                         t.created_at ASC
+                       LIMIT 1
+                   )
+                   AND (locked_by_run_id IS NULL OR lock_expires_at < ?3)"#,
+                rusqlite::params![run_id, expires_str, now_str, project_filter, agent_type_str],
+            )?;
+            
+            if affected == 0 {
+                tx.commit()?;
+                return Ok(None);
+            }
+            
+            let ticket = tx.query_row(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref
+                   FROM tickets WHERE locked_by_run_id = ?1
+                   LIMIT 1"#,
+                [run_id],
+                Self::map_ticket_row,
+            )?;
+            
+            tx.commit()?;
+            Ok(Some(ticket))
+        })
+    }
+
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
         self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
@@ -296,6 +367,25 @@ mod tests {
     fn temp_dir_path() -> String {
         std::env::temp_dir().to_string_lossy().to_string()
     }
+    
+    fn setup_board_with_ready_ticket(db: &Database) -> (String, String, Ticket) {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready_column = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready_column.id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        (board.id, ready_column.id.clone(), ticket)
+    }
 
     #[test]
     fn create_ticket_with_all_fields() {
@@ -375,6 +465,7 @@ mod tests {
             name: "Proj".to_string(),
             path: temp_dir_path(),
             preferred_agent: None,
+            requires_git: true,
         }).unwrap();
         
         let ticket = db.create_ticket(&CreateTicket {
@@ -636,5 +727,279 @@ mod tests {
         
         let still_locked = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(still_locked.locked_by_run_id, Some("run-correct".to_string()));
+    }
+
+    // Tests for atomic reservation
+    
+    #[test]
+    fn reserve_next_ticket_returns_ready_ticket() {
+        let db = create_test_db();
+        let (_board_id, _ready_column_id, ticket) = setup_board_with_ready_ticket(&db);
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        
+        assert!(reserved.is_some());
+        let reserved_ticket = reserved.unwrap();
+        assert_eq!(reserved_ticket.id, ticket.id);
+        assert_eq!(reserved_ticket.locked_by_run_id, Some("run-1".to_string()));
+    }
+    
+    #[test]
+    fn reserve_next_ticket_returns_none_when_no_ready_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        // Create ticket in Backlog, not Ready
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Backlog Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        
+        assert!(reserved.is_none());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_skips_locked_ticket() {
+        let db = create_test_db();
+        let (_board_id, _ready_column_id, ticket) = setup_board_with_ready_ticket(&db);
+        
+        // Lock the ticket
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "existing-run", expires).unwrap();
+        
+        // Try to reserve - should return None since the only ticket is locked
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "new-run", expires).unwrap();
+        assert!(reserved.is_none());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_takes_expired_lock() {
+        let db = create_test_db();
+        let (_board_id, _ready_column_id, ticket) = setup_board_with_ready_ticket(&db);
+        
+        // Lock the ticket with an expired time
+        let expired = Utc::now() - chrono::Duration::minutes(5);
+        db.lock_ticket(&ticket.id, "old-run", expired).unwrap();
+        
+        // Try to reserve - should succeed since the lock is expired
+        let new_expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "new-run", new_expires).unwrap();
+        
+        assert!(reserved.is_some());
+        let reserved_ticket = reserved.unwrap();
+        assert_eq!(reserved_ticket.locked_by_run_id, Some("new-run".to_string()));
+    }
+    
+    #[test]
+    fn reserve_next_ticket_respects_agent_pref_cursor() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create a ticket that prefers Claude
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Claude Only".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: Some(AgentPref::Claude),
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Cursor worker should not get this ticket
+        let cursor_result = db.reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires).unwrap();
+        assert!(cursor_result.is_none());
+        
+        // Claude worker should get this ticket
+        let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
+        assert!(claude_result.is_some());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_respects_project_filter() {
+        let db = create_test_db();
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create ticket for specific project
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Project Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Filter for different project should not find ticket
+        let other_result = db.reserve_next_ticket(Some("other-project"), AgentKind::Cursor, "run-1", expires).unwrap();
+        assert!(other_result.is_none());
+        
+        // Filter for correct project should find ticket
+        let correct_result = db.reserve_next_ticket(Some(&project.id), AgentKind::Cursor, "run-2", expires).unwrap();
+        assert!(correct_result.is_some());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_prioritizes_by_priority_and_age() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create low priority ticket first
+        let _low = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Low Priority".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        // Create urgent ticket second
+        let urgent = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Urgent".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Urgent,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        
+        // Should get the urgent ticket even though low priority was created first
+        assert!(reserved.is_some());
+        assert_eq!(reserved.unwrap().id, urgent.id);
+    }
+    
+    #[test]
+    fn reserve_next_ticket_respects_agent_pref_claude() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create a ticket that prefers Cursor
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Cursor Only".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: Some(AgentPref::Cursor),
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Claude worker should not get this ticket
+        let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
+        assert!(claude_result.is_none());
+        
+        // Cursor worker should get this ticket
+        let cursor_result = db.reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires).unwrap();
+        assert!(cursor_result.is_some());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_any_pref_works_for_both_agents() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create ticket with 'any' preference
+        let ticket1 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Any Agent".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: Some(AgentPref::Any),
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Cursor worker should get the ticket
+        let cursor_result = db.reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires).unwrap();
+        assert!(cursor_result.is_some());
+        assert_eq!(cursor_result.unwrap().id, ticket1.id);
+        
+        // Unlock and try with Claude
+        db.unlock_ticket(&ticket1.id).unwrap();
+        
+        let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
+        assert!(claude_result.is_some());
+        assert_eq!(claude_result.unwrap().id, ticket1.id);
+    }
+    
+    #[test]
+    fn reserve_next_ticket_null_pref_works_for_both_agents() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create ticket with no agent preference (NULL)
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "No Preference".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Both agents should be able to claim it
+        let cursor_result = db.reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires).unwrap();
+        assert!(cursor_result.is_some());
+        
+        db.unlock_ticket(&ticket.id).unwrap();
+        
+        let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
+        assert!(claude_result.is_some());
     }
 }
