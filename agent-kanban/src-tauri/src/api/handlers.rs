@@ -14,6 +14,7 @@ use crate::db::{
     CreateRun, CreateTicket, CreateComment, UpdateTicket, EventType,
     NormalizedEvent, RunStatus, Ticket, AuthorType,
 };
+use crate::lifecycle::{TicketState, TransitionPermission, can_transition};
 
 pub async fn health() -> &'static str {
     "ok"
@@ -182,8 +183,35 @@ pub async fn move_ticket(
     let from_column_id = ticket.column_id.clone();
 
     let columns = state.db.get_columns(&ticket.board_id)?;
-    if !columns.iter().any(|c| c.id == req.column_id) {
-        return Err(AppError::not_found("Column"));
+    
+    let current_column = columns.iter()
+        .find(|c| c.id == from_column_id)
+        .ok_or_else(|| AppError::not_found("Current column"))?;
+    
+    let target_column = columns.iter()
+        .find(|c| c.id == req.column_id)
+        .ok_or_else(|| AppError::not_found("Target column"))?;
+
+    let current_state = TicketState::from_column_name(&current_column.name)
+        .ok_or_else(|| AppError::validation(format!(
+            "Unknown column state: {}", current_column.name
+        )))?;
+
+    let target_state = TicketState::from_column_name(&target_column.name)
+        .ok_or_else(|| AppError::validation(format!(
+            "Unknown target state: {}", target_column.name
+        )))?;
+
+    let is_locked = ticket.locked_by_run_id.is_some() 
+        && ticket.lock_expires_at.is_some_and(|exp| exp > Utc::now());
+    match can_transition(current_state, target_state, is_locked, false) {
+        TransitionPermission::Allowed => {}
+        TransitionPermission::RequiresUnlock => {
+            return Err(AppError::conflict("Ticket is locked by an active run"));
+        }
+        TransitionPermission::Denied(reason) => {
+            return Err(AppError::validation(reason));
+        }
     }
 
     state.db.move_ticket(&ticket_id, &req.column_id)?;

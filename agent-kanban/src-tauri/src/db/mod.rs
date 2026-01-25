@@ -122,3 +122,48 @@ pub(crate) fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(|_| chrono::Utc::now())
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunArtifacts {
+    pub commit_hash: Option<String>,
+    pub files_changed: Vec<String>,
+    pub diff_path: Option<String>,
+    pub transcript_path: Option<String>,
+    pub log_path: Option<String>,
+}
+
+impl Database {
+    pub fn update_run_artifacts(&self, run_id: &str, artifacts: &RunArtifacts) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let metadata = serde_json::to_string(artifacts).unwrap_or_else(|_| "{}".to_string());
+            conn.execute(
+                "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                rusqlite::params![metadata, run_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn get_run_artifacts(&self, run_id: &str) -> Result<Option<RunArtifacts>, DbError> {
+        self.with_conn(|conn| {
+            let metadata: Option<String> = conn.query_row(
+                "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                [run_id],
+                |row| row.get(0),
+            ).ok();
+            Ok(metadata.and_then(|m| serde_json::from_str(&m).ok()))
+        })
+    }
+
+    pub fn release_lock(&self, ticket_id: &str, run_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE tickets SET locked_by_run_id = NULL, lock_expires_at = NULL 
+                 WHERE id = ? AND locked_by_run_id = ?",
+                rusqlite::params![ticket_id, run_id],
+            )?;
+            Ok(())
+        })
+    }
+}
