@@ -14,9 +14,11 @@ pub fn get_default_spool_dir() -> PathBuf {
         .map(|h| h.join("Library").join("Application Support").join("agent-kanban"))
         .unwrap_or_else(|| PathBuf::from("/tmp/agent-kanban"));
 
+    // Use AppData\Roaming to match the JavaScript hook script
+    // (dirs::data_dir() returns AppData\Local which causes a mismatch)
     #[cfg(target_os = "windows")]
-    let base_dir = dirs::data_dir()
-        .map(|d| d.join("agent-kanban"))
+    let base_dir = dirs::home_dir()
+        .map(|h| h.join("AppData").join("Roaming").join("agent-kanban"))
         .unwrap_or_else(|| PathBuf::from("C:\\Temp\\agent-kanban"));
 
     #[cfg(target_os = "linux")]
