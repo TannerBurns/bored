@@ -213,21 +213,6 @@ export function DataSettings() {
         )}
       </div>
 
-      {/* Demo Data Notice */}
-      <div className="bg-status-info/10 border border-status-info/30 rounded-xl p-4 flex items-start gap-3">
-        <svg className="w-5 h-5 text-status-info flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="12" y1="16" x2="12" y2="12" />
-          <line x1="12" y1="8" x2="12.01" y2="8" />
-        </svg>
-        <div>
-          <p className="font-medium text-status-info">Demo Data</p>
-          <p className="text-sm text-board-text-secondary mt-0.5">
-            The app currently shows demo data for preview purposes. Connect to the Tauri backend 
-            to persist real data, or use factory reset to start fresh.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

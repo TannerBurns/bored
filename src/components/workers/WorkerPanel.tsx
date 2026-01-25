@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import type { WorkerStatus, WorkerQueueStatus, AgentType, Project } from '../../types';
+import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';
 import { isTauri } from '../../lib/utils';
+import {
+  validateWorker,
+  installCommandsToUser,
+  getCursorStatus,
+  getClaudeStatus,
+  installCursorHooksProject,
+  installClaudeHooksProject,
+} from '../../lib/tauri';
 
 interface Props {
   projects: Project[];
@@ -18,6 +26,12 @@ export function WorkerPanel({ projects }: Props) {
   const [newWorkerType, setNewWorkerType] = useState<AgentType>('cursor');
   const [newWorkerProject, setNewWorkerProject] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  
+  // Validation state
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     if (!isTauri()) return;
@@ -41,6 +55,77 @@ export function WorkerPanel({ projects }: Props) {
     const interval = setInterval(loadStatus, 5000);
     return () => clearInterval(interval);
   }, [loadStatus]);
+
+  // Validate when project or agent type changes
+  const runValidation = useCallback(async () => {
+    if (!isTauri() || !newWorkerProject) {
+      setValidationResult(null);
+      setValidationError(null);
+      return;
+    }
+
+    const project = projects.find(p => p.id === newWorkerProject);
+    if (!project) {
+      setValidationResult(null);
+      setValidationError(null);
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationError(null);
+    try {
+      const result = await validateWorker(newWorkerType, project.path);
+      setValidationResult(result);
+    } catch (err) {
+      console.error('Validation failed:', err);
+      setValidationResult(null);
+      setValidationError(String(err));
+    } finally {
+      setIsValidating(false);
+    }
+  }, [newWorkerProject, newWorkerType, projects]);
+
+  useEffect(() => {
+    runValidation();
+  }, [runValidation]);
+
+  const handleFix = async (fixAction: string) => {
+    if (!newWorkerProject) return;
+    
+    const project = projects.find(p => p.id === newWorkerProject);
+    if (!project) return;
+
+    setIsFixing(true);
+    setError(null);
+
+    try {
+      if (fixAction === 'install_commands') {
+        // Install commands to user directory (~/.cursor/commands/ or ~/.claude/commands/)
+        await installCommandsToUser(newWorkerType);
+      } else if (fixAction === 'install_hooks') {
+        // Get the hook script path from the agent status
+        if (newWorkerType === 'cursor') {
+          const status = await getCursorStatus();
+          if (!status.hookScriptPath) {
+            throw new Error('Cursor hook script not found. Check Settings > Cursor.');
+          }
+          await installCursorHooksProject(status.hookScriptPath, project.path);
+        } else {
+          const status = await getClaudeStatus();
+          if (!status.hookScriptPath) {
+            throw new Error('Claude hook script not found. Check Settings > Claude.');
+          }
+          await installClaudeHooksProject(status.hookScriptPath, project.path);
+        }
+      }
+      // Re-validate after fix
+      await runValidation();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setIsFixing(false);
+    }
+  };
 
   const handleStartWorker = async () => {
     if (!isTauri()) return;
@@ -184,12 +269,69 @@ export function WorkerPanel({ projects }: Props) {
             ))}
           </select>
 
+          {/* Validation Status */}
+          {newWorkerProject && validationResult && (
+            <div className={`rounded-xl p-4 border ${validationResult.valid ? 'bg-status-success/10 border-status-success/30' : 'bg-status-error/10 border-status-error/30'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`w-2 h-2 rounded-full ${validationResult.valid ? 'bg-status-success' : 'bg-status-error'}`} />
+                <span className={`font-medium ${validationResult.valid ? 'text-status-success' : 'text-status-error'}`}>
+                  {validationResult.valid ? 'Environment Ready' : 'Environment Issues'}
+                </span>
+              </div>
+              
+              <div className="space-y-2">
+                {validationResult.checks.map((check) => (
+                  <div key={check.name} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-1.5 h-1.5 rounded-full ${check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'}`} />
+                      <span className="text-board-text-secondary">{check.message}</span>
+                    </div>
+                    {!check.passed && check.fixAction && (
+                      <button
+                        onClick={() => handleFix(check.fixAction!)}
+                        disabled={isFixing}
+                        className="px-2 py-1 text-xs bg-board-accent text-white rounded hover:bg-board-accent-hover disabled:opacity-50"
+                      >
+                        {isFixing ? 'Fixing...' : 'Fix'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {validationResult.warnings.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-board-border">
+                  <span className="text-xs text-status-warning font-medium">Warnings:</span>
+                  <ul className="mt-1 space-y-1">
+                    {validationResult.warnings.map((warning, i) => (
+                      <li key={i} className="text-xs text-board-text-muted">{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isValidating && (
+            <div className="text-sm text-board-text-muted text-center">Validating environment...</div>
+          )}
+
+          {validationError && (
+            <div className="rounded-xl p-4 border bg-status-error/10 border-status-error/30">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-status-error" />
+                <span className="font-medium text-status-error">Validation Error</span>
+              </div>
+              <p className="text-sm text-board-text-secondary mt-2">{validationError}</p>
+            </div>
+          )}
+
           <button
             onClick={handleStartWorker}
-            disabled={isStarting}
+            disabled={isStarting || isValidating || !!validationError || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
             className="w-full px-4 py-2.5 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
-            {isStarting ? 'Starting...' : 'Start Worker'}
+            {isStarting ? 'Starting...' : isValidating ? 'Validating...' : 'Start Worker'}
           </button>
         </div>
       </div>

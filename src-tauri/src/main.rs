@@ -138,10 +138,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_boards,
+            commands::get_columns,
             commands::create_board,
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,
+            commands::update_ticket,
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
             commands::runs::get_agent_run,
@@ -179,6 +181,14 @@ fn main() {
             commands::workers::stop_all_workers,
             commands::workers::get_workers,
             commands::workers::get_worker_queue_status,
+            // Worker validation and commands
+            commands::workers::validate_worker,
+            commands::workers::get_commands_path,
+            commands::workers::get_available_commands,
+            commands::workers::install_commands_to_project,
+            commands::workers::install_commands_to_user,
+            commands::workers::check_commands_installed,
+            commands::workers::check_user_commands_installed,
             // API configuration
             commands::get_api_config,
         ])

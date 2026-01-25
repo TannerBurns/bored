@@ -87,7 +87,7 @@ describe('RunDetailsPanel', () => {
     await waitFor(() => {
       const exitCodeEl = screen.getByText('0');
       expect(exitCodeEl).toBeInTheDocument();
-      expect(exitCodeEl.className).toContain('bg-green');
+      expect(exitCodeEl.className).toContain('bg-status-success');
     });
   });
 
@@ -100,7 +100,7 @@ describe('RunDetailsPanel', () => {
     await waitFor(() => {
       const exitCodeEl = screen.getByText('1');
       expect(exitCodeEl).toBeInTheDocument();
-      expect(exitCodeEl.className).toContain('bg-red');
+      expect(exitCodeEl.className).toContain('bg-status-error');
     });
   });
 

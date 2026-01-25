@@ -12,7 +12,11 @@ pub use cursor::*;
 pub use projects::*;
 pub use runs::{start_agent_run, get_agent_runs, get_agent_run, get_run_events, cancel_agent_run};
 pub use tickets::*;
-pub use workers::{start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status};
+pub use workers::{
+    start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status,
+    validate_worker, get_commands_path, get_available_commands, install_commands_to_project,
+    install_commands_to_user, check_commands_installed, check_user_commands_installed,
+};
 
 /// API configuration returned to the frontend
 #[derive(Debug, Clone, serde::Serialize)]

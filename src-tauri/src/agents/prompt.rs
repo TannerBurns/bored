@@ -1,6 +1,27 @@
 use crate::db::models::{Priority, Ticket};
+use super::AgentKind;
+
+fn slugify(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .take(50)
+        .collect()
+}
 
 pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
+    generate_ticket_prompt_with_workflow(ticket, None)
+}
+
+/// Generate a ticket prompt with optional workflow instructions for the given agent type
+pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<AgentKind>) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
@@ -32,11 +53,46 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
         prompt.push('\n');
     }
 
-    prompt.push_str("## Instructions\n\n");
-    prompt.push_str("1. Carefully read and understand the task requirements\n");
-    prompt.push_str("2. Implement the requested changes\n");
-    prompt.push_str("3. Test your changes where appropriate\n");
-    prompt.push_str("4. Commit your changes with a descriptive message\n");
+    if let Some(kind) = agent_kind {
+        // Use char-based iteration to safely handle multi-byte UTF-8 characters
+        let id_prefix: String = ticket.id.chars().take(8).collect();
+        let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
+        prompt.push_str("## Workflow\n\n");
+        prompt.push_str(&format!("1. Create a branch: `{}`\n", branch_name));
+        prompt.push_str("2. Create a plan before implementing\n");
+        prompt.push_str("3. After implementation, run this QA sequence:\n\n");
+        
+        match kind {
+            AgentKind::Cursor => {
+                prompt.push_str("   - `/deslop` - Remove AI-generated code patterns\n");
+                prompt.push_str("   - `/cleanup` - Fix lint/type errors\n");
+                prompt.push_str("   - `/unit-tests` - Add test coverage for your changes\n");
+                prompt.push_str("   - `/cleanup` - Fix any test-related issues\n");
+                prompt.push_str("   - `/review-changes` - Apply best practices\n");
+                prompt.push_str("   - `/cleanup` - Final lint pass\n");
+                prompt.push_str("   - `/review-changes` - Second review pass\n");
+                prompt.push_str("   - `/add-and-commit` - Stage and commit with detailed message\n");
+            }
+            AgentKind::Claude => {
+                prompt.push_str("   Read and follow each command file in order:\n");
+                prompt.push_str("   - `.claude/commands/deslop.md` - Remove AI-generated code patterns\n");
+                prompt.push_str("   - `.claude/commands/cleanup.md` - Fix lint/type errors\n");
+                prompt.push_str("   - `.claude/commands/unit-tests.md` - Add test coverage\n");
+                prompt.push_str("   - `.claude/commands/cleanup.md` - Fix test-related issues\n");
+                prompt.push_str("   - `.claude/commands/review-changes.md` - Apply best practices\n");
+                prompt.push_str("   - `.claude/commands/cleanup.md` - Final lint pass\n");
+                prompt.push_str("   - `.claude/commands/review-changes.md` - Second review pass\n");
+                prompt.push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
+            }
+        }
+        prompt.push('\n');
+    } else {
+        prompt.push_str("## Instructions\n\n");
+        prompt.push_str("1. Carefully read and understand the task requirements\n");
+        prompt.push_str("2. Implement the requested changes\n");
+        prompt.push_str("3. Test your changes where appropriate\n");
+        prompt.push_str("4. Commit your changes with a descriptive message\n");
+    }
 
     prompt
 }
@@ -94,6 +150,28 @@ mod tests {
             project_id: None,
             agent_pref: None,
         }
+    }
+
+    #[test]
+    fn slugify_simple_title() {
+        assert_eq!(slugify("Hello World"), "hello-world");
+    }
+
+    #[test]
+    fn slugify_special_characters() {
+        assert_eq!(slugify("Add user@auth feature!"), "add-user-auth-feature");
+    }
+
+    #[test]
+    fn slugify_multiple_spaces() {
+        assert_eq!(slugify("Fix   multiple   spaces"), "fix-multiple-spaces");
+    }
+
+    #[test]
+    fn slugify_long_title_truncates() {
+        let long_title = "A".repeat(100);
+        let result = slugify(&long_title);
+        assert!(result.len() <= 50);
     }
 
     #[test]
@@ -201,5 +279,80 @@ mod tests {
         let template = "Labels: {{labels}}";
         let result = generate_custom_prompt(&ticket, template);
         assert_eq!(result, "Labels: bug, urgent");
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_cursor() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        assert!(prompt.contains("## Workflow"));
+        assert!(prompt.contains("Create a branch:"));
+        assert!(prompt.contains("/deslop"));
+        assert!(prompt.contains("/cleanup"));
+        assert!(prompt.contains("/unit-tests"));
+        assert!(prompt.contains("/review-changes"));
+        assert!(prompt.contains("/add-and-commit"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_claude() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Claude));
+        assert!(prompt.contains("## Workflow"));
+        assert!(prompt.contains("Create a branch:"));
+        assert!(prompt.contains(".claude/commands/deslop.md"));
+        assert!(prompt.contains(".claude/commands/cleanup.md"));
+        assert!(prompt.contains(".claude/commands/unit-tests.md"));
+        assert!(prompt.contains(".claude/commands/review-changes.md"));
+        assert!(prompt.contains(".claude/commands/add-and-commit.md"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_none_uses_basic_instructions() {
+        let ticket = create_test_ticket();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, None);
+        assert!(prompt.contains("## Instructions"));
+        assert!(!prompt.contains("## Workflow"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_includes_branch_name() {
+        let mut ticket = create_test_ticket();
+        ticket.id = "abc12345-full-id".to_string();
+        ticket.title = "Add User Authentication".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        assert!(prompt.contains("ticket/abc12345/add-user-authentication"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_multibyte_utf8_id() {
+        // Test that multi-byte UTF-8 characters in ticket ID don't cause panic
+        let mut ticket = create_test_ticket();
+        // 🎉 is 4 bytes, so this ID has multi-byte chars that could cause issues with byte slicing
+        ticket.id = "🎉🚀ab12".to_string();
+        ticket.title = "Test Feature".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        // Should contain the full 4 chars (2 emoji + "ab") since we take up to 8 chars
+        assert!(prompt.contains("ticket/🎉🚀ab12/test-feature"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_short_id() {
+        let mut ticket = create_test_ticket();
+        ticket.id = "abc".to_string();
+        ticket.title = "Short ID Test".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        assert!(prompt.contains("ticket/abc/short-id-test"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_mixed_utf8_id() {
+        let mut ticket = create_test_ticket();
+        // Mix of ASCII and multi-byte chars to test boundary handling
+        ticket.id = "a🎉bcdefgh".to_string();
+        ticket.title = "Mixed Test".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        // Takes first 8 chars: a, 🎉, b, c, d, e, f, g
+        assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
     }
 }
