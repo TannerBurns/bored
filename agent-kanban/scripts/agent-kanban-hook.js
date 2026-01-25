@@ -144,7 +144,7 @@ function extractClaudeData(eventType, payload) {
 
 function normalizeEvent(rawEventType, payload) {
   const eventType = mapEventType(rawEventType, CONFIG.agentType);
-  const structured = extractStructuredData(rawEventType, rawEventType, payload, CONFIG.agentType);
+  const structured = extractStructuredData(eventType, rawEventType, payload, CONFIG.agentType);
 
   return {
     runId: CONFIG.runId,
