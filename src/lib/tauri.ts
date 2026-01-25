@@ -274,3 +274,7 @@ export async function checkCommandsInstalled(
 ): Promise<boolean> {
   return invoke('check_commands_installed', { agentType, repoPath });
 }
+
+export async function checkUserCommandsInstalled(agentType: string): Promise<boolean> {
+  return invoke('check_user_commands_installed', { agentType });
+}

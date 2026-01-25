@@ -186,6 +186,7 @@ fn main() {
             commands::workers::install_commands_to_project,
             commands::workers::install_commands_to_user,
             commands::workers::check_commands_installed,
+            commands::workers::check_user_commands_installed,
             // API configuration
             commands::get_api_config,
         ])

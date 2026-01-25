@@ -231,6 +231,17 @@ pub async fn check_commands_installed(
     Ok(installed)
 }
 
+#[tauri::command]
+pub async fn check_user_commands_installed(agent_type: String) -> Result<bool, String> {
+    let installed = match agent_type.as_str() {
+        "cursor" => cursor::check_user_commands_installed(),
+        "claude" => claude::check_user_commands_installed(),
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+
+    Ok(installed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
