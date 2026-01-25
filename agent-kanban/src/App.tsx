@@ -101,14 +101,16 @@ function App() {
     closeCreateModal,
     addComment,
     updateTicket: storeUpdateTicket,
+    moveTicket: storeMoveTicket,
   } = useBoardStore();
 
-  const handleTicketMove = (ticketId: string, newColumnId: string) => {
+  const handleTicketMove = async (ticketId: string, newColumnId: string) => {
     setTickets((prev) =>
       prev.map((t) =>
         t.id === ticketId ? { ...t, columnId: newColumnId, updatedAt: new Date() } : t
       )
     );
+    await storeMoveTicket(ticketId, newColumnId);
   };
 
   const handleTicketClick = (ticket: Ticket) => openTicketModal(ticket);
