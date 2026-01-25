@@ -5,13 +5,13 @@ import { Board } from './components/board/Board';
 import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { WorkerPanel } from './components/workers';
-import { ProjectsList, CursorSettings, ClaudeSettings } from './components/settings';
+import { ProjectsList, CursorSettings, ClaudeSettings, AppearanceSettings, DataSettings } from './components/settings';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
-import type { Column, Ticket, Project, Board as BoardType } from './types';
+import type { Column, Ticket, Project } from './types';
 import './index.css';
 
 const demoColumns: Column[] = [
@@ -97,9 +97,8 @@ function App() {
   const [columns] = useState<Column[]>(demoColumns);
   const [tickets, setTickets] = useState<Ticket[]>(demoTickets);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [, setBoards] = useState<BoardType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [settingsTab, setSettingsTab] = useState<'projects' | 'cursor' | 'claude'>('projects');
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'projects' | 'cursor' | 'claude' | 'data'>('appearance');
   
   const { theme } = useSettingsStore();
 
@@ -144,7 +143,6 @@ function App() {
             getBoards(),
           ]);
           setProjects(projectsData);
-          setBoards(boardsData);
           
           if (boardsData.length > 0) {
             const ticketsData = await getTickets(boardsData[0].id);
@@ -268,7 +266,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-board-bg text-white">
+    <div className="flex h-screen bg-board-bg text-board-text">
       <Sidebar
         navItems={navItems}
         activeItem={activeNav}
@@ -283,7 +281,7 @@ function App() {
             activeNav === 'boards' ? (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-opacity-80 transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors flex items-center gap-2 shadow-sm"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -323,9 +321,9 @@ function App() {
         )}
 
         {activeNav === 'runs' && (
-          <div className="bg-board-column rounded-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Agent Runs</h3>
-            <p className="text-gray-300">
+          <div className="bg-board-column rounded-xl p-6 border border-board-border">
+            <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
+            <p className="text-board-text-secondary">
               Agent runs will be displayed here. Start a run from a ticket to see activity.
             </p>
             <div className="mt-4 space-y-2">
@@ -334,22 +332,22 @@ function App() {
                 .map((ticket) => (
                   <div
                     key={ticket.id}
-                    className="p-3 bg-board-card rounded flex items-center justify-between"
+                    className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
                   >
                     <div>
-                      <span className="font-medium">{ticket.title}</span>
-                      <span className="text-sm text-gray-400 ml-2">
+                      <span className="font-medium text-board-text">{ticket.title}</span>
+                      <span className="text-sm text-board-text-muted ml-2">
                         Running with {ticket.agentPref || 'agent'}
                       </span>
                     </div>
-                    <span className="text-yellow-500 text-sm flex items-center gap-1">
-                      <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                    <span className="text-status-warning text-sm flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
                       In Progress
                     </span>
                   </div>
                 ))}
               {tickets.filter((t) => t.lockedByRunId).length === 0 && (
-                <p className="text-gray-500 text-sm">No active runs</p>
+                <p className="text-board-text-muted text-sm">No active runs</p>
               )}
             </div>
           </div>
@@ -364,44 +362,66 @@ function App() {
         {activeNav === 'settings' && (
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Settings Tabs */}
-            <div className="flex border-b border-gray-700 mb-4">
+            <div className="flex border-b border-board-border mb-4">
+              <button
+                onClick={() => setSettingsTab('appearance')}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  settingsTab === 'appearance'
+                    ? 'border-b-2 border-board-accent text-board-accent'
+                    : 'text-board-text-muted hover:text-board-text'
+                }`}
+              >
+                Appearance
+              </button>
               <button
                 onClick={() => setSettingsTab('projects')}
-                className={`px-4 py-2 text-sm transition-colors ${
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
                   settingsTab === 'projects'
-                    ? 'border-b-2 border-blue-500 text-white'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'border-b-2 border-board-accent text-board-accent'
+                    : 'text-board-text-muted hover:text-board-text'
                 }`}
               >
                 Projects
               </button>
               <button
                 onClick={() => setSettingsTab('cursor')}
-                className={`px-4 py-2 text-sm transition-colors ${
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
                   settingsTab === 'cursor'
-                    ? 'border-b-2 border-purple-500 text-white'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'border-b-2 border-board-accent text-board-accent'
+                    : 'text-board-text-muted hover:text-board-text'
                 }`}
               >
                 Cursor
               </button>
               <button
                 onClick={() => setSettingsTab('claude')}
-                className={`px-4 py-2 text-sm transition-colors ${
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
                   settingsTab === 'claude'
-                    ? 'border-b-2 border-green-500 text-white'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'border-b-2 border-board-accent text-board-accent'
+                    : 'text-board-text-muted hover:text-board-text'
                 }`}
               >
                 Claude Code
               </button>
+              <button
+                onClick={() => setSettingsTab('data')}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  settingsTab === 'data'
+                    ? 'border-b-2 border-board-accent text-board-accent'
+                    : 'text-board-text-muted hover:text-board-text'
+                }`}
+              >
+                Data
+              </button>
             </div>
             
             {/* Settings Content */}
-            <div className="flex-1 overflow-auto bg-board-column rounded-lg p-6">
+            <div className="flex-1 overflow-auto bg-board-column rounded-xl p-6 border border-board-border">
+              {settingsTab === 'appearance' && <AppearanceSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}
               {settingsTab === 'claude' && <ClaudeSettings />}
+              {settingsTab === 'data' && <DataSettings />}
             </div>
           </div>
         )}

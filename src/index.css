@@ -2,13 +2,6 @@
 
 :root {
   font-family: Inter, system-ui, -apple-system, sans-serif;
-  /* Default to dark theme values */
-  --app-board-bg: #1a1a2e;
-  --app-board-column: #16213e;
-  --app-board-card: #0f3460;
-  --app-board-accent: #e94560;
-  --app-board-text: #ffffff;
-  --app-board-text-muted: #9ca3af;
 }
 
 body {
@@ -16,32 +9,101 @@ body {
   min-height: 100vh;
 }
 
-/* Light theme colors */
+/* Light theme - clean, modern, high contrast */
 :root.light {
-  --app-board-bg: #f5f5f5;
+  /* Backgrounds */
+  --app-board-bg: #f8fafc;
   --app-board-column: #ffffff;
-  --app-board-card: #fafafa;
-  --app-board-accent: #e94560;
-  --app-board-text: #1a1a2e;
-  --app-board-text-muted: #6b7280;
+  --app-board-card: #ffffff;
+  --app-board-card-hover: #f1f5f9;
+  
+  /* Accent & interactive */
+  --app-board-accent: #6366f1;
+  --app-board-accent-hover: #4f46e5;
+  --app-board-accent-subtle: #eef2ff;
+  
+  /* Text */
+  --app-board-text: #0f172a;
+  --app-board-text-secondary: #475569;
+  --app-board-text-muted: #94a3b8;
+  
+  /* Borders & dividers */
+  --app-board-border: #e2e8f0;
+  --app-board-border-subtle: #f1f5f9;
+  
+  /* Surfaces */
+  --app-board-surface: #f1f5f9;
+  --app-board-surface-raised: #ffffff;
+  
+  /* Status colors */
+  --app-status-success: #10b981;
+  --app-status-warning: #f59e0b;
+  --app-status-error: #ef4444;
+  --app-status-info: #3b82f6;
 }
 
-/* Dark theme colors (explicit) */
-:root.dark {
-  --app-board-bg: #1a1a2e;
-  --app-board-column: #16213e;
-  --app-board-card: #0f3460;
-  --app-board-accent: #e94560;
-  --app-board-text: #ffffff;
-  --app-board-text-muted: #9ca3af;
+/* Dark theme - rich, modern, easy on eyes */
+:root, :root.dark {
+  /* Backgrounds */
+  --app-board-bg: #0f172a;
+  --app-board-column: #1e293b;
+  --app-board-card: #334155;
+  --app-board-card-hover: #475569;
+  
+  /* Accent & interactive */
+  --app-board-accent: #818cf8;
+  --app-board-accent-hover: #a5b4fc;
+  --app-board-accent-subtle: rgba(129, 140, 248, 0.1);
+  
+  /* Text */
+  --app-board-text: #f8fafc;
+  --app-board-text-secondary: #cbd5e1;
+  --app-board-text-muted: #64748b;
+  
+  /* Borders & dividers */
+  --app-board-border: #334155;
+  --app-board-border-subtle: #1e293b;
+  
+  /* Surfaces */
+  --app-board-surface: #1e293b;
+  --app-board-surface-raised: #334155;
+  
+  /* Status colors */
+  --app-status-success: #34d399;
+  --app-status-warning: #fbbf24;
+  --app-status-error: #f87171;
+  --app-status-info: #60a5fa;
 }
 
-/* Custom Tailwind theme - references CSS variables for dynamic theming */
+/* Custom Tailwind theme - maps to CSS variables for dynamic theming */
 @theme {
+  /* Core colors */
   --color-board-bg: var(--app-board-bg);
   --color-board-column: var(--app-board-column);
   --color-board-card: var(--app-board-card);
+  --color-board-card-hover: var(--app-board-card-hover);
+  
+  /* Accent */
   --color-board-accent: var(--app-board-accent);
+  --color-board-accent-hover: var(--app-board-accent-hover);
+  --color-board-accent-subtle: var(--app-board-accent-subtle);
+  
+  /* Text */
   --color-board-text: var(--app-board-text);
+  --color-board-text-secondary: var(--app-board-text-secondary);
   --color-board-text-muted: var(--app-board-text-muted);
+  
+  /* Borders */
+  --color-board-border: var(--app-board-border);
+  --color-board-border-subtle: var(--app-board-border-subtle);
+  
+  /* Surfaces */
+  --color-board-surface: var(--app-board-surface);
+  --color-board-surface-raised: var(--app-board-surface-raised);
+  
+  /* Status */
+  --color-status-success: var(--app-status-success);
+  --color-status-warning: var(--app-status-warning);
+  --color-status-error: var(--app-status-error);
+  --color-status-info: var(--app-status-info);
 }

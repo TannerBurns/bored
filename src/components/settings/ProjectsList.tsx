@@ -100,61 +100,61 @@ export function ProjectsList() {
 
   if (loading) {
     return (
-      <div className="text-gray-400 text-center py-8">Loading projects...</div>
+      <div className="text-board-text-muted text-center py-8">Loading projects...</div>
     );
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium">Projects</h3>
+        <h3 className="text-lg font-medium text-board-text">Projects</h3>
         <button
           onClick={() => setIsAdding(true)}
-          className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+          className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover transition-colors"
         >
           + Add Project
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-900/50 border border-red-700 text-red-200 px-4 py-2 rounded">
+        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-4 py-2 rounded-lg">
           {error}
         </div>
       )}
 
       {/* Add project form */}
       {isAdding && (
-        <div className="bg-gray-800 rounded-lg p-4 space-y-3 border border-gray-700">
+        <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Name</label>
+            <label className="block text-sm text-board-text-secondary mb-1.5">Name</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="My Project"
-              className="w-full px-3 py-2 bg-gray-700 rounded text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Path</label>
+            <label className="block text-sm text-board-text-secondary mb-1.5">Path</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={newPath}
                 onChange={(e) => setNewPath(e.target.value)}
                 placeholder="/path/to/project"
-                className="flex-1 px-3 py-2 bg-gray-700 rounded text-white border border-gray-600 focus:border-blue-500 focus:outline-none font-mono text-sm"
+                className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20 font-mono text-sm"
               />
               <button
                 onClick={handleBrowse}
-                className="px-3 py-2 bg-gray-600 rounded hover:bg-gray-500 transition-colors"
+                className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
               >
                 Browse
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">
+            <label className="block text-sm text-board-text-secondary mb-1.5">
               Preferred Agent (optional)
             </label>
             <select
@@ -164,7 +164,7 @@ export function ProjectsList() {
                   e.target.value as 'cursor' | 'claude' | 'any' | ''
                 )
               }
-              className="w-full px-3 py-2 bg-gray-700 rounded text-white border border-gray-600 focus:border-blue-500 focus:outline-none"
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
             >
               <option value="">No preference</option>
               <option value="cursor">Cursor</option>
@@ -175,14 +175,14 @@ export function ProjectsList() {
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={handleCancel}
-              className="px-3 py-1.5 text-gray-400 hover:text-white transition-colors"
+              className="px-3 py-1.5 text-board-text-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleAdd}
               disabled={!newName.trim() || !newPath.trim()}
-              className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1.5 bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Add Project
             </button>
@@ -195,36 +195,36 @@ export function ProjectsList() {
         {projects.map((project) => (
           <div
             key={project.id}
-            className="flex items-center justify-between bg-gray-800 rounded-lg p-4 border border-gray-700"
+            className="flex items-center justify-between bg-board-surface rounded-xl p-4 border border-board-border"
           >
             <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{project.name}</div>
-              <div className="text-sm text-gray-400 font-mono truncate">
+              <div className="font-medium truncate text-board-text">{project.name}</div>
+              <div className="text-sm text-board-text-muted font-mono truncate">
                 {project.path}
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
                 {project.cursorHooksInstalled && (
-                  <span className="text-xs bg-purple-600/50 text-purple-200 px-2 py-0.5 rounded">
+                  <span className="text-xs bg-board-accent/20 text-board-accent px-2 py-0.5 rounded-full">
                     Cursor hooks
                   </span>
                 )}
                 {project.claudeHooksInstalled && (
-                  <span className="text-xs bg-green-600/50 text-green-200 px-2 py-0.5 rounded">
+                  <span className="text-xs bg-status-success/20 text-status-success px-2 py-0.5 rounded-full">
                     Claude hooks
                   </span>
                 )}
                 {project.preferredAgent && (
-                  <span className="text-xs bg-gray-600/50 text-gray-300 px-2 py-0.5 rounded">
+                  <span className="text-xs bg-board-surface-raised text-board-text-secondary px-2 py-0.5 rounded-full">
                     Prefers: {project.preferredAgent}
                   </span>
                 )}
                 {!project.allowShellCommands && (
-                  <span className="text-xs bg-yellow-600/50 text-yellow-200 px-2 py-0.5 rounded">
+                  <span className="text-xs bg-status-warning/20 text-status-warning px-2 py-0.5 rounded-full">
                     Shell disabled
                   </span>
                 )}
                 {!project.allowFileWrites && (
-                  <span className="text-xs bg-yellow-600/50 text-yellow-200 px-2 py-0.5 rounded">
+                  <span className="text-xs bg-status-warning/20 text-status-warning px-2 py-0.5 rounded-full">
                     Read-only
                   </span>
                 )}
@@ -232,7 +232,7 @@ export function ProjectsList() {
             </div>
             <button
               onClick={() => handleDelete(project.id, project.name)}
-              className="ml-4 px-2 py-1 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors"
+              className="ml-4 px-2 py-1 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
             >
               Delete
             </button>
@@ -240,7 +240,7 @@ export function ProjectsList() {
         ))}
 
         {projects.length === 0 && !isAdding && (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-board-text-muted">
             <p className="mb-2">No projects added yet.</p>
             <p className="text-sm">
               Add a project to register repositories for agent work.

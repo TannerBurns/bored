@@ -21,19 +21,19 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
   return (
     <div
       className={cn(
-        'flex flex-col bg-board-column rounded-lg w-72 min-w-72 max-h-full',
+        'flex flex-col bg-board-column rounded-xl w-72 min-w-72 max-h-full border border-board-border shadow-sm',
         isOver && 'ring-2 ring-board-accent'
       )}
     >
-      <div className="p-3 border-b border-gray-700">
+      <div className="p-3 border-b border-board-border">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-white">{column.name}</h3>
+          <h3 className="font-semibold text-board-text">{column.name}</h3>
           <span
             className={cn(
-              'text-sm px-2 py-0.5 rounded-full',
+              'text-sm px-2 py-0.5 rounded-full font-medium',
               isOverWipLimit
-                ? 'bg-red-500/20 text-red-400'
-                : 'bg-gray-700 text-gray-300'
+                ? 'bg-status-error/10 text-status-error'
+                : 'bg-board-surface text-board-text-muted'
             )}
           >
             {ticketCount}
@@ -57,7 +57,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
         </SortableContext>
         
         {tickets.length === 0 && (
-          <div className="text-center text-gray-500 text-sm py-4">
+          <div className="text-center text-board-text-muted text-sm py-4">
             No tickets
           </div>
         )}
