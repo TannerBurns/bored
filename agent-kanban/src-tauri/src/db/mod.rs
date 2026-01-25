@@ -122,3 +122,64 @@ pub(crate) fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(|_| chrono::Utc::now())
 }
+
+/// Artifacts produced by an agent run
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunArtifacts {
+    /// Git commit hash if changes were committed
+    pub commit_hash: Option<String>,
+    /// Summary of files changed
+    pub files_changed: Vec<String>,
+    /// Path to diff file
+    pub diff_path: Option<String>,
+    /// Path to transcript (Claude)
+    pub transcript_path: Option<String>,
+    /// Path to log file
+    pub log_path: Option<String>,
+}
+
+impl Database {
+    /// Update run with artifacts
+    pub fn update_run_artifacts(
+        &self,
+        run_id: &str,
+        artifacts: &RunArtifacts,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let metadata = serde_json::to_string(artifacts)
+                .unwrap_or_else(|_| "{}".to_string());
+            
+            conn.execute(
+                "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                rusqlite::params![metadata, run_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get run artifacts
+    pub fn get_run_artifacts(&self, run_id: &str) -> Result<Option<RunArtifacts>, DbError> {
+        self.with_conn(|conn| {
+            let metadata: Option<String> = conn.query_row(
+                "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                [run_id],
+                |row| row.get(0),
+            ).ok();
+            
+            Ok(metadata.and_then(|m| serde_json::from_str(&m).ok()))
+        })
+    }
+
+    /// Release a lock held by a specific run
+    pub fn release_lock(&self, ticket_id: &str, run_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE tickets SET locked_by_run_id = NULL, lock_expires_at = NULL 
+                 WHERE id = ? AND locked_by_run_id = ?",
+                rusqlite::params![ticket_id, run_id],
+            )?;
+            Ok(())
+        })
+    }
+}

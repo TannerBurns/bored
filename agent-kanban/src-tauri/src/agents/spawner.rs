@@ -275,6 +275,51 @@ fn build_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
     ]
 }
 
+use crate::db::{Database, RunArtifacts, RunStatus};
+use crate::lifecycle::{TransitionExecutor, LifecycleOutcome};
+
+/// Finalize an agent run - update status, save artifacts, release lock, and transition ticket
+pub fn finalize_run(
+    db: &Database,
+    ticket_id: &str,
+    run_id: &str,
+    outcome: super::RunOutcome,
+    artifacts: Option<RunArtifacts>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Convert to lifecycle outcome
+    let lifecycle_outcome = LifecycleOutcome::from_run_outcome(outcome);
+
+    // Update run status
+    let status = match outcome {
+        super::RunOutcome::Success => RunStatus::Finished,
+        super::RunOutcome::Error | super::RunOutcome::Timeout => RunStatus::Error,
+        super::RunOutcome::Cancelled => RunStatus::Aborted,
+    };
+    
+    db.update_run_status(run_id, status, None, None)?;
+
+    // Save artifacts if provided
+    if let Some(arts) = artifacts {
+        db.update_run_artifacts(run_id, &arts)?;
+    }
+
+    // Release lock
+    db.release_lock(ticket_id, run_id)?;
+
+    // Transition ticket based on outcome
+    let executor = TransitionExecutor::new(db);
+    let result = executor.handle_run_completion(ticket_id, lifecycle_outcome)?;
+
+    tracing::info!(
+        "Run {} finalized for ticket {}: {:?}",
+        run_id,
+        ticket_id,
+        result
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
