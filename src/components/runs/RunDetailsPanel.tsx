@@ -138,20 +138,20 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      <div className="flex items-center justify-center h-full bg-board-bg">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-board-text"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-gray-900 p-4">
-        <p className="text-red-400 mb-2">Error loading run</p>
-        <p className="text-xs text-gray-500">{error}</p>
+      <div className="flex flex-col items-center justify-center h-full bg-board-bg p-4">
+        <p className="text-status-error mb-2">Error loading run</p>
+        <p className="text-xs text-board-text-muted">{error}</p>
         <button
           onClick={onClose}
-          className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+          className="mt-4 px-4 py-2 bg-board-surface hover:bg-board-surface-raised rounded text-sm text-board-text"
         >
           Close
         </button>
@@ -161,11 +161,11 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
   if (!run) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-gray-900 p-4">
-        <p className="text-gray-400">Run not found</p>
+      <div className="flex flex-col items-center justify-center h-full bg-board-bg p-4">
+        <p className="text-board-text-muted">Run not found</p>
         <button
           onClick={onClose}
-          className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+          className="mt-4 px-4 py-2 bg-board-surface hover:bg-board-surface-raised rounded text-sm text-board-text"
         >
           Close
         </button>
@@ -177,28 +177,28 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   const statusColor = STATUS_COLORS[run.status] || 'bg-gray-500';
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full bg-board-bg">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+      <div className="flex items-center justify-between p-4 border-b border-board-border">
         <div className="flex-1">
-          <h3 className="font-semibold text-white">
+          <h3 className="font-semibold text-board-text">
             Run {run.id.substring(0, 8)}
           </h3>
           <div className="flex items-center gap-2 mt-1">
             <span className={`px-2 py-0.5 text-xs rounded ${statusColor} text-white capitalize`}>
               {run.status}
             </span>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-board-text-muted">
               {agentLabel}
             </span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-board-text-muted">
               {formatDuration(run.startedAt, run.endedAt)}
             </span>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+          className="p-2 text-board-text-muted hover:text-board-text hover:bg-board-surface rounded transition-colors"
           aria-label="Close"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -208,13 +208,13 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-700">
+      <div className="flex border-b border-board-border">
         <button
           onClick={() => setActiveTab('timeline')}
           className={`px-4 py-2 text-sm transition-colors ${
             activeTab === 'timeline'
-              ? 'border-b-2 border-blue-500 text-white'
-              : 'text-gray-400 hover:text-white'
+              ? 'border-b-2 border-board-accent text-board-text'
+              : 'text-board-text-muted hover:text-board-text'
           }`}
         >
           Timeline
@@ -223,8 +223,8 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
           onClick={() => setActiveTab('logs')}
           className={`px-4 py-2 text-sm transition-colors ${
             activeTab === 'logs'
-              ? 'border-b-2 border-blue-500 text-white'
-              : 'text-gray-400 hover:text-white'
+              ? 'border-b-2 border-board-accent text-board-text'
+              : 'text-board-text-muted hover:text-board-text'
           }`}
         >
           Logs
@@ -265,23 +265,23 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
       {/* Summary Footer */}
       {run.summaryMd && (
-        <div className="p-4 border-t border-gray-700 bg-gray-800/50">
-          <h4 className="text-sm font-medium text-gray-400 mb-2">Summary</h4>
-          <p className="text-sm text-gray-300">{run.summaryMd}</p>
+        <div className="p-4 border-t border-board-border bg-board-surface/50">
+          <h4 className="text-sm font-medium text-board-text-muted mb-2">Summary</h4>
+          <p className="text-sm text-board-text-secondary">{run.summaryMd}</p>
         </div>
       )}
 
       {/* Metadata Footer */}
-      <div className="p-4 border-t border-gray-700 text-xs text-gray-500">
+      <div className="p-4 border-t border-board-border text-xs text-board-text-muted">
         <div className="flex flex-wrap gap-4">
           <span>
-            <span className="text-gray-400">Path:</span>{' '}
-            <code className="bg-gray-800 px-1 rounded">{run.repoPath}</code>
+            <span className="text-board-text-secondary">Path:</span>{' '}
+            <code className="bg-board-surface px-1 rounded">{run.repoPath}</code>
           </span>
           {run.exitCode !== undefined && run.exitCode !== null && (
             <span>
-              <span className="text-gray-400">Exit code:</span>{' '}
-              <code className={`px-1 rounded ${run.exitCode === 0 ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
+              <span className="text-board-text-secondary">Exit code:</span>{' '}
+              <code className={`px-1 rounded ${run.exitCode === 0 ? 'bg-status-success/20 text-status-success' : 'bg-status-error/20 text-status-error'}`}>
                 {run.exitCode}
               </code>
             </span>

@@ -163,7 +163,7 @@ export function TicketModal({
                 placeholder="Add a description..."
               />
             ) : (
-              <div className="prose prose-sm max-w-none bg-board-surface rounded-lg p-3 text-board-text-secondary">
+              <div className="prose prose-sm dark:prose-invert max-w-none bg-board-surface rounded-lg p-3 text-board-text-secondary">
                 {ticket.descriptionMd || (
                   <span className="text-board-text-muted italic">No description</span>
                 )}
