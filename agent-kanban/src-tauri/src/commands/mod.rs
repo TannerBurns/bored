@@ -9,5 +9,5 @@ pub use boards::*;
 pub use claude::*;
 pub use cursor::*;
 pub use projects::*;
-pub use runs::{start_agent_run, get_agent_runs, get_agent_run, cancel_agent_run};
+pub use runs::{start_agent_run, get_agent_runs, get_agent_run, get_run_events, cancel_agent_run};
 pub use tickets::*;

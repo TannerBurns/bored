@@ -3,6 +3,7 @@ pub mod error;
 pub mod events;
 pub mod handlers;
 pub mod routes;
+pub mod spool;
 pub mod state;
 pub mod types;
 
@@ -14,6 +15,7 @@ use crate::db::Database;
 pub use auth::generate_token;
 pub use state::AppState;
 pub use error::{ApiError, AppError, ApiResult};
+pub use spool::{start_spool_processor, get_default_spool_dir};
 
 /// API server configuration
 #[derive(Debug, Clone)]

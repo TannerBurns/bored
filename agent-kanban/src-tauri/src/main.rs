@@ -20,6 +20,9 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     
     // Copy Claude hook script
     copy_hook_script(app, "claude-hook.js", &scripts_dir)?;
+    
+    // Copy unified hook script (hook bridge)
+    copy_hook_script(app, "agent-kanban-hook.js", &scripts_dir)?;
 
     Ok(())
 }
@@ -122,6 +125,13 @@ fn main() {
                 }
             });
 
+            // Start spool processor for handling offline events
+            let db_for_spool = database.clone();
+            let spool_dir = api::get_default_spool_dir();
+            tauri::async_runtime::spawn(async move {
+                api::start_spool_processor(db_for_spool, spool_dir).await;
+            });
+
             tracing::info!("Agent Kanban initialized successfully");
 
             Ok(())
@@ -136,6 +146,7 @@ fn main() {
             commands::runs::get_agent_runs,
             commands::runs::get_agent_run,
             commands::runs::cancel_agent_run,
+            commands::runs::get_run_events,
             commands::get_projects,
             commands::get_project,
             commands::create_project,

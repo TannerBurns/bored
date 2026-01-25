@@ -40,6 +40,12 @@ export function useTauri() {
   const getAgentRuns = useCallback((ticketId: string) => 
     withLoading(() => tauri.getAgentRuns(ticketId)), [withLoading]);
 
+  const getAgentRun = useCallback((runId: string) => 
+    withLoading(() => tauri.getAgentRun(runId)), [withLoading]);
+
+  const getRunEvents = useCallback((runId: string) => 
+    withLoading(() => tauri.getRunEvents(runId)), [withLoading]);
+
   return {
     isLoading,
     error,
@@ -50,5 +56,7 @@ export function useTauri() {
     moveTicket,
     startAgentRun,
     getAgentRuns,
+    getAgentRun,
+    getRunEvents,
   };
 }

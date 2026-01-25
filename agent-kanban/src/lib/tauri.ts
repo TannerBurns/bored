@@ -105,6 +105,26 @@ export async function getAgentRuns(ticketId: string): Promise<AgentRun[]> {
   return invoke('get_agent_runs', { ticketId });
 }
 
+export async function getAgentRun(runId: string): Promise<AgentRun> {
+  return invoke('get_agent_run', { runId });
+}
+
+export interface AgentEvent {
+  id: string;
+  runId: string;
+  ticketId: string;
+  eventType: string;
+  payload: {
+    raw?: string;
+    structured?: Record<string, unknown>;
+  };
+  createdAt: string;
+}
+
+export async function getRunEvents(runId: string): Promise<AgentEvent[]> {
+  return invoke('get_run_events', { runId });
+}
+
 // Cursor integration
 export interface CursorStatus {
   isAvailable: boolean;
