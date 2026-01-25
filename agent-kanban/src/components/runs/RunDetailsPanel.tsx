@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { EventTimeline } from '../timeline/EventTimeline';
 import type { AgentRun, RunStatus } from '../../types';
@@ -38,6 +38,14 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'timeline' | 'logs'>('timeline');
+  
+  // Use ref to track status for polling without triggering effect re-runs
+  const statusRef = useRef<RunStatus | undefined>(undefined);
+  
+  // Keep ref in sync with run status
+  useEffect(() => {
+    statusRef.current = run?.status;
+  }, [run?.status]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -57,13 +65,13 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
     
     // Poll for updates while run is active
     const interval = setInterval(() => {
-      if (run?.status === 'running' || run?.status === 'queued') {
+      if (statusRef.current === 'running' || statusRef.current === 'queued') {
         loadRun();
       }
     }, 3000);
     
     return () => clearInterval(interval);
-  }, [loadRun, run?.status]);
+  }, [loadRun]);
 
   if (isLoading) {
     return (
