@@ -2,6 +2,43 @@ use crate::db::{Database, DbError, parse_datetime};
 use crate::db::models::{AgentRun, CreateRun, AgentType, RunStatus};
 
 impl Database {
+    pub fn get_run(&self, run_id: &str) -> Result<AgentRun, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
+                          started_at, ended_at, exit_code, summary_md, metadata_json
+                   FROM agent_runs WHERE id = ?"#
+            )?;
+            
+            stmt.query_row([run_id], |row| {
+                let agent_type_str: String = row.get(2)?;
+                let status_str: String = row.get(4)?;
+                let metadata_json: Option<String> = row.get(9)?;
+                
+                Ok(AgentRun {
+                    id: row.get(0)?,
+                    ticket_id: row.get(1)?,
+                    agent_type: match agent_type_str.as_str() {
+                        "cursor" => AgentType::Cursor,
+                        _ => AgentType::Claude,
+                    },
+                    repo_path: row.get(3)?,
+                    status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
+                    started_at: parse_datetime(row.get(5)?),
+                    ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
+                    exit_code: row.get(7)?,
+                    summary_md: row.get(8)?,
+                    metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            }).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DbError::NotFound(format!("Run {}", run_id))
+                }
+                other => DbError::Sqlite(other),
+            })
+        })
+    }
+
     pub fn create_run(&self, run: &CreateRun) -> Result<AgentRun, DbError> {
         self.with_conn(|conn| {
             let run_id = uuid::Uuid::new_v4().to_string();
@@ -165,5 +202,43 @@ mod tests {
         assert_eq!(runs[0].exit_code, Some(0));
         assert_eq!(runs[0].summary_md, Some("Done".to_string()));
         assert!(runs[0].ended_at.is_some());
+    }
+
+    #[test]
+    fn get_run_by_id() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let created = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/repo".to_string(),
+        }).unwrap();
+        
+        let fetched = db.get_run(&created.id).unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.ticket_id, ticket.id);
+        assert_eq!(fetched.agent_type, AgentType::Cursor);
+        assert_eq!(fetched.repo_path, "/tmp/repo");
+        assert_eq!(fetched.status, RunStatus::Queued);
+    }
+
+    #[test]
+    fn get_run_not_found() {
+        let db = create_test_db();
+        let result = db.get_run("nonexistent-run-id");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 }

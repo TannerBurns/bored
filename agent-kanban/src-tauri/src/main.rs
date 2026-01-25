@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use tauri::Manager;
 
-use agent_kanban::{commands, db, logging};
+use agent_kanban::{api, commands, db, logging};
 
 fn main() {
     tauri::Builder::default()
@@ -21,9 +21,40 @@ fn main() {
             tracing::info!("App data directory: {:?}", app_data_dir);
 
             let db_path = app_data_dir.join("agent-kanban.db");
-            let database = db::Database::open(db_path).expect("Failed to open database");
+            let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
 
-            app.manage(Arc::new(database));
+            app.manage(database.clone());
+
+            // Configure API server
+            let api_config = api::ApiConfig::default();
+            
+            // Write token and port for hook scripts to read
+            let token_path = app_data_dir.join("api_token");
+            std::fs::write(&token_path, &api_config.token)
+                .expect("Failed to write API token");
+            
+            let port_path = app_data_dir.join("api_port");
+            std::fs::write(&port_path, api_config.port.to_string())
+                .expect("Failed to write API port");
+
+            // Make config available via environment for child processes
+            std::env::set_var("AGENT_KANBAN_API_TOKEN", &api_config.token);
+            std::env::set_var("AGENT_KANBAN_API_PORT", api_config.port.to_string());
+
+            // Start API server
+            let db_for_api = database.clone();
+            tauri::async_runtime::spawn(async move {
+                match api::start_server(db_for_api, api_config).await {
+                    Ok(handle) => {
+                        tracing::info!("API server started at {}", handle.addr);
+                        // Keep handle alive - server runs until app exits
+                        std::mem::forget(handle);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start API server: {}", e);
+                    }
+                }
+            });
 
             tracing::info!("Agent Kanban initialized successfully");
 
