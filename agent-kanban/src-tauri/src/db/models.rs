@@ -75,7 +75,7 @@ impl Priority {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "low" => Some(Priority::Low),
             "medium" => Some(Priority::Medium),
@@ -103,7 +103,7 @@ impl AgentPref {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "cursor" => Some(AgentPref::Cursor),
             "claude" => Some(AgentPref::Claude),
@@ -197,7 +197,7 @@ impl RunStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "queued" => Some(RunStatus::Queued),
             "running" => Some(RunStatus::Running),
@@ -251,7 +251,7 @@ impl EventType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "command_requested" => EventType::CommandRequested,
             "command_executed" => EventType::CommandExecuted,

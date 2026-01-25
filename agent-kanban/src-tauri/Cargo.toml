@@ -3,6 +3,14 @@ name = "agent-kanban"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "agent_kanban"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-kanban"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "1", features = [] }
 

@@ -1,13 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod agents;
-mod api;
-mod commands;
-mod db;
-mod logging;
-
 use std::sync::Arc;
 use tauri::Manager;
+
+use agent_kanban::{commands, db, logging};
 
 fn main() {
     tauri::Builder::default()
@@ -24,11 +20,9 @@ fn main() {
             tracing::info!("Agent Kanban starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
 
-            // Initialize database
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = db::Database::open(db_path).expect("Failed to open database");
 
-            // Make database available to commands
             app.manage(Arc::new(database));
 
             tracing::info!("Agent Kanban initialized successfully");
@@ -36,17 +30,13 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Board commands
             commands::get_boards,
             commands::create_board,
-            // Ticket commands
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,
-            // Agent run commands
             commands::start_agent_run,
             commands::get_agent_runs,
-            // Project commands
             commands::get_projects,
             commands::get_project,
             commands::create_project,

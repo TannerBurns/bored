@@ -14,9 +14,6 @@ pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
     
-    #[error("Database not initialized")]
-    NotInitialized,
-    
     #[error("Lock error: {0}")]
     Lock(String),
     
@@ -193,7 +190,7 @@ impl Database {
                         path: row.get(2)?,
                         cursor_hooks_installed: row.get::<_, i32>(3)? != 0,
                         claude_hooks_installed: row.get::<_, i32>(4)? != 0,
-                        preferred_agent: pref_str.and_then(|s| AgentPref::from_str(&s)),
+                        preferred_agent: pref_str.and_then(|s| AgentPref::parse(&s)),
                         allow_shell_commands: row.get::<_, i32>(6)? != 0,
                         allow_file_writes: row.get::<_, i32>(7)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
@@ -577,10 +574,10 @@ impl Database {
         let labels: Vec<String> = serde_json::from_str(&labels_json).unwrap_or_default();
         
         let priority_str: String = row.get(5)?;
-        let priority = Priority::from_str(&priority_str).unwrap_or(Priority::Medium);
+        let priority = Priority::parse(&priority_str).unwrap_or(Priority::Medium);
         
         let agent_pref_str: Option<String> = row.get(12)?;
-        let agent_pref = agent_pref_str.and_then(|s| AgentPref::from_str(&s));
+        let agent_pref = agent_pref_str.and_then(|s| AgentPref::parse(&s));
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -679,7 +676,7 @@ impl Database {
                         _ => AgentType::Claude,
                     },
                     repo_path: row.get(3)?,
-                    status: RunStatus::from_str(&status_str).unwrap_or(RunStatus::Error),
+                    status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
                     started_at: parse_datetime(row.get(5)?),
                     ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
                     exit_code: row.get(7)?,
@@ -743,7 +740,7 @@ impl Database {
                     id: row.get(0)?,
                     run_id: row.get(1)?,
                     ticket_id: row.get(2)?,
-                    event_type: EventType::from_str(&event_type_str),
+                    event_type: EventType::parse(&event_type_str),
                     payload,
                     created_at: parse_datetime(row.get(5)?),
                 })

@@ -102,10 +102,11 @@ mod tests {
             project_id: "proj-1".to_string(),
         };
         let json = serde_json::to_string(&ready).unwrap();
-        assert!(json.contains("projectId"));
+        assert!(json.contains("ready"));
+        assert!(json.contains("proj-1"));
 
         let no_project = ReadinessCheck::NoProject;
         let json = serde_json::to_string(&no_project).unwrap();
-        assert!(json.contains("noProject"));
+        assert_eq!(json, "\"noProject\"");
     }
 }
