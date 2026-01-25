@@ -75,36 +75,6 @@ fn check_system_transition(from: TicketState, to: TicketState) -> TransitionPerm
     }
 }
 
-pub fn valid_targets(from: TicketState, is_locked: bool) -> Vec<TicketState> {
-    use TicketState::*;
-
-    let mut targets = vec![from];
-
-    match from {
-        Backlog => targets.push(Ready),
-        Ready => targets.push(Backlog),
-        InProgress => {
-            if !is_locked {
-                targets.push(Ready);
-                targets.push(Blocked);
-            }
-        }
-        Blocked => {
-            targets.push(Ready);
-            targets.push(Backlog);
-        }
-        Review => {
-            targets.push(Done);
-            targets.push(Blocked);
-            targets.push(Ready);
-            targets.push(InProgress);
-        }
-        Done => targets.push(Review),
-    }
-
-    targets
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,28 +126,5 @@ mod tests {
     fn test_invalid_transitions_denied() {
         assert!(matches!(can_transition(Backlog, InProgress, false, false), TransitionPermission::Denied(_)));
         assert!(matches!(can_transition(Done, Ready, false, false), TransitionPermission::Denied(_)));
-    }
-
-    #[test]
-    fn test_valid_targets() {
-        let targets = valid_targets(Backlog, false);
-        assert!(targets.contains(&Backlog));
-        assert!(targets.contains(&Ready));
-        assert!(!targets.contains(&InProgress));
-
-        let targets = valid_targets(InProgress, true);
-        assert!(targets.contains(&InProgress));
-        assert!(!targets.contains(&Ready));
-
-        let targets = valid_targets(InProgress, false);
-        assert!(targets.contains(&InProgress));
-        assert!(targets.contains(&Ready));
-        assert!(targets.contains(&Blocked));
-
-        let targets = valid_targets(Review, false);
-        assert!(targets.contains(&Done));
-        assert!(targets.contains(&Blocked));
-        assert!(targets.contains(&Ready));
-        assert!(targets.contains(&InProgress));
     }
 }
