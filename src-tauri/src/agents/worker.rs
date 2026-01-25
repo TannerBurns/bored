@@ -187,17 +187,40 @@ impl Worker {
             }
         }
 
-        let run = self.db.create_run(&CreateRun {
+        let run = match self.db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: match self.config.agent_type {
                 AgentKind::Cursor => AgentType::Cursor,
                 AgentKind::Claude => AgentType::Claude,
             },
             repo_path: repo_path.clone(),
-        })?;
+        }) {
+            Ok(run) => run,
+            Err(e) => {
+                // Clean up: unlock ticket and release repo lock (both use temporary run_id)
+                let _ = self.db.unlock_ticket(&ticket.id);
+                if let Some(ref pid) = project_id {
+                    let _ = self.db.release_repo_lock(pid, &run_id);
+                }
+                return Err(e.into());
+            }
+        };
 
         // Re-lock with actual run ID (atomic reservation used temporary ID)
-        self.db.lock_ticket(&ticket.id, &run.id, lock_expires)?;
+        if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
+            // Clean up: mark run as error, unlock ticket (still uses temp run_id), release repo lock
+            let _ = self.db.update_run_status(
+                &run.id,
+                RunStatus::Error,
+                None,
+                Some("Failed to re-lock ticket with actual run ID"),
+            );
+            let _ = self.db.unlock_ticket(&ticket.id);
+            if let Some(ref pid) = project_id {
+                let _ = self.db.release_repo_lock(pid, &run_id);
+            }
+            return Err(e.into());
+        }
         
         // Update repo lock to use actual run ID (was acquired with temporary run_id).
         // This MUST succeed; otherwise, the heartbeat and cleanup will use run.id
