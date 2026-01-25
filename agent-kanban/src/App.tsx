@@ -100,9 +100,9 @@ function App() {
     openCreateModal,
     closeCreateModal,
     addComment,
+    createTicket: storeCreateTicket,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
-    setTickets: setStoreTickets,
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
@@ -126,24 +126,31 @@ function App() {
     projectId?: string;
     agentPref?: 'cursor' | 'claude' | 'any';
   }) => {
-    const now = new Date();
-    const newTicket: Ticket = {
-      id: `ticket-${Date.now()}`,
-      boardId: 'demo',
-      columnId: input.columnId,
-      title: input.title,
-      descriptionMd: input.descriptionMd,
-      priority: input.priority,
-      labels: input.labels,
-      projectId: input.projectId,
-      agentPref: input.agentPref,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setTickets((prev) => [...prev, newTicket]);
-    // Sync with store to maintain data consistency
-    setStoreTickets([...tickets, newTicket]);
-    return newTicket;
+    try {
+      // Use store's createTicket for proper persistence
+      const ticket = await storeCreateTicket(input);
+      // Update local state for UI consistency
+      setTickets((prev) => [...prev, ticket]);
+      return ticket;
+    } catch {
+      // Fallback for demo mode when no board is selected in store
+      const now = new Date();
+      const newTicket: Ticket = {
+        id: `ticket-${Date.now()}`,
+        boardId: 'demo',
+        columnId: input.columnId,
+        title: input.title,
+        descriptionMd: input.descriptionMd,
+        priority: input.priority,
+        labels: input.labels,
+        projectId: input.projectId,
+        agentPref: input.agentPref,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setTickets((prev) => [...prev, newTicket]);
+      return newTicket;
+    }
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
@@ -161,15 +168,14 @@ function App() {
     await addComment(ticketId, body);
   };
 
-  const handleRunWithAgent = (ticketId: string, agentType: 'cursor' | 'claude') => {
+  const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
     console.log(`Starting ${agentType} agent for ticket ${ticketId}`);
+    const updates = { lockedByRunId: `run-${Date.now()}`, updatedAt: new Date() };
     setTickets((prev) =>
-      prev.map((t) =>
-        t.id === ticketId
-          ? { ...t, lockedByRunId: `run-${Date.now()}`, updatedAt: new Date() }
-          : t
-      )
+      prev.map((t) => (t.id === ticketId ? { ...t, ...updates } : t))
     );
+    // Sync to store for persistence (matching pattern from handleUpdateTicket)
+    await storeUpdateTicket(ticketId, updates);
     closeTicketModal();
   };
 
