@@ -238,7 +238,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         ) : (
           <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5">
             {logs.length === 0 ? (
-              <p className="text-gray-500 italic">
+              <p className="text-board-text-muted italic">
                 {run?.status === 'running' || run?.status === 'queued'
                   ? 'Waiting for log output...'
                   : 'No log output captured for this run.'}
@@ -248,10 +248,10 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
                 <div
                   key={entry.id}
                   className={`py-0.5 ${
-                    entry.stream === 'stderr' ? 'text-red-400' : 'text-gray-300'
+                    entry.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
                   }`}
                 >
-                  <span className="text-gray-600 select-none">
+                  <span className="text-board-text-muted select-none">
                     [{entry.timestamp.toLocaleTimeString()}]
                   </span>{' '}
                   {entry.content}
