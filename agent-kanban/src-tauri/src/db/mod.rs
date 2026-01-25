@@ -38,7 +38,8 @@ impl Database {
 
         let conn = Connection::open(&db_path)?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
-        conn.execute("PRAGMA journal_mode = WAL", [])?;
+        // PRAGMA journal_mode returns a result, so use query_row instead of execute
+        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
         
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
