@@ -107,12 +107,18 @@ function App() {
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
     const updatedAt = new Date();
+    const originalTickets = tickets;
     setTickets((prev) =>
       prev.map((t) =>
         t.id === ticketId ? { ...t, columnId: newColumnId, updatedAt } : t
       )
     );
-    await storeMoveTicket(ticketId, newColumnId, updatedAt);
+    try {
+      await storeMoveTicket(ticketId, newColumnId, updatedAt);
+    } catch (error) {
+      console.error('Failed to move ticket:', error);
+      setTickets(originalTickets);
+    }
   };
 
   const handleTicketClick = (ticket: Ticket) => openTicketModal(ticket);
@@ -156,12 +162,18 @@ function App() {
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
     const updatedAt = new Date();
     const updatesWithTimestamp = { ...updates, updatedAt };
+    const originalTickets = tickets;
     setTickets((prev) =>
       prev.map((t) =>
         t.id === ticketId ? { ...t, ...updatesWithTimestamp } : t
       )
     );
-    await storeUpdateTicket(ticketId, updatesWithTimestamp);
+    try {
+      await storeUpdateTicket(ticketId, updatesWithTimestamp);
+    } catch (error) {
+      console.error('Failed to update ticket:', error);
+      setTickets(originalTickets);
+    }
   };
 
   const handleAddComment = async (ticketId: string, body: string) => {
@@ -171,12 +183,17 @@ function App() {
   const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
     console.log(`Starting ${agentType} agent for ticket ${ticketId}`);
     const updates = { lockedByRunId: `run-${Date.now()}`, updatedAt: new Date() };
+    const originalTickets = tickets;
     setTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, ...updates } : t))
     );
-    // Sync to store for persistence (matching pattern from handleUpdateTicket)
-    await storeUpdateTicket(ticketId, updates);
-    closeTicketModal();
+    try {
+      await storeUpdateTicket(ticketId, updates);
+      closeTicketModal();
+    } catch (error) {
+      console.error('Failed to start agent run:', error);
+      setTickets(originalTickets);
+    }
   };
 
   return (

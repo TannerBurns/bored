@@ -10,7 +10,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core';
 import { Column } from './Column';
-import { Ticket as TicketCard } from './Ticket';
+import { TicketPreview } from './TicketPreview';
 import type { Column as ColumnType, Ticket as TicketType } from '../../types';
 
 interface BoardProps {
@@ -91,7 +91,7 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
       <DragOverlay dropAnimation={null}>
         {activeTicket && (
           <div className="rotate-3 opacity-90">
-            <TicketCard ticket={activeTicket} isDragging />
+            <TicketPreview ticket={activeTicket} />
           </div>
         )}
       </DragOverlay>
