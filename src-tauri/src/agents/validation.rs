@@ -120,9 +120,8 @@ pub fn validate_worker_environment_with_options(
         let clean_check = check_git_clean_state(repo_path);
         if clean_check.is_warning {
             warnings.push(clean_check.message.clone());
-        } else {
-            checks.push(clean_check);
         }
+        checks.push(clean_check);
     }
 
     ValidationResult {
