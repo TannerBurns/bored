@@ -149,3 +149,61 @@ export async function checkProjectHooksInstalled(
 export async function getHookScriptPath(): Promise<string | null> {
   return invoke('get_hook_script_path_cmd');
 }
+
+// Claude Code integration
+export interface ClaudeStatus {
+  isAvailable: boolean;
+  version: string | null;
+  userHooksInstalled: boolean;
+  hookScriptPath: string | null;
+}
+
+export async function getClaudeStatus(): Promise<ClaudeStatus> {
+  return invoke('get_claude_status');
+}
+
+export async function installClaudeHooksUser(
+  hookScriptPath: string,
+  apiUrl?: string,
+  apiToken?: string
+): Promise<void> {
+  return invoke('install_claude_hooks_user', { hookScriptPath, apiUrl, apiToken });
+}
+
+export async function installClaudeHooksProject(
+  hookScriptPath: string,
+  projectPath: string,
+  apiUrl?: string,
+  apiToken?: string
+): Promise<void> {
+  return invoke('install_claude_hooks_project', { hookScriptPath, projectPath, apiUrl, apiToken });
+}
+
+export async function installClaudeHooksLocal(
+  hookScriptPath: string,
+  projectPath: string,
+  apiUrl?: string,
+  apiToken?: string
+): Promise<void> {
+  return invoke('install_claude_hooks_local', { hookScriptPath, projectPath, apiUrl, apiToken });
+}
+
+export async function getClaudeHooksConfig(
+  hookScriptPath: string
+): Promise<string> {
+  return invoke('get_claude_hooks_config', { hookScriptPath });
+}
+
+export async function checkClaudeAvailable(): Promise<boolean> {
+  return invoke('check_claude_available');
+}
+
+export async function checkClaudeProjectHooksInstalled(
+  projectPath: string
+): Promise<boolean> {
+  return invoke('check_claude_project_hooks_installed', { projectPath });
+}
+
+export async function getClaudeHookScriptPath(): Promise<string | null> {
+  return invoke('get_claude_hook_script_path');
+}
