@@ -179,6 +179,7 @@ pub async fn start_agent_run(
                     RunOutcome::Timeout => RunStatus::Error,
                     RunOutcome::Cancelled => RunStatus::Aborted,
                 };
+                let status_str = status.as_str().to_string();
 
                 if let Err(e) = db_clone.update_run_status(
                     &agent_result.run_id,
@@ -191,7 +192,7 @@ pub async fn start_agent_run(
 
                 let event = AgentCompleteEvent {
                     run_id: agent_result.run_id,
-                    status: format!("{:?}", agent_result.status).to_lowercase(),
+                    status: status_str,
                     exit_code: agent_result.exit_code,
                     duration_secs: agent_result.duration_secs,
                 };

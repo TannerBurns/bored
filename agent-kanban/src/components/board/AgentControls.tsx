@@ -55,23 +55,37 @@ export function AgentControls({
   }, [ticket.id]);
 
   useEffect(() => {
+    if (!currentRunId) {
+      return;
+    }
+
+    let isCancelled = false;
     const unlisteners: UnlistenFn[] = [];
 
     const setupListeners = async () => {
+      // Capture currentRunId at setup time to use in comparisons
+      const runIdAtSetup = currentRunId;
+
       const unlistenLog = await listen<AgentLogEvent>('agent-log', (event) => {
-        if (event.payload.runId === currentRunId) {
+        if (isCancelled) return;
+        if (event.payload.runId === runIdAtSetup) {
           setLogs((prev) => [
             ...prev,
             { stream: event.payload.stream, content: event.payload.content },
           ]);
         }
       });
+      if (isCancelled) {
+        unlistenLog();
+        return;
+      }
       unlisteners.push(unlistenLog);
 
       const unlistenComplete = await listen<AgentCompleteEvent>(
         'agent-complete',
         (event) => {
-          if (event.payload.runId === currentRunId) {
+          if (isCancelled) return;
+          if (event.payload.runId === runIdAtSetup) {
             setIsRunning(false);
             setCurrentRunId(null);
             onRunCompleted?.(event.payload.runId, event.payload.status);
@@ -82,12 +96,17 @@ export function AgentControls({
           }
         }
       );
+      if (isCancelled) {
+        unlistenComplete();
+        return;
+      }
       unlisteners.push(unlistenComplete);
 
       const unlistenError = await listen<AgentErrorEvent>(
         'agent-error',
         (event) => {
-          if (event.payload.runId === currentRunId) {
+          if (isCancelled) return;
+          if (event.payload.runId === runIdAtSetup) {
             setIsRunning(false);
             setCurrentRunId(null);
             setError(event.payload.error);
@@ -98,14 +117,17 @@ export function AgentControls({
           }
         }
       );
+      if (isCancelled) {
+        unlistenError();
+        return;
+      }
       unlisteners.push(unlistenError);
     };
 
-    if (currentRunId) {
-      setupListeners();
-    }
+    setupListeners();
 
     return () => {
+      isCancelled = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, [currentRunId, ticket.id, onRunCompleted]);
