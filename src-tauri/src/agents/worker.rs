@@ -215,7 +215,15 @@ impl Worker {
         }
 
         let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id, project_id.as_deref());
-        let prompt = super::prompt::generate_ticket_prompt_with_workflow(&ticket, Some(self.config.agent_type));
+        
+        // Determine if this project requires git for workflow instructions
+        let requires_git = project_id
+            .as_ref()
+            .and_then(|pid| self.db.get_project(pid).ok().flatten())
+            .map(|p| p.requires_git)
+            .unwrap_or(true);
+        
+        let prompt = super::prompt::generate_ticket_prompt_full(&ticket, Some(self.config.agent_type), requires_git);
         let result = self.run_agent(&run.id, &repo_path, &prompt).await;
         heartbeat_handle.abort();
 
@@ -328,7 +336,8 @@ impl Worker {
                 }
                 if let Some(ref pid) = project_id {
                     if let Err(e) = db.extend_repo_lock(pid, &run_id, new_expires) {
-                        tracing::warn!("Failed to extend repo lock for project {}: {}", pid, e);
+                        tracing::error!("Heartbeat failed for repo lock on project {}: {}", pid, e);
+                        break;
                     }
                 }
             }
