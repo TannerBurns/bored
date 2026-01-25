@@ -140,12 +140,14 @@ function App() {
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
+    const updatedAt = new Date();
+    const updatesWithTimestamp = { ...updates, updatedAt };
     setTickets((prev) =>
       prev.map((t) =>
-        t.id === ticketId ? { ...t, ...updates, updatedAt: new Date() } : t
+        t.id === ticketId ? { ...t, ...updatesWithTimestamp } : t
       )
     );
-    await storeUpdateTicket(ticketId, updates);
+    await storeUpdateTicket(ticketId, updatesWithTimestamp);
   };
 
   const handleAddComment = async (ticketId: string, body: string) => {

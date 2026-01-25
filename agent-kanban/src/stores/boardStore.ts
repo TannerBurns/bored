@@ -150,16 +150,18 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   updateTicket: async (ticketId: string, updates: Partial<Ticket>) => {
+    const updatedAt = updates.updatedAt ?? new Date();
+    const updatesWithTimestamp = { ...updates, updatedAt };
     if (isTauri()) {
-      await invoke('update_ticket', { ticketId, updates });
+      await invoke('update_ticket', { ticketId, updates: updatesWithTimestamp });
     }
     set((state) => ({
       tickets: state.tickets.map((t) =>
-        t.id === ticketId ? { ...t, ...updates, updatedAt: new Date() } : t
+        t.id === ticketId ? { ...t, ...updatesWithTimestamp } : t
       ),
       selectedTicket:
         state.selectedTicket?.id === ticketId
-          ? { ...state.selectedTicket, ...updates, updatedAt: new Date() }
+          ? { ...state.selectedTicket, ...updatesWithTimestamp }
           : state.selectedTicket,
     }));
   },
