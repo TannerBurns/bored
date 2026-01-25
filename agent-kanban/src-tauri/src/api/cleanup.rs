@@ -277,4 +277,61 @@ mod tests {
         };
         assert!(!with_runs.is_empty());
     }
+
+    #[test]
+    fn cleanup_config_default() {
+        let config = CleanupConfig::default();
+        assert_eq!(config.check_interval_secs, 60);
+    }
+
+    #[test]
+    fn cleanup_handles_multiple_expired_tickets() {
+        let db = setup_test_db();
+
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let ticket1 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket 1".to_string(),
+            description_md: "Desc".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+
+        let ticket2 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket 2".to_string(),
+            description_md: "Desc".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+
+        let run1 = db.create_run(&CreateRun {
+            ticket_id: ticket1.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/test".to_string(),
+        }).unwrap();
+
+        let run2 = db.create_run(&CreateRun {
+            ticket_id: ticket2.id.clone(),
+            agent_type: AgentType::Claude,
+            repo_path: "/tmp/test".to_string(),
+        }).unwrap();
+
+        let expired_time = Utc::now() - ChronoDuration::minutes(5);
+        db.lock_ticket(&ticket1.id, &run1.id, expired_time).unwrap();
+        db.lock_ticket(&ticket2.id, &run2.id, expired_time).unwrap();
+
+        let result = cleanup_expired_locks(&db).unwrap();
+
+        assert_eq!(result.released_tickets.len(), 2);
+        assert_eq!(result.aborted_runs.len(), 2);
+    }
 }
