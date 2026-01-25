@@ -64,13 +64,10 @@ export function useSSE(apiUrl: string, token: string, options: UseSSEOptions = {
       : 'stream';
     const url = `${apiUrl}/v1/${endpoint}?${params}`;
 
-    console.log('[SSE] Connecting to', url.replace(token, '***'));
-
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log('[SSE] Connection established');
       reconnectCountRef.current = 0;
     };
 
@@ -81,24 +78,18 @@ export function useSSE(apiUrl: string, token: string, options: UseSSEOptions = {
         const data: LiveEvent = JSON.parse(event.data);
         handleEvent(data);
         onEvent?.(data);
-      } catch (e) {
-        console.error('[SSE] Failed to parse event:', e, event.data);
+      } catch {
+        // Ignore malformed events
       }
     };
 
-    eventSource.onerror = (error) => {
-      console.error('[SSE] Connection error:', error);
+    eventSource.onerror = () => {
       eventSource.close();
       eventSourceRef.current = null;
 
       if (reconnectCountRef.current < maxReconnects) {
         reconnectCountRef.current++;
-        console.log(
-          `[SSE] Reconnecting in ${reconnectDelay}ms (attempt ${reconnectCountRef.current}/${maxReconnects})`
-        );
         reconnectTimeoutRef.current = window.setTimeout(connect, reconnectDelay);
-      } else {
-        console.error('[SSE] Max reconnect attempts reached');
       }
     };
   }, [apiUrl, token, typeFilter, ticketFilter, runFilter, reconnectDelay, maxReconnects, onEvent]);
@@ -139,34 +130,16 @@ export function useSSE(apiUrl: string, token: string, options: UseSSEOptions = {
         }
         break;
 
-      case 'run_started':
-        console.log('[SSE] Run started:', event.run_id, 'agent:', event.agent_type);
-        break;
-
-      case 'run_updated':
-        console.log('[SSE] Run updated:', event.run_id, 'status:', event.status);
-        break;
-
       case 'run_completed':
-        console.log(
-          '[SSE] Run completed:',
-          event.run_id,
-          'status:',
-          event.status,
-          'exit:',
-          event.exit_code
-        );
         if (currentBoard) {
           loadBoardData(currentBoard.id);
         }
         break;
 
+      case 'run_started':
+      case 'run_updated':
       case 'event_received':
-        console.log('[SSE] Agent event:', event.event_type, 'run:', event.run_id);
-        break;
-
       case 'comment_added':
-        console.log('[SSE] Comment added to ticket:', event.ticket_id);
         break;
     }
   };

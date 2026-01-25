@@ -2,8 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use crate::db::{Priority, AgentType, AgentPref, Ticket, Column};
 
-// ===== Ticket Types =====
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTicketRequest {
@@ -60,8 +58,6 @@ pub struct ReserveTicketRequest {
     pub repo_path: Option<String>,
 }
 
-// ===== Run Types =====
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRunRequest {
@@ -86,8 +82,6 @@ pub struct HeartbeatResponse {
     pub ok: bool,
 }
 
-// ===== Event Types =====
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateEventRequest {
@@ -96,8 +90,6 @@ pub struct CreateEventRequest {
     #[serde(default = "Utc::now")]
     pub timestamp: DateTime<Utc>,
 }
-
-// ===== Comment Types =====
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,8 +103,6 @@ pub struct CreateCommentRequest {
 fn default_author_type() -> String {
     "agent".to_string()
 }
-
-// ===== Queue Types =====
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,8 +139,6 @@ pub struct BoardQueueStatus {
     pub ready_count: usize,
 }
 
-// ===== Board Response Types =====
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardWithColumns {
@@ -161,8 +149,6 @@ pub struct BoardWithColumns {
     pub updated_at: DateTime<Utc>,
     pub columns: Vec<Column>,
 }
-
-// ===== Generic Responses =====
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

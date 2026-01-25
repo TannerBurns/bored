@@ -15,8 +15,6 @@ use crate::db::{
     NormalizedEvent, RunStatus, Ticket, AuthorType,
 };
 
-// ===== Health Check =====
-
 pub async fn health() -> &'static str {
     "ok"
 }
@@ -35,8 +33,6 @@ pub async fn health_detailed(
         "boardCount": board_count
     })))
 }
-
-// ===== Boards =====
 
 pub async fn list_boards(
     State(state): State<AppState>,
@@ -63,8 +59,6 @@ pub async fn get_board(
     }))
 }
 
-// ===== Columns =====
-
 pub async fn list_columns(
     State(state): State<AppState>,
     Path(board_id): Path<String>,
@@ -74,8 +68,6 @@ pub async fn list_columns(
     let columns = state.db.get_columns(&board_id)?;
     Ok(Json(columns))
 }
-
-// ===== Tickets =====
 
 #[derive(Debug, Deserialize)]
 pub struct TicketQuery {
@@ -206,8 +198,6 @@ pub async fn move_ticket(
     Ok(Json(updated))
 }
 
-// ===== Ticket Reservation =====
-
 pub async fn reserve_ticket(
     State(state): State<AppState>,
     Path(ticket_id): Path<String>,
@@ -256,8 +246,6 @@ pub async fn reserve_ticket(
         heartbeat_interval_secs: HEARTBEAT_INTERVAL_SECS,
     }))
 }
-
-// ===== Runs =====
 
 pub async fn create_run(
     State(state): State<AppState>,
@@ -404,8 +392,6 @@ pub async fn release_run(
     Ok(Json(updated))
 }
 
-// ===== Events =====
-
 pub async fn create_event(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
@@ -444,8 +430,6 @@ pub async fn list_events(
     let events = state.db.get_events(&run_id)?;
     Ok(Json(events))
 }
-
-// ===== Comments =====
 
 pub async fn create_comment(
     State(state): State<AppState>,
@@ -489,8 +473,6 @@ pub async fn list_comments(
     Ok(Json(comments))
 }
 
-// ===== Queue =====
-
 pub async fn queue_next(
     State(state): State<AppState>,
     Json(req): Json<QueueNextRequest>,
@@ -532,7 +514,6 @@ pub async fn queue_next(
                 match pref {
                     AgentPref::Cursor if req.agent_type != crate::db::AgentType::Cursor => continue,
                     AgentPref::Claude if req.agent_type != crate::db::AgentType::Claude => continue,
-                    AgentPref::Any => {}
                     _ => {}
                 }
             }

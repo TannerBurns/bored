@@ -8,7 +8,6 @@ use tokio_stream::StreamExt;
 
 use super::state::{AppState, LiveEvent};
 
-/// Server-Sent Events endpoint for real-time updates
 pub async fn sse_handler(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -40,7 +39,6 @@ pub async fn sse_handler(
     )
 }
 
-/// SSE endpoint with filtering
 #[derive(Debug, serde::Deserialize)]
 pub struct SseFilter {
     #[serde(default)]

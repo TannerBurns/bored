@@ -16,7 +16,6 @@ pub struct TokenQuery {
     pub token: Option<String>,
 }
 
-/// Authentication middleware - accepts token via header or query param
 pub async fn auth_middleware(
     State(state): State<AppState>,
     Query(query): Query<TokenQuery>,
@@ -31,10 +30,7 @@ pub async fn auth_middleware(
         .or(query.token);
 
     match token {
-        Some(t) if t == state.api_token => {
-            tracing::trace!("Request authenticated successfully");
-            Ok(next.run(request).await)
-        }
+        Some(t) if t == state.api_token => Ok(next.run(request).await),
         Some(_) => {
             tracing::warn!(
                 "Invalid API token provided for {} {}",
@@ -54,7 +50,6 @@ pub async fn auth_middleware(
     }
 }
 
-/// Generate a cryptographically secure random API token
 pub fn generate_token() -> String {
     use rand::Rng;
     
