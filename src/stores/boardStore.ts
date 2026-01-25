@@ -30,6 +30,7 @@ interface BoardState {
   openCreateModal: () => void;
   closeCreateModal: () => void;
   setBoards: (boards: Board[]) => void;
+  setCurrentBoard: (board: Board | null) => void;
   setColumns: (columns: Column[]) => void;
   setTickets: (tickets: Ticket[]) => void;
   setLoading: (loading: boolean) => void;
@@ -251,6 +252,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   openCreateModal: () => set({ isCreateModalOpen: true }),
   closeCreateModal: () => set({ isCreateModalOpen: false }),
   setBoards: (boards) => set({ boards }),
+  setCurrentBoard: (board) => set({ currentBoard: board }),
   setColumns: (columns) => set({ columns }),
   setTickets: (tickets) => set({ tickets }),
   setLoading: (isLoading) => set({ isLoading }),
