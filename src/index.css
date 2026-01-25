@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode for dark: variant */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   font-family: Inter, system-ui, -apple-system, sans-serif;
 }
