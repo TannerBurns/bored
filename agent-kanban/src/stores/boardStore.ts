@@ -189,22 +189,34 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   loadComments: async (ticketId: string) => {
     try {
       if (isTauri()) {
-        const comments = await invoke<Comment[]>('get_comments', { ticketId });
+        const fetchedComments = await invoke<Comment[]>('get_comments', { ticketId });
         // Guard against race condition: only update if this ticket is still selected
         if (get().selectedTicket?.id === ticketId) {
-          set({ comments });
+          // Merge fetched comments with any locally-added comments (optimistic updates)
+          // Local comments have temporary IDs like "comment-{timestamp}"
+          const currentComments = get().comments;
+          const fetchedIds = new Set(fetchedComments.map((c) => c.id));
+          const localComments = currentComments.filter(
+            (c) => c.id.startsWith('comment-') && !fetchedIds.has(c.id)
+          );
+          set({ comments: [...fetchedComments, ...localComments] });
         }
       } else {
         // Guard against race condition for non-Tauri mode too
         if (get().selectedTicket?.id === ticketId) {
-          set({ comments: [] });
+          // Preserve any locally-added comments in non-Tauri mode
+          const currentComments = get().comments;
+          const localComments = currentComments.filter((c) => c.id.startsWith('comment-'));
+          set({ comments: localComments });
         }
       }
     } catch (error) {
       console.error('Failed to load comments:', error);
-      // Only clear comments if this ticket is still selected
+      // On error, preserve locally-added comments if this ticket is still selected
       if (get().selectedTicket?.id === ticketId) {
-        set({ comments: [] });
+        const currentComments = get().comments;
+        const localComments = currentComments.filter((c) => c.id.startsWith('comment-'));
+        set({ comments: localComments });
       }
     }
   },

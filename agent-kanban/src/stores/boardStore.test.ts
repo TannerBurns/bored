@@ -320,10 +320,20 @@ describe('useBoardStore', () => {
   });
 
   describe('loadComments', () => {
-    it('sets empty comments in demo mode when ticket is selected', async () => {
-      useBoardStore.setState({ comments: [mockComment], selectedTicket: mockTicket });
+    it('clears server-fetched comments in demo mode when ticket is selected', async () => {
+      // Server-fetched comments have IDs that don't start with "comment-"
+      const serverComment: Comment = { ...mockComment, id: 'server-comment-1' };
+      useBoardStore.setState({ comments: [serverComment], selectedTicket: mockTicket });
       await useBoardStore.getState().loadComments('ticket-1');
       expect(useBoardStore.getState().comments).toEqual([]);
+    });
+
+    it('preserves locally-added comments in demo mode (race condition fix)', async () => {
+      // Locally-added comments have IDs starting with "comment-"
+      useBoardStore.setState({ comments: [mockComment], selectedTicket: mockTicket });
+      await useBoardStore.getState().loadComments('ticket-1');
+      // mockComment has id 'comment-1' so it should be preserved
+      expect(useBoardStore.getState().comments).toEqual([mockComment]);
     });
 
     it('does not update comments if selected ticket changed (race condition guard)', async () => {
