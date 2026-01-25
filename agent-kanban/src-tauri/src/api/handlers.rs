@@ -265,6 +265,21 @@ pub async fn create_run(
         repo_path: req.repo_path,
     })?;
 
+    // Lock the ticket to prevent concurrent runs
+    let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
+    state.db.lock_ticket(&req.ticket_id, &run.id, lock_expires_at)?;
+
+    // Move to In Progress if that column exists
+    let columns = state.db.get_columns(&ticket.board_id)?;
+    if let Some(in_progress) = columns.iter().find(|c| c.name == "In Progress") {
+        let _ = state.db.move_ticket(&req.ticket_id, &in_progress.id);
+    }
+
+    state.broadcast(LiveEvent::TicketLocked {
+        ticket_id: req.ticket_id.clone(),
+        run_id: run.id.clone(),
+    });
+
     state.broadcast(LiveEvent::RunStarted {
         run_id: run.id.clone(),
         ticket_id: req.ticket_id,
@@ -521,7 +536,8 @@ pub async fn queue_next(
                 }
             }
 
-            let repo_path = req.repo_path.clone().unwrap_or_default();
+            let repo_path = req.repo_path.clone()
+                .ok_or_else(|| AppError::validation("repo_path is required"))?;
 
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
