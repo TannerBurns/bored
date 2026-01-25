@@ -218,7 +218,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref
-                   FROM tickets WHERE locked_by_run_id = ?1"#,
+                   FROM tickets WHERE locked_by_run_id = ?1
+                   LIMIT 1"#,
                 [run_id],
                 Self::map_ticket_row,
             )?;
