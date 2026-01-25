@@ -8,7 +8,6 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     (command, args)
 }
 
-/// Check if Claude CLI is available
 pub fn is_claude_available() -> bool {
     Command::new("claude")
         .arg("--version")
@@ -17,7 +16,6 @@ pub fn is_claude_available() -> bool {
         .unwrap_or(false)
 }
 
-/// Get Claude CLI version
 pub fn get_claude_version() -> Option<String> {
     Command::new("claude")
         .arg("--version")
@@ -42,7 +40,6 @@ pub struct ClaudeSettings {
     pub permission_mode: Option<String>,
 }
 
-/// Build command with custom settings
 #[allow(dead_code)]
 pub fn build_command_with_settings(
     config: &AgentRunConfig,
@@ -75,7 +72,6 @@ pub fn build_command_with_settings(
     (command, args)
 }
 
-/// Generate the settings.json hooks content for Claude Code
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
     serde_json::json!({
@@ -115,7 +111,6 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
     })
 }
 
-/// Configuration for generating hooks settings
 #[derive(Debug, Clone, Default)]
 pub struct HooksConfig<'a> {
     pub hook_script_path: &'a str,
@@ -125,12 +120,10 @@ pub struct HooksConfig<'a> {
     pub ticket_id: Option<&'a str>,
 }
 
-/// Generate settings.json hooks with environment variables
 pub fn generate_hooks_settings(hook_script_path: &str) -> serde_json::Value {
     generate_hooks_settings_with_api(hook_script_path, None, None)
 }
 
-/// Generate settings.json hooks with API configuration
 pub fn generate_hooks_settings_with_api(
     hook_script_path: &str,
     api_url: Option<&str>,
@@ -145,7 +138,6 @@ pub fn generate_hooks_settings_with_api(
     })
 }
 
-/// Generate settings.json hooks with full configuration
 pub fn generate_hooks_settings_with_config(config: HooksConfig) -> serde_json::Value {
     // Build environment variables for the hook script
     let mut env_vars = String::new();
@@ -222,34 +214,28 @@ pub fn generate_hooks_settings_with_config(config: HooksConfig) -> serde_json::V
     })
 }
 
-/// Get user settings path (~/.claude/settings.json)
 pub fn user_settings_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("settings.json"))
 }
 
-/// Get project settings path (.claude/settings.json in project)
 pub fn project_settings_path(project: &Path) -> PathBuf {
     project.join(".claude").join("settings.json")
 }
 
-/// Get local project settings path (.claude/settings.local.json - gitignored)
 pub fn local_settings_path(project: &Path) -> PathBuf {
     project.join(".claude").join("settings.local.json")
 }
 
-/// Check if global hooks are installed
 pub fn check_global_hooks_installed() -> bool {
     user_settings_path()
         .map(|p| p.exists())
         .unwrap_or(false)
 }
 
-/// Check if project hooks are installed
 pub fn check_project_hooks_installed(project: &Path) -> bool {
     project_settings_path(project).exists() || local_settings_path(project).exists()
 }
 
-/// Install hooks in user settings (~/.claude/settings.json)
 pub fn install_user_hooks(
     hook_script_path: &str,
     api_url: Option<&str>,
@@ -290,7 +276,6 @@ pub fn install_user_hooks(
     Ok(())
 }
 
-/// Install hooks in project settings (.claude/settings.json)
 pub fn install_project_hooks(
     project: &Path,
     hook_script_path: &str,
@@ -324,7 +309,6 @@ pub fn install_project_hooks(
     Ok(())
 }
 
-/// Install hooks in local project settings (.claude/settings.local.json)
 pub fn install_local_hooks(
     project: &Path,
     hook_script_path: &str,
