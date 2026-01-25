@@ -6,6 +6,9 @@ import {
   getCursorHooksConfig,
   getProjects,
   browseForDirectory,
+  getAvailableCommands,
+  installCommandsToProject,
+  checkCommandsInstalled,
 } from '../../lib/tauri';
 import type { CursorStatus } from '../../lib/tauri';
 import type { Project } from '../../types';
@@ -22,6 +25,13 @@ export function CursorSettings() {
   const [success, setSuccess] = useState<string | null>(null);
   const [configVisible, setConfigVisible] = useState(false);
   const [configJson, setConfigJson] = useState('');
+  
+  // Command installation state
+  const [availableCommands, setAvailableCommands] = useState<string[]>([]);
+  const [commandProjectPath, setCommandProjectPath] = useState('');
+  const [commandProjectId, setCommandProjectId] = useState('');
+  const [installingCommands, setInstallingCommands] = useState(false);
+  const [projectCommandStatus, setProjectCommandStatus] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadData();
@@ -30,12 +40,26 @@ export function CursorSettings() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [cursorStatus, projectList] = await Promise.all([
+      const [cursorStatus, projectList, commands] = await Promise.all([
         getCursorStatus(),
         getProjects(),
+        getAvailableCommands(),
       ]);
       setStatus(cursorStatus);
       setProjects(projectList);
+      setAvailableCommands(commands);
+      
+      // Check command installation status for each project
+      const commandStatus: Record<string, boolean> = {};
+      for (const project of projectList) {
+        try {
+          commandStatus[project.id] = await checkCommandsInstalled('cursor', project.path);
+        } catch {
+          commandStatus[project.id] = false;
+        }
+      }
+      setProjectCommandStatus(commandStatus);
+      
       setError(null);
     } catch (e) {
       setError(`Failed to load Cursor status: ${e}`);
@@ -113,6 +137,31 @@ export function CursorSettings() {
       setSuccess('Path copied to clipboard!');
     } catch (e) {
       setError(`Failed to copy path: ${e}`);
+    }
+  };
+
+  const handleInstallCommands = async () => {
+    const path = commandProjectId
+      ? projects.find(p => p.id === commandProjectId)?.path
+      : commandProjectPath;
+    
+    if (!path) {
+      setError('Please select a project or enter a path');
+      return;
+    }
+
+    setInstallingCommands(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const installed = await installCommandsToProject('cursor', path);
+      setSuccess(`Installed ${installed.length} commands to ${path}/.cursor/commands/`);
+      await loadData();
+    } catch (e) {
+      setError(`Failed to install commands: ${e}`);
+    } finally {
+      setInstallingCommands(false);
     }
   };
 
@@ -280,6 +329,87 @@ export function CursorSettings() {
             className="px-4 py-2 bg-board-surface-raised border border-board-border text-board-text rounded-lg hover:bg-board-card-hover disabled:opacity-50 transition-colors"
           >
             Copy Config
+          </button>
+        </div>
+      </div>
+
+      {/* Command Templates Section */}
+      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+        <h3 className="font-medium text-board-text">Command Templates</h3>
+        <p className="text-sm text-board-text-muted">
+          Install workflow command templates to enable the QA sequence: deslop, cleanup, unit-tests, review-changes, add-and-commit.
+        </p>
+
+        {availableCommands.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {availableCommands.map((cmd) => (
+              <span
+                key={cmd}
+                className="px-2 py-1 bg-board-surface-raised rounded-lg text-xs text-board-text-secondary border border-board-border"
+              >
+                /{cmd.replace('.md', '')}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {projects.length > 0 && (
+            <div>
+              <label className="block text-sm text-board-text-secondary mb-1.5">Select project</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={commandProjectId}
+                  onChange={(e) => {
+                    setCommandProjectId(e.target.value);
+                    setCommandProjectPath('');
+                  }}
+                  className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
+                >
+                  <option value="">-- Select a project --</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.path})
+                    </option>
+                  ))}
+                </select>
+                {commandProjectId && (
+                  <span className={`w-2 h-2 rounded-full ${projectCommandStatus[commandProjectId] ? 'bg-status-success' : 'bg-status-warning'}`} />
+                )}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm text-board-text-secondary mb-1.5">
+              {projects.length > 0 ? 'Or enter custom path' : 'Project path'}
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="/path/to/project"
+                value={commandProjectPath}
+                onChange={(e) => {
+                  setCommandProjectPath(e.target.value);
+                  setCommandProjectId('');
+                }}
+                className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+              />
+              <button
+                onClick={handleBrowse}
+                className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+              >
+                Browse
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={handleInstallCommands}
+            disabled={installingCommands || (!commandProjectId && !commandProjectPath)}
+            className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {installingCommands ? 'Installing...' : 'Install Commands'}
           </button>
         </div>
       </div>

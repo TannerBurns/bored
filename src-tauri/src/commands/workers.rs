@@ -1,11 +1,13 @@
 //! Tauri commands for worker management.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use once_cell::sync::Lazy;
 use tauri::State;
 
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
-use crate::agents::AgentKind;
+use crate::agents::validation::{ValidationResult, validate_worker_environment};
+use crate::agents::{AgentKind, cursor, claude};
 use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
@@ -136,6 +138,78 @@ pub async fn get_worker_queue_status(
         in_progress_count,
         worker_count: WORKER_MANAGER.worker_count(),
     })
+}
+
+#[tauri::command]
+pub async fn validate_worker(
+    agent_type: String,
+    repo_path: String,
+) -> Result<ValidationResult, String> {
+    let agent_kind = match agent_type.as_str() {
+        "cursor" => AgentKind::Cursor,
+        "claude" => AgentKind::Claude,
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+
+    let api_url = std::env::var("AGENT_KANBAN_API_URL").ok();
+    let result = validate_worker_environment(
+        agent_kind,
+        &PathBuf::from(&repo_path),
+        api_url.as_deref(),
+    );
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_commands_path() -> Result<Option<String>, String> {
+    if let Some(path) = cursor::get_bundled_commands_path() {
+        return Ok(Some(path.to_string_lossy().to_string()));
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+pub async fn get_available_commands() -> Result<Vec<String>, String> {
+    if let Some(path) = cursor::get_bundled_commands_path() {
+        return Ok(cursor::get_available_commands(&path));
+    }
+    Ok(vec![])
+}
+
+#[tauri::command]
+pub async fn install_commands_to_project(
+    agent_type: String,
+    repo_path: String,
+) -> Result<Vec<String>, String> {
+    let commands_source = cursor::get_bundled_commands_path()
+        .ok_or_else(|| "Command templates not found".to_string())?;
+
+    let repo = PathBuf::from(&repo_path);
+
+    let installed = match agent_type.as_str() {
+        "cursor" => cursor::install_commands(&repo, &commands_source),
+        "claude" => claude::install_commands(&repo, &commands_source),
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+
+    installed.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn check_commands_installed(
+    agent_type: String,
+    repo_path: String,
+) -> Result<bool, String> {
+    let repo = PathBuf::from(&repo_path);
+
+    let installed = match agent_type.as_str() {
+        "cursor" => cursor::check_project_commands_installed(&repo),
+        "claude" => claude::check_project_commands_installed(&repo),
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+
+    Ok(installed)
 }
 
 #[cfg(test)]

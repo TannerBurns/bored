@@ -237,6 +237,61 @@ pub fn check_project_hooks_installed(repo_path: &Path) -> bool {
     repo_path.join(".cursor").join("hooks.json").exists()
 }
 
+pub const COMMAND_TEMPLATES: &[&str] = &[
+    "add-and-commit.md",
+    "cleanup.md",
+    "deslop.md",
+    "review-changes.md",
+    "unit-tests.md",
+];
+
+pub fn check_project_commands_installed(repo_path: &Path) -> bool {
+    let commands_dir = repo_path.join(".cursor").join("commands");
+    if !commands_dir.exists() {
+        return false;
+    }
+    
+    COMMAND_TEMPLATES.iter().all(|name| commands_dir.join(name).exists())
+}
+
+pub fn get_bundled_commands_path() -> Option<PathBuf> {
+    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts").join("commands");
+    if dev_path.exists() {
+        return Some(dev_path);
+    }
+    None
+}
+
+pub fn install_commands(
+    repo_path: &Path,
+    commands_source: &Path,
+) -> std::io::Result<Vec<String>> {
+    let commands_dir = repo_path.join(".cursor").join("commands");
+    std::fs::create_dir_all(&commands_dir)?;
+    
+    let mut installed = Vec::new();
+    
+    for name in COMMAND_TEMPLATES {
+        let source = commands_source.join(name);
+        let dest = commands_dir.join(name);
+        
+        if source.exists() {
+            std::fs::copy(&source, &dest)?;
+            installed.push(name.to_string());
+        }
+    }
+    
+    Ok(installed)
+}
+
+pub fn get_available_commands(commands_source: &Path) -> Vec<String> {
+    COMMAND_TEMPLATES
+        .iter()
+        .filter(|name| commands_source.join(name).exists())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +510,71 @@ mod tests {
         
         assert!(cursor_dir.exists());
         assert!(cursor_dir.is_dir());
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn command_templates_list_has_all_commands() {
+        assert_eq!(COMMAND_TEMPLATES.len(), 5);
+        assert!(COMMAND_TEMPLATES.contains(&"add-and-commit.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"cleanup.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"deslop.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"review-changes.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"unit-tests.md"));
+    }
+
+    #[test]
+    fn check_project_commands_installed_returns_false_when_missing() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        assert!(!check_project_commands_installed(&temp_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn install_commands_creates_directory_and_files() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        let source_dir = temp_dir.join("source");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        
+        // Create source command files
+        for name in COMMAND_TEMPLATES {
+            std::fs::write(source_dir.join(name), format!("# {}", name)).unwrap();
+        }
+        
+        let project_dir = temp_dir.join("project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        
+        let installed = install_commands(&project_dir, &source_dir).unwrap();
+        assert_eq!(installed.len(), 5);
+        
+        // Verify files exist
+        let commands_dir = project_dir.join(".cursor").join("commands");
+        for name in COMMAND_TEMPLATES {
+            assert!(commands_dir.join(name).exists());
+        }
+        
+        assert!(check_project_commands_installed(&project_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn get_available_commands_returns_existing_files() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Create only some command files
+        std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
+        std::fs::write(temp_dir.join("deslop.md"), "# deslop").unwrap();
+        
+        let available = get_available_commands(&temp_dir);
+        assert_eq!(available.len(), 2);
+        assert!(available.contains(&"cleanup.md".to_string()));
+        assert!(available.contains(&"deslop.md".to_string()));
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }

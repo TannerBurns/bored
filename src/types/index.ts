@@ -159,3 +159,18 @@ export interface WorkerQueueStatus {
   inProgressCount: number;
   workerCount: number;
 }
+
+// Validation types
+export interface ValidationCheck {
+  name: string;
+  passed: boolean;
+  message: string;
+  fixAction?: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  checks: ValidationCheck[];
+  errors: string[];
+  warnings: string[];
+}

@@ -42,7 +42,8 @@
         "signingIdentity": null
       },
       "resources": [
-        "scripts/*"
+        "scripts/*",
+        "scripts/commands/*"
       ],
       "shortDescription": "Agent Kanban",
       "targets": "all",

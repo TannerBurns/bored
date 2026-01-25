@@ -185,7 +185,7 @@ impl Worker {
         }
 
         let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id);
-        let prompt = super::prompt::generate_ticket_prompt(&ticket);
+        let prompt = super::prompt::generate_ticket_prompt_with_workflow(&ticket, Some(self.config.agent_type));
         let result = self.run_agent(&run.id, &repo_path, &prompt).await;
         heartbeat_handle.abort();
 

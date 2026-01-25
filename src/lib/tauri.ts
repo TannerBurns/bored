@@ -238,3 +238,35 @@ export async function checkClaudeProjectHooksInstalled(
 export async function getClaudeHookScriptPath(): Promise<string | null> {
   return invoke('get_claude_hook_script_path');
 }
+
+// Worker validation and commands
+import type { ValidationResult } from '../types';
+
+export async function validateWorker(
+  agentType: string,
+  repoPath: string
+): Promise<ValidationResult> {
+  return invoke('validate_worker', { agentType, repoPath });
+}
+
+export async function getCommandsPath(): Promise<string | null> {
+  return invoke('get_commands_path');
+}
+
+export async function getAvailableCommands(): Promise<string[]> {
+  return invoke('get_available_commands');
+}
+
+export async function installCommandsToProject(
+  agentType: string,
+  repoPath: string
+): Promise<string[]> {
+  return invoke('install_commands_to_project', { agentType, repoPath });
+}
+
+export async function checkCommandsInstalled(
+  agentType: string,
+  repoPath: string
+): Promise<boolean> {
+  return invoke('check_commands_installed', { agentType, repoPath });
+}
