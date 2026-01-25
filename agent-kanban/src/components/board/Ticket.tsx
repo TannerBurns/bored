@@ -1,21 +1,16 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
+import { PRIORITY_BORDER_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType } from '../../types';
 
 interface TicketProps {
   ticket: TicketType;
   onClick?: () => void;
+  isDragging?: boolean;
 }
 
-const priorityColors = {
-  low: 'border-l-gray-500',
-  medium: 'border-l-yellow-500',
-  high: 'border-l-orange-500',
-  urgent: 'border-l-red-500',
-};
-
-export function Ticket({ ticket, onClick }: TicketProps) {
+export function Ticket({ ticket, onClick, isDragging: isDraggingProp }: TicketProps) {
   const {
     attributes,
     listeners,
@@ -40,8 +35,8 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       className={cn(
         'bg-board-card p-3 rounded-md cursor-pointer border-l-4',
         'hover:ring-1 hover:ring-board-accent transition-all',
-        priorityColors[ticket.priority],
-        isDragging && 'opacity-50 ring-2 ring-board-accent'
+        PRIORITY_BORDER_COLORS[ticket.priority],
+        (isDragging || isDraggingProp) && 'opacity-50 ring-2 ring-board-accent shadow-lg'
       )}
     >
       <h4 className="font-medium text-white text-sm mb-2">{ticket.title}</h4>
