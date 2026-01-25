@@ -27,7 +27,6 @@ pub enum SpawnError {
 pub struct AgentProcess {
     child: Child,
     cancelled: Arc<AtomicBool>,
-    start_time: Instant,
 }
 
 impl AgentProcess {
@@ -61,7 +60,6 @@ impl AgentProcess {
         Ok(Self {
             child,
             cancelled: Arc::new(AtomicBool::new(false)),
-            start_time: Instant::now(),
         })
     }
 
@@ -149,11 +147,6 @@ impl AgentProcess {
         }
     }
 
-    /// Get elapsed time
-    #[allow(dead_code)]
-    pub fn elapsed(&self) -> Duration {
-        self.start_time.elapsed()
-    }
 }
 
 /// Handle to cancel a running process

@@ -72,15 +72,10 @@ pub async fn start_agent_run(
 ) -> Result<String, String> {
     tracing::info!("Starting {} agent run for ticket: {}", agent_type, ticket_id);
 
-    let db_agent_type = match agent_type.as_str() {
-        "cursor" => AgentType::Cursor,
-        "claude" => AgentType::Claude,
-        _ => return Err("Invalid agent type".to_string()),
-    };
-
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        _ => AgentKind::Claude,
+    let (db_agent_type, agent_kind) = match agent_type.as_str() {
+        "cursor" => (AgentType::Cursor, AgentKind::Cursor),
+        "claude" => (AgentType::Claude, AgentKind::Claude),
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
     };
 
     let ticket = db
@@ -157,7 +152,7 @@ pub async fn start_agent_run(
         let on_spawn: agents::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
             handles_for_spawn
                 .lock()
-                .unwrap()
+                .expect("running agents mutex poisoned")
                 .insert(run_id_for_spawn.clone(), cancel_handle);
         });
 
@@ -173,7 +168,7 @@ pub async fn start_agent_run(
         // Clean up the cancel handle now that the run is complete
         running_agents_handles
             .lock()
-            .unwrap()
+            .expect("running agents mutex poisoned")
             .remove(&run_id_for_cleanup);
 
         match result {
@@ -251,7 +246,12 @@ pub async fn cancel_agent_run(
     tracing::info!("Cancelling agent run: {}", run_id);
 
     // Try to cancel via handle
-    if let Some(handle) = running_agents.handles.lock().unwrap().get(&run_id) {
+    if let Some(handle) = running_agents
+        .handles
+        .lock()
+        .expect("running agents mutex poisoned")
+        .get(&run_id)
+    {
         handle.cancel();
     }
 
