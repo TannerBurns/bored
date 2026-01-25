@@ -1,5 +1,5 @@
 use super::AgentRunConfig;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
@@ -99,7 +99,7 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
     })
 }
 
-pub fn install_hooks(repo_path: &PathBuf, hook_script_path: &str) -> std::io::Result<()> {
+pub fn install_hooks(repo_path: &Path, hook_script_path: &str) -> std::io::Result<()> {
     let cursor_dir = repo_path.join(".cursor");
     std::fs::create_dir_all(&cursor_dir)?;
 
@@ -119,17 +119,23 @@ pub fn global_hooks_path() -> Option<PathBuf> {
 }
 
 pub fn install_global_hooks(hook_script_path: &str) -> std::io::Result<()> {
-    if let Some(hooks_path) = global_hooks_path() {
-        if let Some(parent) = hooks_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        
-        let hooks_json = generate_hooks_json(hook_script_path);
-        std::fs::write(
-            hooks_path,
-            serde_json::to_string_pretty(&hooks_json).unwrap(),
-        )?;
+    let hooks_path = global_hooks_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Could not determine home directory for global hooks installation",
+        )
+    })?;
+
+    if let Some(parent) = hooks_path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+
+    let hooks_json = generate_hooks_json(hook_script_path);
+    std::fs::write(
+        hooks_path,
+        serde_json::to_string_pretty(&hooks_json).unwrap(),
+    )?;
+
     Ok(())
 }
 
@@ -162,7 +168,7 @@ pub fn check_global_hooks_installed() -> bool {
         .unwrap_or(false)
 }
 
-pub fn check_project_hooks_installed(repo_path: &PathBuf) -> bool {
+pub fn check_project_hooks_installed(repo_path: &Path) -> bool {
     repo_path.join(".cursor").join("hooks.json").exists()
 }
 
