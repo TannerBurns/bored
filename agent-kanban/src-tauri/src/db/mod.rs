@@ -762,76 +762,500 @@ fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_create_board() {
-        let db = Database::open_in_memory().unwrap();
-        let board = db.create_board("Test Board").unwrap();
-        
-        assert_eq!(board.name, "Test Board");
-        
-        let columns = db.get_columns(&board.id).unwrap();
-        assert_eq!(columns.len(), 6); // Default columns
-        assert_eq!(columns[0].name, "Backlog");
-        assert_eq!(columns[5].name, "Done");
+    fn create_test_db() -> Database {
+        Database::open_in_memory().unwrap()
     }
 
-    #[test]
-    fn test_create_ticket() {
-        let db = Database::open_in_memory().unwrap();
-        let board = db.create_board("Test Board").unwrap();
-        let columns = db.get_columns(&board.id).unwrap();
-        
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Test Ticket".to_string(),
-            description_md: "Description".to_string(),
-            priority: Priority::High,
-            labels: vec!["bug".to_string()],
-            project_id: None,
-            agent_pref: Some(AgentPref::Cursor),
-        }).unwrap();
-        
-        assert_eq!(ticket.title, "Test Ticket");
-        assert_eq!(ticket.priority, Priority::High);
-        assert_eq!(ticket.labels, vec!["bug"]);
+    fn temp_dir_path() -> String {
+        std::env::temp_dir().to_string_lossy().to_string()
     }
 
-    #[test]
-    fn test_project_crud() {
-        let db = Database::open_in_memory().unwrap();
-        
-        // Create project (use temp dir for testing)
-        let temp_dir = std::env::temp_dir();
-        let project = db.create_project(&CreateProject {
-            name: "Test Project".to_string(),
-            path: temp_dir.to_string_lossy().to_string(),
-            preferred_agent: Some(AgentPref::Cursor),
-        }).unwrap();
-        
-        assert_eq!(project.name, "Test Project");
-        assert_eq!(project.preferred_agent, Some(AgentPref::Cursor));
-        
-        // Get projects
-        let projects = db.get_projects().unwrap();
-        assert_eq!(projects.len(), 1);
-        
-        // Update project
-        db.update_project(&project.id, &UpdateProject {
-            name: Some("Updated Project".to_string()),
-            preferred_agent: None,
-            allow_shell_commands: Some(false),
-            allow_file_writes: None,
-            blocked_patterns: None,
-        }).unwrap();
-        
-        let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert_eq!(updated.name, "Updated Project");
-        assert!(!updated.allow_shell_commands);
-        
-        // Delete project
-        db.delete_project(&project.id).unwrap();
-        let projects = db.get_projects().unwrap();
-        assert_eq!(projects.len(), 0);
+    mod board_tests {
+        use super::*;
+
+        #[test]
+        fn create_board_with_default_columns() {
+            let db = create_test_db();
+            let board = db.create_board("Test Board").unwrap();
+            
+            assert_eq!(board.name, "Test Board");
+            assert!(board.default_project_id.is_none());
+            
+            let columns = db.get_columns(&board.id).unwrap();
+            assert_eq!(columns.len(), 6);
+            assert_eq!(columns[0].name, "Backlog");
+            assert_eq!(columns[5].name, "Done");
+        }
+
+        #[test]
+        fn get_boards_returns_all() {
+            let db = create_test_db();
+            db.create_board("Board 1").unwrap();
+            db.create_board("Board 2").unwrap();
+            
+            let boards = db.get_boards().unwrap();
+            assert_eq!(boards.len(), 2);
+        }
+
+        #[test]
+        fn get_board_by_id() {
+            let db = create_test_db();
+            let board = db.create_board("Test").unwrap();
+            
+            let found = db.get_board(&board.id).unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().name, "Test");
+            
+            let not_found = db.get_board("nonexistent").unwrap();
+            assert!(not_found.is_none());
+        }
+    }
+
+    mod ticket_tests {
+        use super::*;
+
+        #[test]
+        fn create_ticket_with_all_fields() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "Description".to_string(),
+                priority: Priority::High,
+                labels: vec!["bug".to_string()],
+                project_id: None,
+                agent_pref: Some(AgentPref::Cursor),
+            }).unwrap();
+            
+            assert_eq!(ticket.title, "Test Ticket");
+            assert_eq!(ticket.priority, Priority::High);
+            assert_eq!(ticket.labels, vec!["bug"]);
+            assert_eq!(ticket.agent_pref, Some(AgentPref::Cursor));
+        }
+
+        #[test]
+        fn get_tickets_for_board() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket 1".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            let tickets = db.get_tickets(&board.id, None).unwrap();
+            assert_eq!(tickets.len(), 1);
+        }
+
+        #[test]
+        fn move_ticket_to_column() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            db.move_ticket(&ticket.id, &columns[1].id).unwrap();
+            
+            let tickets = db.get_tickets(&board.id, Some(&columns[1].id)).unwrap();
+            assert_eq!(tickets.len(), 1);
+            assert_eq!(tickets[0].id, ticket.id);
+        }
+
+        #[test]
+        fn set_ticket_project() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Proj".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
+            
+            let tickets = db.get_tickets(&board.id, None).unwrap();
+            assert_eq!(tickets[0].project_id, Some(project.id));
+        }
+    }
+
+    mod project_tests {
+        use super::*;
+
+        #[test]
+        fn create_project_validates_path_exists() {
+            let db = create_test_db();
+            
+            let result = db.create_project(&CreateProject {
+                name: "Bad".to_string(),
+                path: "/nonexistent/path/12345".to_string(),
+                preferred_agent: None,
+            });
+            
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.to_string().contains("does not exist"));
+        }
+
+        #[test]
+        fn create_project_validates_path_is_directory() {
+            let db = create_test_db();
+            
+            // Use a file path, not a directory
+            let file_path = std::env::current_exe().unwrap();
+            let result = db.create_project(&CreateProject {
+                name: "Bad".to_string(),
+                path: file_path.to_string_lossy().to_string(),
+                preferred_agent: None,
+            });
+            
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(err.to_string().contains("not a directory"));
+        }
+
+        #[test]
+        fn get_project_by_path() {
+            let db = create_test_db();
+            let temp = temp_dir_path();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp.clone(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let found = db.get_project_by_path(&temp).unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().id, project.id);
+            
+            let not_found = db.get_project_by_path("/some/other/path").unwrap();
+            assert!(not_found.is_none());
+        }
+
+        #[test]
+        fn update_project_hooks() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            assert!(!project.cursor_hooks_installed);
+            assert!(!project.claude_hooks_installed);
+            
+            db.update_project_hooks(&project.id, Some(true), None).unwrap();
+            let updated = db.get_project(&project.id).unwrap().unwrap();
+            assert!(updated.cursor_hooks_installed);
+            assert!(!updated.claude_hooks_installed);
+            
+            db.update_project_hooks(&project.id, None, Some(true)).unwrap();
+            let updated = db.get_project(&project.id).unwrap().unwrap();
+            assert!(updated.cursor_hooks_installed);
+            assert!(updated.claude_hooks_installed);
+        }
+
+        #[test]
+        fn delete_project_fails_if_board_uses_it() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let board = db.create_board("Board").unwrap();
+            db.set_board_project(&board.id, Some(&project.id)).unwrap();
+            
+            let result = db.delete_project(&project.id);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("board"));
+        }
+
+        #[test]
+        fn set_board_project() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let board = db.create_board("Board").unwrap();
+            assert!(board.default_project_id.is_none());
+            
+            db.set_board_project(&board.id, Some(&project.id)).unwrap();
+            
+            let updated = db.get_board(&board.id).unwrap().unwrap();
+            assert_eq!(updated.default_project_id, Some(project.id.clone()));
+            
+            db.set_board_project(&board.id, None).unwrap();
+            let cleared = db.get_board(&board.id).unwrap().unwrap();
+            assert!(cleared.default_project_id.is_none());
+        }
+
+        #[test]
+        fn update_project_blocked_patterns() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            assert!(project.blocked_patterns.is_empty());
+            
+            db.update_project(&project.id, &UpdateProject {
+                name: None,
+                preferred_agent: None,
+                allow_shell_commands: None,
+                allow_file_writes: None,
+                blocked_patterns: Some(vec!["*.log".to_string(), "node_modules".to_string()]),
+            }).unwrap();
+            
+            let updated = db.get_project(&project.id).unwrap().unwrap();
+            assert_eq!(updated.blocked_patterns, vec!["*.log", "node_modules"]);
+        }
+    }
+
+    mod readiness_tests {
+        use super::*;
+
+        #[test]
+        fn can_move_to_ready_with_ticket_project() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Proj".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                agent_pref: None,
+            }).unwrap();
+            
+            let check = db.can_move_to_ready(&ticket.id).unwrap();
+            match check {
+                ReadinessCheck::Ready { project_id } => assert_eq!(project_id, project.id),
+                other => panic!("Expected Ready, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn can_move_to_ready_uses_board_default() {
+            let db = create_test_db();
+            
+            let project = db.create_project(&CreateProject {
+                name: "Proj".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+            }).unwrap();
+            
+            let board = db.create_board("Board").unwrap();
+            db.set_board_project(&board.id, Some(&project.id)).unwrap();
+            
+            let columns = db.get_columns(&board.id).unwrap();
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None, // No ticket-level project
+                agent_pref: None,
+            }).unwrap();
+            
+            let check = db.can_move_to_ready(&ticket.id).unwrap();
+            match check {
+                ReadinessCheck::Ready { project_id } => assert_eq!(project_id, project.id),
+                other => panic!("Expected Ready, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn can_move_to_ready_returns_no_project() {
+            let db = create_test_db();
+            
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            let check = db.can_move_to_ready(&ticket.id).unwrap();
+            assert!(matches!(check, ReadinessCheck::NoProject));
+        }
+    }
+
+    mod run_tests {
+        use super::*;
+
+        #[test]
+        fn create_and_get_runs() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            let run = db.create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+            }).unwrap();
+            
+            assert_eq!(run.status, RunStatus::Queued);
+            assert_eq!(run.agent_type, AgentType::Cursor);
+            
+            let runs = db.get_runs(&ticket.id).unwrap();
+            assert_eq!(runs.len(), 1);
+            assert_eq!(runs[0].id, run.id);
+        }
+
+        #[test]
+        fn update_run_status() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            let run = db.create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+            }).unwrap();
+            
+            db.update_run_status(&run.id, RunStatus::Finished, Some(0), Some("Done")).unwrap();
+            
+            let runs = db.get_runs(&ticket.id).unwrap();
+            assert_eq!(runs[0].status, RunStatus::Finished);
+            assert_eq!(runs[0].exit_code, Some(0));
+            assert_eq!(runs[0].summary_md, Some("Done".to_string()));
+            assert!(runs[0].ended_at.is_some());
+        }
+    }
+
+    mod event_tests {
+        use super::*;
+
+        #[test]
+        fn create_and_get_events() {
+            let db = create_test_db();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            
+            let ticket = db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+            }).unwrap();
+            
+            let run = db.create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+            }).unwrap();
+            
+            let event = db.create_event(&NormalizedEvent {
+                run_id: run.id.clone(),
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                event_type: EventType::FileEdited,
+                payload: AgentEventPayload {
+                    raw: Some("edited file.txt".to_string()),
+                    structured: None,
+                },
+                timestamp: chrono::Utc::now(),
+            }).unwrap();
+            
+            assert_eq!(event.event_type, EventType::FileEdited);
+            
+            let events = db.get_events(&run.id).unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].id, event.id);
+            assert_eq!(events[0].payload.raw, Some("edited file.txt".to_string()));
+        }
     }
 }
