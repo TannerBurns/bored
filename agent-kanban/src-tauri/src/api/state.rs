@@ -78,3 +78,53 @@ impl AppState {
         self.event_tx.subscribe()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_state() -> AppState {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        AppState::new(db, "test-token".to_string())
+    }
+
+    #[test]
+    fn state_stores_token() {
+        let state = create_test_state();
+        assert_eq!(state.api_token, "test-token");
+    }
+
+    #[test]
+    fn broadcast_and_receive() {
+        let state = create_test_state();
+        let mut rx = state.subscribe();
+        
+        state.broadcast(LiveEvent::TicketCreated {
+            ticket_id: "t1".to_string(),
+            board_id: "b1".to_string(),
+        });
+        
+        let event = rx.try_recv().unwrap();
+        match event {
+            LiveEvent::TicketCreated { ticket_id, board_id } => {
+                assert_eq!(ticket_id, "t1");
+                assert_eq!(board_id, "b1");
+            }
+            _ => panic!("Wrong event type"),
+        }
+    }
+
+    #[test]
+    fn multiple_subscribers() {
+        let state = create_test_state();
+        let mut rx1 = state.subscribe();
+        let mut rx2 = state.subscribe();
+        
+        state.broadcast(LiveEvent::TicketUpdated {
+            ticket_id: "t1".to_string(),
+        });
+        
+        assert!(rx1.try_recv().is_ok());
+        assert!(rx2.try_recv().is_ok());
+    }
+}

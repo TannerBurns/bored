@@ -504,7 +504,10 @@ pub async fn queue_next(
             }
 
             if let Some(ref filter_path) = req.repo_path {
-                if ticket.project_id.as_ref() != Some(filter_path) {
+                // Look up project by filesystem path to get its ID
+                let project = state.db.get_project_by_path(filter_path)?;
+                let project_id = project.map(|p| p.id);
+                if ticket.project_id != project_id {
                     continue;
                 }
             }

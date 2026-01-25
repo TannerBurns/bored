@@ -141,3 +141,57 @@ impl From<crate::db::DbError> for AppError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::DbError;
+
+    #[test]
+    fn api_error_not_found() {
+        let err = ApiError::not_found("Ticket");
+        assert_eq!(err.error, "Ticket not found");
+        assert!(matches!(err.code, ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn api_error_validation() {
+        let err = ApiError::validation("Title cannot be empty");
+        assert_eq!(err.error, "Title cannot be empty");
+        assert!(matches!(err.code, ErrorCode::ValidationError));
+    }
+
+    #[test]
+    fn app_error_status_codes() {
+        assert_eq!(AppError::not_found("x").status, StatusCode::NOT_FOUND);
+        assert_eq!(AppError::bad_request("x").status, StatusCode::BAD_REQUEST);
+        assert_eq!(AppError::unauthorized().status, StatusCode::UNAUTHORIZED);
+        assert_eq!(AppError::conflict("x").status, StatusCode::CONFLICT);
+        assert_eq!(AppError::queue_empty().status, StatusCode::NOT_FOUND);
+        assert_eq!(AppError::validation("x").status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn from_db_error_not_found() {
+        let db_err = DbError::NotFound("Ticket abc".to_string());
+        let app_err: AppError = db_err.into();
+        assert_eq!(app_err.status, StatusCode::NOT_FOUND);
+        assert!(app_err.body.error.contains("Ticket abc"));
+    }
+
+    #[test]
+    fn from_db_error_validation() {
+        let db_err = DbError::Validation("Invalid input".to_string());
+        let app_err: AppError = db_err.into();
+        assert_eq!(app_err.status, StatusCode::BAD_REQUEST);
+        assert!(matches!(app_err.body.code, ErrorCode::ValidationError));
+    }
+
+    #[test]
+    fn from_db_error_sqlite() {
+        let db_err = DbError::Sqlite(rusqlite::Error::InvalidQuery);
+        let app_err: AppError = db_err.into();
+        assert_eq!(app_err.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(matches!(app_err.body.code, ErrorCode::DatabaseError));
+    }
+}

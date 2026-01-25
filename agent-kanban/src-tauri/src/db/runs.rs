@@ -203,4 +203,42 @@ mod tests {
         assert_eq!(runs[0].summary_md, Some("Done".to_string()));
         assert!(runs[0].ended_at.is_some());
     }
+
+    #[test]
+    fn get_run_by_id() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+        }).unwrap();
+        
+        let created = db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp/repo".to_string(),
+        }).unwrap();
+        
+        let fetched = db.get_run(&created.id).unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.ticket_id, ticket.id);
+        assert_eq!(fetched.agent_type, AgentType::Cursor);
+        assert_eq!(fetched.repo_path, "/tmp/repo");
+        assert_eq!(fetched.status, RunStatus::Queued);
+    }
+
+    #[test]
+    fn get_run_not_found() {
+        let db = create_test_db();
+        let result = db.get_run("nonexistent-run-id");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
 }
