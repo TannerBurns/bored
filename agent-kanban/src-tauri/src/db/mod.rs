@@ -5,6 +5,7 @@ mod boards;
 mod tickets;
 mod runs;
 mod events;
+mod comments;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

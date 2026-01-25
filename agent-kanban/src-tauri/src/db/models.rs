@@ -317,6 +317,26 @@ pub struct CreateRun {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CreateComment {
+    pub ticket_id: String,
+    pub author_type: AuthorType,
+    pub body_md: String,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTicket {
+    pub title: Option<String>,
+    pub description_md: Option<String>,
+    pub priority: Option<Priority>,
+    pub labels: Option<Vec<String>>,
+    pub project_id: Option<String>,
+    pub agent_pref: Option<AgentPref>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ReadinessCheck {
     Ready { project_id: String },
     /// Serializes as `{ "noProject": null }` to match TypeScript discriminated union

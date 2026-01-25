@@ -1,7 +1,155 @@
+use chrono::{DateTime, Utc};
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Ticket, CreateTicket, Priority, AgentPref};
+use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref};
 
 impl Database {
+    pub fn get_ticket(&self, ticket_id: &str) -> Result<Ticket, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref
+                   FROM tickets WHERE id = ?"#
+            )?;
+            
+            stmt.query_row([ticket_id], Self::map_ticket_row)
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Ticket {}", ticket_id))
+                    }
+                    other => DbError::Sqlite(other),
+                })
+        })
+    }
+
+    pub fn update_ticket(&self, ticket_id: &str, updates: &UpdateTicket) -> Result<Ticket, DbError> {
+        self.with_conn(|conn| {
+            // First get the existing ticket
+            let existing = {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                              labels_json, created_at, updated_at, locked_by_run_id, 
+                              lock_expires_at, project_id, agent_pref
+                       FROM tickets WHERE id = ?"#
+                )?;
+                stmt.query_row([ticket_id], Self::map_ticket_row)
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("Ticket {}", ticket_id))
+                        }
+                        other => DbError::Sqlite(other),
+                    })?
+            };
+
+            let now = chrono::Utc::now();
+            let title = updates.title.as_ref().unwrap_or(&existing.title);
+            let description_md = updates.description_md.as_ref().unwrap_or(&existing.description_md);
+            let priority = updates.priority.as_ref().unwrap_or(&existing.priority);
+            let labels = updates.labels.as_ref().unwrap_or(&existing.labels);
+            let project_id = updates.project_id.as_ref().or(existing.project_id.as_ref());
+            let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
+
+            let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
+
+            conn.execute(
+                r#"UPDATE tickets 
+                   SET title = ?, description_md = ?, priority = ?, labels_json = ?,
+                       project_id = ?, agent_pref = ?, updated_at = ?
+                   WHERE id = ?"#,
+                rusqlite::params![
+                    title,
+                    description_md,
+                    priority.as_str(),
+                    labels_json,
+                    project_id,
+                    agent_pref.map(|p| p.as_str()),
+                    now.to_rfc3339(),
+                    ticket_id,
+                ],
+            )?;
+
+            self.get_ticket(ticket_id)
+        })
+    }
+
+    pub fn delete_ticket(&self, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                "DELETE FROM tickets WHERE id = ?",
+                [ticket_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {}", ticket_id)));
+            }
+            Ok(())
+        })
+    }
+
+    pub fn lock_ticket(
+        &self,
+        ticket_id: &str,
+        run_id: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                r#"UPDATE tickets 
+                   SET locked_by_run_id = ?, lock_expires_at = ?, updated_at = ?
+                   WHERE id = ?"#,
+                rusqlite::params![
+                    run_id,
+                    expires_at.to_rfc3339(),
+                    chrono::Utc::now().to_rfc3339(),
+                    ticket_id,
+                ],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {}", ticket_id)));
+            }
+            Ok(())
+        })
+    }
+
+    pub fn unlock_ticket(&self, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"UPDATE tickets 
+                   SET locked_by_run_id = NULL, lock_expires_at = NULL, updated_at = ?
+                   WHERE id = ?"#,
+                rusqlite::params![chrono::Utc::now().to_rfc3339(), ticket_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn extend_lock(
+        &self,
+        ticket_id: &str,
+        run_id: &str,
+        new_expires_at: DateTime<Utc>,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                r#"UPDATE tickets 
+                   SET lock_expires_at = ?, updated_at = ?
+                   WHERE id = ? AND locked_by_run_id = ?"#,
+                rusqlite::params![
+                    new_expires_at.to_rfc3339(),
+                    chrono::Utc::now().to_rfc3339(),
+                    ticket_id,
+                    run_id,
+                ],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound("Lock not found or expired".to_string()));
+            }
+            Ok(())
+        })
+    }
+
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
         self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
