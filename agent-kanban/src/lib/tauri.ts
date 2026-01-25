@@ -118,16 +118,18 @@ export async function getCursorStatus(): Promise<CursorStatus> {
 }
 
 export async function installCursorHooksGlobal(
-  hookScriptPath: string
+  hookScriptPath: string,
+  apiUrl?: string
 ): Promise<void> {
-  return invoke('install_cursor_hooks_global', { hookScriptPath });
+  return invoke('install_cursor_hooks_global', { hookScriptPath, apiUrl });
 }
 
 export async function installCursorHooksProject(
   hookScriptPath: string,
-  projectPath: string
+  projectPath: string,
+  apiUrl?: string
 ): Promise<void> {
-  return invoke('install_cursor_hooks_project', { hookScriptPath, projectPath });
+  return invoke('install_cursor_hooks_project', { hookScriptPath, projectPath, apiUrl });
 }
 
 export async function getCursorHooksConfig(

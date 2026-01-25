@@ -34,22 +34,36 @@ process.stdin.on('end', async () => {
 });
 
 async function handleHook(event, input) {
-  await postEvent(event, input);
-
+  // Execute hook handler first - security checks must run regardless of API availability
+  let result;
   switch (event) {
     case 'beforeShellExecution':
-      return handleBeforeShellExecution(input);
+      result = handleBeforeShellExecution(input);
+      break;
     case 'beforeReadFile':
-      return handleBeforeReadFile(input);
+      result = handleBeforeReadFile(input);
+      break;
     case 'beforeMCPExecution':
-      return { continue: true };
+      result = { continue: true };
+      break;
     case 'afterFileEdit':
-      return { continue: true };
+      result = { continue: true };
+      break;
     case 'stop':
-      return await handleStop(input);
+      result = await handleStop(input);
+      break;
     default:
-      return { continue: true };
+      result = { continue: true };
   }
+
+  // Post event after handler executes - failures should not affect hook result
+  try {
+    await postEvent(event, input);
+  } catch (error) {
+    console.error('Failed to post event:', error.message);
+  }
+
+  return result;
 }
 
 function handleBeforeShellExecution(input) {

@@ -24,11 +24,15 @@ pub async fn get_cursor_status(app: AppHandle) -> Result<CursorStatus, String> {
     })
 }
 
+const DEFAULT_API_URL: &str = "http://127.0.0.1:7432";
+
 #[tauri::command]
 pub async fn install_cursor_hooks_global(
     hook_script_path: String,
+    api_url: Option<String>,
 ) -> Result<(), String> {
-    cursor::install_global_hooks(&hook_script_path)
+    let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
+    cursor::install_global_hooks(&hook_script_path, Some(url))
         .map_err(|e| e.to_string())
 }
 
@@ -36,8 +40,10 @@ pub async fn install_cursor_hooks_global(
 pub async fn install_cursor_hooks_project(
     hook_script_path: String,
     project_path: String,
+    api_url: Option<String>,
 ) -> Result<(), String> {
-    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path)
+    let url = api_url.as_deref().unwrap_or(DEFAULT_API_URL);
+    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(url))
         .map_err(|e| e.to_string())
 }
 
