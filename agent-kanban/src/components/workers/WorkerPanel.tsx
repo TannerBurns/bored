@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import type { WorkerStatus, WorkerQueueStatus, AgentType, Project } from '../../types';
+import { isTauri } from '../../lib/utils';
 
 interface Props {
   projects: Project[];
 }
-
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window;
 
 export function WorkerPanel({ projects }: Props) {
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);

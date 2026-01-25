@@ -7,6 +7,7 @@ import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { WorkerPanel } from './components/workers';
 import { useBoardStore } from './stores/boardStore';
 import { getProjects } from './lib/tauri';
+import { isTauri } from './lib/utils';
 import type { Column, Ticket, Project } from './types';
 import './index.css';
 
@@ -87,8 +88,6 @@ const navItems = [
   { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
 ];
-
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window;
 
 function App() {
   const [activeNav, setActiveNav] = useState('boards');

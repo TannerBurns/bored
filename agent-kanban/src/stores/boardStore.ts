@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/tauri';
 import type { Board, Column, Ticket, Comment, CreateTicketInput } from '../types';
+import { isTauri } from '../lib/utils';
 
 interface BoardState {
   boards: Board[];
@@ -34,8 +35,6 @@ interface BoardState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 }
-
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window;
 
 export const useBoardStore = create<BoardState>((set, get) => ({
   boards: [],
