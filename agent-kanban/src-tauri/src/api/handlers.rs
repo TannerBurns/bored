@@ -536,8 +536,14 @@ pub async fn queue_next(
                 }
             }
 
-            let repo_path = req.repo_path.clone()
-                .ok_or_else(|| AppError::validation("repo_path is required"))?;
+            // Use provided repo_path, or fall back to the ticket's project path
+            let repo_path = req.repo_path.clone().or_else(|| {
+                ticket.project_id.as_ref()
+                    .and_then(|pid| state.db.get_project(pid).ok().flatten())
+                    .map(|p| p.path)
+            }).ok_or_else(|| AppError::validation(
+                "repo_path is required when ticket has no associated project"
+            ))?;
 
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
