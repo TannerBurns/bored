@@ -54,7 +54,11 @@ export function validateTransition(
     return { valid: true };
   }
 
-  if (ticket.lockedByRunId && currentState === 'In Progress') {
+  const isLocked = ticket.lockedByRunId && 
+    ticket.lockExpiresAt && 
+    new Date(ticket.lockExpiresAt) > new Date();
+  
+  if (isLocked && currentState === 'In Progress') {
     return { valid: false, reason: 'Ticket is locked by an active agent run' };
   }
 

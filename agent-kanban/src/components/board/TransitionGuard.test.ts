@@ -87,24 +87,60 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('denies locked In Progress to Ready', () => {
+    it('denies locked In Progress to Ready when lock not expired', () => {
+      const futureDate = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
       const ticket = makeTicket({ 
         columnId: 'col-inprogress',
         lockedByRunId: 'run-123',
+        lockExpiresAt: futureDate,
       });
       const result = validateTransition(ticket, columns, 'col-ready');
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('locked');
     });
 
-    it('denies locked In Progress to Blocked', () => {
+    it('denies locked In Progress to Blocked when lock not expired', () => {
+      const futureDate = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
       const ticket = makeTicket({ 
         columnId: 'col-inprogress',
         lockedByRunId: 'run-456',
+        lockExpiresAt: futureDate,
       });
       const result = validateTransition(ticket, columns, 'col-blocked');
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('locked');
+    });
+
+    it('allows In Progress to Ready when lock has expired', () => {
+      const pastDate = new Date(Date.now() - 60 * 1000); // 1 minute ago
+      const ticket = makeTicket({ 
+        columnId: 'col-inprogress',
+        lockedByRunId: 'run-123',
+        lockExpiresAt: pastDate,
+      });
+      const result = validateTransition(ticket, columns, 'col-ready');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows In Progress to Blocked when lock has expired', () => {
+      const pastDate = new Date(Date.now() - 60 * 1000); // 1 minute ago
+      const ticket = makeTicket({ 
+        columnId: 'col-inprogress',
+        lockedByRunId: 'run-456',
+        lockExpiresAt: pastDate,
+      });
+      const result = validateTransition(ticket, columns, 'col-blocked');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows In Progress transition when lockedByRunId present but no expiration', () => {
+      const ticket = makeTicket({ 
+        columnId: 'col-inprogress',
+        lockedByRunId: 'run-789',
+        // no lockExpiresAt - should be treated as not locked
+      });
+      const result = validateTransition(ticket, columns, 'col-ready');
+      expect(result.valid).toBe(true);
     });
   });
 

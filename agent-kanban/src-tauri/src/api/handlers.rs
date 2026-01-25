@@ -202,7 +202,8 @@ pub async fn move_ticket(
             "Unknown target state: {}", target_column.name
         )))?;
 
-    let is_locked = ticket.locked_by_run_id.is_some();
+    let is_locked = ticket.locked_by_run_id.is_some() 
+        && ticket.lock_expires_at.is_some_and(|exp| exp > Utc::now());
     match can_transition(current_state, target_state, is_locked, false) {
         TransitionPermission::Allowed => {}
         TransitionPermission::RequiresUnlock => {
