@@ -291,7 +291,7 @@ async function handleHook(rawEventType, payload) {
   const event = normalizeEvent(rawEventType, payload);
   const success = await postEvent(event);
   if (!success) spoolEvent(event);
-  processSpooledEvents().catch(() => {});
+  await processSpooledEvents().catch(() => {});
   return getHookResponse(rawEventType, payload);
 }
 
@@ -400,9 +400,10 @@ async function main() {
   for await (const chunk of process.stdin) {
     inputData += chunk;
   }
-  const payload = inputData ? JSON.parse(inputData) : {};
 
   try {
+    const payload = inputData ? JSON.parse(inputData) : {};
+
     if (eventType.toLowerCase() === 'stop' || eventType === 'Stop') {
       await handleStopEvent(payload);
     }
