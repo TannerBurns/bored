@@ -199,10 +199,27 @@ impl Worker {
         // Re-lock with actual run ID (atomic reservation used temporary ID)
         self.db.lock_ticket(&ticket.id, &run.id, lock_expires)?;
         
-        // Update repo lock to use actual run ID (was acquired with temporary run_id)
+        // Update repo lock to use actual run ID (was acquired with temporary run_id).
+        // This MUST succeed; otherwise, the heartbeat and cleanup will use run.id
+        // but the lock is still owned by the temporary run_id, causing both to fail
+        // and leaving the lock held indefinitely.
         if let Some(ref pid) = project_id {
             if let Err(e) = self.db.update_repo_lock_owner(pid, &run_id, &run.id) {
-                tracing::warn!("Failed to update repo lock owner for project {}: {}", pid, e);
+                tracing::error!(
+                    "Failed to update repo lock owner for project {}: {}. Aborting run to prevent orphaned lock.",
+                    pid, e
+                );
+                // Clean up: mark run as error, unlock ticket, release repo lock with original run_id
+                let _ = self.db.update_run_status(
+                    &run.id,
+                    RunStatus::Error,
+                    None,
+                    Some("Failed to update repo lock owner"),
+                );
+                let _ = self.db.unlock_ticket(&ticket.id);
+                // Release with the ORIGINAL temporary run_id since the update failed
+                let _ = self.db.release_repo_lock(pid, &run_id);
+                return Err(format!("Failed to update repo lock owner: {}", e).into());
             }
         }
 
