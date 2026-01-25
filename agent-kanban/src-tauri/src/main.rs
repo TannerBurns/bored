@@ -15,11 +15,24 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     let scripts_dir = app_data_dir.join("scripts");
     std::fs::create_dir_all(&scripts_dir)?;
 
-    if let Some(resource_path) = app
-        .path_resolver()
-        .resolve_resource("scripts/cursor-hook.js")
-    {
-        let target_path = scripts_dir.join("cursor-hook.js");
+    // Copy Cursor hook script
+    copy_hook_script(app, "cursor-hook.js", &scripts_dir)?;
+    
+    // Copy Claude hook script
+    copy_hook_script(app, "claude-hook.js", &scripts_dir)?;
+
+    Ok(())
+}
+
+fn copy_hook_script(
+    app: &tauri::App,
+    script_name: &str,
+    scripts_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resource_name = format!("scripts/{}", script_name);
+    
+    if let Some(resource_path) = app.path_resolver().resolve_resource(&resource_name) {
+        let target_path = scripts_dir.join(script_name);
         
         if resource_path.exists() {
             let should_copy = if target_path.exists() {
@@ -32,7 +45,7 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
 
             if should_copy {
                 std::fs::copy(&resource_path, &target_path)?;
-                tracing::info!("Copied cursor-hook.js to {:?}", target_path);
+                tracing::info!("Copied {} to {:?}", script_name, target_path);
                 
                 #[cfg(unix)]
                 {
@@ -46,7 +59,7 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
             tracing::warn!("Hook script resource not found at {:?}", resource_path);
         }
     } else {
-        tracing::warn!("Could not resolve hook script resource path");
+        tracing::warn!("Could not resolve hook script resource path for {}", script_name);
     }
 
     Ok(())
@@ -133,12 +146,22 @@ fn main() {
             commands::check_ticket_readiness,
             commands::update_project_hooks,
             commands::browse_for_directory,
+            // Cursor integration
             commands::get_cursor_status,
             commands::install_cursor_hooks_global,
             commands::install_cursor_hooks_project,
             commands::get_cursor_hooks_config,
             commands::check_project_hooks_installed,
             commands::get_hook_script_path_cmd,
+            // Claude Code integration
+            commands::get_claude_status,
+            commands::install_claude_hooks_user,
+            commands::install_claude_hooks_project,
+            commands::install_claude_hooks_local,
+            commands::get_claude_hooks_config,
+            commands::check_claude_available,
+            commands::check_claude_project_hooks_installed,
+            commands::get_claude_hook_script_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
