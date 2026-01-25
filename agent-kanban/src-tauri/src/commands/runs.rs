@@ -322,6 +322,15 @@ pub async fn get_agent_run(run_id: String, db: State<'_, Arc<Database>>) -> Resu
     db.get_run(&run_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_run_events(
+    run_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<crate::db::AgentEvent>, String> {
+    tracing::info!("Getting events for run: {}", run_id);
+    db.get_events(&run_id).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
