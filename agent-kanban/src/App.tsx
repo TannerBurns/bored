@@ -91,6 +91,7 @@ function App() {
   const [tickets, setTickets] = useState<Ticket[]>(demoTickets);
 
   const {
+    currentBoard,
     isTicketModalOpen,
     isCreateModalOpen,
     selectedTicket,
@@ -132,14 +133,8 @@ function App() {
     projectId?: string;
     agentPref?: 'cursor' | 'claude' | 'any';
   }) => {
-    try {
-      // Use store's createTicket for proper persistence
-      const ticket = await storeCreateTicket(input);
-      // Update local state for UI consistency
-      setTickets((prev) => [...prev, ticket]);
-      return ticket;
-    } catch {
-      // Fallback for demo mode when no board is selected in store
+    // Demo mode: no board selected in store, create ticket locally only
+    if (!currentBoard) {
       const now = new Date();
       const newTicket: Ticket = {
         id: `ticket-${Date.now()}`,
@@ -157,6 +152,11 @@ function App() {
       setTickets((prev) => [...prev, newTicket]);
       return newTicket;
     }
+
+    // Production mode: use store for persistence, let errors propagate
+    const ticket = await storeCreateTicket(input);
+    setTickets((prev) => [...prev, ticket]);
+    return ticket;
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
