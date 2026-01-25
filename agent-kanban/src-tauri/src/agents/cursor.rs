@@ -12,27 +12,11 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     (command, args)
 }
 
-/// Cursor-specific settings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CursorSettings {
-    /// Path to cursor executable (if not in PATH)
     pub executable_path: Option<String>,
-
-    /// Additional CLI flags
     pub extra_flags: Vec<String>,
-
-    /// Whether to use yolo mode (no confirmations)
     pub yolo_mode: bool,
-}
-
-impl Default for CursorSettings {
-    fn default() -> Self {
-        Self {
-            executable_path: None,
-            extra_flags: vec![],
-            yolo_mode: false,
-        }
-    }
 }
 
 /// Build command with custom settings

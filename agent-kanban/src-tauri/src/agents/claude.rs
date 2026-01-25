@@ -6,35 +6,13 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     (command, args)
 }
 
-/// Claude-specific settings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ClaudeSettings {
-    /// Path to claude executable (if not in PATH)
     pub executable_path: Option<String>,
-
-    /// System prompt to append
     pub system_prompt: Option<String>,
-
-    /// Path to system prompt file
     pub system_prompt_file: Option<String>,
-
-    /// Additional CLI flags
     pub extra_flags: Vec<String>,
-
-    /// Permission mode (default, ask, deny)
     pub permission_mode: Option<String>,
-}
-
-impl Default for ClaudeSettings {
-    fn default() -> Self {
-        Self {
-            executable_path: None,
-            system_prompt: None,
-            system_prompt_file: None,
-            extra_flags: vec![],
-            permission_mode: None,
-        }
-    }
 }
 
 /// Build command with custom settings

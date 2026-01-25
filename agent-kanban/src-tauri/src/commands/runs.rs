@@ -68,7 +68,7 @@ pub async fn start_agent_run(
     agent_type: String,
     repo_path: String,
     db: State<'_, Arc<Database>>,
-    _running_agents: State<'_, RunningAgents>,
+    running_agents: State<'_, Arc<RunningAgents>>,
 ) -> Result<String, String> {
     tracing::info!("Starting {} agent run for ticket: {}", agent_type, ticket_id);
 
@@ -119,7 +119,11 @@ pub async fn start_agent_run(
 
     let db_clone = db.inner().clone();
     let run_id_for_task = run_id.clone();
+    let run_id_for_cleanup = run_id.clone();
     let window_clone = window.clone();
+
+    // Clone the Arc<RunningAgents> so we can move it into the async task
+    let running_agents_clone = running_agents.inner().clone();
 
     tauri::async_runtime::spawn(async move {
         if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
@@ -144,9 +148,35 @@ pub async fn start_agent_run(
 
         let config_clone = config.clone();
         let on_log_clone = on_log.clone();
-        let result =
-            tokio::task::spawn_blocking(move || agents::spawner::run_agent(config_clone, Some(on_log_clone)))
-                .await;
+
+        // Clone running_agents for use in the spawn callback
+        let running_agents_for_spawn = running_agents_clone.clone();
+        let run_id_for_spawn = run_id_for_task.clone();
+
+        // Create the callback to store the cancel handle when the process spawns
+        let on_spawn: agents::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
+            running_agents_for_spawn
+                .handles
+                .lock()
+                .unwrap()
+                .insert(run_id_for_spawn.clone(), cancel_handle);
+        });
+
+        let result = tokio::task::spawn_blocking(move || {
+            agents::spawner::run_agent_with_cancel_callback(
+                config_clone,
+                Some(on_log_clone),
+                Some(on_spawn),
+            )
+        })
+        .await;
+
+        // Clean up the cancel handle now that the run is complete
+        running_agents_clone
+            .handles
+            .lock()
+            .unwrap()
+            .remove(&run_id_for_cleanup);
 
         match result {
             Ok(Ok(agent_result)) => {
@@ -218,7 +248,7 @@ pub async fn start_agent_run(
 pub async fn cancel_agent_run(
     run_id: String,
     db: State<'_, Arc<Database>>,
-    running_agents: State<'_, RunningAgents>,
+    running_agents: State<'_, Arc<RunningAgents>>,
 ) -> Result<(), String> {
     tracing::info!("Cancelling agent run: {}", run_id);
 
@@ -242,10 +272,7 @@ pub async fn get_agent_runs(
 }
 
 #[tauri::command]
-pub async fn get_agent_run(
-    run_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<AgentRun, String> {
+pub async fn get_agent_run(run_id: String, db: State<'_, Arc<Database>>) -> Result<AgentRun, String> {
     tracing::info!("Getting agent run: {}", run_id);
     db.get_run(&run_id).map_err(|e| e.to_string())
 }
