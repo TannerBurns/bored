@@ -283,7 +283,7 @@ export function WorkerPanel({ projects }: Props) {
                 {validationResult.checks.map((check) => (
                   <div key={check.name} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
-                      <span className={`w-1.5 h-1.5 rounded-full ${check.passed ? 'bg-status-success' : 'bg-status-error'}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'}`} />
                       <span className="text-board-text-secondary">{check.message}</span>
                     </div>
                     {!check.passed && check.fixAction && (

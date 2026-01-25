@@ -101,9 +101,11 @@ pub fn validate_worker_environment(
 
     let clean_check = check_git_clean_state(repo_path);
     if clean_check.is_warning {
+        // Only add to warnings array, not to checks - avoids duplicate display
         warnings.push(clean_check.message.clone());
+    } else {
+        checks.push(clean_check);
     }
-    checks.push(clean_check);
 
     ValidationResult {
         valid: errors.is_empty(),

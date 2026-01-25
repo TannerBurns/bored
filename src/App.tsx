@@ -148,7 +148,7 @@ function App() {
     
     try {
       const board = await createBoard('My Board');
-      setBoards([board]);
+      setBoards((prev) => [...prev, board]);
       
       // Load the columns for the new board
       const columnsData = await getColumns(board.id);
