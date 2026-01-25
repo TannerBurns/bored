@@ -21,16 +21,16 @@ function formatDuration(startedAt: Date, endedAt?: Date): string {
   const start = new Date(startedAt);
   const diffMs = end.getTime() - start.getTime();
   
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  const totalSeconds = Math.floor(diffMs / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
   
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  if (totalMinutes < 60) return `${totalMinutes}m ${remainingSeconds}s`;
   
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${remainingMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
+  return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
 }
 
 export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
