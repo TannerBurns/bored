@@ -54,7 +54,9 @@ pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<
     }
 
     if let Some(kind) = agent_kind {
-        let branch_name = format!("ticket/{}/{}", &ticket.id[..8.min(ticket.id.len())], slugify(&ticket.title));
+        // Use char-based iteration to safely handle multi-byte UTF-8 characters
+        let id_prefix: String = ticket.id.chars().take(8).collect();
+        let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
         prompt.push_str("## Workflow\n\n");
         prompt.push_str(&format!("1. Create a branch: `{}`\n", branch_name));
         prompt.push_str("2. Create a plan before implementing\n");
@@ -320,5 +322,37 @@ mod tests {
         ticket.title = "Add User Authentication".to_string();
         let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
         assert!(prompt.contains("ticket/abc12345/add-user-authentication"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_multibyte_utf8_id() {
+        // Test that multi-byte UTF-8 characters in ticket ID don't cause panic
+        let mut ticket = create_test_ticket();
+        // 🎉 is 4 bytes, so this ID has multi-byte chars that could cause issues with byte slicing
+        ticket.id = "🎉🚀ab12".to_string();
+        ticket.title = "Test Feature".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        // Should contain the full 4 chars (2 emoji + "ab") since we take up to 8 chars
+        assert!(prompt.contains("ticket/🎉🚀ab12/test-feature"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_short_id() {
+        let mut ticket = create_test_ticket();
+        ticket.id = "abc".to_string();
+        ticket.title = "Short ID Test".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        assert!(prompt.contains("ticket/abc/short-id-test"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_with_workflow_handles_mixed_utf8_id() {
+        let mut ticket = create_test_ticket();
+        // Mix of ASCII and multi-byte chars to test boundary handling
+        ticket.id = "a🎉bcdefgh".to_string();
+        ticket.title = "Mixed Test".to_string();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        // Takes first 8 chars: a, 🎉, b, c, d, e, f, g
+        assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
     }
 }

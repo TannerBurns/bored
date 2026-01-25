@@ -138,10 +138,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_boards,
+            commands::get_columns,
             commands::create_board,
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,
+            commands::update_ticket,
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
             commands::runs::get_agent_run,

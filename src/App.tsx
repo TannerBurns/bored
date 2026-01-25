@@ -11,79 +11,9 @@ import { useSettingsStore } from './stores/settingsStore';
 import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
-import type { Column, Ticket, Project } from './types';
+import type { Column, Ticket, Project, Board as BoardType } from './types';
+import { getColumns, createBoard } from './lib/tauri';
 import './index.css';
-
-const demoColumns: Column[] = [
-  { id: 'backlog', boardId: 'demo', name: 'Backlog', position: 0 },
-  { id: 'ready', boardId: 'demo', name: 'Ready', position: 1, wipLimit: 5 },
-  { id: 'in-progress', boardId: 'demo', name: 'In Progress', position: 2, wipLimit: 3 },
-  { id: 'blocked', boardId: 'demo', name: 'Blocked', position: 3 },
-  { id: 'review', boardId: 'demo', name: 'Review', position: 4, wipLimit: 2 },
-  { id: 'done', boardId: 'demo', name: 'Done', position: 5 },
-];
-
-const demoTickets: Ticket[] = [
-  {
-    id: '1',
-    boardId: 'demo',
-    columnId: 'backlog',
-    title: 'Implement user authentication',
-    descriptionMd: 'Add login/logout functionality with OAuth support.',
-    priority: 'high',
-    labels: ['auth', 'security'],
-    createdAt: new Date(Date.now() - 86400000 * 3),
-    updatedAt: new Date(Date.now() - 86400000 * 2),
-    agentPref: 'cursor',
-  },
-  {
-    id: '2',
-    boardId: 'demo',
-    columnId: 'ready',
-    title: 'Set up database migrations',
-    descriptionMd: 'Create initial SQLite schema with proper migrations.',
-    priority: 'medium',
-    labels: ['database', 'backend'],
-    createdAt: new Date(Date.now() - 86400000 * 2),
-    updatedAt: new Date(Date.now() - 86400000),
-    agentPref: 'claude',
-  },
-  {
-    id: '3',
-    boardId: 'demo',
-    columnId: 'in-progress',
-    title: 'Build kanban board UI',
-    descriptionMd: 'Create drag-and-drop board interface.',
-    priority: 'urgent',
-    labels: ['ui', 'frontend'],
-    createdAt: new Date(Date.now() - 86400000),
-    updatedAt: new Date(),
-    lockedByRunId: 'run-123',
-    agentPref: 'cursor',
-  },
-  {
-    id: '4',
-    boardId: 'demo',
-    columnId: 'review',
-    title: 'Add Tauri commands for CRUD',
-    descriptionMd: 'Implement Tauri commands for board and ticket operations.',
-    priority: 'medium',
-    labels: ['backend', 'tauri'],
-    createdAt: new Date(Date.now() - 86400000 * 4),
-    updatedAt: new Date(Date.now() - 86400000),
-  },
-  {
-    id: '5',
-    boardId: 'demo',
-    columnId: 'done',
-    title: 'Project setup and scaffolding',
-    descriptionMd: 'Initialize Tauri + React project with TypeScript and Tailwind CSS.',
-    priority: 'low',
-    labels: ['setup'],
-    createdAt: new Date(Date.now() - 86400000 * 7),
-    updatedAt: new Date(Date.now() - 86400000 * 5),
-  },
-];
 
 const navItems = [
   { id: 'boards', label: 'Boards' },
@@ -94,8 +24,9 @@ const navItems = [
 
 function App() {
   const [activeNav, setActiveNav] = useState('boards');
-  const [columns] = useState<Column[]>(demoColumns);
-  const [tickets, setTickets] = useState<Ticket[]>(demoTickets);
+  const [boards, setBoards] = useState<BoardType[]>([]);
+  const [columns, setColumns] = useState<Column[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'appearance' | 'projects' | 'cursor' | 'claude' | 'data'>('appearance');
@@ -125,7 +56,7 @@ function App() {
     }
   }, [theme]);
 
-  // Load data from backend (Tauri) or use demo data (web)
+  // Load data from backend
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
@@ -143,15 +74,18 @@ function App() {
             getBoards(),
           ]);
           setProjects(projectsData);
+          setBoards(boardsData);
           
           if (boardsData.length > 0) {
-            const ticketsData = await getTickets(boardsData[0].id);
-            if (ticketsData.length > 0) {
-              setTickets(ticketsData);
-            }
+            const [columnsData, ticketsData] = await Promise.all([
+              getColumns(boardsData[0].id),
+              getTickets(boardsData[0].id),
+            ]);
+            setColumns(columnsData);
+            setTickets(ticketsData);
           }
-        } catch {
-          // Fall back to demo data
+        } catch (error) {
+          console.error('Failed to load data:', error);
         }
       }
       
@@ -162,7 +96,6 @@ function App() {
   }, []);
 
   const {
-    currentBoard,
     isTicketModalOpen,
     isCreateModalOpen,
     selectedTicket,
@@ -204,30 +137,25 @@ function App() {
     projectId?: string;
     agentPref?: 'cursor' | 'claude' | 'any';
   }) => {
-    // Demo mode: no board selected in store, create ticket locally only
-    if (!currentBoard) {
-      const now = new Date();
-      const newTicket: Ticket = {
-        id: `ticket-${Date.now()}`,
-        boardId: 'demo',
-        columnId: input.columnId,
-        title: input.title,
-        descriptionMd: input.descriptionMd,
-        priority: input.priority,
-        labels: input.labels,
-        projectId: input.projectId,
-        agentPref: input.agentPref,
-        createdAt: now,
-        updatedAt: now,
-      };
-      setTickets((prev) => [...prev, newTicket]);
-      return newTicket;
-    }
-
-    // Production mode: use store for persistence, let errors propagate
+    // Use store for persistence, let errors propagate
     const ticket = await storeCreateTicket(input);
     setTickets((prev) => [...prev, ticket]);
     return ticket;
+  };
+  
+  const handleCreateBoard = async () => {
+    if (!isTauri()) return;
+    
+    try {
+      const board = await createBoard('My Board');
+      setBoards([board]);
+      
+      // Load the columns for the new board
+      const columnsData = await getColumns(board.id);
+      setColumns(columnsData);
+    } catch (error) {
+      console.error('Failed to create board:', error);
+    }
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
@@ -278,7 +206,7 @@ function App() {
           title="Agent Kanban"
           subtitle="Manage your coding tasks and let AI agents do the work."
           action={
-            activeNav === 'boards' ? (
+            activeNav === 'boards' && boards.length > 0 ? (
               <button
                 onClick={openCreateModal}
                 className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors flex items-center gap-2 shadow-sm"
@@ -308,6 +236,35 @@ function App() {
             {isLoading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-board-text"></div>
+              </div>
+            ) : boards.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <div className="text-center max-w-md">
+                  <svg
+                    className="w-16 h-16 mx-auto text-board-text-muted mb-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="3" y="14" width="7" height="7" />
+                    <rect x="14" y="14" width="7" height="7" />
+                  </svg>
+                  <h2 className="text-xl font-semibold text-board-text mb-2">No boards yet</h2>
+                  <p className="text-board-text-secondary mb-6">
+                    Create your first board to start managing tickets with AI agents.
+                  </p>
+                  <button
+                    onClick={handleCreateBoard}
+                    className="px-6 py-3 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors font-medium shadow-sm"
+                  >
+                    Create Your First Board
+                  </button>
+                </div>
               </div>
             ) : (
               <Board

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import type {
   Board,
+  Column,
   Ticket,
   AgentRun,
   Project,
@@ -81,6 +82,10 @@ export async function browseForDirectory(): Promise<string | null> {
 
 export async function getBoards(): Promise<Board[]> {
   return invoke('get_boards');
+}
+
+export async function getColumns(boardId: string): Promise<Column[]> {
+  return invoke('get_columns', { boardId });
 }
 
 export async function createBoard(name: string): Promise<Board> {
