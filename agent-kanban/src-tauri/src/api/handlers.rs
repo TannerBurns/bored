@@ -570,7 +570,7 @@ pub async fn queue_status(
         let ready_count = if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
             let tickets = state.db.get_tickets(&board.id, Some(&ready_col.id))?;
             tickets.iter().filter(|t| {
-                t.lock_expires_at.map_or(true, |exp| exp <= Utc::now())
+                t.lock_expires_at.is_none_or(|exp| exp <= Utc::now())
             }).count()
         } else {
             0
