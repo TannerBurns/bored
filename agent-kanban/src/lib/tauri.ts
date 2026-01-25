@@ -1,5 +1,72 @@
 import { invoke } from '@tauri-apps/api/tauri';
-import type { Board, Ticket, AgentRun } from '../types';
+import type {
+  Board,
+  Ticket,
+  AgentRun,
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
+  ReadinessCheck,
+} from '../types';
+
+export async function getProjects(): Promise<Project[]> {
+  return invoke('get_projects');
+}
+
+export async function getProject(projectId: string): Promise<Project | null> {
+  return invoke('get_project', { projectId });
+}
+
+export async function createProject(input: CreateProjectInput): Promise<Project> {
+  return invoke('create_project', { input });
+}
+
+export async function updateProject(
+  projectId: string,
+  input: UpdateProjectInput
+): Promise<void> {
+  return invoke('update_project', { projectId, input });
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  return invoke('delete_project', { projectId });
+}
+
+export async function setBoardProject(
+  boardId: string,
+  projectId: string | null
+): Promise<void> {
+  return invoke('set_board_project', { boardId, projectId });
+}
+
+export async function setTicketProject(
+  ticketId: string,
+  projectId: string | null
+): Promise<void> {
+  return invoke('set_ticket_project', { ticketId, projectId });
+}
+
+export async function checkTicketReadiness(
+  ticketId: string
+): Promise<ReadinessCheck> {
+  return invoke('check_ticket_readiness', { ticketId });
+}
+
+export async function updateProjectHooks(
+  projectId: string,
+  cursorInstalled?: boolean,
+  claudeInstalled?: boolean
+): Promise<void> {
+  return invoke('update_project_hooks', {
+    projectId,
+    cursorInstalled,
+    claudeInstalled,
+  });
+}
+
+export async function browseForDirectory(): Promise<string | null> {
+  return invoke('browse_for_directory');
+}
 
 export async function getBoards(): Promise<Board[]> {
   return invoke('get_boards');
@@ -13,11 +80,16 @@ export async function getTickets(boardId: string): Promise<Ticket[]> {
   return invoke('get_tickets', { boardId });
 }
 
-export async function createTicket(ticket: Omit<Ticket, 'id' | 'createdAt' | 'updatedAt'>): Promise<Ticket> {
+export async function createTicket(
+  ticket: Omit<Ticket, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<Ticket> {
   return invoke('create_ticket', { ticket });
 }
 
-export async function moveTicket(ticketId: string, columnId: string): Promise<void> {
+export async function moveTicket(
+  ticketId: string,
+  columnId: string
+): Promise<void> {
   return invoke('move_ticket', { ticketId, columnId });
 }
 

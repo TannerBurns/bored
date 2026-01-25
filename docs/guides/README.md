@@ -56,6 +56,7 @@ flowchart TB
 | # | Guide | Description |
 |---|-------|-------------|
 | 01 | [Project Setup](./01-project-setup.md) | Initialize Tauri + React project with TypeScript, Vite, and Tailwind CSS |
+| 01.5 | [Project Management](./01.5-project-management.md) | Projects registry for managing repositories where agents work |
 | 02 | [Database Design](./02-database-design.md) | SQLite schema, migrations, and Rust data models |
 
 ### Core Application Guides
@@ -87,7 +88,8 @@ The guides are designed to be followed in order, as each builds upon the previou
 
 ```mermaid
 flowchart LR
-    A[01 Project Setup] --> B[02 Database]
+    A[01 Project Setup] --> A5[01.5 Project Mgmt]
+    A5 --> B[02 Database]
     B --> C[03 Kanban UI]
     B --> D[04 Local API]
     C --> E[05 Orchestration]
@@ -104,14 +106,15 @@ flowchart LR
 
 **Recommended path for MVP:**
 1. 01-project-setup
-2. 02-database-design
-3. 03-kanban-ui
-4. 04-local-api
-5. 05-agent-orchestration
-6. 06-cursor-integration OR 07-claude-code-integration
-7. 08-hook-bridge
-8. 09-worker-mode
-9. 10-ticket-lifecycle
+2. 01.5-project-management (manages repos where agents work)
+3. 02-database-design
+4. 03-kanban-ui
+5. 04-local-api
+6. 05-agent-orchestration
+7. 06-cursor-integration OR 07-claude-code-integration
+8. 08-hook-bridge
+9. 09-worker-mode
+10. 10-ticket-lifecycle
 
 ## Quick Start
 
@@ -138,6 +141,16 @@ If you want to get something working quickly:
 | Async Runtime | Tokio |
 
 ## Key Concepts
+
+### Projects
+
+A **Project** represents a local repository/directory that agents can work in:
+
+- Users register directories via Settings > Projects
+- Boards can have a default project
+- Tickets can override with a different project
+- Agents run in the project's directory
+- Hook configuration is tracked per-project
 
 ### Ticket States
 
@@ -224,7 +237,7 @@ agent-kanban/
 │   ├── components/
 │   │   ├── board/               # Kanban components
 │   │   ├── layout/              # App layout
-│   │   ├── settings/            # Settings panels
+│   │   ├── settings/            # Settings panels (incl. Projects)
 │   │   ├── timeline/            # Event timeline
 │   │   └── workers/             # Worker management
 │   ├── hooks/                   # React hooks
@@ -234,7 +247,7 @@ agent-kanban/
 ├── src-tauri/                   # Rust backend
 │   └── src/
 │       ├── commands/            # Tauri commands
-│       ├── db/                  # Database layer
+│       ├── db/                  # Database layer (incl. projects table)
 │       ├── api/                 # HTTP API
 │       ├── agents/              # Agent orchestration
 │       └── lifecycle/           # State machine
@@ -244,6 +257,10 @@ agent-kanban/
 │   └── agent-kanban-hook.js    # Unified hook
 └── docs/
     └── guides/                  # These implementation guides
+        ├── 01-project-setup.md
+        ├── 01.5-project-management.md  # NEW
+        ├── 02-database-design.md
+        └── ...
 ```
 
 ## Success Criteria
