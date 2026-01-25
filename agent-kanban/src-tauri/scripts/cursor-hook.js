@@ -65,7 +65,7 @@ function handleBeforeShellExecution(input) {
   for (const pattern of dangerousPatterns) {
     if (pattern.test(command)) {
       return {
-        continue: true,
+        continue: false,
         permission: 'deny',
         userMessage: `Blocked dangerous command: ${command}`,
         agentMessage: 'This command was blocked for safety. Please use a safer alternative.',
