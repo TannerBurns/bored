@@ -351,18 +351,21 @@ impl Worker {
                 ticker.tick().await;
 
                 let new_expires = chrono::Utc::now() + chrono::Duration::minutes(lock_mins);
-                match db.extend_lock(&ticket_id, &run_id, new_expires) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
-                        break;
-                    }
-                }
+
+                // Extend repo lock first (if applicable) to avoid race condition where
+                // ticket lock is extended but repo lock is not. This ensures we never
+                // have an extended ticket lock without a matching repo lock.
                 if let Some(ref pid) = project_id {
                     if let Err(e) = db.extend_repo_lock(pid, &run_id, new_expires) {
                         tracing::error!("Heartbeat failed for repo lock on project {}: {}", pid, e);
                         break;
                     }
+                }
+
+                // Only extend ticket lock after repo lock succeeds
+                if let Err(e) = db.extend_lock(&ticket_id, &run_id, new_expires) {
+                    tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
+                    break;
                 }
             }
         })
