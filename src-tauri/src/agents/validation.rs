@@ -87,7 +87,7 @@ pub fn validate_worker_environment(
     checks.push(git_check);
 
     if let Some(url) = api_url {
-        let api_check = check_api_reachable(url);
+        let api_check = check_api_url_configured(url);
         if !api_check.passed {
             errors.push(api_check.message.clone());
         }
@@ -192,16 +192,16 @@ fn check_git_repository(repo_path: &Path) -> ValidationCheck {
     }
 }
 
-fn check_api_reachable(api_url: &str) -> ValidationCheck {
+fn check_api_url_configured(api_url: &str) -> ValidationCheck {
     if api_url.starts_with("http://") || api_url.starts_with("https://") {
         ValidationCheck::pass(
-            "api_reachable",
+            "api_url_configured",
             &format!("API URL configured: {}", api_url),
         )
     } else {
         ValidationCheck::fail(
-            "api_reachable",
-            "Invalid API URL",
+            "api_url_configured",
+            &format!("Invalid API URL format (must start with http:// or https://): {}", api_url),
             None,
         )
     }
@@ -302,15 +302,17 @@ mod tests {
     }
 
     #[test]
-    fn check_api_reachable_validates_url() {
-        let check = check_api_reachable("http://localhost:7432");
+    fn check_api_url_configured_validates_url_format() {
+        let check = check_api_url_configured("http://localhost:7432");
+        assert!(check.passed);
+        assert_eq!(check.name, "api_url_configured");
+        
+        let check = check_api_url_configured("https://api.example.com");
         assert!(check.passed);
         
-        let check = check_api_reachable("https://api.example.com");
-        assert!(check.passed);
-        
-        let check = check_api_reachable("invalid-url");
+        let check = check_api_url_configured("invalid-url");
         assert!(!check.passed);
+        assert!(check.message.contains("Invalid API URL format"));
     }
 
     #[test]

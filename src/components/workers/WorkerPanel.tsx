@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';
 import { isTauri } from '../../lib/utils';
-import { validateWorker, installCommandsToProject } from '../../lib/tauri';
+import {
+  validateWorker,
+  installCommandsToProject,
+  getCursorStatus,
+  getClaudeStatus,
+  installCursorHooksProject,
+  installClaudeHooksProject,
+} from '../../lib/tauri';
 
 interface Props {
   projects: Project[];
@@ -89,6 +96,21 @@ export function WorkerPanel({ projects }: Props) {
     try {
       if (fixAction === 'install_commands') {
         await installCommandsToProject(newWorkerType, project.path);
+      } else if (fixAction === 'install_hooks') {
+        // Get the hook script path from the agent status
+        if (newWorkerType === 'cursor') {
+          const status = await getCursorStatus();
+          if (!status.hookScriptPath) {
+            throw new Error('Cursor hook script not found. Check Settings > Cursor.');
+          }
+          await installCursorHooksProject(status.hookScriptPath, project.path);
+        } else {
+          const status = await getClaudeStatus();
+          if (!status.hookScriptPath) {
+            throw new Error('Claude hook script not found. Check Settings > Claude.');
+          }
+          await installClaudeHooksProject(status.hookScriptPath, project.path);
+        }
       }
       // Re-validate after fix
       await runValidation();
