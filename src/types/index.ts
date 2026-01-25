@@ -166,6 +166,7 @@ export interface ValidationCheck {
   passed: boolean;
   message: string;
   fixAction?: string;
+  isWarning?: boolean;
 }
 
 export interface ValidationResult {

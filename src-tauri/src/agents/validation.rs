@@ -22,6 +22,8 @@ pub struct ValidationCheck {
     pub passed: bool,
     pub message: String,
     pub fix_action: Option<String>,
+    #[serde(default)]
+    pub is_warning: bool,
 }
 
 impl ValidationCheck {
@@ -31,6 +33,7 @@ impl ValidationCheck {
             passed: true,
             message: message.to_string(),
             fix_action: None,
+            is_warning: false,
         }
     }
 
@@ -40,6 +43,7 @@ impl ValidationCheck {
             passed: false,
             message: message.to_string(),
             fix_action: fix_action.map(|s| s.to_string()),
+            is_warning: false,
         }
     }
 
@@ -49,6 +53,7 @@ impl ValidationCheck {
             passed: true, // Warnings don't fail validation
             message: message.to_string(),
             fix_action: fix_action.map(|s| s.to_string()),
+            is_warning: true,
         }
     }
 }
@@ -95,7 +100,7 @@ pub fn validate_worker_environment(
     }
 
     let clean_check = check_git_clean_state(repo_path);
-    if !clean_check.passed {
+    if clean_check.is_warning {
         warnings.push(clean_check.message.clone());
     }
     checks.push(clean_check);
@@ -253,6 +258,7 @@ mod tests {
     fn validation_check_pass() {
         let check = ValidationCheck::pass("test", "Test passed");
         assert!(check.passed);
+        assert!(!check.is_warning);
         assert_eq!(check.name, "test");
         assert!(check.fix_action.is_none());
     }
@@ -261,6 +267,7 @@ mod tests {
     fn validation_check_fail() {
         let check = ValidationCheck::fail("test", "Test failed", Some("fix_it"));
         assert!(!check.passed);
+        assert!(!check.is_warning);
         assert_eq!(check.fix_action, Some("fix_it".to_string()));
     }
 
@@ -268,6 +275,7 @@ mod tests {
     fn validation_check_warning() {
         let check = ValidationCheck::warning("test", "Warning message", None);
         assert!(check.passed); // Warnings don't fail
+        assert!(check.is_warning); // But they are marked as warnings
     }
 
     #[test]
@@ -344,9 +352,35 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
         
         let check = check_git_clean_state(&temp_dir);
-        // Should return a warning (passed=true) since it can't check git status
+        // Should return a warning (passed=true, is_warning=true) since it can't check git status
         assert!(check.passed);
+        assert!(check.is_warning);
         assert!(check.message.contains("Could not check"));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn git_clean_state_warning_included_in_validation_result() {
+        // Create a temp git repo with uncommitted changes
+        let temp_dir = std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Initialize git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        // Create an untracked file to make the working tree dirty
+        std::fs::write(temp_dir.join("test.txt"), "test content").unwrap();
+        
+        // Run the git clean check directly
+        let check = check_git_clean_state(&temp_dir);
+        assert!(check.is_warning, "Git clean state check should be a warning when there are uncommitted changes");
+        assert!(check.passed, "Warnings should have passed=true");
+        assert!(check.message.contains("uncommitted"), "Warning message should mention uncommitted changes");
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }
