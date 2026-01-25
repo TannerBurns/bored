@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS columns (
 CREATE INDEX IF NOT EXISTS idx_columns_board ON columns(board_id);
 
 -- Tickets table
+-- Note: locked_by_run_id intentionally omits FK constraint to avoid circular
+-- dependency with agent_runs table. Referential integrity is maintained at
+-- the application level.
 CREATE TABLE IF NOT EXISTS tickets (
     id TEXT PRIMARY KEY NOT NULL,
     board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
@@ -63,7 +66,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     labels_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    locked_by_run_id TEXT REFERENCES agent_runs(id) ON DELETE SET NULL,
+    locked_by_run_id TEXT,
     lock_expires_at TEXT,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any'))
