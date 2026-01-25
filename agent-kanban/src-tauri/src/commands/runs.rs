@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{State, Window};
+use tauri::{AppHandle, Manager, State, Window};
 
-use crate::agents::{self, AgentKind, AgentRunConfig, LogLine, RunOutcome};
+use crate::agents::{self, cursor, AgentKind, AgentRunConfig, LogLine, RunOutcome};
 use crate::agents::spawner::CancelHandle;
 use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
 use crate::db::Database;
@@ -26,6 +26,33 @@ impl Default for RunningAgents {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Get the hook script path from app data directory
+fn get_hook_script_path(app: &AppHandle) -> Option<String> {
+    app.path_resolver()
+        .app_data_dir()
+        .map(|dir| dir.join("scripts").join("cursor-hook.js"))
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Update project hooks.json with run-specific configuration (run_id, api_url, api_token)
+/// This ensures the hook script has access to the current run context
+fn update_project_hooks_for_run(
+    repo_path: &std::path::Path,
+    hook_script_path: &str,
+    api_url: &str,
+    api_token: &str,
+    run_id: &str,
+) -> Result<(), String> {
+    cursor::install_hooks_with_run_id(
+        repo_path,
+        hook_script_path,
+        Some(api_url),
+        Some(api_token),
+        Some(run_id),
+    )
+    .map_err(|e| format!("Failed to update hooks.json: {}", e))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +125,25 @@ pub async fn start_agent_run(
         ));
     let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
         .unwrap_or_else(|_| "default-token".to_string());
+
+    // Update project hooks.json with run-specific configuration
+    // This ensures the hook script receives AGENT_KANBAN_RUN_ID and API credentials
+    let app_handle = window.app_handle();
+    if let Some(hook_script_path) = get_hook_script_path(&app_handle) {
+        let repo_path_buf = std::path::PathBuf::from(&repo_path);
+        if let Err(e) = update_project_hooks_for_run(
+            &repo_path_buf,
+            &hook_script_path,
+            &api_url,
+            &api_token,
+            &run_id,
+        ) {
+            tracing::warn!("Failed to update project hooks: {}", e);
+            // Continue anyway - hooks might already be configured or not needed
+        }
+    } else {
+        tracing::warn!("Could not determine hook script path, hooks may not track this run");
+    }
 
     let prompt = agents::prompt::generate_ticket_prompt(&ticket);
 

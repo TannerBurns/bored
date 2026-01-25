@@ -6,6 +6,52 @@ use tauri::Manager;
 use agent_kanban::{api, commands, db, logging};
 use agent_kanban::commands::runs::RunningAgents;
 
+fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let app_data_dir = app
+        .path_resolver()
+        .app_data_dir()
+        .ok_or("Failed to get app data directory")?;
+    
+    let scripts_dir = app_data_dir.join("scripts");
+    std::fs::create_dir_all(&scripts_dir)?;
+
+    if let Some(resource_path) = app
+        .path_resolver()
+        .resolve_resource("scripts/cursor-hook.js")
+    {
+        let target_path = scripts_dir.join("cursor-hook.js");
+        
+        if resource_path.exists() {
+            let should_copy = if target_path.exists() {
+                let resource_modified = std::fs::metadata(&resource_path)?.modified()?;
+                let target_modified = std::fs::metadata(&target_path)?.modified()?;
+                resource_modified > target_modified
+            } else {
+                true
+            };
+
+            if should_copy {
+                std::fs::copy(&resource_path, &target_path)?;
+                tracing::info!("Copied cursor-hook.js to {:?}", target_path);
+                
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mut perms = std::fs::metadata(&target_path)?.permissions();
+                    perms.set_mode(0o755);
+                    std::fs::set_permissions(&target_path, perms)?;
+                }
+            }
+        } else {
+            tracing::warn!("Hook script resource not found at {:?}", resource_path);
+        }
+    } else {
+        tracing::warn!("Could not resolve hook script resource path");
+    }
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -20,6 +66,10 @@ fn main() {
 
             tracing::info!("Agent Kanban starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
+
+            if let Err(e) = setup_hook_scripts(app) {
+                tracing::warn!("Failed to setup hook scripts: {}", e);
+            }
 
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
@@ -83,6 +133,12 @@ fn main() {
             commands::check_ticket_readiness,
             commands::update_project_hooks,
             commands::browse_for_directory,
+            commands::get_cursor_status,
+            commands::install_cursor_hooks_global,
+            commands::install_cursor_hooks_project,
+            commands::get_cursor_hooks_config,
+            commands::check_project_hooks_installed,
+            commands::get_hook_script_path_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
