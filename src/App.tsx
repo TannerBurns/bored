@@ -5,10 +5,13 @@ import { Board } from './components/board/Board';
 import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { WorkerPanel } from './components/workers';
+import { ProjectsList, CursorSettings, ClaudeSettings } from './components/settings';
 import { useBoardStore } from './stores/boardStore';
-import { getProjects } from './lib/tauri';
+import { useSettingsStore } from './stores/settingsStore';
+import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
+import { api } from './lib/api';
 import { isTauri } from './lib/utils';
-import type { Column, Ticket, Project } from './types';
+import type { Column, Ticket, Project, Board as BoardType } from './types';
 import './index.css';
 
 const demoColumns: Column[] = [
@@ -94,19 +97,70 @@ function App() {
   const [columns] = useState<Column[]>(demoColumns);
   const [tickets, setTickets] = useState<Ticket[]>(demoTickets);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [, setBoards] = useState<BoardType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [settingsTab, setSettingsTab] = useState<'projects' | 'cursor' | 'claude'>('projects');
+  
+  const { theme } = useSettingsStore();
 
+  // Apply theme to root element
   useEffect(() => {
-    const loadProjects = async () => {
+    const root = document.documentElement;
+    
+    const applyTheme = (resolved: 'light' | 'dark') => {
+      root.classList.remove('light', 'dark');
+      root.classList.add(resolved);
+    };
+
+    if (theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      applyTheme(mediaQuery.matches ? 'dark' : 'light');
+      
+      const listener = (e: MediaQueryListEvent) => {
+        applyTheme(e.matches ? 'dark' : 'light');
+      };
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    } else {
+      applyTheme(theme);
+    }
+  }, [theme]);
+
+  // Load data from backend (Tauri) or use demo data (web)
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      
       if (isTauri()) {
         try {
-          const data = await getProjects();
-          setProjects(data);
-        } catch (error) {
-          console.error('Failed to load projects:', error);
+          const apiConfig = await getApiConfig();
+          api.configure({
+            baseUrl: apiConfig.url,
+            token: apiConfig.token,
+          });
+          
+          const [projectsData, boardsData] = await Promise.all([
+            getProjects(),
+            getBoards(),
+          ]);
+          setProjects(projectsData);
+          setBoards(boardsData);
+          
+          if (boardsData.length > 0) {
+            const ticketsData = await getTickets(boardsData[0].id);
+            if (ticketsData.length > 0) {
+              setTickets(ticketsData);
+            }
+          }
+        } catch {
+          // Fall back to demo data
         }
       }
+      
+      setIsLoading(false);
     };
-    loadProjects();
+    
+    loadData();
   }, []);
 
   const {
@@ -199,8 +253,7 @@ function App() {
     await addComment(ticketId, body);
   };
 
-  const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
-    console.log(`Starting ${agentType} agent for ticket ${ticketId}`);
+  const handleRunWithAgent = async (ticketId: string, _agentType: 'cursor' | 'claude') => {
     const updates = { lockedByRunId: `run-${Date.now()}`, updatedAt: new Date() };
     const originalTickets = tickets;
     setTickets((prev) =>
@@ -209,8 +262,7 @@ function App() {
     try {
       await storeUpdateTicket(ticketId, updates);
       closeTicketModal();
-    } catch (error) {
-      console.error('Failed to start agent run:', error);
+    } catch {
       setTickets(originalTickets);
     }
   };
@@ -255,12 +307,18 @@ function App() {
 
         {activeNav === 'boards' && (
           <div className="flex-1 overflow-hidden">
-            <Board
-              columns={columns}
-              tickets={tickets}
-              onTicketMove={handleTicketMove}
-              onTicketClick={handleTicketClick}
-            />
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+              </div>
+            ) : (
+              <Board
+                columns={columns}
+                tickets={tickets}
+                onTicketMove={handleTicketMove}
+                onTicketClick={handleTicketClick}
+              />
+            )}
           </div>
         )}
 
@@ -304,21 +362,46 @@ function App() {
         )}
 
         {activeNav === 'settings' && (
-          <div className="bg-board-column rounded-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Settings</h3>
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-gray-400 mb-2">Projects</h4>
-                <p className="text-gray-300 text-sm">
-                  Configure project directories where agents will work.
-                </p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-gray-400 mb-2">Agent Configuration</h4>
-                <p className="text-gray-300 text-sm">
-                  Set up Cursor and Claude Code integration.
-                </p>
-              </div>
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Settings Tabs */}
+            <div className="flex border-b border-gray-700 mb-4">
+              <button
+                onClick={() => setSettingsTab('projects')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  settingsTab === 'projects'
+                    ? 'border-b-2 border-blue-500 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Projects
+              </button>
+              <button
+                onClick={() => setSettingsTab('cursor')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  settingsTab === 'cursor'
+                    ? 'border-b-2 border-purple-500 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Cursor
+              </button>
+              <button
+                onClick={() => setSettingsTab('claude')}
+                className={`px-4 py-2 text-sm transition-colors ${
+                  settingsTab === 'claude'
+                    ? 'border-b-2 border-green-500 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Claude Code
+              </button>
+            </div>
+            
+            {/* Settings Content */}
+            <div className="flex-1 overflow-auto bg-board-column rounded-lg p-6">
+              {settingsTab === 'projects' && <ProjectsList />}
+              {settingsTab === 'cursor' && <CursorSettings />}
+              {settingsTab === 'claude' && <ClaudeSettings />}
             </div>
           </div>
         )}

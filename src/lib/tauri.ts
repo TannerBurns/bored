@@ -9,6 +9,17 @@ import type {
   ReadinessCheck,
 } from '../types';
 
+// API configuration
+export interface ApiConfig {
+  url: string;
+  port: number;
+  token: string;
+}
+
+export async function getApiConfig(): Promise<ApiConfig> {
+  return invoke('get_api_config');
+}
+
 export async function getProjects(): Promise<Project[]> {
   return invoke('get_projects');
 }

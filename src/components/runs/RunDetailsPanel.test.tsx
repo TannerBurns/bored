@@ -114,7 +114,7 @@ describe('RunDetailsPanel', () => {
     });
 
     fireEvent.click(screen.getByText('Logs'));
-    expect(screen.getByText(/Log output will appear here/)).toBeInTheDocument();
+    expect(screen.getByText(/No log output captured/)).toBeInTheDocument();
   });
 
   it('displays repo path', async () => {

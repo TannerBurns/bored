@@ -13,3 +13,27 @@ pub use projects::*;
 pub use runs::{start_agent_run, get_agent_runs, get_agent_run, get_run_events, cancel_agent_run};
 pub use tickets::*;
 pub use workers::{start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status};
+
+/// API configuration returned to the frontend
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApiConfigResponse {
+    pub url: String,
+    pub port: u16,
+    pub token: String,
+}
+
+/// Get the current API configuration (port, URL, token)
+#[tauri::command]
+pub fn get_api_config() -> Result<ApiConfigResponse, String> {
+    let port_str = std::env::var("AGENT_KANBAN_API_PORT")
+        .unwrap_or_else(|_| "7432".to_string());
+    let port: u16 = port_str.parse().unwrap_or(7432);
+    
+    let url = std::env::var("AGENT_KANBAN_API_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{}", port));
+    
+    let token = std::env::var("AGENT_KANBAN_API_TOKEN")
+        .unwrap_or_default();
+    
+    Ok(ApiConfigResponse { url, port, token })
+}

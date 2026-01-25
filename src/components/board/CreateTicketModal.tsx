@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { cn } from '../../lib/utils';
+import { useSettingsStore } from '../../stores/settingsStore';
 import type { Column, Ticket, CreateTicketInput } from '../../types';
 
 interface CreateTicketModalProps {
@@ -15,13 +16,15 @@ export function CreateTicketModal({
   onClose,
   onCreate,
 }: CreateTicketModalProps) {
+  const { defaultAgentPref } = useSettingsStore();
+  
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [labelsInput, setLabelsInput] = useState('');
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
   const [projectId, setProjectId] = useState('');
-  const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>('any');
+  const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>(defaultAgentPref);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -1,4 +1,4 @@
-const API_BASE = 'http://127.0.0.1:7432';
+const DEFAULT_API_BASE = 'http://127.0.0.1:7432';
 
 interface ApiClientOptions {
   baseUrl?: string;
@@ -10,7 +10,16 @@ class ApiClient {
   private token: string = '';
 
   constructor(options: ApiClientOptions = {}) {
-    this.baseUrl = options.baseUrl || API_BASE;
+    this.baseUrl = options.baseUrl || DEFAULT_API_BASE;
+    if (options.token) {
+      this.token = options.token;
+    }
+  }
+
+  configure(options: { baseUrl?: string; token?: string }) {
+    if (options.baseUrl) {
+      this.baseUrl = options.baseUrl;
+    }
     if (options.token) {
       this.token = options.token;
     }

@@ -179,6 +179,8 @@ fn main() {
             commands::workers::stop_all_workers,
             commands::workers::get_workers,
             commands::workers::get_worker_queue_status,
+            // API configuration
+            commands::get_api_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

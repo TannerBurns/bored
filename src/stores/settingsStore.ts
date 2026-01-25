@@ -1,16 +1,24 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface SettingsState {
-  theme: 'light' | 'dark';
+  theme: 'light' | 'dark' | 'system';
   defaultAgentPref: 'cursor' | 'claude' | 'any';
-  setTheme: (theme: 'light' | 'dark') => void;
+  setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setDefaultAgentPref: (pref: 'cursor' | 'claude' | 'any') => void;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  theme: 'dark',
-  defaultAgentPref: 'any',
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    (set) => ({
+      theme: 'dark',
+      defaultAgentPref: 'any',
 
-  setTheme: (theme) => set({ theme }),
-  setDefaultAgentPref: (defaultAgentPref) => set({ defaultAgentPref }),
-}));
+      setTheme: (theme) => set({ theme }),
+      setDefaultAgentPref: (defaultAgentPref) => set({ defaultAgentPref }),
+    }),
+    {
+      name: 'agent-kanban-settings',
+    }
+  )
+);
