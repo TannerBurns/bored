@@ -312,10 +312,10 @@ export function WorkerPanel({ projects }: Props) {
 
           <button
             onClick={handleStartWorker}
-            disabled={isStarting || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
+            disabled={isStarting || isValidating || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
             className="w-full px-4 py-2.5 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
-            {isStarting ? 'Starting...' : 'Start Worker'}
+            {isStarting ? 'Starting...' : isValidating ? 'Validating...' : 'Start Worker'}
           </button>
         </div>
       </div>
