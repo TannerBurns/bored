@@ -15,7 +15,7 @@ pub use tickets::*;
 pub use workers::{
     start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status,
     validate_worker, get_commands_path, get_available_commands, install_commands_to_project,
-    check_commands_installed,
+    install_commands_to_user, check_commands_installed,
 };
 
 /// API configuration returned to the frontend

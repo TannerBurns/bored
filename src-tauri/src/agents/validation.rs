@@ -161,15 +161,23 @@ fn check_hooks_configured(agent_type: AgentKind, repo_path: &Path) -> Validation
 }
 
 fn check_commands_installed(agent_type: AgentKind, repo_path: &Path) -> ValidationCheck {
-    let installed = match agent_type {
-        AgentKind::Cursor => cursor::check_project_commands_installed(repo_path),
-        AgentKind::Claude => claude::check_project_commands_installed(repo_path),
+    // Check user-level commands first (~/.cursor/commands/ or ~/.claude/commands/)
+    let (user_installed, project_installed) = match agent_type {
+        AgentKind::Cursor => (
+            cursor::check_user_commands_installed(),
+            cursor::check_project_commands_installed(repo_path),
+        ),
+        AgentKind::Claude => (
+            claude::check_user_commands_installed(),
+            claude::check_project_commands_installed(repo_path),
+        ),
     };
 
-    if installed {
+    if user_installed || project_installed {
+        let location = if user_installed { "user" } else { "project" };
         ValidationCheck::pass(
             "commands_installed",
-            "Command templates are installed",
+            &format!("Command templates are installed ({})", location),
         )
     } else {
         ValidationCheck::fail(

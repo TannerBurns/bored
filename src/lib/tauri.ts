@@ -264,6 +264,10 @@ export async function installCommandsToProject(
   return invoke('install_commands_to_project', { agentType, repoPath });
 }
 
+export async function installCommandsToUser(agentType: string): Promise<string[]> {
+  return invoke('install_commands_to_user', { agentType });
+}
+
 export async function checkCommandsInstalled(
   agentType: string,
   repoPath: string

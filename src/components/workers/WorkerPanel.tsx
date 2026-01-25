@@ -4,7 +4,7 @@ import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationRes
 import { isTauri } from '../../lib/utils';
 import {
   validateWorker,
-  installCommandsToProject,
+  installCommandsToUser,
   getCursorStatus,
   getClaudeStatus,
   installCursorHooksProject,
@@ -100,7 +100,8 @@ export function WorkerPanel({ projects }: Props) {
 
     try {
       if (fixAction === 'install_commands') {
-        await installCommandsToProject(newWorkerType, project.path);
+        // Install commands to user directory (~/.cursor/commands/ or ~/.claude/commands/)
+        await installCommandsToUser(newWorkerType);
       } else if (fixAction === 'install_hooks') {
         // Get the hook script path from the agent status
         if (newWorkerType === 'cursor') {

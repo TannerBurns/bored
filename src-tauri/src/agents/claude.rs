@@ -273,6 +273,23 @@ pub fn check_project_commands_installed(project: &Path) -> bool {
     COMMAND_TEMPLATES.iter().all(|name| commands_dir.join(name).exists())
 }
 
+/// Get the user-level commands directory (~/.claude/commands/)
+pub fn user_commands_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude").join("commands"))
+}
+
+/// Check if commands are installed at the user level (~/.claude/commands/)
+pub fn check_user_commands_installed() -> bool {
+    user_commands_path()
+        .map(|p| {
+            if !p.exists() {
+                return false;
+            }
+            COMMAND_TEMPLATES.iter().all(|name| p.join(name).exists())
+        })
+        .unwrap_or(false)
+}
+
 /// Get the bundled commands path, checking development path first.
 /// This version doesn't have access to Tauri's resource resolver.
 pub fn get_bundled_commands_path() -> Option<PathBuf> {
@@ -306,6 +323,32 @@ pub fn install_commands(
     commands_source: &Path,
 ) -> std::io::Result<Vec<String>> {
     let commands_dir = project.join(".claude").join("commands");
+    std::fs::create_dir_all(&commands_dir)?;
+    
+    let mut installed = Vec::new();
+    
+    for name in COMMAND_TEMPLATES {
+        let source = commands_source.join(name);
+        let dest = commands_dir.join(name);
+        
+        if source.exists() {
+            std::fs::copy(&source, &dest)?;
+            installed.push(name.to_string());
+        }
+    }
+    
+    Ok(installed)
+}
+
+/// Install command templates to the user-level directory (~/.claude/commands/)
+pub fn install_user_commands(commands_source: &Path) -> std::io::Result<Vec<String>> {
+    let commands_dir = user_commands_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Could not determine home directory",
+        )
+    })?;
+    
     std::fs::create_dir_all(&commands_dir)?;
     
     let mut installed = Vec::new();

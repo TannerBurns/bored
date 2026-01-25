@@ -184,6 +184,7 @@ fn main() {
             commands::workers::get_commands_path,
             commands::workers::get_available_commands,
             commands::workers::install_commands_to_project,
+            commands::workers::install_commands_to_user,
             commands::workers::check_commands_installed,
             // API configuration
             commands::get_api_config,

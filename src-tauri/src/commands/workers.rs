@@ -198,15 +198,33 @@ pub async fn install_commands_to_project(
 }
 
 #[tauri::command]
+pub async fn install_commands_to_user(
+    app: tauri::AppHandle,
+    agent_type: String,
+) -> Result<Vec<String>, String> {
+    let commands_source = cursor::get_bundled_commands_path_with_app(&app)
+        .ok_or_else(|| "Command templates not found".to_string())?;
+
+    let installed = match agent_type.as_str() {
+        "cursor" => cursor::install_user_commands(&commands_source),
+        "claude" => claude::install_user_commands(&commands_source),
+        _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+
+    installed.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn check_commands_installed(
     agent_type: String,
     repo_path: String,
 ) -> Result<bool, String> {
     let repo = PathBuf::from(&repo_path);
 
+    // Check both user-level and project-level commands
     let installed = match agent_type.as_str() {
-        "cursor" => cursor::check_project_commands_installed(&repo),
-        "claude" => claude::check_project_commands_installed(&repo),
+        "cursor" => cursor::check_user_commands_installed() || cursor::check_project_commands_installed(&repo),
+        "claude" => claude::check_user_commands_installed() || claude::check_project_commands_installed(&repo),
         _ => return Err(format!("Invalid agent type: {}", agent_type)),
     };
 
