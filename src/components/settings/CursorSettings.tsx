@@ -228,6 +228,12 @@ export function CursorSettings() {
             <span className="text-board-text-muted">Global hooks:</span>
             <span className="text-board-text">{status?.globalHooksInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
+          
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+            <span className="text-board-text-muted">User commands:</span>
+            <span className="text-board-text">{userCommandsInstalled ? 'Installed' : 'Not installed'}</span>
+          </div>
         </div>
       </div>
 
