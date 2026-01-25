@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tauri::Manager;
 
 use agent_kanban::{api, commands, db, logging};
+use agent_kanban::commands::runs::RunningAgents;
 
 fn main() {
     tauri::Builder::default()
@@ -25,6 +26,9 @@ fn main() {
 
             app.manage(database.clone());
 
+            // Manage running agents state
+            app.manage(RunningAgents::new());
+
             // Configure API server
             let api_config = api::ApiConfig::default();
             
@@ -40,6 +44,7 @@ fn main() {
             // Make config available via environment for child processes
             std::env::set_var("AGENT_KANBAN_API_TOKEN", &api_config.token);
             std::env::set_var("AGENT_KANBAN_API_PORT", api_config.port.to_string());
+            std::env::set_var("AGENT_KANBAN_API_URL", format!("http://127.0.0.1:{}", api_config.port));
 
             // Start API server
             let db_for_api = database.clone();
@@ -66,8 +71,10 @@ fn main() {
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,
-            commands::start_agent_run,
-            commands::get_agent_runs,
+            commands::runs::start_agent_run,
+            commands::runs::get_agent_runs,
+            commands::runs::get_agent_run,
+            commands::runs::cancel_agent_run,
             commands::get_projects,
             commands::get_project,
             commands::create_project,

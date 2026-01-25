@@ -1,69 +1,270 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
+use tauri::{State, Window};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentType {
-    Cursor,
-    Claude,
+use crate::agents::{self, AgentKind, AgentRunConfig, LogLine, RunOutcome};
+use crate::agents::spawner::CancelHandle;
+use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
+use crate::db::Database;
+
+/// Shared state for tracking running agents
+pub struct RunningAgents {
+    pub handles: Mutex<HashMap<String, CancelHandle>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum RunStatus {
-    Queued,
-    Running,
-    Finished,
-    Error,
-    Aborted,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentRun {
-    pub id: String,
-    pub ticket_id: String,
-    pub agent_type: AgentType,
-    pub repo_path: String,
-    pub status: RunStatus,
-    pub started_at: DateTime<Utc>,
-    pub ended_at: Option<DateTime<Utc>>,
-    pub exit_code: Option<i32>,
-    pub summary_md: Option<String>,
-    pub metadata: Option<serde_json::Value>,
-}
-
-impl AgentRun {
-    pub fn new(ticket_id: String, agent_type: AgentType, repo_path: String) -> Self {
+impl RunningAgents {
+    pub fn new() -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
-            ticket_id,
-            agent_type,
-            repo_path,
-            status: RunStatus::Queued,
-            started_at: Utc::now(),
-            ended_at: None,
-            exit_code: None,
-            summary_md: None,
-            metadata: None,
+            handles: Mutex::new(HashMap::new()),
         }
     }
 }
 
-#[tauri::command]
-pub async fn start_agent_run(
-    ticket_id: String,
-    agent_type: AgentType,
-    repo_path: String,
-) -> Result<AgentRun, String> {
-    tracing::info!("Starting {:?} agent run for ticket: {}", agent_type, ticket_id);
-    Ok(AgentRun::new(ticket_id, agent_type, repo_path))
+impl Default for RunningAgents {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartRunInput {
+    pub ticket_id: String,
+    pub agent_type: String,
+    pub repo_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLogEvent {
+    pub run_id: String,
+    pub stream: String,
+    pub content: String,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCompleteEvent {
+    pub run_id: String,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub duration_secs: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentErrorEvent {
+    pub run_id: String,
+    pub error: String,
 }
 
 #[tauri::command]
-pub async fn get_agent_runs(ticket_id: String) -> Result<Vec<AgentRun>, String> {
+pub async fn start_agent_run(
+    window: Window,
+    ticket_id: String,
+    agent_type: String,
+    repo_path: String,
+    db: State<'_, Arc<Database>>,
+    running_agents: State<'_, RunningAgents>,
+) -> Result<String, String> {
+    tracing::info!(
+        "Starting {:?} agent run for ticket: {}",
+        agent_type,
+        ticket_id
+    );
+
+    // Parse agent type
+    let db_agent_type = match agent_type.as_str() {
+        "cursor" => AgentType::Cursor,
+        "claude" => AgentType::Claude,
+        _ => return Err("Invalid agent type".to_string()),
+    };
+
+    let agent_kind = match agent_type.as_str() {
+        "cursor" => AgentKind::Cursor,
+        _ => AgentKind::Claude,
+    };
+
+    // Get ticket to generate prompt
+    let ticket = db
+        .get_ticket(&ticket_id)
+        .map_err(|e| format!("Failed to get ticket: {}", e))?;
+
+    // Create run record in database
+    let run = db
+        .create_run(&CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: db_agent_type,
+            repo_path: repo_path.clone(),
+        })
+        .map_err(|e| format!("Failed to create run: {}", e))?;
+
+    let run_id = run.id.clone();
+
+    // Get API config from environment
+    let api_url = std::env::var("AGENT_KANBAN_API_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{}", 
+            std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string())
+        ));
+    let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
+        .unwrap_or_else(|_| "default-token".to_string());
+
+    // Generate prompt from ticket
+    let prompt = agents::prompt::generate_ticket_prompt(&ticket);
+
+    // Build config
+    let config = AgentRunConfig {
+        kind: agent_kind,
+        ticket_id: ticket_id.clone(),
+        run_id: run_id.clone(),
+        repo_path: std::path::PathBuf::from(&repo_path),
+        prompt,
+        timeout_secs: Some(3600), // 1 hour default
+        api_url,
+        api_token,
+    };
+
+    // Clone what we need for the async task
+    let db_clone = db.inner().clone();
+    let run_id_for_task = run_id.clone();
+    let running_agents_handles = running_agents.handles.lock().unwrap().clone();
+    drop(running_agents_handles);
+
+    // Spawn agent in background
+    let window_clone = window.clone();
+    tauri::async_runtime::spawn(async move {
+        // Update status to running
+        if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
+        {
+            tracing::error!("Failed to update run status: {}", e);
+        }
+
+        // Create log callback that emits to frontend
+        let window_for_logs = window_clone.clone();
+        let run_id_for_logs = run_id_for_task.clone();
+        let on_log: Arc<agents::LogCallback> = Arc::new(Box::new(move |log: LogLine| {
+            let event = AgentLogEvent {
+                run_id: run_id_for_logs.clone(),
+                stream: match log.stream {
+                    agents::LogStream::Stdout => "stdout".to_string(),
+                    agents::LogStream::Stderr => "stderr".to_string(),
+                },
+                content: log.content,
+                timestamp: log.timestamp.to_rfc3339(),
+            };
+            let _ = window_for_logs.emit("agent-log", event);
+        }));
+
+        // Run the agent (blocking operation wrapped in spawn_blocking)
+        let config_clone = config.clone();
+        let on_log_clone = on_log.clone();
+        let result =
+            tokio::task::spawn_blocking(move || agents::spawner::run_agent(config_clone, Some(on_log_clone)))
+                .await;
+
+        match result {
+            Ok(Ok(agent_result)) => {
+                let status = match agent_result.status {
+                    RunOutcome::Success => RunStatus::Finished,
+                    RunOutcome::Error => RunStatus::Error,
+                    RunOutcome::Timeout => RunStatus::Error,
+                    RunOutcome::Cancelled => RunStatus::Aborted,
+                };
+
+                if let Err(e) = db_clone.update_run_status(
+                    &agent_result.run_id,
+                    status,
+                    agent_result.exit_code,
+                    agent_result.summary.as_deref(),
+                ) {
+                    tracing::error!("Failed to update run status: {}", e);
+                }
+
+                let event = AgentCompleteEvent {
+                    run_id: agent_result.run_id,
+                    status: format!("{:?}", agent_result.status).to_lowercase(),
+                    exit_code: agent_result.exit_code,
+                    duration_secs: agent_result.duration_secs,
+                };
+                let _ = window_clone.emit("agent-complete", event);
+            }
+            Ok(Err(e)) => {
+                tracing::error!("Agent run failed: {}", e);
+                if let Err(db_err) = db_clone.update_run_status(
+                    &run_id_for_task,
+                    RunStatus::Error,
+                    None,
+                    Some(&e.to_string()),
+                ) {
+                    tracing::error!("Failed to update run status: {}", db_err);
+                }
+
+                let event = AgentErrorEvent {
+                    run_id: run_id_for_task,
+                    error: e.to_string(),
+                };
+                let _ = window_clone.emit("agent-error", event);
+            }
+            Err(e) => {
+                tracing::error!("Task join error: {}", e);
+                if let Err(db_err) = db_clone.update_run_status(
+                    &run_id_for_task,
+                    RunStatus::Error,
+                    None,
+                    Some(&e.to_string()),
+                ) {
+                    tracing::error!("Failed to update run status: {}", db_err);
+                }
+
+                let event = AgentErrorEvent {
+                    run_id: run_id_for_task,
+                    error: e.to_string(),
+                };
+                let _ = window_clone.emit("agent-error", event);
+            }
+        }
+    });
+
+    Ok(run_id)
+}
+
+#[tauri::command]
+pub async fn cancel_agent_run(
+    run_id: String,
+    db: State<'_, Arc<Database>>,
+    running_agents: State<'_, RunningAgents>,
+) -> Result<(), String> {
+    tracing::info!("Cancelling agent run: {}", run_id);
+
+    // Try to cancel via handle
+    if let Some(handle) = running_agents.handles.lock().unwrap().get(&run_id) {
+        handle.cancel();
+    }
+
+    // Update the status in the database
+    db.update_run_status(&run_id, RunStatus::Aborted, None, Some("Cancelled by user"))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_runs(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<AgentRun>, String> {
     tracing::info!("Getting agent runs for ticket: {}", ticket_id);
-    Ok(vec![])
+    db.get_runs(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_run(
+    run_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<AgentRun, String> {
+    tracing::info!("Getting agent run: {}", run_id);
+    db.get_run(&run_id).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -71,60 +272,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_run_new_sets_fields() {
-        let run = AgentRun::new(
-            "ticket-1".to_string(),
-            AgentType::Cursor,
-            "/path/to/repo".to_string(),
-        );
-        
-        assert_eq!(run.ticket_id, "ticket-1");
-        assert_eq!(run.agent_type, AgentType::Cursor);
-        assert_eq!(run.repo_path, "/path/to/repo");
+    fn running_agents_new_is_empty() {
+        let ra = RunningAgents::new();
+        assert!(ra.handles.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn agent_run_new_starts_queued() {
-        let run = AgentRun::new("t".to_string(), AgentType::Claude, "/".to_string());
-        assert_eq!(run.status, RunStatus::Queued);
+    fn agent_log_event_serializes() {
+        let event = AgentLogEvent {
+            run_id: "run-1".to_string(),
+            stream: "stdout".to_string(),
+            content: "Hello".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("runId"));
+        assert!(json.contains("stdout"));
     }
 
     #[test]
-    fn agent_run_new_generates_uuid() {
-        let run = AgentRun::new("t".to_string(), AgentType::Cursor, "/".to_string());
-        assert!(uuid::Uuid::parse_str(&run.id).is_ok());
-    }
-
-    #[test]
-    fn agent_run_new_sets_started_at() {
-        let before = Utc::now();
-        let run = AgentRun::new("t".to_string(), AgentType::Cursor, "/".to_string());
-        let after = Utc::now();
-        
-        assert!(run.started_at >= before && run.started_at <= after);
-    }
-
-    #[test]
-    fn agent_run_new_leaves_optional_fields_none() {
-        let run = AgentRun::new("t".to_string(), AgentType::Cursor, "/".to_string());
-        assert!(run.ended_at.is_none());
-        assert!(run.exit_code.is_none());
-        assert!(run.summary_md.is_none());
-        assert!(run.metadata.is_none());
-    }
-
-    #[test]
-    fn agent_type_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&AgentType::Cursor).unwrap(), "\"cursor\"");
-        assert_eq!(serde_json::to_string(&AgentType::Claude).unwrap(), "\"claude\"");
-    }
-
-    #[test]
-    fn run_status_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&RunStatus::Queued).unwrap(), "\"queued\"");
-        assert_eq!(serde_json::to_string(&RunStatus::Running).unwrap(), "\"running\"");
-        assert_eq!(serde_json::to_string(&RunStatus::Finished).unwrap(), "\"finished\"");
-        assert_eq!(serde_json::to_string(&RunStatus::Error).unwrap(), "\"error\"");
-        assert_eq!(serde_json::to_string(&RunStatus::Aborted).unwrap(), "\"aborted\"");
+    fn agent_complete_event_serializes() {
+        let event = AgentCompleteEvent {
+            run_id: "run-1".to_string(),
+            status: "success".to_string(),
+            exit_code: Some(0),
+            duration_secs: 123.45,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("durationSecs"));
+        assert!(json.contains("exitCode"));
     }
 }
