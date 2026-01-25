@@ -104,3 +104,44 @@ export async function startAgentRun(
 export async function getAgentRuns(ticketId: string): Promise<AgentRun[]> {
   return invoke('get_agent_runs', { ticketId });
 }
+
+// Cursor integration
+export interface CursorStatus {
+  isAvailable: boolean;
+  version: string | null;
+  globalHooksInstalled: boolean;
+  hookScriptPath: string | null;
+}
+
+export async function getCursorStatus(): Promise<CursorStatus> {
+  return invoke('get_cursor_status');
+}
+
+export async function installCursorHooksGlobal(
+  hookScriptPath: string
+): Promise<void> {
+  return invoke('install_cursor_hooks_global', { hookScriptPath });
+}
+
+export async function installCursorHooksProject(
+  hookScriptPath: string,
+  projectPath: string
+): Promise<void> {
+  return invoke('install_cursor_hooks_project', { hookScriptPath, projectPath });
+}
+
+export async function getCursorHooksConfig(
+  hookScriptPath: string
+): Promise<string> {
+  return invoke('get_cursor_hooks_config', { hookScriptPath });
+}
+
+export async function checkProjectHooksInstalled(
+  projectPath: string
+): Promise<boolean> {
+  return invoke('check_project_hooks_installed', { projectPath });
+}
+
+export async function getHookScriptPath(): Promise<string | null> {
+  return invoke('get_hook_script_path_cmd');
+}

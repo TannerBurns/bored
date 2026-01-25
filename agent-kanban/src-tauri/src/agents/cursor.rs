@@ -1,4 +1,6 @@
 use super::AgentRunConfig;
+use std::path::PathBuf;
+use std::process::Command;
 
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
@@ -43,6 +45,34 @@ pub fn build_command_with_settings(
 }
 
 /// Generate the hooks.json content for Cursor
+pub fn generate_hooks_json(hook_script_path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "hooks": {
+            "beforeShellExecution": {
+                "command": hook_script_path,
+                "args": ["beforeShellExecution"]
+            },
+            "beforeReadFile": {
+                "command": hook_script_path,
+                "args": ["beforeReadFile"]
+            },
+            "beforeMCPExecution": {
+                "command": hook_script_path,
+                "args": ["beforeMCPExecution"]
+            },
+            "afterFileEdit": {
+                "command": hook_script_path,
+                "args": ["afterFileEdit"]
+            },
+            "stop": {
+                "command": hook_script_path,
+                "args": ["stop"]
+            }
+        }
+    })
+}
+
+/// Generate the hooks.json content for Cursor (legacy with API URL)
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
     serde_json::json!({
@@ -70,6 +100,80 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
             }
         }
     })
+}
+
+/// Install hooks for a specific repository/project
+pub fn install_hooks(repo_path: &PathBuf, hook_script_path: &str) -> std::io::Result<()> {
+    let cursor_dir = repo_path.join(".cursor");
+    std::fs::create_dir_all(&cursor_dir)?;
+
+    let hooks_json = generate_hooks_json(hook_script_path);
+    let hooks_path = cursor_dir.join("hooks.json");
+    
+    std::fs::write(
+        hooks_path,
+        serde_json::to_string_pretty(&hooks_json).unwrap(),
+    )?;
+
+    Ok(())
+}
+
+/// Get the global hooks path
+pub fn global_hooks_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".cursor").join("hooks.json"))
+}
+
+/// Install hooks globally (applies to all projects)
+pub fn install_global_hooks(hook_script_path: &str) -> std::io::Result<()> {
+    if let Some(hooks_path) = global_hooks_path() {
+        if let Some(parent) = hooks_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        
+        let hooks_json = generate_hooks_json(hook_script_path);
+        std::fs::write(
+            hooks_path,
+            serde_json::to_string_pretty(&hooks_json).unwrap(),
+        )?;
+    }
+    Ok(())
+}
+
+/// Check if Cursor CLI is available
+pub fn is_cursor_available() -> bool {
+    Command::new("cursor")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Get Cursor CLI version
+pub fn get_cursor_version() -> Option<String> {
+    Command::new("cursor")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.trim().to_string())
+}
+
+/// Check if global hooks are installed
+pub fn check_global_hooks_installed() -> bool {
+    global_hooks_path()
+        .map(|p| p.exists())
+        .unwrap_or(false)
+}
+
+/// Check if project hooks are installed
+pub fn check_project_hooks_installed(repo_path: &PathBuf) -> bool {
+    repo_path.join(".cursor").join("hooks.json").exists()
 }
 
 #[cfg(test)]
@@ -170,5 +274,74 @@ mod tests {
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--output-format".to_string()));
         assert!(args.contains(&"text".to_string()));
+    }
+
+    #[test]
+    fn generate_hooks_json_has_all_hooks() {
+        let config = generate_hooks_json("/path/to/hook.js");
+        let hooks = config.get("hooks").unwrap();
+        assert!(hooks.get("beforeShellExecution").is_some());
+        assert!(hooks.get("beforeReadFile").is_some());
+        assert!(hooks.get("beforeMCPExecution").is_some());
+        assert!(hooks.get("afterFileEdit").is_some());
+        assert!(hooks.get("stop").is_some());
+    }
+
+    #[test]
+    fn generate_hooks_json_uses_correct_script_path() {
+        let script_path = "/custom/path/hook.js";
+        let config = generate_hooks_json(script_path);
+        let hooks = config.get("hooks").unwrap();
+        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        assert_eq!(shell_hook.get("command").unwrap().as_str().unwrap(), script_path);
+    }
+
+    #[test]
+    fn install_hooks_creates_directory_and_file() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        let result = install_hooks(&temp_dir, "/path/to/hook.js");
+        assert!(result.is_ok());
+        
+        let hooks_path = temp_dir.join(".cursor").join("hooks.json");
+        assert!(hooks_path.exists());
+        
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn check_project_hooks_installed_returns_false_when_missing() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        assert!(!check_project_hooks_installed(&temp_dir));
+        
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn check_project_hooks_installed_returns_true_when_present() {
+        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        install_hooks(&temp_dir, "/path/to/hook.js").unwrap();
+        assert!(check_project_hooks_installed(&temp_dir));
+        
+        // Cleanup
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn global_hooks_path_returns_some() {
+        // Should return Some on systems with a home directory
+        let path = global_hooks_path();
+        // This test might fail in unusual environments without home dir
+        if dirs::home_dir().is_some() {
+            assert!(path.is_some());
+            assert!(path.unwrap().to_string_lossy().contains(".cursor"));
+        }
     }
 }

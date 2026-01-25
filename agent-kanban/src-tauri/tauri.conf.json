@@ -41,7 +41,9 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "scripts/*"
+      ],
       "shortDescription": "Agent Kanban",
       "targets": "all",
       "windows": {
