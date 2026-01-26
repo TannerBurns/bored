@@ -443,6 +443,21 @@ export function TicketModal({
     }
   };
 
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        setProjectsLoading(true);
+        const data = await getProjects();
+        setProjects(data);
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+    loadProjects();
+  }, []);
+
   const handleSave = async () => {
     setIsSaving(true);
     try {

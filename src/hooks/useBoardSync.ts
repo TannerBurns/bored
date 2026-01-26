@@ -19,7 +19,6 @@ interface DeleteConfirmation {
   ticketCount: number;
 }
 
-
 interface BoardSyncState {
   boards: Board[];
   currentBoard: Board | null;
