@@ -145,9 +145,7 @@ export function Sidebar({
                       }}
                       className={cn(
                         'p-1 rounded transition-colors',
-                        isActive
-                          ? 'text-white/70 hover:text-white hover:bg-white/10'
-                          : 'text-board-text-muted hover:text-board-text hover:bg-board-card-hover',
+                        'text-board-text-muted hover:text-board-text hover:bg-board-card-hover',
                         'opacity-0 group-hover:opacity-100',
                         isMenuOpen && 'opacity-100'
                       )}

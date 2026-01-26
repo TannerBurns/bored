@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useBoardStore } from '../stores/boardStore';
 import { getColumns, getTickets } from '../lib/tauri';
 import { isTauri } from '../lib/utils';
@@ -6,6 +6,11 @@ import type { Board, Column, Ticket } from '../types';
 
 type SetTicketsAction = Ticket[] | ((prev: Ticket[]) => Ticket[]);
 type SetColumnsAction = Column[] | ((prev: Column[]) => Column[]);
+
+interface DeleteConfirmation {
+  board: Board;
+  ticketCount: number;
+}
 
 interface BoardSyncState {
   boards: Board[];
@@ -15,8 +20,10 @@ interface BoardSyncState {
   setColumns: (action: SetColumnsAction) => void;
   setTickets: (action: SetTicketsAction) => void;
   handleBoardSelect: (boardId: string) => Promise<void>;
-  handleDeleteBoard: (board: Board) => Promise<void>;
-  deleteBoard: (boardId: string) => Promise<void>;
+  requestDeleteBoard: (board: Board) => Promise<void>;
+  confirmDeleteBoard: () => Promise<void>;
+  cancelDeleteBoard: () => void;
+  deleteConfirmation: DeleteConfirmation | null;
 }
 
 /**
@@ -28,6 +35,12 @@ export function useBoardSync(): BoardSyncState {
   const [currentBoard, setCurrentBoardLocal] = useState<Board | null>(null);
   const [columns, setColumns] = useState<Column[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation | null>(null);
+  
+  // Track the current board request to prevent race conditions
+  // When a new request starts, we update this ref; when a request completes,
+  // we only apply the results if the ref still matches the request's board ID
+  const currentRequestRef = useRef<string | null>(null);
 
   const {
     boards: storeBoards,
@@ -44,6 +57,7 @@ export function useBoardSync(): BoardSyncState {
   // Sync current board from store
   useEffect(() => {
     if (!storeCurrentBoard) {
+      currentRequestRef.current = null;
       setCurrentBoardLocal(null);
       setColumns([]);
       setTickets([]);
@@ -53,16 +67,26 @@ export function useBoardSync(): BoardSyncState {
     if (storeCurrentBoard.id !== currentBoard?.id) {
       setCurrentBoardLocal(storeCurrentBoard);
       if (isTauri()) {
+        // Track this request to handle race conditions
+        const requestId = storeCurrentBoard.id;
+        currentRequestRef.current = requestId;
+        
         Promise.all([
           getColumns(storeCurrentBoard.id),
           getTickets(storeCurrentBoard.id),
         ])
           .then(([columnsData, ticketsData]) => {
-            setColumns(columnsData);
-            setTickets(ticketsData);
+            // Only apply results if this is still the current request
+            if (currentRequestRef.current === requestId) {
+              setColumns(columnsData);
+              setTickets(ticketsData);
+            }
           })
           .catch((error) => {
-            console.error('Failed to load board data:', error);
+            // Only log error if this is still the current request
+            if (currentRequestRef.current === requestId) {
+              console.error('Failed to load board data:', error);
+            }
           });
       }
     } else if (storeCurrentBoard.name !== currentBoard?.name) {
@@ -74,6 +98,9 @@ export function useBoardSync(): BoardSyncState {
     const board = localBoards.find((b) => b.id === boardId);
     if (!board) return;
 
+    // Track this request to handle race conditions
+    currentRequestRef.current = boardId;
+    
     setCurrentBoardLocal(board);
     setCurrentBoard(board);
 
@@ -83,32 +110,60 @@ export function useBoardSync(): BoardSyncState {
           getColumns(board.id),
           getTickets(board.id),
         ]);
-        setColumns(columnsData);
-        setTickets(ticketsData);
+        // Only apply results if this is still the current request
+        if (currentRequestRef.current === boardId) {
+          setColumns(columnsData);
+          setTickets(ticketsData);
+        }
       } catch (error) {
-        console.error('Failed to load board data:', error);
+        // Only log error if this is still the current request
+        if (currentRequestRef.current === boardId) {
+          console.error('Failed to load board data:', error);
+        }
       }
     }
   };
 
-  const handleDeleteBoard = async (board: Board) => {
-    const ticketCount = tickets.filter((t) => t.boardId === board.id).length;
-    const message =
-      ticketCount > 0
-        ? `Delete "${board.name}"? This will also delete ${ticketCount} ticket${ticketCount === 1 ? '' : 's'}.`
-        : `Delete "${board.name}"?`;
+  const requestDeleteBoard = async (board: Board) => {
+    let ticketCount: number;
 
-    if (!confirm(message)) return;
+    // If deleting the current board, we already have the tickets in local state
+    // Otherwise, fetch the ticket count from the backend
+    if (board.id === currentBoard?.id) {
+      ticketCount = tickets.length;
+    } else if (isTauri()) {
+      try {
+        const boardTickets = await getTickets(board.id);
+        ticketCount = boardTickets.length;
+      } catch (error) {
+        console.error('Failed to get ticket count:', error);
+        ticketCount = 0;
+      }
+    } else {
+      ticketCount = 0;
+    }
+
+    setDeleteConfirmation({ board, ticketCount });
+  };
+
+  const confirmDeleteBoard = async () => {
+    if (!deleteConfirmation) return;
 
     try {
-      await deleteBoard(board.id);
+      await deleteBoard(deleteConfirmation.board.id);
     } catch (error) {
       console.error('Failed to delete board:', error);
       alert(
         'Failed to delete board: ' +
           (error instanceof Error ? error.message : 'Unknown error')
       );
+    } finally {
+      setDeleteConfirmation(null);
     }
+  };
+
+  const cancelDeleteBoard = () => {
+    setDeleteConfirmation(null);
   };
 
   return {
@@ -119,7 +174,9 @@ export function useBoardSync(): BoardSyncState {
     setColumns,
     setTickets,
     handleBoardSelect,
-    handleDeleteBoard,
-    deleteBoard,
+    requestDeleteBoard,
+    confirmDeleteBoard,
+    cancelDeleteBoard,
+    deleteConfirmation,
   };
 }

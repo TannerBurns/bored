@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../../lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../../lib/constants';
-import type { Ticket, Column, Comment } from '../../types';
+import { getProjects } from '../../lib/tauri';
+import type { Ticket, Column, Comment, Project } from '../../types';
 
 interface TicketModalProps {
   ticket: Ticket;
@@ -12,6 +13,7 @@ interface TicketModalProps {
   onUpdate: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
+  onDelete?: (ticketId: string) => Promise<void>;
 }
 
 export function TicketModal({
@@ -22,22 +24,54 @@ export function TicketModal({
   onUpdate,
   onAddComment,
   onRunWithAgent,
+  onDelete,
 }: TicketModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(ticket.title);
   const [editDescription, setEditDescription] = useState(ticket.descriptionMd);
+  const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>(ticket.priority);
+  const [editLabels, setEditLabels] = useState(ticket.labels.join(', '));
+  const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        setProjectsLoading(true);
+        const data = await getProjects();
+        setProjects(data);
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+    loadProjects();
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const labels = editLabels
+        .split(',')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      
+      // Always include projectId - use empty string to clear, actual id to set
       await onUpdate(ticket.id, {
         title: editTitle,
         descriptionMd: editDescription,
+        priority: editPriority,
+        labels,
+        projectId: editProjectId, // Empty string means clear, non-empty means set
       });
       setIsEditing(false);
     } finally {
@@ -56,15 +90,35 @@ export function TicketModal({
     }
   };
 
+  const resetEditState = () => {
+    setEditTitle(ticket.title);
+    setEditDescription(ticket.descriptionMd);
+    setEditPriority(ticket.priority);
+    setEditLabels(ticket.labels.join(', '));
+    setEditProjectId(ticket.projectId || '');
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (isEditing) {
+      if (showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+      } else if (isEditing) {
         setIsEditing(false);
-        setEditTitle(ticket.title);
-        setEditDescription(ticket.descriptionMd);
+        resetEditState();
       } else {
         onClose();
       }
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(ticket.id);
+      onClose();
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -75,7 +129,7 @@ export function TicketModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black bg-opacity-50"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -95,7 +149,7 @@ export function TicketModal({
             ) : (
               <h2 className="text-lg font-semibold text-board-text">{ticket.title}</h2>
             )}
-            <div className="flex items-center gap-2 mt-2 text-sm text-board-text-muted">
+            <div className="flex items-center gap-2 mt-2 text-sm text-board-text-muted flex-wrap">
               <span
                 className={cn(
                   'px-2 py-0.5 rounded text-white text-xs',
@@ -109,6 +163,14 @@ export function TicketModal({
               <span>
                 Created {formatDistanceToNow(new Date(ticket.createdAt))} ago
               </span>
+              {ticket.updatedAt && new Date(ticket.updatedAt).getTime() !== new Date(ticket.createdAt).getTime() && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Updated {formatDistanceToNow(new Date(ticket.updatedAt))} ago
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <button
@@ -135,8 +197,36 @@ export function TicketModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Priority */}
+          {isEditing ? (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2">Priority</h3>
+              <select
+                value={editPriority}
+                onChange={(e) => setEditPriority(e.target.value as 'low' | 'medium' | 'high' | 'urgent')}
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+          ) : null}
+
           {/* Labels */}
-          {ticket.labels.length > 0 && (
+          {isEditing ? (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2">Labels (comma-separated)</h3>
+              <input
+                type="text"
+                value={editLabels}
+                onChange={(e) => setEditLabels(e.target.value)}
+                placeholder="bug, frontend, urgent"
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              />
+            </div>
+          ) : ticket.labels.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {ticket.labels.map((label) => (
                 <span
@@ -147,7 +237,7 @@ export function TicketModal({
                 </span>
               ))}
             </div>
-          )}
+          ) : null}
 
           {/* Description */}
           <div>
@@ -171,15 +261,32 @@ export function TicketModal({
             )}
           </div>
 
-          {/* Project info */}
-          {ticket.projectId && (
+          {/* Project */}
+          {isEditing ? (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2">Project</h3>
+              <select
+                value={editProjectId}
+                onChange={(e) => setEditProjectId(e.target.value)}
+                disabled={projectsLoading}
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border disabled:opacity-50"
+              >
+                <option value="">No project</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : ticket.projectId ? (
             <div>
               <h3 className="text-sm font-medium text-board-text-muted mb-1">Project</h3>
               <code className="text-sm text-board-text-secondary bg-board-surface px-2 py-1 rounded">
-                {ticket.projectId}
+                {projects.find(p => p.id === ticket.projectId)?.name || ticket.projectId}
               </code>
             </div>
-          )}
+          ) : null}
 
           {/* Agent preference */}
           {ticket.agentPref && (
@@ -295,33 +402,63 @@ export function TicketModal({
           </div>
 
           <div className="flex gap-2">
-            {isEditing ? (
+            {showDeleteConfirm ? (
               <>
+                <span className="text-sm text-board-text-muted self-center mr-2">
+                  Delete this ticket?
+                </span>
                 <button
-                  onClick={() => {
-                    setIsEditing(false);
-                    setEditTitle(ticket.title);
-                    setEditDescription(ticket.descriptionMd);
-                  }}
+                  onClick={() => setShowDeleteConfirm(false)}
                   className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="px-3 py-1.5 bg-status-error text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
                 >
-                  {isSaving ? 'Saving...' : 'Save'}
+                  {isDeleting ? 'Deleting...' : 'Confirm Delete'}
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
-              >
-                Edit
-              </button>
+              <>
+                {onDelete && (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="px-3 py-1.5 text-status-error text-sm hover:bg-status-error/10 rounded-lg transition-colors"
+                  >
+                    Delete
+                  </button>
+                )}
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setIsEditing(false);
+                        resetEditState();
+                      }}
+                      className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
+                    >
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

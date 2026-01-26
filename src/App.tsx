@@ -6,12 +6,13 @@ import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
+import { ConfirmModal } from './components/common/ConfirmModal';
 import { WorkerPanel } from './components/workers';
 import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from './components/settings';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
-import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
+import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
 import type { Ticket, Project, Board as BoardType } from './types';
@@ -43,7 +44,10 @@ function App() {
     setColumns,
     setTickets,
     handleBoardSelect,
-    handleDeleteBoard,
+    requestDeleteBoard,
+    confirmDeleteBoard,
+    cancelDeleteBoard,
+    deleteConfirmation,
   } = useBoardSync();
 
   // Apply theme to root element
@@ -201,6 +205,12 @@ function App() {
     }
   };
 
+  const handleDeleteTicket = async (ticketId: string) => {
+    await deleteTicket(ticketId);
+    setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    closeTicketModal();
+  };
+
   return (
     <div className="flex h-screen bg-board-bg text-board-text">
       <Sidebar
@@ -212,7 +222,7 @@ function App() {
         onBoardSelect={handleBoardSelect}
         onCreateBoard={() => setIsCreateBoardModalOpen(true)}
         onRenameBoard={handleRenameBoard}
-        onDeleteBoard={handleDeleteBoard}
+        onDeleteBoard={requestDeleteBoard}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
@@ -407,6 +417,7 @@ function App() {
           onUpdate={handleUpdateTicket}
           onAddComment={handleAddComment}
           onRunWithAgent={handleRunWithAgent}
+          onDelete={handleDeleteTicket}
         />
       )}
 
@@ -428,6 +439,26 @@ function App() {
         open={renameBoardModalOpen}
         onOpenChange={setRenameBoardModalOpen}
         board={boardToRename}
+      />
+
+      <ConfirmModal
+        open={deleteConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) cancelDeleteBoard();
+        }}
+        title="Delete Board"
+        message={
+          deleteConfirmation
+            ? deleteConfirmation.ticketCount > 0
+              ? `Delete "${deleteConfirmation.board.name}"? This will also delete ${deleteConfirmation.ticketCount} ticket${deleteConfirmation.ticketCount === 1 ? '' : 's'}.`
+              : `Delete "${deleteConfirmation.board.name}"?`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteBoard}
+        onCancel={cancelDeleteBoard}
       />
     </div>
   );

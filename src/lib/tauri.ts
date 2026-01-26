@@ -109,6 +109,10 @@ export async function moveTicket(
   return invoke('move_ticket', { ticketId, columnId });
 }
 
+export async function deleteTicket(ticketId: string): Promise<void> {
+  return invoke('delete_ticket', { ticketId });
+}
+
 export async function startAgentRun(
   ticketId: string,
   agentType: 'cursor' | 'claude',

@@ -4,11 +4,11 @@ type TicketState = 'Backlog' | 'Ready' | 'In Progress' | 'Blocked' | 'Review' | 
 
 const ALLOWED_TRANSITIONS: Record<TicketState, TicketState[]> = {
   'Backlog': ['Backlog', 'Ready'],
-  'Ready': ['Ready', 'Backlog'],
-  'In Progress': ['In Progress', 'Ready', 'Blocked'],
-  'Blocked': ['Blocked', 'Ready', 'Backlog'],
+  'Ready': ['Ready', 'Backlog', 'In Progress'],
+  'In Progress': ['In Progress', 'Ready', 'Blocked', 'Review'],
+  'Blocked': ['Blocked', 'Ready', 'Backlog', 'In Progress', 'Review'],
   'Review': ['Review', 'Done', 'Blocked', 'Ready', 'In Progress'],
-  'Done': ['Done', 'Review'],
+  'Done': ['Done', 'Review', 'Backlog'],
 };
 
 function normalizeColumnName(name: string): TicketState | null {

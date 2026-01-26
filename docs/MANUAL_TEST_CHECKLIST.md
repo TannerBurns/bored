@@ -348,14 +348,14 @@ Before proceeding, confirm the test project is ready:
 ## Phase 3: Board Management
 
 ### 3.1 Create First Board
-- [ ] Navigate to **Boards** (sidebar shows empty boards section with "No boards yet")
-- [ ] Click **Create Your First Board** button in the main content area
-- [ ] Verify **Create Board** modal appears with:
+- [X] Navigate to **Boards** (sidebar shows empty boards section with "No boards yet")
+- [X] Click **Create Your First Board** button in the main content area
+- [X] Verify **Create Board** modal appears with:
   - Board Name input field
   - Create and Cancel buttons
-- [ ] Enter board name: "Test Board"
-- [ ] Click **Create**
-- [ ] Verify:
+- [X] Enter board name: "Test Board"
+- [X] Click **Create**
+- [X] Verify:
   - Board is created and selected automatically
   - Board name "Test Board" appears in the header
   - Board appears in the sidebar under "Boards" section
@@ -369,69 +369,69 @@ Before proceeding, confirm the test project is ready:
   - **New Ticket** button appears in header
 
 ### 3.2 Create Additional Boards
-- [ ] Click the **+** button next to "Boards" in the sidebar
-- [ ] Verify **Create Board** modal appears
-- [ ] Enter board name: "Second Board"
-- [ ] Click **Create**
-- [ ] Verify:
+- [X] Click the **+** button next to "Boards" in the sidebar
+- [X] Verify **Create Board** modal appears
+- [X] Enter board name: "Second Board"
+- [X] Click **Create**
+- [X] Verify:
   - New board is created and automatically selected
   - "Second Board" appears in the header
   - Both boards appear in the sidebar
 
 ### 3.3 Switch Between Boards
-- [ ] Click on "Test Board" in the sidebar
-- [ ] Verify:
+- [X] Click on "Test Board" in the sidebar
+- [X] Verify:
   - "Test Board" becomes highlighted in the sidebar
   - Header shows "Test Board"
   - Any tickets created in Test Board are displayed
-- [ ] Click on "Second Board" in the sidebar
-- [ ] Verify:
+- [X] Click on "Second Board" in the sidebar
+- [X] Verify:
   - "Second Board" becomes highlighted
   - Header shows "Second Board"
   - Board shows empty columns (no tickets yet)
 
 ### 3.4 Board Persistence
-- [ ] Close and restart the application
-- [ ] Verify:
+- [X] Close and restart the application
+- [X] Verify:
   - Both boards still appear in the sidebar
   - First board is automatically selected on load
   - Board data is preserved
 
 ### 3.5 Rename Board
-- [ ] Hover over a board in the sidebar
-- [ ] Verify a three-dot menu icon appears
-- [ ] Click the three-dot menu icon
-- [ ] Verify dropdown menu appears with "Rename" and "Delete" options
-- [ ] Click **Rename**
-- [ ] Verify **Rename Board** modal appears with:
+- [X] Hover over a board in the sidebar
+- [X] Verify a three-dot menu icon appears
+- [X] Click the three-dot menu icon
+- [X] Verify dropdown menu appears with "Rename" and "Delete" options
+- [X] Click **Rename**
+- [X] Verify **Rename Board** modal appears with:
   - Input field pre-filled with current board name
   - Save and Cancel buttons
-- [ ] Change the name to "Renamed Board"
-- [ ] Click **Save**
-- [ ] Verify:
+- [X] Change the name to "Renamed Board"
+- [X] Click **Save**
+- [X] Verify:
   - Modal closes
   - Board name updates in the sidebar
   - Header shows new board name (if this board is selected)
 
 ### 3.6 Delete Board
-- [ ] Create a test board named "To Delete" (using the + button)
-- [ ] Click the three-dot menu on "To Delete" board
-- [ ] Click **Delete**
-- [ ] Verify confirmation dialog appears
-- [ ] Click **Cancel** (or dismiss the dialog)
-- [ ] Verify board is NOT deleted
-- [ ] Click **Delete** again and confirm
-- [ ] Verify:
+- [X] Create a test board named "To Delete" (using the + button)
+- [X] Click the three-dot menu on "To Delete" board
+- [X] Click **Delete**
+- [X] Verify confirmation dialog appears
+- [X] Click **Cancel** (or dismiss the dialog)
+- [X] Verify board is NOT deleted
+- [X] Click **Delete** again and confirm
+- [X] Verify:
   - Board is removed from the sidebar
   - If it was the current board, another board is automatically selected
   - If no boards remain, empty state is shown
 
 ### 3.7 Delete Board with Tickets
-- [ ] Select a board that has tickets
-- [ ] Click the three-dot menu and select **Delete**
-- [ ] Verify confirmation dialog mentions the number of tickets that will be deleted
-- [ ] Confirm deletion
-- [ ] Verify board and all its tickets are deleted
+- [X] Select a board that has tickets
+- [X] Click the three-dot menu and select **Delete**
+- [X] Verify confirmation dialog mentions the number of tickets that will be deleted
+- [X] Confirm deletion
+- [X] Verify board and all its tickets are deleted
 
 ---
 
@@ -440,8 +440,8 @@ Before proceeding, confirm the test project is ready:
 > **Important:** You should now have a board created (from Phase 3) and the "Test Project" registered (from Phase 2.2).
 
 ### 4.1 Create First Ticket (UI Verification)
-- [ ] Click **New Ticket** button in the header
-- [ ] Verify Create Ticket modal opens with:
+- [X] Click **New Ticket** button in the header
+- [X] Verify Create Ticket modal opens with:
   - Title input
   - Description textarea (Markdown supported)
   - Priority dropdown (Low, Medium, High, Urgent)
@@ -449,16 +449,16 @@ Before proceeding, confirm the test project is ready:
   - Column selector
   - Project selector (should show "Test Project")
   - Agent preference selector
-- [ ] Enter a simple test ticket:
+- [X] Enter a simple test ticket:
   - Title: "UI Test Ticket"
   - Description: "This is a test ticket for UI verification"
   - Priority: Low
   - Column: Backlog
   - Project: **Test Project**
   - Agent Pref: Any
-- [ ] Click **Create**
-- [ ] Verify ticket appears in the Backlog column
-- [ ] Verify ticket card shows:
+- [X] Click **Create**
+- [X] Verify ticket appears in the Backlog column
+- [X] Verify ticket card shows:
   - Title
   - Priority indicator
 
@@ -467,73 +467,73 @@ Before proceeding, confirm the test project is ready:
 Now create the specific test tickets from **Phase 0.2** that agents will work on.
 
 **Create Ticket 1 - Multiply Function:**
-- [ ] Click **New Ticket**
-- [ ] Title: `Add multiply function to index.js`
-- [ ] Description: Copy from Phase 0.2, Ticket 1
-- [ ] Priority: **Medium**
-- [ ] Column: **Backlog**
-- [ ] Project: **Test Project**
-- [ ] Agent Pref: Any
-- [ ] Click **Create**
+- [X] Click **New Ticket**
+- [X] Title: `Add multiply function to index.js`
+- [X] Description: Copy from Phase 0.2, Ticket 1
+- [X] Priority: **Medium**
+- [X] Column: **Backlog**
+- [X] Project: **Test Project**
+- [X] Agent Pref: Any
+- [X] Click **Create**
 
 **Create Ticket 2 - Divide Function:**
-- [ ] Click **New Ticket**
-- [ ] Title: `Add divide function with zero-division protection`
-- [ ] Description: Copy from Phase 0.2, Ticket 2
-- [ ] Priority: **High**
-- [ ] Column: **Backlog**
-- [ ] Project: **Test Project**
-- [ ] Agent Pref: Any
-- [ ] Click **Create**
+- [X] Click **New Ticket**
+- [X] Title: `Add divide function with zero-division protection`
+- [X] Description: Copy from Phase 0.2, Ticket 2
+- [X] Priority: **High**
+- [X] Column: **Backlog**
+- [X] Project: **Test Project**
+- [X] Agent Pref: Any
+- [X] Click **Create**
 
 **Create Ticket 3 - Code Style:**
-- [ ] Click **New Ticket**
-- [ ] Title: `Add semicolons to all statements in index.js`
-- [ ] Description: Copy from Phase 0.2, Ticket 3
-- [ ] Priority: **Low**
-- [ ] Column: **Backlog**
-- [ ] Project: **Test Project**
-- [ ] Agent Pref: Any
-- [ ] Click **Create**
+- [X] Click **New Ticket**
+- [X] Title: `Add semicolons to all statements in index.js`
+- [X] Description: Copy from Phase 0.2, Ticket 3
+- [X] Priority: **Low**
+- [X] Column: **Backlog**
+- [X] Project: **Test Project**
+- [X] Agent Pref: Any
+- [X] Click **Create**
 
 **Create Ticket 4 - README Update:**
-- [ ] Click **New Ticket**
-- [ ] Title: `Update README with function documentation`
-- [ ] Description: Copy from Phase 0.2, Ticket 4
-- [ ] Priority: **Low**
-- [ ] Column: **Backlog**
-- [ ] Project: **Test Project**
-- [ ] Agent Pref: Any
-- [ ] Click **Create**
+- [X] Click **New Ticket**
+- [X] Title: `Update README with function documentation`
+- [X] Description: Copy from Phase 0.2, Ticket 4
+- [X] Priority: **Low**
+- [X] Column: **Backlog**
+- [X] Project: **Test Project**
+- [X] Agent Pref: Any
+- [X] Click **Create**
 
 **Create a Ticket Without Project (for error testing):**
-- [ ] Click **New Ticket**
-- [ ] Title: "No Project Ticket"
-- [ ] Description: "Test ticket with no project assigned"
-- [ ] Priority: Medium
-- [ ] Column: Backlog
-- [ ] Project: **Leave empty/none**
-- [ ] Click **Create**
+- [X] Click **New Ticket**
+- [X] Title: "No Project Ticket"
+- [X] Description: "Test ticket with no project assigned"
+- [X] Priority: Medium
+- [X] Column: Backlog
+- [X] Project: **Leave empty/none**
+- [X] Click **Create**
 
 ### 4.3 Verify Ticket List
-- [ ] Verify all 6 tickets appear in the Backlog column
-- [ ] Verify tickets show correct priority indicators
-- [ ] Verify the "No Project Ticket" is distinguishable (may show warning)
+- [X] Verify all 5 tickets appear in the Backlog column
+- [X] Verify tickets show correct priority indicators
+- [X] Verify the "No Project Ticket" is distinguishable (may show warning)
 
 ### 4.4 Drag and Drop
-- [ ] Drag the "UI Test Ticket" from **Backlog** to **Ready**
-- [ ] Verify ticket moves to Ready column
-- [ ] Verify ticket's updatedAt timestamp changes
-- [ ] Drag ticket from **Ready** to **In Progress**
-- [ ] Drag ticket from **In Progress** to **Review**
-- [ ] Drag ticket from **Review** to **Done**
-- [ ] Verify all transitions work smoothly
-- [ ] Drag ticket back from Done to Backlog
-- [ ] Verify reverse transition works
+- [X] Drag the "UI Test Ticket" from **Backlog** to **Ready**
+- [X] Verify ticket moves to Ready column
+- [X] Verify ticket's updatedAt timestamp changes
+- [X] Drag ticket from **Ready** to **In Progress**
+- [X] Drag ticket from **In Progress** to **Review**
+- [X] Drag ticket from **Review** to **Done**
+- [X] Verify all transitions work smoothly
+- [X] Drag ticket back from Done to Backlog
+- [X] Verify reverse transition works
 
 ### 4.5 View Ticket Details
-- [ ] Click on a ticket card
-- [ ] Verify Ticket Modal opens with:
+- [X] Click on a ticket card
+- [X] Verify Ticket Modal opens with:
   - Title (editable)
   - Full description
   - Priority badge
@@ -546,40 +546,40 @@ Now create the specific test tickets from **Phase 0.2** that agents will work on
   - Previous Runs section (if applicable)
 
 ### 4.6 Edit Ticket
-- [ ] In the ticket modal, edit the title
-- [ ] Verify title updates in real-time
-- [ ] Edit the description
-- [ ] Change the priority
-- [ ] Add/remove labels
-- [ ] Change the assigned project
-- [ ] Verify all changes persist after closing and reopening modal
+- [X] In the ticket modal, edit the title
+- [X] Verify title updates in real-time
+- [X] Edit the description
+- [X] Change the priority
+- [X] Add/remove labels
+- [X] Change the assigned project
+- [X] Verify all changes persist after closing and reopening modal
 
 ### 4.7 Add Comments
-- [ ] Open a ticket modal
-- [ ] Scroll to Comments section
-- [ ] Enter a comment: "Test comment 1"
-- [ ] Submit the comment
-- [ ] Verify comment appears with:
+- [X] Open a ticket modal
+- [X] Scroll to Comments section
+- [X] Enter a comment: "Test comment 1"
+- [X] Submit the comment
+- [X] Verify comment appears with:
   - Comment text
   - Author type (user)
   - Timestamp
 - [ ] Add another comment
-- [ ] Verify comments are ordered chronologically
-- [ ] Close and reopen the ticket modal
-- [ ] Verify comments persist
+- [X] Verify comments are ordered chronologically
+- [X] Close and reopen the ticket modal
+- [X] Verify comments persist
 
 ### 4.8 Prepare Tickets for Agent Testing
 
 Move test tickets to the Ready column so agents can work on them:
 
-- [ ] Drag **"Add multiply function to index.js"** to the **Ready** column
-- [ ] Verify ticket is now in Ready column
-- [ ] Keep the other test tickets in Backlog for now (we'll use them later)
+- [X] Drag **"Add multiply function to index.js"** to the **Ready** column
+- [X] Verify ticket is now in Ready column
+- [X] Keep the other test tickets in Backlog for now (we'll use them later)
 
 **Current State Check:**
-- [ ] Backlog: 4 tickets (UI Test, Divide, Semicolons, README, No Project)
-- [ ] Ready: 1 ticket (Multiply function)
-- [ ] All other columns: empty
+- [X] Backlog: 4 tickets (UI Test, Divide, Semicolons, README, No Project)
+- [X] Ready: 1 ticket (Multiply function)
+- [X] All other columns: empty
 
 ---
 

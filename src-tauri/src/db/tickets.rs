@@ -47,7 +47,12 @@ impl Database {
             let description_md = updates.description_md.as_ref().unwrap_or(&existing.description_md);
             let priority = updates.priority.as_ref().unwrap_or(&existing.priority);
             let labels = updates.labels.as_ref().unwrap_or(&existing.labels);
-            let project_id = updates.project_id.as_ref().or(existing.project_id.as_ref());
+            // Handle project_id: None means keep existing, Some("") means clear, Some(id) means set
+            let project_id = match &updates.project_id {
+                Some(id) if id.is_empty() => None, // Empty string means clear the project
+                Some(id) => Some(id.as_str()),
+                None => existing.project_id.as_deref(), // Keep existing
+            };
             let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
@@ -558,6 +563,79 @@ mod tests {
             agent_pref: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn update_ticket_clears_project_with_empty_string() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            agent_pref: None,
+        }).unwrap();
+        
+        assert_eq!(ticket.project_id, Some(project.id.clone()));
+        
+        let updated = db.update_ticket(&ticket.id, &UpdateTicket {
+            title: None,
+            description_md: None,
+            priority: None,
+            labels: None,
+            project_id: Some(String::new()), // Empty string clears project
+            agent_pref: None,
+        }).unwrap();
+        
+        assert_eq!(updated.project_id, None);
+    }
+
+    #[test]
+    fn update_ticket_keeps_project_when_none() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            agent_pref: None,
+        }).unwrap();
+        
+        let updated = db.update_ticket(&ticket.id, &UpdateTicket {
+            title: Some("Updated Title".to_string()),
+            description_md: None,
+            priority: None,
+            labels: None,
+            project_id: None, // None means keep existing
+            agent_pref: None,
+        }).unwrap();
+        
+        assert_eq!(updated.project_id, Some(project.id));
+        assert_eq!(updated.title, "Updated Title");
     }
 
     #[test]
