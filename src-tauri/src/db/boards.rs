@@ -91,6 +91,7 @@ impl Database {
         Ok(columns.into_iter().find(|c| c.name.to_lowercase() == name_lower))
     }
 
+
     pub fn update_board(&self, board_id: &str, name: &str) -> Result<Board, DbError> {
         self.with_conn_mut(|conn| {
             let now = chrono::Utc::now();
