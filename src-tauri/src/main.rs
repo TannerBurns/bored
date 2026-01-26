@@ -140,6 +140,8 @@ fn main() {
             commands::get_boards,
             commands::get_columns,
             commands::create_board,
+            commands::update_board,
+            commands::delete_board,
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,

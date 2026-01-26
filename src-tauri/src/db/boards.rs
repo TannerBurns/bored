@@ -83,6 +83,60 @@ impl Database {
             Ok(columns)
         })
     }
+
+    pub fn update_board(&self, board_id: &str, name: &str) -> Result<Board, DbError> {
+        self.with_conn_mut(|conn| {
+            let now = chrono::Utc::now();
+            
+            let affected = conn.execute(
+                "UPDATE boards SET name = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![name, now.to_rfc3339(), board_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Board {}", board_id)));
+            }
+            
+            let mut stmt = conn.prepare(
+                "SELECT id, name, default_project_id, created_at, updated_at FROM boards WHERE id = ?"
+            )?;
+            
+            let board = stmt.query_row([board_id], |row| {
+                Ok(Board {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    default_project_id: row.get(2)?,
+                    created_at: parse_datetime(row.get(3)?),
+                    updated_at: parse_datetime(row.get(4)?),
+                })
+            })?;
+            
+            Ok(board)
+        })
+    }
+
+    pub fn delete_board(&self, board_id: &str) -> Result<(), DbError> {
+        self.with_conn_mut(|conn| {
+            let tx = conn.transaction()?;
+            
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM boards WHERE id = ?)",
+                [board_id],
+                |row| row.get(0),
+            )?;
+            
+            if !exists {
+                return Err(DbError::NotFound(format!("Board {}", board_id)));
+            }
+            
+            tx.execute("DELETE FROM tickets WHERE board_id = ?", [board_id])?;
+            tx.execute("DELETE FROM columns WHERE board_id = ?", [board_id])?;
+            tx.execute("DELETE FROM boards WHERE id = ?", [board_id])?;
+            tx.commit()?;
+            
+            Ok(())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -128,5 +182,56 @@ mod tests {
         
         let not_found = db.get_board("nonexistent").unwrap();
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn update_board_name() {
+        let db = create_test_db();
+        let board = db.create_board("Original Name").unwrap();
+        
+        let updated = db.update_board(&board.id, "New Name").unwrap();
+        assert_eq!(updated.name, "New Name");
+        assert_eq!(updated.id, board.id);
+        
+        // Verify persistence
+        let fetched = db.get_board(&board.id).unwrap().unwrap();
+        assert_eq!(fetched.name, "New Name");
+    }
+
+    #[test]
+    fn update_nonexistent_board_fails() {
+        let db = create_test_db();
+        
+        let result = db.update_board("nonexistent", "New Name");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn delete_board_removes_board_and_columns() {
+        let db = create_test_db();
+        let board = db.create_board("To Delete").unwrap();
+        
+        // Verify columns exist
+        let columns = db.get_columns(&board.id).unwrap();
+        assert_eq!(columns.len(), 6);
+        
+        // Delete the board
+        db.delete_board(&board.id).unwrap();
+        
+        // Verify board is gone
+        let found = db.get_board(&board.id).unwrap();
+        assert!(found.is_none());
+        
+        // Verify columns are gone
+        let columns = db.get_columns(&board.id).unwrap();
+        assert_eq!(columns.len(), 0);
+    }
+
+    #[test]
+    fn delete_nonexistent_board_fails() {
+        let db = create_test_db();
+        
+        let result = db.delete_board("nonexistent");
+        assert!(result.is_err());
     }
 }

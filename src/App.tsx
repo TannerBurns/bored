@@ -4,34 +4,47 @@ import { Header } from './components/layout/Header';
 import { Board } from './components/board/Board';
 import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
+import { CreateBoardModal } from './components/board/CreateBoardModal';
+import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { WorkerPanel } from './components/workers';
-import { ProjectsList, CursorSettings, ClaudeSettings, AppearanceSettings, DataSettings } from './components/settings';
+import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from './components/settings';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { useBoardSync } from './hooks/useBoardSync';
 import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
-import type { Column, Ticket, Project, Board as BoardType } from './types';
-import { getColumns, createBoard } from './lib/tauri';
+import type { Ticket, Project, Board as BoardType } from './types';
+import { getColumns } from './lib/tauri';
 import './index.css';
 
 const navItems = [
   { id: 'boards', label: 'Boards' },
-  { id: 'runs', label: 'Agent Runs' },
+  { id: 'runs', label: 'Agents' },
   { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
 ];
 
 function App() {
   const [activeNav, setActiveNav] = useState('boards');
-  const [boards, setBoards] = useState<BoardType[]>([]);
-  const [columns, setColumns] = useState<Column[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [settingsTab, setSettingsTab] = useState<'appearance' | 'projects' | 'cursor' | 'claude' | 'data'>('appearance');
-  
+  const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
+  const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
+  const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
+  const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
+
   const { theme } = useSettingsStore();
+  const {
+    boards,
+    currentBoard,
+    columns,
+    tickets,
+    setColumns,
+    setTickets,
+    handleBoardSelect,
+    handleDeleteBoard,
+  } = useBoardSync();
 
   // Apply theme to root element
   useEffect(() => {
@@ -56,6 +69,8 @@ function App() {
     }
   }, [theme]);
 
+  const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
+
   // Load data from backend
   useEffect(() => {
     const loadData = async () => {
@@ -74,15 +89,15 @@ function App() {
             getBoards(),
           ]);
           setProjects(projectsData);
-          setBoards(boardsData);
+          storeSetBoards(boardsData);
           
           if (boardsData.length > 0) {
-            // Set current board in store so createTicket works
-            setCurrentBoard(boardsData[0]);
+            const firstBoard = boardsData[0];
+            storeSetCurrentBoard(firstBoard);
             
             const [columnsData, ticketsData] = await Promise.all([
-              getColumns(boardsData[0].id),
-              getTickets(boardsData[0].id),
+              getColumns(firstBoard.id),
+              getTickets(firstBoard.id),
             ]);
             setColumns(columnsData);
             setTickets(ticketsData);
@@ -96,7 +111,7 @@ function App() {
     };
     
     loadData();
-  }, []);
+  }, [storeSetBoards, storeSetCurrentBoard]);
 
   const {
     isTicketModalOpen,
@@ -111,7 +126,6 @@ function App() {
     createTicket: storeCreateTicket,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
-    setCurrentBoard,
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
@@ -147,22 +161,9 @@ function App() {
     return ticket;
   };
   
-  const handleCreateBoard = async () => {
-    if (!isTauri()) return;
-    
-    try {
-      const board = await createBoard('My Board');
-      setBoards((prev) => [...prev, board]);
-      
-      // Set as current board so createTicket works
-      setCurrentBoard(board);
-      
-      // Load the columns for the new board
-      const columnsData = await getColumns(board.id);
-      setColumns(columnsData);
-    } catch (error) {
-      console.error('Failed to create board:', error);
-    }
+  const handleRenameBoard = (board: BoardType) => {
+    setBoardToRename(board);
+    setRenameBoardModalOpen(true);
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
@@ -206,12 +207,18 @@ function App() {
         navItems={navItems}
         activeItem={activeNav}
         onItemClick={setActiveNav}
+        boards={boards}
+        currentBoard={currentBoard}
+        onBoardSelect={handleBoardSelect}
+        onCreateBoard={() => setIsCreateBoardModalOpen(true)}
+        onRenameBoard={handleRenameBoard}
+        onDeleteBoard={handleDeleteBoard}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <Header
-          title="Agent Kanban"
-          subtitle="Manage your coding tasks and let AI agents do the work."
+          title={activeNav === 'boards' && currentBoard ? currentBoard.name : 'Agent Kanban'}
+          subtitle={activeNav === 'boards' && currentBoard ? 'Manage your coding tasks and let AI agents do the work.' : undefined}
           action={
             activeNav === 'boards' && boards.length > 0 ? (
               <button
@@ -266,7 +273,7 @@ function App() {
                     Create your first board to start managing tickets with AI agents.
                   </p>
                   <button
-                    onClick={handleCreateBoard}
+                    onClick={() => setIsCreateBoardModalOpen(true)}
                     className="px-6 py-3 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors font-medium shadow-sm"
                   >
                     Create Your First Board
@@ -286,7 +293,7 @@ function App() {
 
         {activeNav === 'runs' && (
           <div className="bg-board-column rounded-xl p-6 border border-board-border">
-            <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
+            <h3 className="text-lg font-semibold mb-4 text-board-text">Agents</h3>
             <p className="text-board-text-secondary">
               Agent runs will be displayed here. Start a run from a ticket to see activity.
             </p>
@@ -328,14 +335,14 @@ function App() {
             {/* Settings Tabs */}
             <div className="flex border-b border-board-border mb-4">
               <button
-                onClick={() => setSettingsTab('appearance')}
+                onClick={() => setSettingsTab('general')}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'appearance'
+                  settingsTab === 'general'
                     ? 'border-b-2 border-board-accent text-board-accent'
                     : 'text-board-text-muted hover:text-board-text'
                 }`}
               >
-                Appearance
+                General
               </button>
               <button
                 onClick={() => setSettingsTab('projects')}
@@ -381,7 +388,7 @@ function App() {
             
             {/* Settings Content */}
             <div className="flex-1 overflow-auto bg-board-column rounded-xl p-6 border border-board-border">
-              {settingsTab === 'appearance' && <AppearanceSettings />}
+              {settingsTab === 'general' && <GeneralSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}
               {settingsTab === 'claude' && <ClaudeSettings />}
@@ -411,6 +418,17 @@ function App() {
           onCreate={handleCreateTicket}
         />
       )}
+
+      <CreateBoardModal
+        open={isCreateBoardModalOpen}
+        onOpenChange={setIsCreateBoardModalOpen}
+      />
+
+      <RenameBoardModal
+        open={renameBoardModalOpen}
+        onOpenChange={setRenameBoardModalOpen}
+        board={boardToRename}
+      />
     </div>
   );
 }

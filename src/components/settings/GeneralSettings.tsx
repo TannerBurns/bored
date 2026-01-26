@@ -33,18 +33,70 @@ const themeOptions = [
   { value: 'system', label: 'System', description: 'Match your OS', Icon: MonitorIcon },
 ] as const;
 
-export function AppearanceSettings() {
-  const { theme, setTheme } = useSettingsStore();
+const agentOptions = [
+  { value: 'any', label: 'Any', description: 'No preference - use any available agent' },
+  { value: 'cursor', label: 'Cursor', description: 'Prefer Cursor agent' },
+  { value: 'claude', label: 'Claude', description: 'Prefer Claude Code agent' },
+] as const;
+
+export function GeneralSettings() {
+  const { theme, setTheme, defaultAgentPref, setDefaultAgentPref } = useSettingsStore();
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-board-text">Appearance</h2>
+        <h2 className="text-xl font-semibold text-board-text">General</h2>
         <p className="text-sm text-board-text-muted mt-1">
-          Customize how the application looks and feels.
+          Configure general application settings.
         </p>
       </div>
 
+      {/* Default Agent Preference Section */}
+      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+        <div>
+          <h3 className="font-medium text-board-text">Default Agent Preference</h3>
+          <p className="text-sm text-board-text-muted mt-0.5">
+            Set the default agent preference for new tickets.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          {agentOptions.map((option) => {
+            const isSelected = defaultAgentPref === option.value;
+            return (
+              <button
+                key={option.value}
+                onClick={() => setDefaultAgentPref(option.value)}
+                className={`group relative flex flex-col items-center gap-3 p-5 rounded-xl border-2 transition-all duration-200 ${
+                  isSelected
+                    ? 'border-board-accent bg-board-accent-subtle shadow-sm'
+                    : 'border-board-border hover:border-board-text-muted bg-board-surface-raised hover:bg-board-card-hover'
+                }`}
+              >
+                <div className="text-center">
+                  <span className={`block text-sm font-medium ${
+                    isSelected ? 'text-board-accent' : 'text-board-text'
+                  }`}>
+                    {option.label}
+                  </span>
+                  <span className="block text-xs text-board-text-muted mt-0.5">
+                    {option.description}
+                  </span>
+                </div>
+                {isSelected && (
+                  <div className="absolute top-2 right-2">
+                    <svg className="w-5 h-5 text-board-accent" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Theme Section */}
       <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
         <div>
           <h3 className="font-medium text-board-text">Theme</h3>

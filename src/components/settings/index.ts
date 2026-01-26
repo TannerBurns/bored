@@ -3,5 +3,5 @@ export { BoardProjectSelector } from './BoardProjectSelector';
 export { TicketProjectSelector } from './TicketProjectSelector';
 export { CursorSettings } from './CursorSettings';
 export { ClaudeSettings } from './ClaudeSettings';
-export { AppearanceSettings } from './AppearanceSettings';
+export { GeneralSettings } from './GeneralSettings';
 export { DataSettings } from './DataSettings';
