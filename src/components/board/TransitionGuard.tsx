@@ -1,31 +1,5 @@
 import type { Column, Ticket } from '../../types';
 
-type TicketState = 'Backlog' | 'Ready' | 'In Progress' | 'Blocked' | 'Review' | 'Done';
-
-const ALLOWED_TRANSITIONS: Record<TicketState, TicketState[]> = {
-  'Backlog': ['Backlog', 'Ready'],
-  'Ready': ['Ready', 'Backlog', 'In Progress'],
-  'In Progress': ['In Progress', 'Ready', 'Blocked', 'Review'],
-  'Blocked': ['Blocked', 'Ready', 'Backlog', 'In Progress', 'Review'],
-  'Review': ['Review', 'Done', 'Blocked', 'Ready', 'In Progress'],
-  'Done': ['Done', 'Review', 'Backlog'],
-};
-
-function normalizeColumnName(name: string): TicketState | null {
-  const normalized = name.toLowerCase();
-  switch (normalized) {
-    case 'backlog': return 'Backlog';
-    case 'ready': return 'Ready';
-    case 'in progress':
-    case 'in_progress':
-    case 'inprogress': return 'In Progress';
-    case 'blocked': return 'Blocked';
-    case 'review': return 'Review';
-    case 'done': return 'Done';
-    default: return null;
-  }
-}
-
 export interface TransitionValidation {
   valid: boolean;
   reason?: string;
@@ -43,31 +17,25 @@ export function validateTransition(
     return { valid: false, reason: 'Column not found' };
   }
 
-  const currentState = normalizeColumnName(currentColumn.name);
-  const targetState = normalizeColumnName(targetColumn.name);
-
-  if (!currentState || !targetState) {
+  // Same column is always allowed
+  if (currentColumn.id === targetColumn.id) {
     return { valid: true };
   }
 
-  if (currentState === targetState) {
-    return { valid: true };
-  }
-
+  // Check if ticket is locked by an active agent run
   const isLocked = ticket.lockedByRunId && 
     ticket.lockExpiresAt && 
     new Date(ticket.lockExpiresAt) > new Date();
   
-  if (isLocked && currentState === 'In Progress') {
+  const currentName = currentColumn.name.toLowerCase();
+  const isInProgress = currentName === 'in progress' || currentName === 'in_progress' || currentName === 'inprogress';
+  
+  if (isLocked && isInProgress) {
     return { valid: false, reason: 'Ticket is locked by an active agent run' };
   }
 
-  const allowed = ALLOWED_TRANSITIONS[currentState] || [];
-  if (allowed.includes(targetState)) {
-    return { valid: true };
-  }
-
-  return { valid: false, reason: `Cannot move from ${currentState} to ${targetState}` };
+  // All transitions are allowed
+  return { valid: true };
 }
 
 interface TransitionErrorToastProps {
