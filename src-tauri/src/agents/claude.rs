@@ -18,10 +18,21 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Map normalized model name to Claude Code format
+/// e.g., "opus-4.5" -> "claude-opus-4-5"
+fn map_model_for_claude(model: &str) -> String {
+    match model {
+        "opus-4.5" => "claude-opus-4-5".to_string(),
+        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+        "sonnet-4" => "claude-sonnet-4".to_string(),
+        "haiku-4.5" => "claude-haiku-4-5".to_string(),
+        other => other.to_string(),
+    }
+}
+
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
     let mut args = vec![
-        "-p".to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
@@ -30,9 +41,10 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
-        args.push(model.clone());
+        args.push(map_model_for_claude(model));
     }
     
+    args.push("-p".to_string());
     args.push(config.prompt.clone());
     
     (command, args)
@@ -570,14 +582,46 @@ mod tests {
     }
 
     #[test]
+    fn build_command_prompt_immediately_follows_p_flag() {
+        // The -p flag must be immediately followed by the prompt value,
+        // otherwise -p will consume the next flag (like --output-format) as its argument
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        
+        let p_index = args.iter().position(|a| a == "-p").expect("-p flag must be present");
+        let prompt_index = args.iter().position(|a| a == "Test prompt").expect("prompt must be present");
+        
+        assert_eq!(prompt_index, p_index + 1, "-p must be immediately followed by the prompt");
+    }
+
+    #[test]
     fn build_command_includes_model_when_specified() {
         let mut config = create_test_config();
-        config.model = Some("claude-opus-4-5".to_string());
+        config.model = Some("opus-4.5".to_string());
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--model".to_string()));
+        // Model should be mapped to Claude format
         assert!(args.contains(&"claude-opus-4-5".to_string()));
-        // Ensure prompt is still last
         assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_maps_model_names_correctly() {
+        let test_cases = [
+            ("opus-4.5", "claude-opus-4-5"),
+            ("sonnet-4.5", "claude-sonnet-4-5"),
+            ("sonnet-4", "claude-sonnet-4"),
+            ("haiku-4.5", "claude-haiku-4-5"),
+            ("unknown-model", "unknown-model"), // Pass through unknown
+        ];
+        
+        for (input, expected) in test_cases {
+            let mut config = create_test_config();
+            config.model = Some(input.to_string());
+            let (_, args) = build_command(&config);
+            assert!(args.contains(&expected.to_string()), 
+                "Expected {} to be mapped to {}", input, expected);
+        }
     }
 
     #[test]

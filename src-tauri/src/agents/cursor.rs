@@ -468,10 +468,11 @@ mod tests {
     #[test]
     fn build_command_includes_model_when_specified() {
         let mut config = create_test_config();
-        config.model = Some("claude-sonnet-4-5".to_string());
+        config.model = Some("sonnet-4.5".to_string());
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--model".to_string()));
-        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
+        // Cursor uses the normalized format directly
+        assert!(args.contains(&"sonnet-4.5".to_string()));
     }
 
     #[test]
