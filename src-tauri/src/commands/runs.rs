@@ -153,10 +153,14 @@ pub async fn start_agent_run(
     tracing::info!("=== START_AGENT_RUN CALLED ===");
     tracing::info!("Agent type: {}, Ticket ID: {}, Repo path: {}", agent_type, ticket_id, repo_path);
 
-    let (db_agent_type, agent_kind) = match agent_type.as_str() {
-        "cursor" => (AgentType::Cursor, AgentKind::Cursor),
-        "claude" => (AgentType::Claude, AgentKind::Claude),
+    let agent_kind = match agent_type.as_str() {
+        "cursor" => AgentKind::Cursor,
+        "claude" => AgentKind::Claude,
         _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+    let db_agent_type = match agent_kind {
+        AgentKind::Cursor => AgentType::Cursor,
+        AgentKind::Claude => AgentType::Claude,
     };
 
     let ticket = db
@@ -283,6 +287,7 @@ pub async fn start_agent_run(
     let run_id_for_cleanup = run_id.clone();
     let ticket_id_for_task = ticket_id.clone();
     let agent_kind_for_task = agent_kind;
+    let db_agent_type_for_task = db_agent_type;
     let window_clone = window.clone();
     
     // Store original repo path for worktree cleanup
@@ -429,6 +434,7 @@ pub async fn start_agent_run(
         let run_id_for_logs = run_id_for_task.clone();
         let ticket_id_for_logs = ticket_id_for_task.clone();
         let db_for_logs = db_clone.clone();
+        let agent_type_for_logs = db_agent_type_for_task;
         // Track if we've already commented a branch (to avoid duplicates)
         let branch_commented = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let branch_commented_clone = branch_commented.clone();
@@ -498,7 +504,7 @@ pub async fn start_agent_run(
             let normalized_event = NormalizedEvent {
                 run_id: run_id_for_logs.clone(),
                 ticket_id: ticket_id_for_logs.clone(),
-                agent_type: AgentType::Claude, // TODO: pass actual agent type
+                agent_type: agent_type_for_logs,
                 event_type: EventType::Custom(format!("log_{}", stream_name)),
                 payload: AgentEventPayload {
                     raw: Some(log.content.clone()),

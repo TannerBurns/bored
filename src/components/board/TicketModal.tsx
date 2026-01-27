@@ -631,7 +631,7 @@ export function TicketModal({
                 <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
               </select>
               <p className="mt-1 text-xs text-board-text-muted">
-                Model selection applies to Claude Code only
+                Select AI model for agent runs
               </p>
             </div>
           ) : ticket.model ? (

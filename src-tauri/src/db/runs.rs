@@ -66,7 +66,7 @@ impl Database {
             Ok(AgentRun {
                 id: run_id,
                 ticket_id: run.ticket_id.clone(),
-                agent_type: run.agent_type.clone(),
+                agent_type: run.agent_type,
                 repo_path: run.repo_path.clone(),
                 status: RunStatus::Queued,
                 started_at: now,

@@ -4,19 +4,21 @@ use std::process::Command;
 
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
-    // Cursor CLI uses positional prompt argument, not -p <prompt> like Claude
-    // --print enables headless/scripting mode with console output
-    // --force allows tool execution without interactive approval
-    // --approve-mcps auto-approves MCP servers in headless mode
-    let args = vec![
+    let mut args = vec![
         "agent".to_string(),
         "--print".to_string(),
         "--force".to_string(),
         "--approve-mcps".to_string(),
         "--output-format".to_string(),
         "text".to_string(),
-        config.prompt.clone(), // Prompt is a positional argument at the end
     ];
+
+    if let Some(ref model) = config.model {
+        args.push("--model".to_string());
+        args.push(model.clone());
+    }
+
+    args.push(config.prompt.clone());
     (command, args)
 }
 
@@ -461,6 +463,22 @@ mod tests {
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--output-format".to_string()));
         assert!(args.contains(&"text".to_string()));
+    }
+
+    #[test]
+    fn build_command_includes_model_when_specified() {
+        let mut config = create_test_config();
+        config.model = Some("claude-sonnet-4-5".to_string());
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
+    }
+
+    #[test]
+    fn build_command_omits_model_when_none() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(!args.contains(&"--model".to_string()));
     }
 
     #[test]

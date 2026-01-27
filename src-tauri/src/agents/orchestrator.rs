@@ -395,7 +395,7 @@ impl WorkflowOrchestrator {
             let normalized_event = NormalizedEvent {
                 run_id: parent_run_id_for_logs.clone(),
                 ticket_id: ticket_id_for_logs.clone(),
-                agent_type: db_agent_type.clone(),
+                agent_type: db_agent_type,
                 event_type: EventType::Custom(format!("log_{}", stream_name)),
                 payload: AgentEventPayload {
                     raw: Some(log.content.clone()),

@@ -248,7 +248,7 @@ pub async fn reserve_ticket(
 
     let run = state.db.create_run(&CreateRun {
         ticket_id: ticket_id.clone(),
-        agent_type: req.agent_type.clone(),
+        agent_type: req.agent_type,
         repo_path,
         parent_run_id: None,
         stage: None,
@@ -295,7 +295,7 @@ pub async fn create_run(
 
     let run = state.db.create_run(&CreateRun {
         ticket_id: req.ticket_id.clone(),
-        agent_type: req.agent_type.clone(),
+        agent_type: req.agent_type,
         repo_path: req.repo_path,
         parent_run_id: None,
         stage: None,
@@ -453,7 +453,7 @@ pub async fn create_event(
     let normalized = NormalizedEvent {
         run_id: run_id.clone(),
         ticket_id: run.ticket_id.clone(),
-        agent_type: run.agent_type.clone(),
+        agent_type: run.agent_type,
         event_type: EventType::parse(&req.event_type),
         payload: AgentEventPayload {
             raw: None,
@@ -583,7 +583,7 @@ pub async fn queue_next(
 
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: req.agent_type.clone(),
+                agent_type: req.agent_type,
                 repo_path,
                 parent_run_id: None,
                 stage: None,
