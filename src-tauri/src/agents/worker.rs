@@ -1,14 +1,18 @@
 //! Worker module for continuous, automated ticket processing.
+//!
+//! Workers are automated agents that poll for tickets in the "Ready" column
+//! and process them using the same execution path as manual runs.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{interval, sleep};
+use tokio::time::sleep;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use tauri::AppHandle;
 
-use super::{AgentKind, AgentRunConfig, RunOutcome};
-use super::spawner::{self, CancelHandle};
+use super::AgentKind;
+use super::runner::{self, RunnerConfig};
 use super::worktree::{self, WorktreeConfig};
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket};
 
@@ -22,6 +26,8 @@ pub struct WorkerConfig {
     pub heartbeat_interval_secs: u64,
     pub lock_duration_mins: i64,
     pub agent_timeout_secs: u64,
+    pub hook_script_path: Option<String>,
+    pub app_handle: Option<AppHandle>,
 }
 
 impl Default for WorkerConfig {
@@ -35,6 +41,8 @@ impl Default for WorkerConfig {
             heartbeat_interval_secs: 60,
             lock_duration_mins: 30,
             agent_timeout_secs: 3600, // 1 hour
+            hook_script_path: None,
+            app_handle: None,
         }
     }
 }
@@ -67,7 +75,7 @@ pub struct Worker {
     db: Arc<Database>,
     running: Arc<AtomicBool>,
     status: Arc<std::sync::Mutex<WorkerStatus>>,
-    cancel_handle: Arc<std::sync::Mutex<Option<CancelHandle>>>,
+    cancel_handles: runner::CancelHandlesMap,
 }
 
 impl Worker {
@@ -90,7 +98,7 @@ impl Worker {
             db,
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(std::sync::Mutex::new(status)),
-            cancel_handle: Arc::new(std::sync::Mutex::new(None)),
+            cancel_handles: runner::create_cancel_handles(),
         }
     }
 
@@ -106,8 +114,10 @@ impl Worker {
         tracing::info!("Stopping worker {}", self.id);
         self.running.store(false, Ordering::Relaxed);
 
-        // Cancel any running agent
-        if let Some(handle) = self.cancel_handle.lock().expect("cancel mutex poisoned").take() {
+        // Cancel any running agent by cancelling all handles
+        let handles = self.cancel_handles.lock().expect("cancel mutex poisoned");
+        for (run_id, handle) in handles.iter() {
+            tracing::info!("Cancelling run {} for worker {}", run_id, self.id);
             handle.cancel();
         }
 
@@ -154,6 +164,7 @@ impl Worker {
         let run_id = uuid::Uuid::new_v4().to_string();
         let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(self.config.lock_duration_mins);
 
+        // Try to reserve the next available ticket
         let Some(ticket) = self.db.reserve_next_ticket(
             self.config.project_id.as_deref(),
             self.config.agent_type,
@@ -165,6 +176,7 @@ impl Worker {
 
         tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
 
+        // Get the repo path for this ticket
         let repo_path = match self.get_repo_path(&ticket) {
             Ok(path) => path,
             Err(e) => {
@@ -173,10 +185,6 @@ impl Worker {
             }
         };
 
-        let project_id = ticket.project_id.as_ref()
-            .or(self.config.project_id.as_ref())
-            .cloned();
-        
         // Create a worktree for isolated execution
         let branch_name = worktree::generate_branch_name(&ticket.id, &ticket.title);
         let worktree_config = WorktreeConfig {
@@ -207,22 +215,22 @@ impl Worker {
         // Use worktree path if available
         let working_path = worktree_info
             .as_ref()
-            .map(|w| w.path.to_string_lossy().to_string())
-            .unwrap_or_else(|| repo_path.clone());
+            .map(|w| w.path.clone())
+            .unwrap_or_else(|| std::path::PathBuf::from(&repo_path));
 
+        // Create the run in the database
         let run = match self.db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: match self.config.agent_type {
                 AgentKind::Cursor => AgentType::Cursor,
                 AgentKind::Claude => AgentType::Claude,
             },
-            repo_path: working_path.clone(),  // Use worktree path
+            repo_path: working_path.to_string_lossy().to_string(),
             parent_run_id: None,
             stage: None,
         }) {
             Ok(run) => run,
             Err(e) => {
-                // Clean up: unlock ticket and remove worktree
                 let _ = self.db.unlock_ticket(&ticket.id);
                 if let Some(ref wt) = worktree_info {
                     let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
@@ -231,9 +239,8 @@ impl Worker {
             }
         };
 
-        // Re-lock with actual run ID (atomic reservation used temporary ID)
+        // Re-lock with actual run ID
         if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
-            // Clean up: mark run as error, unlock ticket, remove worktree
             let _ = self.db.update_run_status(
                 &run.id,
                 RunStatus::Error,
@@ -247,14 +254,7 @@ impl Worker {
             return Err(e.into());
         }
 
-        if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
-            if let Some(in_progress) = columns.iter().find(|c| c.name == "In Progress") {
-                let _ = self.db.move_ticket(&ticket.id, &in_progress.id);
-            }
-        }
-
-        self.db.update_run_status(&run.id, RunStatus::Running, None, None)?;
-
+        // Update worker status
         {
             let mut status = self.status.lock().expect("status mutex poisoned");
             status.status = WorkerState::Running;
@@ -262,70 +262,54 @@ impl Worker {
             status.current_run_id = Some(run.id.clone());
         }
 
-        let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id, project_id.as_deref());
+        // Start heartbeat to keep the lock alive
+        let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id);
+
+        // Execute the agent using the shared runner
+        // This gives us the exact same behavior as manual runs:
+        // - Multi-stage workflow with proper stage tracking
+        // - Real-time log streaming
+        // - Branch comments
+        // - Agent summary comments
+        // - Ticket movement
+        let runner_config = RunnerConfig {
+            db: self.db.clone(),
+            window: None, // Workers don't have a window
+            app_handle: self.config.app_handle.clone(), // Use app_handle for global event emission
+            ticket: ticket.clone(),
+            run_id: run.id.clone(),
+            repo_path: working_path.clone(),
+            agent_kind: self.config.agent_type,
+            api_url: self.config.api_url.clone(),
+            api_token: self.config.api_token.clone(),
+            hook_script_path: self.config.hook_script_path.clone(),
+            cancel_handles: self.cancel_handles.clone(),
+            worktree_branch: worktree_info.as_ref().map(|w| w.branch_name.clone()),
+            timeout_secs: self.config.agent_timeout_secs,
+        };
+
+        let result = runner::execute_agent_run(runner_config).await;
         
-        // Determine if this project requires git for workflow instructions
-        let requires_git = project_id
-            .as_ref()
-            .and_then(|pid| self.db.get_project(pid).ok().flatten())
-            .map(|p| p.requires_git)
-            .unwrap_or(true);
-        
-        let prompt = super::prompt::generate_ticket_prompt_full(&ticket, Some(self.config.agent_type), requires_git);
-        let result = self.run_agent(&run.id, &working_path, &prompt, ticket.model.as_deref()).await;
+        // Stop heartbeat
         heartbeat_handle.abort();
 
-        match result {
-            Ok(agent_result) => {
-                let status = match agent_result.status {
-                    RunOutcome::Success => RunStatus::Finished,
-                    RunOutcome::Error => RunStatus::Error,
-                    RunOutcome::Timeout => RunStatus::Error,
-                    RunOutcome::Cancelled => RunStatus::Aborted,
-                };
-
-                self.db.update_run_status(
-                    &run.id,
-                    status.clone(),
-                    agent_result.exit_code,
-                    agent_result.summary.as_deref(),
-                )?;
-
-                if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
-                    let target_column = match status {
-                        RunStatus::Finished => columns.iter().find(|c| c.name == "Review"),
-                        RunStatus::Error | RunStatus::Aborted => {
-                            columns.iter().find(|c| c.name == "Blocked")
-                        }
-                        _ => None,
-                    };
-
-                    if let Some(col) = target_column {
-                        let _ = self.db.move_ticket(&ticket.id, &col.id);
-                    }
-                }
+        // Log result
+        match &result {
+            Ok(r) => {
+                tracing::info!(
+                    "Worker {} completed run {} with status {:?} in {:.1}s",
+                    self.id, run.id, r.status, r.duration_secs
+                );
             }
             Err(e) => {
-                self.db.update_run_status(
-                    &run.id,
-                    RunStatus::Error,
-                    None,
-                    Some(&format!("Error: {}", e)),
-                )?;
-
-                if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
-                    if let Some(blocked) = columns.iter().find(|c| c.name == "Blocked") {
-                        let _ = self.db.move_ticket(&ticket.id, &blocked.id);
-                    }
-                }
-
                 tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
             }
         }
 
+        // Unlock the ticket
         self.db.unlock_ticket(&ticket.id)?;
         
-        // Clean up worktree if we created one
+        // Clean up worktree
         if let Some(ref wt) = worktree_info {
             if let Err(e) = worktree::remove_worktree(&wt.path, &wt.repo_path) {
                 tracing::warn!("Failed to remove worktree {}: {}", wt.path.display(), e);
@@ -334,6 +318,7 @@ impl Worker {
             }
         }
 
+        // Update worker status
         {
             let mut status = self.status.lock().expect("status mutex poisoned");
             status.status = WorkerState::Idle;
@@ -341,8 +326,6 @@ impl Worker {
             status.current_run_id = None;
             status.tickets_processed += 1;
         }
-
-        *self.cancel_handle.lock().expect("cancel mutex poisoned") = None;
 
         Ok(true)
     }
@@ -363,7 +346,7 @@ impl Worker {
         Err("No project configured for ticket".into())
     }
 
-    fn start_heartbeat(&self, ticket_id: &str, run_id: &str, _project_id: Option<&str>) -> tokio::task::JoinHandle<()> {
+    fn start_heartbeat(&self, ticket_id: &str, run_id: &str) -> tokio::task::JoinHandle<()> {
         let db = self.db.clone();
         let ticket_id = ticket_id.to_string();
         let run_id = run_id.to_string();
@@ -372,52 +355,19 @@ impl Worker {
         let running = self.running.clone();
 
         tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_secs(interval_secs));
+            let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
 
             while running.load(Ordering::Relaxed) {
                 ticker.tick().await;
 
                 let new_expires = chrono::Utc::now() + chrono::Duration::minutes(lock_mins);
 
-                // Extend ticket lock (no repo lock needed with worktrees)
                 if let Err(e) = db.extend_lock(&ticket_id, &run_id, new_expires) {
                     tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
                     break;
                 }
             }
         })
-    }
-
-    async fn run_agent(
-        &self,
-        run_id: &str,
-        repo_path: &str,
-        prompt: &str,
-        model: Option<&str>,
-    ) -> Result<super::AgentRunResult, Box<dyn std::error::Error + Send + Sync>> {
-        let config = AgentRunConfig {
-            kind: self.config.agent_type,
-            ticket_id: String::new(),
-            run_id: run_id.to_string(),
-            repo_path: std::path::PathBuf::from(repo_path),
-            prompt: prompt.to_string(),
-            timeout_secs: Some(self.config.agent_timeout_secs),
-            api_url: self.config.api_url.clone(),
-            api_token: self.config.api_token.clone(),
-            model: model.map(String::from),
-        };
-
-        let cancel_handle_storage = self.cancel_handle.clone();
-        let on_spawn: spawner::OnSpawnCallback = Box::new(move |handle| {
-            *cancel_handle_storage.lock().expect("cancel mutex poisoned") = Some(handle);
-        });
-
-        let result = tokio::task::spawn_blocking(move || {
-            spawner::run_agent_with_cancel_callback(config, None, Some(on_spawn))
-        })
-        .await??;
-
-        Ok(result)
     }
 }
 
@@ -450,12 +400,19 @@ impl WorkerManager {
     }
 
     pub fn stop_worker(&self, worker_id: &str) -> bool {
-        let workers = self.workers.lock().expect("workers mutex poisoned");
-        for worker in workers.iter() {
-            if worker.id == worker_id {
-                worker.stop();
-                return true;
+        let mut workers = self.workers.lock().expect("workers mutex poisoned");
+        let mut handles = self.handles.lock().expect("handles mutex poisoned");
+        
+        let index = workers.iter().position(|w| w.id == worker_id);
+        
+        if let Some(idx) = index {
+            workers[idx].stop();
+            workers.remove(idx);
+            if idx < handles.len() {
+                let handle = handles.remove(idx);
+                handle.abort();
             }
+            return true;
         }
         false
     }
@@ -616,6 +573,8 @@ mod tests {
             heartbeat_interval_secs: 120,
             lock_duration_mins: 60,
             agent_timeout_secs: 7200,
+            hook_script_path: Some("/path/to/hook.js".to_string()),
+            app_handle: None,
         };
 
         assert_eq!(config.poll_interval_secs, 30);

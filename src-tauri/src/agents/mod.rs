@@ -6,6 +6,7 @@ pub mod worker;
 pub mod validation;
 pub mod orchestrator;
 pub mod worktree;
+pub mod runner;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getProjects } from '../../lib/tauri';
-import type { Column, Ticket, CreateTicketInput, Project, WorkflowType } from '../../types';
+import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 
 interface CreateTicketModalProps {
   columns: Column[];
@@ -26,7 +26,6 @@ export function CreateTicketModal({
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
   const [projectId, setProjectId] = useState('');
   const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>(defaultAgentPref);
-  const [workflowType, setWorkflowType] = useState<WorkflowType>('basic');
   const [model, setModel] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +77,7 @@ export function CreateTicketModal({
         columnId,
         projectId: projectId || undefined,
         agentPref,
-        workflowType,
+        workflowType: 'multi_stage',
         model: model || undefined,
       });
       
@@ -228,48 +227,26 @@ export function CreateTicketModal({
               </div>
             </div>
 
-            {/* Agent preference and Workflow Type row */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="agentPref"
-                  className="block text-sm font-medium text-board-text-secondary mb-1.5"
-                >
-                  Agent Preference
-                </label>
-                <select
-                  id="agentPref"
-                  value={agentPref}
-                  onChange={(e) =>
-                    setAgentPref(e.target.value as 'cursor' | 'claude' | 'any')
-                  }
-                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-                >
-                  <option value="any">Any Agent</option>
-                  <option value="cursor">Cursor</option>
-                  <option value="claude">Claude Code</option>
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="workflowType"
-                  className="block text-sm font-medium text-board-text-secondary mb-1.5"
-                >
-                  Workflow Type
-                </label>
-                <select
-                  id="workflowType"
-                  value={workflowType}
-                  onChange={(e) =>
-                    setWorkflowType(e.target.value as WorkflowType)
-                  }
-                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-                >
-                  <option value="basic">Basic (Single-shot)</option>
-                  <option value="multi_stage">Multi-Stage (Orchestrated)</option>
-                </select>
-              </div>
+            {/* Agent preference */}
+            <div>
+              <label
+                htmlFor="agentPref"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
+              >
+                Agent Preference
+              </label>
+              <select
+                id="agentPref"
+                value={agentPref}
+                onChange={(e) =>
+                  setAgentPref(e.target.value as 'cursor' | 'claude' | 'any')
+                }
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              >
+                <option value="any">Any Agent</option>
+                <option value="cursor">Cursor</option>
+                <option value="claude">Claude Code</option>
+              </select>
             </div>
 
             {/* Model Selection */}

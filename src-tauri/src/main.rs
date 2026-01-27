@@ -93,13 +93,33 @@ fn main() {
             app.manage(database.clone());
             app.manage(RunningAgents::new());
 
-            // Configure API server
-            let api_config = api::ApiConfig::default();
-            
-            // Write token and port for hook scripts to read
+            // Configure API server with persistent token
+            // Try to read existing token from file, or generate a new one
             let token_path = app_data_dir.join("api_token");
-            std::fs::write(&token_path, &api_config.token)
-                .expect("Failed to write API token");
+            let api_token = if token_path.exists() {
+                match std::fs::read_to_string(&token_path) {
+                    Ok(token) if !token.trim().is_empty() => {
+                        tracing::info!("Using existing API token from {}", token_path.display());
+                        token.trim().to_string()
+                    }
+                    _ => {
+                        tracing::info!("Generating new API token (existing file was empty or unreadable)");
+                        let token = api::generate_token();
+                        std::fs::write(&token_path, &token).expect("Failed to write API token");
+                        token
+                    }
+                }
+            } else {
+                tracing::info!("Generating new API token (no existing token found)");
+                let token = api::generate_token();
+                std::fs::write(&token_path, &token).expect("Failed to write API token");
+                token
+            };
+            
+            let api_config = api::ApiConfig {
+                token: api_token,
+                ..Default::default()
+            };
             
             let port_path = app_data_dir.join("api_port");
             std::fs::write(&port_path, api_config.port.to_string())

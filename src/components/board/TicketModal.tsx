@@ -5,12 +5,13 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { cn } from '../../lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../../lib/constants';
 import { getProjects } from '../../lib/tauri';
-import type { Project, AgentRun, WorkflowType } from '../../types';
+import type { Project, AgentRun } from '../../types';
 import type {
   AgentLogEvent,
   AgentCompleteEvent,
   AgentErrorEvent,
   TicketCommentAddedEvent,
+  AgentStageUpdateEvent,
   TicketModalProps,
 } from './TicketModal.types';
 
@@ -31,7 +32,6 @@ export function TicketModal({
   const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>(ticket.priority);
   const [editLabels, setEditLabels] = useState(ticket.labels.join(', '));
   const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
-  const [editWorkflowType, setEditWorkflowType] = useState<WorkflowType>(ticket.workflowType || 'basic');
   const [editAgentPref, setEditAgentPref] = useState<'cursor' | 'claude' | 'any'>(ticket.agentPref || 'any');
   const [editModel, setEditModel] = useState<string>(ticket.model || '');
   const [newComment, setNewComment] = useState('');
@@ -89,7 +89,6 @@ export function TicketModal({
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
-    setEditWorkflowType(ticket.workflowType || 'basic');
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
     setIsEditing(false);
@@ -190,6 +189,21 @@ export function TicketModal({
         return;
       }
       unlisteners.push(unlistenError);
+
+      // Listen for stage updates in multi-stage workflows - reload runs to update the Current Run section
+      const unlistenStage = await listen<AgentStageUpdateEvent>('agent-stage-update', (event) => {
+        if (isCancelled) return;
+        console.warn('🔄 [TicketModal] agent-stage-update received:', event.payload);
+        if (event.payload.parentRunId === runId) {
+          // Reload runs to update the stages in the Current Run section
+          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(setAgentRuns);
+        }
+      });
+      if (isCancelled) {
+        unlistenStage();
+        return;
+      }
+      unlisteners.push(unlistenStage);
       
       console.warn('🎧 [TicketModal] Event listeners set up for run:', runId);
     };
@@ -202,6 +216,118 @@ export function TicketModal({
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, [ticket.lockedByRunId, ticket.id, onAgentComplete]);
+
+  // Poll for run events and updates when there's an active run
+  // This is needed for worker mode where events aren't emitted to the frontend
+  useEffect(() => {
+    const runId = ticket.lockedByRunId;
+    if (!runId) return;
+
+    console.log('[TicketModal Polling] Starting polling for run:', runId);
+    let isCancelled = false;
+    let lastEventCount = 0;
+
+    // Helper to extract log stream from eventType
+    // EventType::Custom serializes as {custom: "log_stdout"} or {custom: "log_stderr"}
+    const getLogStream = (eventType: unknown): string | null => {
+      if (typeof eventType === 'object' && eventType !== null && 'custom' in eventType) {
+        const custom = (eventType as { custom: string }).custom;
+        if (custom.startsWith('log_')) {
+          return custom.replace('log_', '');
+        }
+      }
+      return null;
+    };
+
+    const pollRunData = async () => {
+      if (isCancelled) return;
+
+      try {
+        // Poll for run events (logs)
+        const events = await invoke<Array<{ id: string; eventType: unknown; payload: { raw?: string } | null; createdAt: string }>>('get_run_events', { runId });
+        
+        if (isCancelled) return;
+
+        // Convert events to log format and update if we have new ones
+        if (events.length > lastEventCount) {
+          console.log('[TicketModal Polling] New events:', events.length - lastEventCount, 'total:', events.length);
+          const newLogs = events
+            .map(e => {
+              const stream = getLogStream(e.eventType);
+              if (!stream) return null;
+              return {
+                stream,
+                content: e.payload?.raw || '',
+                timestamp: e.createdAt,
+              };
+            })
+            .filter((log): log is NonNullable<typeof log> => log !== null);
+          
+          setAgentLogs(newLogs);
+          lastEventCount = events.length;
+        }
+
+        // Poll for run updates (stages) - always update to catch stage changes
+        const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
+        if (isCancelled) return;
+
+        // Find sub-runs for the current run to track stage changes
+        const currentRun = runs.find(r => r.id === runId);
+        const subRuns = runs.filter(r => r.parentRunId === runId);
+        console.log('[TicketModal Polling] Runs fetched:', runs.length, 'subRuns:', subRuns.length, 'subRuns:', subRuns.map(r => `${r.stage}:${r.status}`));
+        
+        // Always update agentRuns to ensure UI reflects latest state
+        setAgentRuns(runs);
+
+        // Check if the run has completed
+        if (currentRun && currentRun.status !== 'running') {
+          console.log('[TicketModal Polling] Run completed:', currentRun.status);
+          setIsAgentRunning(false);
+          if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted') {
+            onAgentComplete?.(runId, currentRun.status);
+          }
+        }
+      } catch (error) {
+        console.error('[TicketModal Polling] Failed to poll run data:', error);
+      }
+    };
+
+    // Poll immediately, then every 1.5 seconds for responsive stage updates
+    pollRunData();
+    const interval = setInterval(pollRunData, 1500);
+
+    return () => {
+      console.log('[TicketModal Polling] Stopping polling for run:', runId);
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [ticket.lockedByRunId, ticket.id, onAgentComplete]);
+
+  // Poll for comments when there's an active run (for worker mode)
+  useEffect(() => {
+    const runId = ticket.lockedByRunId;
+    if (!runId) return;
+
+    let isCancelled = false;
+
+    const pollComments = async () => {
+      if (isCancelled) return;
+      try {
+        const { useBoardStore } = await import('../../stores/boardStore');
+        useBoardStore.getState().loadComments(ticket.id);
+      } catch (error) {
+        console.error('[TicketModal] Failed to poll comments:', error);
+      }
+    };
+
+    // Poll comments every 5 seconds
+    const interval = setInterval(pollComments, 5000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [ticket.lockedByRunId, ticket.id]);
 
   // Listen for backend-added comments (e.g., branch creation from multi-stage workflow)
   useEffect(() => {
@@ -332,7 +458,7 @@ export function TicketModal({
         priority: editPriority,
         labels,
         projectId: editProjectId, // Empty string means clear, non-empty means set
-        workflowType: editWorkflowType,
+        workflowType: 'multi_stage',
         agentPref: editAgentPref,
         model: editModel || undefined, // Empty string means use default
       });
@@ -359,7 +485,6 @@ export function TicketModal({
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
-    setEditWorkflowType(ticket.workflowType || 'basic');
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
   };
@@ -554,38 +679,6 @@ export function TicketModal({
             </div>
           ) : null}
 
-          {/* Workflow Type */}
-          {isEditing ? (
-            <div>
-              <h3 className="text-sm font-medium text-board-text-muted mb-2">Workflow Type</h3>
-              <select
-                value={editWorkflowType}
-                onChange={(e) => setEditWorkflowType(e.target.value as WorkflowType)}
-                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-              >
-                <option value="basic">Basic (Single-shot)</option>
-                <option value="multi_stage">Multi-Stage (Orchestrated)</option>
-              </select>
-              <p className="text-xs text-board-text-muted mt-1">
-                {editWorkflowType === 'multi_stage' 
-                  ? 'Orchestrated workflow: branch → plan → implement → QA sequence'
-                  : 'Single-shot: Claude handles everything in one run'}
-              </p>
-            </div>
-          ) : (
-            <div>
-              <h3 className="text-sm font-medium text-board-text-muted mb-1">Workflow</h3>
-              <span className={cn(
-                "text-sm px-2 py-1 rounded",
-                ticket.workflowType === 'multi_stage' 
-                  ? "text-board-accent bg-board-accent/10" 
-                  : "text-board-text-secondary bg-board-surface"
-              )}>
-                {ticket.workflowType === 'multi_stage' ? 'Multi-Stage (Orchestrated)' : 'Basic (Single-shot)'}
-              </span>
-            </div>
-          )}
-
           {/* Agent preference */}
           {isEditing ? (
             <div>
@@ -634,16 +727,16 @@ export function TicketModal({
                 Select AI model for agent runs
               </p>
             </div>
-          ) : ticket.model ? (
+          ) : (
             <div>
               <h3 className="text-sm font-medium text-board-text-muted mb-1">
                 AI Model
               </h3>
               <span className="text-sm text-board-text-secondary">
-                {ticket.model}
+                {ticket.model || 'Default (auto)'}
               </span>
             </div>
-          ) : null}
+          )}
 
           {/* Agent Status Section */}
           {(ticket.lockedByRunId || agentLogs.length > 0 || agentError) && (
@@ -673,6 +766,7 @@ export function TicketModal({
                       </button>
                     </div>
                   </div>
+                  
                   <p className="text-xs text-board-text-muted mt-1">
                     Run ID: {ticket.lockedByRunId}
                   </p>

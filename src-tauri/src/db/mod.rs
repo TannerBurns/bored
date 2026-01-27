@@ -143,6 +143,14 @@ impl Database {
                 );
             }
             
+            if current_version < 6 && current_version > 0 {
+                tracing::info!("Applying migration v6: convert basic workflow to multi_stage");
+                let _ = conn.execute(
+                    "UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic'",
+                    [],
+                );
+            }
+            
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

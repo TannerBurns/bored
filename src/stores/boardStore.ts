@@ -177,6 +177,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           labels: input.labels,
           projectId: input.projectId,
           agentPref: input.agentPref,
+          workflowType: input.workflowType,
+          model: input.model,
         },
       });
       set((state) => ({
@@ -195,7 +197,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       labels: input.labels,
       projectId: input.projectId,
       agentPref: input.agentPref,
-      workflowType: input.workflowType || 'basic',
+      workflowType: input.workflowType || 'multi_stage',
+      model: input.model,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

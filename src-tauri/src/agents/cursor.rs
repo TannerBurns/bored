@@ -11,6 +11,9 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--approve-mcps".to_string(),
         "--output-format".to_string(),
         "text".to_string(),
+        // Explicitly set workspace so Cursor finds .cursor/hooks.json
+        "--workspace".to_string(),
+        config.repo_path.to_string_lossy().to_string(),
     ];
 
     if let Some(ref model) = config.model {
@@ -46,6 +49,9 @@ pub fn build_command_with_settings(
         "--approve-mcps".to_string(),
         "--output-format".to_string(),
         "text".to_string(),
+        // Explicitly set workspace so Cursor finds .cursor/hooks.json
+        "--workspace".to_string(),
+        config.repo_path.to_string_lossy().to_string(),
     ];
 
     // Add extra flags before the prompt
@@ -85,24 +91,30 @@ pub fn generate_hooks_json_with_api(
 }
 
 pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value {
-    // Build environment variable prefix for shell command
-    // Cursor hooks format (version 1) requires command to be a shell-executable string
-    let mut env_prefix = String::new();
+    // Build environment variable exports for shell command
+    // NOTE: We do NOT export AGENT_KANBAN_API_TOKEN here - the hook script reads it
+    // from a persisted file at runtime. This avoids issues with Cursor caching
+    // stale tokens in hooks.json.
+    let mut env_exports = String::new();
     
     if let Some(url) = config.api_url {
-        env_prefix.push_str(&format!("AGENT_KANBAN_API_URL='{}' ", url));
+        env_exports.push_str(&format!("export AGENT_KANBAN_API_URL=\"{}\"; ", url));
     }
-    if let Some(token) = config.api_token {
-        env_prefix.push_str(&format!("AGENT_KANBAN_API_TOKEN='{}' ", token));
-    }
+    // API token is intentionally NOT set here - script reads from file
+    // This ensures hooks work even when Cursor caches old hooks.json
     if let Some(run_id) = config.run_id {
-        env_prefix.push_str(&format!("AGENT_KANBAN_RUN_ID='{}' ", run_id));
+        env_exports.push_str(&format!("export AGENT_KANBAN_RUN_ID=\"{}\"; ", run_id));
     }
     
-    // Create hook command with env vars and script path
-    // Format: ENV_VAR='value' /path/to/script.js eventName
+    // Create hook command wrapped in sh -c to ensure environment variables are set
+    // Cursor executes commands directly, so we need an explicit shell
+    // Use double quotes for the script path inside (handles spaces)
     let make_hook = |event: &str| {
-        let command = format!("{}node '{}' {}", env_prefix, config.hook_script_path, event);
+        // Escape any double quotes in the script path
+        let escaped_script = config.hook_script_path.replace("\"", "\\\"");
+        let shell_command = format!("{}node \"{}\" {}", env_exports, escaped_script, event);
+        // Wrap in sh -c with the command in single quotes (shell_command uses double quotes internally)
+        let command = format!("/bin/sh -c '{}'", shell_command);
         // Each hook is an array of command objects (Cursor 1.7+ format)
         serde_json::json!([{
             "command": command
@@ -125,8 +137,12 @@ pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
     // Updated to use Cursor 1.7+ hooks.json v1 format
+    // Wrap in sh -c to ensure shell interpretation of environment variables
+    // Use double quotes inside to avoid quoting issues
+    let escaped_script = hook_script_path.replace("\"", "\\\"");
     let make_hook = |event: &str| {
-        let command = format!("AGENT_KANBAN_API_URL='{}' node '{}' {}", api_url, hook_script_path, event);
+        let shell_command = format!("export AGENT_KANBAN_API_URL=\"{}\"; node \"{}\" {}", api_url, escaped_script, event);
+        let command = format!("/bin/sh -c '{}'", shell_command);
         serde_json::json!([{ "command": command }])
     };
     
@@ -422,6 +438,15 @@ mod tests {
     }
 
     #[test]
+    fn build_command_includes_workspace_flag() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        // Should include --workspace flag with repo path so Cursor finds hooks.json
+        assert!(args.contains(&"--workspace".to_string()));
+        assert!(args.contains(&"/tmp/test".to_string()));
+    }
+
+    #[test]
     fn build_with_custom_executable() {
         let config = create_test_config();
         let settings = CursorSettings {
@@ -570,8 +595,9 @@ mod tests {
             let hook_array = hooks.get(event).unwrap().as_array().unwrap();
             assert_eq!(hook_array.len(), 1, "Hook {} should have exactly one command", event);
             let command = hook_array[0].get("command").unwrap().as_str().unwrap();
-            // Event name should be at the end of the command
-            assert!(command.ends_with(event), "Command should end with event name: {}", event);
+            // Command is wrapped in sh -c, so event name is at end of inner command before closing quote
+            let expected_ending = format!("{}'", event);
+            assert!(command.ends_with(&expected_ending), "Command should end with event name before closing quote: {} (got: {})", event, command);
         }
     }
 
@@ -705,8 +731,10 @@ mod tests {
         let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
         let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        // Env vars should be embedded in the command string
-        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        // Env vars should be embedded in the shell command with export and double quotes
+        assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
+        // Command should be wrapped in /bin/sh -c
+        assert!(command.starts_with("/bin/sh -c '"));
     }
 
     #[test]
@@ -733,7 +761,7 @@ mod tests {
         
         let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
         let command = hook_array[0]["command"].as_str().unwrap();
-        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -750,19 +778,22 @@ mod tests {
         let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
         let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
-        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token-123'"));
+        // API URL should be set, but API token is no longer embedded (read from file at runtime)
+        assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
+        // Token is intentionally NOT set in the command - script reads it from file
+        assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
     }
 
     #[test]
-    fn generate_hooks_json_with_token_only_includes_token_in_command() {
+    fn generate_hooks_json_with_token_only_does_not_embed_token() {
         let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"), None);
         let hooks = config.get("hooks").unwrap();
         let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
         let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
+        // Neither should be set - token is read from file at runtime
         assert!(!command.contains("AGENT_KANBAN_API_URL="));
-        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token-456'"));
+        assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
     }
 
     #[test]
@@ -777,13 +808,14 @@ mod tests {
         let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
         let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        assert!(command.contains("AGENT_KANBAN_RUN_ID='run-12345'"));
-        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
-        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token'"));
+        assert!(command.contains("export AGENT_KANBAN_RUN_ID=\"run-12345\""));
+        assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
+        // Token is NOT set in command - script reads from file at runtime
+        assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
     }
 
     #[test]
-    fn install_hooks_with_api_url_and_token_includes_both_in_command() {
+    fn install_hooks_with_api_url_and_token_includes_url_not_token() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
@@ -801,8 +833,9 @@ mod tests {
         
         let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
         let command = hook_array[0]["command"].as_str().unwrap();
-        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
-        assert!(command.contains("AGENT_KANBAN_API_TOKEN='my-secret-token'"));
+        // URL is set, but token is NOT (script reads from file at runtime)
+        assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
+        assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }

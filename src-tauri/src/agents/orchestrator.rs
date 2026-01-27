@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::Window;
+use tauri::{AppHandle, Manager, Window};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
-use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
+use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome};
 use super::prompt::{generate_branch_prompt, generate_get_branch_name_prompt, generate_plan_prompt, generate_implement_prompt, generate_command_prompt};
 use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
@@ -20,6 +20,7 @@ pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
 pub struct OrchestratorConfig {
     pub db: Arc<Database>,
     pub window: Option<Window>,
+    pub app_handle: Option<AppHandle>,
     pub parent_run_id: String,
     pub ticket: Ticket,
     pub repo_path: PathBuf,
@@ -61,6 +62,7 @@ pub struct StageEvent {
 pub struct WorkflowOrchestrator {
     db: Arc<Database>,
     window: Option<Window>,
+    app_handle: Option<AppHandle>,
     parent_run_id: String,
     ticket: Ticket,
     repo_path: PathBuf,
@@ -81,6 +83,7 @@ impl WorkflowOrchestrator {
         Self {
             db: config.db,
             window: config.window,
+            app_handle: config.app_handle,
             parent_run_id: config.parent_run_id,
             ticket: config.ticket,
             repo_path: config.repo_path,
@@ -91,6 +94,21 @@ impl WorkflowOrchestrator {
             cancel_handles: config.cancel_handles,
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,
+        }
+    }
+    
+    /// Emit an event to the frontend, using window if available, otherwise app_handle
+    fn emit_event<S: serde::Serialize + Clone>(&self, event_name: &str, payload: &S) -> Result<(), String> {
+        if let Some(ref window) = self.window {
+            window.emit(event_name, payload)
+                .map_err(|e| format!("Failed to emit {} via window: {}", event_name, e))
+        } else if let Some(ref app_handle) = self.app_handle {
+            app_handle.emit_all(event_name, payload)
+                .map_err(|e| format!("Failed to emit {} via app_handle: {}", event_name, e))
+        } else {
+            // No window or app_handle, just log and continue
+            tracing::debug!("No window or app_handle available to emit {}", event_name);
+            Ok(())
         }
     }
     
@@ -166,16 +184,12 @@ impl WorkflowOrchestrator {
             }
             let branch_name_result = self.run_stage("get-branch-name", &generate_get_branch_name_prompt()).await?;
             
-            // Extract the agent's response from stream-json format and use it directly
+            // Post the agent's output as a comment - it contains the branch information
             if let Some(ref output) = branch_name_result.captured_stdout {
-                if let Some(extracted_text) = extract_text_from_stream_json(output) {
-                    let branch_name = extracted_text.trim();
-                    if !branch_name.is_empty() {
-                        tracing::info!("Agent returned branch name: '{}'", branch_name);
-                        self.add_branch_comment(branch_name);
-                    }
-                } else {
-                    tracing::warn!("Could not extract text response from get-branch-name stage");
+                let output_text = output.trim();
+                if !output_text.is_empty() {
+                    tracing::info!("Adding branch comment from agent output ({} chars)", output_text.len());
+                    self.add_branch_comment(output_text);
                 }
             }
         }
@@ -237,38 +251,34 @@ impl WorkflowOrchestrator {
             tracing::warn!("Failed to add workflow summary comment: {}", e);
         } else {
             tracing::info!("Added workflow summary comment for ticket {}", self.ticket.id);
-            if let Some(ref window) = self.window {
-                let _ = window.emit("ticket-comment-added", serde_json::json!({
-                    "ticketId": self.ticket.id,
-                    "comment": comment_text,
-                }));
-            }
+            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
+                "ticketId": self.ticket.id,
+                "comment": comment_text,
+            }));
         }
     }
     
-    /// Add a comment to the ticket with the branch name
-    fn add_branch_comment(&self, branch_name: &str) {
-        let comment_text = format!("Branch created: `{}`", branch_name);
+    /// Add a comment to the ticket with the branch information from agent output
+    fn add_branch_comment(&self, agent_output: &str) {
+        let comment_text = format!("## Branch Created\n\n{}", agent_output);
         let create_comment = CreateComment {
             ticket_id: self.ticket.id.clone(),
             author_type: AuthorType::System,
             body_md: comment_text.clone(),
             metadata: Some(serde_json::json!({
                 "type": "branch_created",
-                "branch": branch_name,
+                "output": agent_output,
             })),
         };
         if let Err(e) = self.db.create_comment(&create_comment) {
             tracing::warn!("Failed to add branch comment: {}", e);
         } else {
-            tracing::info!("Added branch comment for ticket {}: {}", self.ticket.id, branch_name);
+            tracing::info!("Added branch comment for ticket {} ({} chars)", self.ticket.id, agent_output.len());
             // Emit event for frontend
-            if let Some(ref window) = self.window {
-                let _ = window.emit("ticket-comment-added", serde_json::json!({
-                    "ticketId": self.ticket.id,
-                    "comment": comment_text,
-                }));
-            }
+            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
+                "ticketId": self.ticket.id,
+                "comment": comment_text,
+            }));
         }
     }
     
@@ -286,19 +296,14 @@ impl WorkflowOrchestrator {
                 } else {
                     tracing::info!("Successfully moved ticket {} to column '{}'", self.ticket.id, column_name);
                     // Emit event for frontend to update
-                    if let Some(ref window) = self.window {
-                        let event_result = window.emit("ticket-moved", serde_json::json!({
-                            "ticketId": self.ticket.id,
-                            "columnName": column_name,
-                            "columnId": column.id,
-                        }));
-                        if let Err(e) = event_result {
-                            tracing::error!("Failed to emit ticket-moved event: {}", e);
-                        } else {
-                            tracing::info!("Emitted ticket-moved event for ticket {}", self.ticket.id);
-                        }
+                    if let Err(e) = self.emit_event("ticket-moved", &serde_json::json!({
+                        "ticketId": self.ticket.id,
+                        "columnName": column_name,
+                        "columnId": column.id,
+                    })) {
+                        tracing::warn!("Failed to emit ticket-moved event: {}", e);
                     } else {
-                        tracing::warn!("No window available to emit ticket-moved event");
+                        tracing::info!("Emitted ticket-moved event for ticket {}", self.ticket.id);
                     }
                 }
             }
@@ -370,6 +375,7 @@ impl WorkflowOrchestrator {
         // This ensures events can be retrieved using ticket.lockedByRunId
         let db_for_logs = self.db.clone();
         let window_for_logs = self.window.clone();
+        let app_handle_for_logs = self.app_handle.clone();
         let parent_run_id_for_logs = self.parent_run_id.clone();
         let ticket_id_for_logs = self.ticket.id.clone();
         let db_agent_type = match self.agent_kind {
@@ -408,23 +414,29 @@ impl WorkflowOrchestrator {
             }
             
             // Emit to frontend for real-time display
+            // Use window if available (direct agent runs), otherwise use app_handle (worker runs)
+            #[derive(serde::Serialize, Clone)]
+            #[serde(rename_all = "camelCase")]
+            struct AgentLogEvent {
+                run_id: String,
+                stream: String,
+                content: String,
+                timestamp: String,
+            }
+            let event = AgentLogEvent {
+                run_id: parent_run_id_for_logs.clone(),
+                stream: stream_name.to_string(),
+                content: log.content,
+                timestamp: log.timestamp.to_rfc3339(),
+            };
+            
             if let Some(ref window) = window_for_logs {
-                #[derive(serde::Serialize)]
-                #[serde(rename_all = "camelCase")]
-                struct AgentLogEvent {
-                    run_id: String,
-                    stream: String,
-                    content: String,
-                    timestamp: String,
-                }
-                let event = AgentLogEvent {
-                    run_id: parent_run_id_for_logs.clone(),
-                    stream: stream_name.to_string(),
-                    content: log.content,
-                    timestamp: log.timestamp.to_rfc3339(),
-                };
                 if let Err(e) = window.emit("agent-log", &event) {
-                    tracing::error!("Failed to emit agent-log event: {}", e);
+                    tracing::error!("Failed to emit agent-log event via window: {}", e);
+                }
+            } else if let Some(ref app_handle) = app_handle_for_logs {
+                if let Err(e) = app_handle.emit_all("agent-log", &event) {
+                    tracing::error!("Failed to emit agent-log event via app_handle: {}", e);
                 }
             }
         }));
@@ -501,17 +513,15 @@ impl WorkflowOrchestrator {
     
     /// Emit a stage event to the frontend
     fn emit_stage_event(&self, stage: &str, status: &str, sub_run_id: Option<String>, duration_secs: Option<f64>) {
-        if let Some(ref window) = self.window {
-            let event = StageEvent {
-                parent_run_id: self.parent_run_id.clone(),
-                stage: stage.to_string(),
-                status: status.to_string(),
-                sub_run_id,
-                duration_secs,
-            };
-            if let Err(e) = window.emit("agent-stage-update", event) {
-                tracing::warn!("Failed to emit stage event: {}", e);
-            }
+        let event = StageEvent {
+            parent_run_id: self.parent_run_id.clone(),
+            stage: stage.to_string(),
+            status: status.to_string(),
+            sub_run_id,
+            duration_secs,
+        };
+        if let Err(e) = self.emit_event("agent-stage-update", &event) {
+            tracing::warn!("Failed to emit stage event: {}", e);
         }
     }
 }

@@ -24,6 +24,14 @@ export interface TicketCommentAddedEvent {
   comment: string;
 }
 
+export interface AgentStageUpdateEvent {
+  parentRunId: string;
+  stage: string;
+  status: string;
+  subRunId?: string;
+  durationSecs?: number;
+}
+
 export interface TicketModalProps {
   ticket: Ticket;
   columns: Column[];

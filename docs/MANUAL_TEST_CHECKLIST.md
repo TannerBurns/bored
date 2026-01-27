@@ -605,6 +605,11 @@ Move test tickets to the Ready column so agents can work on them:
 
 ### 5.3 Run with Cursor Agent - Test Ticket 1 (Multiply Function)
 > Note: This requires Cursor IDE to be properly configured
+>
+> **Known Limitation:** Cursor CLI hooks do not work reliably in headless (`--print`) mode.
+> Event tracking via hooks may be incomplete or missing. The agent will still execute tasks
+> normally, but hook-based events (file edits, shell commands) won't be captured.
+> See `docs/guides/06-cursor-integration.md` for details.
 
 **Setup:**
 - [X] Create **Test Ticket 1** (Add multiply function) from the Test Scenario section
@@ -700,15 +705,15 @@ Move test tickets to the Ready column so agents can work on them:
 ### 5.8 Run Comparison (Optional)
 > Compare the same task completed by different agents
 
-- [ ] Reset the test project to initial state:
+- [X] Reset the test project to initial state:
   ```bash
   cd ~/agent-kanban-test-project
   git reset --hard HEAD~2  # Undo the multiply and divide commits
   ```
-- [ ] Create a duplicate of Test Ticket 1
-- [ ] Run with Cursor on the original
-- [ ] Run with Claude on the duplicate
-- [ ] Compare:
+- [X] Create a duplicate of Test Ticket 1
+- [X] Run with Cursor on the original
+- [X] Run with Claude on the duplicate
+- [X] Compare:
   - Time to completion
   - Code quality/style
   - Test coverage
@@ -721,80 +726,80 @@ Move test tickets to the Ready column so agents can work on them:
 > **Important:** This phase tests automated ticket processing. Use the test project and remaining test tickets (3 and 4) from the Test Scenario section.
 
 ### 6.1 Worker Panel Overview
-- [ ] Navigate to **Workers** in sidebar
-- [ ] Verify Queue Status cards show:
+- [X] Navigate to **Workers** in sidebar
+- [X] Verify Queue Status cards show:
   - Ready count
   - In Progress count
   - Workers count (should be 0 initially)
-- [ ] Verify "Start New Worker" section with:
+- [X] Verify "Start New Worker" section with:
   - Agent type radio buttons (Cursor/Claude)
   - Project filter dropdown
   - Validation status area
   - Start Worker button
 
 ### 6.2 Worker Validation
-- [ ] Select the test project from the dropdown
-- [ ] Verify validation runs automatically
-- [ ] Check validation results:
+- [X] Select the test project from the dropdown
+- [X] Verify validation runs automatically
+- [X] Check validation results:
   - Green "Environment Ready" if all checks pass
   - Red "Environment Issues" with specific issues if not
-- [ ] If issues exist, verify "Fix" buttons appear for fixable issues
-- [ ] Click Fix buttons to attempt auto-remediation
-- [ ] Re-validate after fixes
+- [X] If issues exist, verify "Fix" buttons appear for fixable issues
+- [X] Click Fix buttons to attempt auto-remediation
+- [X] Re-validate after fixes
 
 ### 6.3 Setup Test Tickets for Worker Processing
 
 **Prepare the queue:**
-- [ ] Create **Test Ticket 3** (Fix code style - add semicolons)
-- [ ] Create **Test Ticket 4** (Update README documentation)
-- [ ] Assign both tickets to the test project
-- [ ] Move both tickets to the **Ready** column
-- [ ] Verify Queue Status shows Ready count of 2
+- [X] Create **Test Ticket 3** (Fix code style - add semicolons)
+- [X] Create **Test Ticket 4** (Update README documentation)
+- [X] Assign both tickets to the test project
+- [X] Move both tickets to the **Ready** column
+- [X] Verify Queue Status shows Ready count of 2
 
 ### 6.4 Start a Worker
-- [ ] Select agent type (Cursor or Claude)
-- [ ] Select the test project from dropdown
-- [ ] Ensure validation passes (green status)
-- [ ] Click **Start Worker**
-- [ ] Verify:
+- [X] Select agent type (Cursor or Claude)
+- [X] Select the test project from dropdown
+- [X] Ensure validation passes (green status)
+- [X] Click **Start Worker**
+- [X] Verify:
   - Worker appears in "Active Workers" section
   - Worker shows "idle" or "running" status
   - Queue Status updates (Workers count increases to 1)
 
 ### 6.5 Worker Processing - Automated Ticket Handling
-- [ ] Observe the worker pick up the first Ready ticket
-- [ ] Verify:
+- [X] Observe the worker pick up the first Ready ticket
+- [X] Verify:
   - Ready count decreases
   - In Progress count increases
   - Ticket moves from Ready to In Progress column
   - Worker shows which ticket it's working on
-- [ ] Wait for the agent to complete the ticket
-- [ ] Verify:
+- [X] Wait for the agent to complete the ticket
+- [X] Verify:
   - Ticket moves to **Review** (on success) or **Blocked** (on error)
   - In Progress count decreases
   - "Tickets processed" counter on worker increases
-- [ ] Observe the worker pick up the next Ready ticket
-- [ ] Wait for completion
-- [ ] Verify both tickets were processed
+- [X] Observe the worker pick up the next Ready ticket
+- [X] Wait for completion
+- [X] Verify both tickets were processed
 
 ### 6.6 Verify Worker Outcomes
 
 **After worker completes Test Ticket 3 (semicolons):**
-- [ ] Check git status in test project
-- [ ] Verify all statements in `src/index.js` end with semicolons
-- [ ] Verify `npm test` still passes
-- [ ] Commit changes if correct
+- [X] Check git status in test project
+- [X] Verify all statements in `src/index.js` end with semicolons
+- [X] Verify `npm test` still passes
+- [X] Commit changes if correct
 
 **After worker completes Test Ticket 4 (README):**
-- [ ] Verify `README.md` was updated
-- [ ] Verify it documents all functions
-- [ ] Verify example usage is included
-- [ ] Commit changes if correct
+- [X] Verify `README.md` was updated
+- [X] Verify it documents all functions
+- [X] Verify example usage is included
+- [X] Commit changes if correct
 
 ### 6.7 Stop Worker
-- [ ] Click **Stop** on the active worker
-- [ ] Verify worker is removed from Active Workers
-- [ ] Verify Workers count decreases in Queue Status
+- [X] Click **Stop** on the active worker
+- [X] Verify worker is removed from Active Workers
+- [X] Verify Workers count decreases in Queue Status
 
 ### 6.8 Multiple Workers (Stress Test)
 - [ ] Create 3-4 additional simple tickets in Ready column

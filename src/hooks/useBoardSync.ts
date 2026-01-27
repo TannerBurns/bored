@@ -54,6 +54,8 @@ export function useBoardSync(): BoardSyncState {
     currentBoard: storeCurrentBoard,
     setCurrentBoard,
     deleteBoard,
+    selectedTicket,
+    selectTicket,
   } = useBoardStore();
 
   // Sync boards from store to local state
@@ -133,6 +135,50 @@ export function useBoardSync(): BoardSyncState {
       }
     };
   }, []);
+
+  // Poll for ticket updates periodically to catch worker-initiated changes
+  // Workers run headless and don't emit frontend events, so we need to poll
+  useEffect(() => {
+    if (!isTauri() || !currentBoard) return;
+
+    const pollTickets = async () => {
+      try {
+        const ticketsData = await getTickets(currentBoard.id);
+        // Only update if this is still the current board
+        if (currentRequestRef.current === currentBoard.id) {
+          setTickets(ticketsData);
+          
+          // Also update the selectedTicket if it's in this board and has changed
+          // This ensures the TicketModal sees updated lockedByRunId, column, etc.
+          if (selectedTicket) {
+            const updatedSelectedTicket = ticketsData.find(t => t.id === selectedTicket.id);
+            if (updatedSelectedTicket) {
+              // Check if any relevant fields have changed
+              const hasChanged = 
+                updatedSelectedTicket.lockedByRunId !== selectedTicket.lockedByRunId ||
+                updatedSelectedTicket.columnId !== selectedTicket.columnId ||
+                updatedSelectedTicket.lockExpiresAt !== selectedTicket.lockExpiresAt;
+              
+              if (hasChanged) {
+                console.log('[useBoardSync] Updating selectedTicket with polled data:', {
+                  id: updatedSelectedTicket.id,
+                  lockedByRunId: updatedSelectedTicket.lockedByRunId,
+                  columnId: updatedSelectedTicket.columnId,
+                });
+                selectTicket(updatedSelectedTicket);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[useBoardSync] Failed to poll tickets:', error);
+      }
+    };
+
+    // Poll every 3 seconds to catch worker updates
+    const interval = setInterval(pollTickets, 3000);
+    return () => clearInterval(interval);
+  }, [currentBoard, selectedTicket, selectTicket]);
 
   const handleBoardSelect = async (boardId: string) => {
     const board = localBoards.find((b) => b.id === boardId);

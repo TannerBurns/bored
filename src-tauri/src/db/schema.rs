@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     lock_expires_at TEXT,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
-    workflow_type TEXT NOT NULL DEFAULT 'basic' CHECK(workflow_type IN ('basic', 'multi_stage')),
+    workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
     model TEXT
 );
 
@@ -183,6 +183,13 @@ CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE pa
 pub const MIGRATION_V5: &str = r#"
 -- Add model column to tickets for AI model selection (e.g., 'claude-opus-4-5')
 ALTER TABLE tickets ADD COLUMN model TEXT;
+"#;
+
+/// Migration SQL for schema version 6
+/// Removes single-shot (basic) workflow - all tickets use multi_stage
+pub const MIGRATION_V6: &str = r#"
+-- Convert all 'basic' workflow types to 'multi_stage'
+UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic';
 "#;
 
 /// Default columns for a new board

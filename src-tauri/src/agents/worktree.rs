@@ -333,8 +333,8 @@ pub fn generate_branch_name(ticket_id: &str, ticket_title: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
     
-    // Use first 8 chars of ticket ID
-    let short_id = &ticket_id[..8.min(ticket_id.len())];
+    // Use first 8 chars of ticket ID (char-based to avoid UTF-8 boundary issues)
+    let short_id: String = ticket_id.chars().take(8).collect();
     
     format!("ticket/{}/{}", short_id, sanitized_title)
 }

@@ -52,7 +52,8 @@ export interface Column {
   wipLimit?: number;
 }
 
-export type WorkflowType = 'basic' | 'multi_stage';
+// Note: 'basic' workflow has been removed - all tickets now use multi_stage
+export type WorkflowType = 'multi_stage';
 
 export interface Ticket {
   id: string;

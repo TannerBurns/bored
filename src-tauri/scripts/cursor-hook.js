@@ -6,10 +6,44 @@
 
 const https = require('https');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const RUN_ID = process.env.AGENT_KANBAN_RUN_ID;
 const API_URL = process.env.AGENT_KANBAN_API_URL || 'http://127.0.0.1:7432';
-const API_TOKEN = process.env.AGENT_KANBAN_API_TOKEN;
+
+// Get API token: try environment variable first, then fall back to reading from file
+// This allows the hook to work even if Cursor caches old hooks.json commands
+function getApiToken() {
+  // First try the environment variable
+  const envToken = process.env.AGENT_KANBAN_API_TOKEN;
+  
+  // Try to read the current token from the persisted file
+  // This handles the case where Cursor caches old hooks.json with stale tokens
+  const tokenPath = path.join(
+    os.homedir(),
+    'Library',
+    'Application Support',
+    'com.agent-kanban.app',
+    'api_token'
+  );
+  
+  try {
+    const fileToken = fs.readFileSync(tokenPath, 'utf8').trim();
+    if (fileToken) {
+      // Always prefer the file token as it's the current server's token
+      return fileToken;
+    }
+  } catch (e) {
+    // File doesn't exist or can't be read
+  }
+  
+  // Fall back to environment variable
+  return envToken;
+}
+
+const API_TOKEN = getApiToken();
 
 const hookEvent = process.argv[2];
 

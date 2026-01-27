@@ -148,8 +148,16 @@ export function WorkerPanel({ projects }: Props) {
     }
   };
 
-  const handleStopWorker = async (workerId: string) => {
+  const handleStopWorker = async (workerId: string, isWorking: boolean) => {
     if (!isTauri()) return;
+    
+    // If worker is actively processing a ticket, confirm before stopping
+    if (isWorking) {
+      const confirmed = window.confirm(
+        'This worker is currently processing a ticket. Are you sure you want to stop it? The ticket will be unlocked and returned to the queue.'
+      );
+      if (!confirmed) return;
+    }
     
     try {
       await invoke('stop_worker', { workerId });
@@ -380,7 +388,7 @@ export function WorkerPanel({ projects }: Props) {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleStopWorker(worker.id)}
+                    onClick={() => handleStopWorker(worker.id, worker.status === 'running' && !!worker.currentTicketId)}
                     className="px-3 py-1.5 bg-board-surface border border-board-border text-sm text-board-text-secondary rounded-lg hover:bg-board-card-hover transition-colors ml-3"
                   >
                     Stop

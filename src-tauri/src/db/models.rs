@@ -2,26 +2,25 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Workflow type for ticket execution
+/// Note: Basic workflow has been removed - all tickets now use MultiStage
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowType {
     #[default]
-    Basic,
     MultiStage,
 }
 
 impl WorkflowType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            WorkflowType::Basic => "basic",
             WorkflowType::MultiStage => "multi_stage",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "basic" => Some(WorkflowType::Basic),
-            "multi_stage" => Some(WorkflowType::MultiStage),
+            // Accept both for backward compatibility during migration
+            "basic" | "multi_stage" => Some(WorkflowType::MultiStage),
             _ => None,
         }
     }
@@ -529,13 +528,13 @@ mod tests {
 
         #[test]
         fn as_str_returns_snake_case() {
-            assert_eq!(WorkflowType::Basic.as_str(), "basic");
             assert_eq!(WorkflowType::MultiStage.as_str(), "multi_stage");
         }
 
         #[test]
         fn parse_valid_values() {
-            assert_eq!(WorkflowType::parse("basic"), Some(WorkflowType::Basic));
+            // Both "basic" and "multi_stage" parse to MultiStage for backward compatibility
+            assert_eq!(WorkflowType::parse("basic"), Some(WorkflowType::MultiStage));
             assert_eq!(WorkflowType::parse("multi_stage"), Some(WorkflowType::MultiStage));
         }
 
@@ -547,23 +546,17 @@ mod tests {
         }
 
         #[test]
-        fn default_is_basic() {
-            assert_eq!(WorkflowType::default(), WorkflowType::Basic);
+        fn default_is_multi_stage() {
+            assert_eq!(WorkflowType::default(), WorkflowType::MultiStage);
         }
 
         #[test]
         fn roundtrip_as_str_parse() {
-            for wt in [WorkflowType::Basic, WorkflowType::MultiStage] {
-                assert_eq!(WorkflowType::parse(wt.as_str()), Some(wt));
-            }
+            assert_eq!(WorkflowType::parse(WorkflowType::MultiStage.as_str()), Some(WorkflowType::MultiStage));
         }
 
         #[test]
         fn serializes_to_snake_case() {
-            assert_eq!(
-                serde_json::to_string(&WorkflowType::Basic).unwrap(),
-                "\"basic\""
-            );
             assert_eq!(
                 serde_json::to_string(&WorkflowType::MultiStage).unwrap(),
                 "\"multi_stage\""
