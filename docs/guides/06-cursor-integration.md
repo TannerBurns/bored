@@ -831,6 +831,54 @@ cat ~/.cursor/hooks.json
 cat /path/to/project/.cursor/hooks.json
 ```
 
+## Known Limitations
+
+### CLI Hook Command Execution
+
+**Cursor executes hook commands directly without a shell.** This means inline environment variable syntax like `VAR='value' command` does not work.
+
+**Solution:** Agent Kanban wraps hook commands in `/bin/sh -c '...'` to ensure proper shell interpretation:
+
+```json
+{
+  "command": "/bin/sh -c 'export AGENT_KANBAN_API_URL=\"...\"; export AGENT_KANBAN_API_TOKEN=\"...\"; node \"/path/to/hook.js\" beforeShellExecution'"
+}
+```
+
+### CLI Headless Mode Considerations
+
+When running Cursor agent via CLI with `--print` flag:
+- Hooks should fire normally when the `--workspace` flag is used
+- The API token must match the current running Agent Kanban instance
+
+**Critical: Cursor IDE Caches hooks.json**
+
+Cursor caches `hooks.json` when it opens a workspace. The CLI agent (`cursor agent`) connects to the running Cursor IDE server and uses its cached hooks, not the current file on disk.
+
+This means:
+1. If you have a Cursor IDE window open with the target project, it may have stale hooks cached
+2. Updating `hooks.json` on disk does NOT update the cached hooks in the IDE
+3. The CLI agent uses the IDE's cached hooks, causing "Invalid API token" errors
+
+**Solution:** Agent Kanban implements two mitigations:
+
+1. **Token Persistence**: The API token is persisted to disk and reused across app restarts (instead of generating new tokens each time)
+
+2. **Dynamic Token Reading**: The hook script reads the current token from the persisted file at runtime, regardless of what's in the cached hooks.json command
+
+**Troubleshooting "Invalid API token" errors:**
+1. **Close Cursor IDE windows** for the target project and restart Cursor
+2. Alternatively, run Agent Kanban once to install updated hooks, then reopen the project in Cursor
+3. Verify the hooks.json token matches the app logs: `INFO agent_kanban::api: API token: ...`
+4. If issues persist, delete `~/Library/Application Support/com.agent-kanban.app/api_token` to force a new token generation
+
+### Other Beta Limitations
+
+Some Cursor hooks are informational only and don't support blocking:
+
+- `beforeSubmitPrompt` - can't modify or block prompts
+- `afterFileEdit` - can't block, only log (and doesn't fire in CLI mode)
+
 ## Troubleshooting
 
 ### Hook script not executing

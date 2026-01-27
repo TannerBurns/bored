@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket};
+use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType, WorkflowType};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +15,9 @@ pub struct CreateTicketInput {
     pub labels: Vec<String>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    #[serde(default)]
+    pub workflow_type: Option<WorkflowType>,
+    pub model: Option<String>,
 }
 
 #[tauri::command]
@@ -41,6 +44,8 @@ pub async fn create_ticket(
         labels: ticket.labels,
         project_id: ticket.project_id,
         agent_pref: ticket.agent_pref,
+        workflow_type: ticket.workflow_type.unwrap_or_default(),
+        model: ticket.model,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }
@@ -65,4 +70,44 @@ pub async fn update_ticket(
     db.update_ticket(&ticket_id, &updates)
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_ticket(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Deleting ticket: {}", ticket_id);
+    db.delete_ticket(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_comments(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<Comment>, String> {
+    tracing::info!("Getting comments for ticket: {}", ticket_id);
+    db.get_comments(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_comment(
+    ticket_id: String,
+    body: String,
+    author_type: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Comment, String> {
+    tracing::info!("Adding comment to ticket: {}", ticket_id);
+    let author = match author_type.as_str() {
+        "user" => AuthorType::User,
+        "system" => AuthorType::System,
+        _ => AuthorType::Agent,
+    };
+    let create = CreateComment {
+        ticket_id,
+        author_type: author,
+        body_md: body,
+        metadata: None,
+    };
+    db.create_comment(&create).map_err(|e| e.to_string())
 }

@@ -33,8 +33,17 @@ pub struct WorkerQueueStatus {
     pub worker_count: usize,
 }
 
+/// Get the hook script path from app data directory
+fn get_hook_script_path(app: &tauri::AppHandle) -> Option<String> {
+    app.path_resolver()
+        .app_data_dir()
+        .map(|dir| dir.join("scripts").join("cursor-hook.js"))
+        .map(|p| p.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub async fn start_worker(
+    app: tauri::AppHandle,
     agent_type: String,
     project_id: Option<String>,
     db: State<'_, Arc<Database>>,
@@ -59,12 +68,18 @@ pub async fn start_worker(
     });
     let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
         .unwrap_or_else(|_| "default-token".to_string());
+    
+    // Get the hook script path for the worker to use
+    let hook_script_path = get_hook_script_path(&app);
+    tracing::info!("Worker hook script path: {:?}", hook_script_path);
 
     let config = WorkerConfig {
         agent_type: agent_kind,
         project_id,
         api_url,
         api_token,
+        hook_script_path,
+        app_handle: Some(app.clone()),
         ..Default::default()
     };
 
@@ -105,6 +120,7 @@ pub async fn get_worker_queue_status(
     db: State<'_, Arc<Database>>,
 ) -> Result<WorkerQueueStatus, String> {
     let boards = db.get_boards().map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now();
     
     let mut ready_count = 0;
     let mut in_progress_count = 0;
@@ -112,6 +128,7 @@ pub async fn get_worker_queue_status(
     for board in &boards {
         let columns = db.get_columns(&board.id).map_err(|e| e.to_string())?;
 
+        // Count tickets in Ready column that are not locked (or have expired locks)
         if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
             let tickets = db
                 .get_tickets(&board.id, Some(&ready_col.id))
@@ -120,17 +137,24 @@ pub async fn get_worker_queue_status(
                 .iter()
                 .filter(|t| {
                     t.lock_expires_at
-                        .is_none_or(|exp| exp <= chrono::Utc::now())
+                        .is_none_or(|exp| exp <= now)
                 })
                 .count();
         }
 
-        if let Some(ip_col) = columns.iter().find(|c| c.name == "In Progress") {
-            in_progress_count += db
-                .get_tickets(&board.id, Some(&ip_col.id))
-                .map_err(|e| e.to_string())?
-                .len();
-        }
+        // Count tickets that are actively being worked on by workers
+        // This is any ticket with a valid (non-expired) lock, regardless of which column it's in
+        let all_tickets = db
+            .get_tickets(&board.id, None)
+            .map_err(|e| e.to_string())?;
+        in_progress_count += all_tickets
+            .iter()
+            .filter(|t| {
+                // Has a lock that hasn't expired
+                t.locked_by_run_id.is_some() && 
+                t.lock_expires_at.is_some_and(|exp| exp > now)
+            })
+            .count();
     }
 
     Ok(WorkerQueueStatus {

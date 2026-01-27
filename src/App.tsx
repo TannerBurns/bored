@@ -4,34 +4,77 @@ import { Header } from './components/layout/Header';
 import { Board } from './components/board/Board';
 import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
+import { CreateBoardModal } from './components/board/CreateBoardModal';
+import { RenameBoardModal } from './components/board/RenameBoardModal';
+import { ConfirmModal } from './components/common/ConfirmModal';
 import { WorkerPanel } from './components/workers';
-import { ProjectsList, CursorSettings, ClaudeSettings, AppearanceSettings, DataSettings } from './components/settings';
+import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from './components/settings';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
-import { getProjects, getBoards, getTickets, getApiConfig } from './lib/tauri';
+import { useBoardSync } from './hooks/useBoardSync';
+import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
-import type { Column, Ticket, Project, Board as BoardType } from './types';
-import { getColumns, createBoard } from './lib/tauri';
+import type { Ticket, Project, Board as BoardType, AgentRun } from './types';
+import { getColumns } from './lib/tauri';
 import './index.css';
+
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatDuration(startedAt: Date, endedAt: Date): string {
+  const seconds = Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000);
+  
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
+}
 
 const navItems = [
   { id: 'boards', label: 'Boards' },
-  { id: 'runs', label: 'Agent Runs' },
+  { id: 'runs', label: 'Agents' },
   { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
 ];
 
 function App() {
   const [activeNav, setActiveNav] = useState('boards');
-  const [boards, setBoards] = useState<BoardType[]>([]);
-  const [columns, setColumns] = useState<Column[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [recentRuns, setRecentRuns] = useState<AgentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [settingsTab, setSettingsTab] = useState<'appearance' | 'projects' | 'cursor' | 'claude' | 'data'>('appearance');
-  
+  const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
+  const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
+  const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
+  const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
+
   const { theme } = useSettingsStore();
+  const {
+    boards,
+    currentBoard,
+    columns,
+    tickets,
+    setColumns,
+    setTickets,
+    handleBoardSelect,
+    requestDeleteBoard,
+    confirmDeleteBoard,
+    cancelDeleteBoard,
+    deleteConfirmation,
+  } = useBoardSync();
 
   // Apply theme to root element
   useEffect(() => {
@@ -56,6 +99,8 @@ function App() {
     }
   }, [theme]);
 
+  const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
+
   // Load data from backend
   useEffect(() => {
     const loadData = async () => {
@@ -74,15 +119,15 @@ function App() {
             getBoards(),
           ]);
           setProjects(projectsData);
-          setBoards(boardsData);
+          storeSetBoards(boardsData);
           
           if (boardsData.length > 0) {
-            // Set current board in store so createTicket works
-            setCurrentBoard(boardsData[0]);
+            const firstBoard = boardsData[0];
+            storeSetCurrentBoard(firstBoard);
             
             const [columnsData, ticketsData] = await Promise.all([
-              getColumns(boardsData[0].id),
-              getTickets(boardsData[0].id),
+              getColumns(firstBoard.id),
+              getTickets(firstBoard.id),
             ]);
             setColumns(columnsData);
             setTickets(ticketsData);
@@ -96,7 +141,28 @@ function App() {
     };
     
     loadData();
-  }, []);
+  }, [storeSetBoards, storeSetCurrentBoard]);
+
+  // Load recent runs when the runs tab is active
+  useEffect(() => {
+    if (activeNav !== 'runs') return;
+    
+    const loadRecentRuns = async () => {
+      if (isTauri()) {
+        try {
+          const runs = await getRecentRuns(50);
+          setRecentRuns(runs);
+        } catch (error) {
+          console.error('Failed to load recent runs:', error);
+        }
+      }
+    };
+    
+    loadRecentRuns();
+    // Refresh every 5 seconds while on this tab
+    const interval = setInterval(loadRecentRuns, 5000);
+    return () => clearInterval(interval);
+  }, [activeNav]);
 
   const {
     isTicketModalOpen,
@@ -111,7 +177,6 @@ function App() {
     createTicket: storeCreateTicket,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
-    setCurrentBoard,
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
@@ -147,22 +212,9 @@ function App() {
     return ticket;
   };
   
-  const handleCreateBoard = async () => {
-    if (!isTauri()) return;
-    
-    try {
-      const board = await createBoard('My Board');
-      setBoards((prev) => [...prev, board]);
-      
-      // Set as current board so createTicket works
-      setCurrentBoard(board);
-      
-      // Load the columns for the new board
-      const columnsData = await getColumns(board.id);
-      setColumns(columnsData);
-    } catch (error) {
-      console.error('Failed to create board:', error);
-    }
+  const handleRenameBoard = (board: BoardType) => {
+    setBoardToRename(board);
+    setRenameBoardModalOpen(true);
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
@@ -186,17 +238,70 @@ function App() {
     await addComment(ticketId, body);
   };
 
-  const handleRunWithAgent = async (ticketId: string, _agentType: 'cursor' | 'claude') => {
-    const updates = { lockedByRunId: `run-${Date.now()}`, updatedAt: new Date() };
-    const originalTickets = tickets;
-    setTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? { ...t, ...updates } : t))
-    );
+  const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
+    console.warn('🚀🚀🚀 [Agent Debug] handleRunWithAgent called:', { ticketId, agentType });
+    
+    // Find the ticket to get its project info
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) {
+      console.error('[Agent Debug] Ticket not found:', ticketId);
+      return;
+    }
+    
+    if (!ticket.projectId) {
+      console.error('[Agent Debug] Ticket has no projectId:', ticketId);
+      return;
+    }
+    
+    // Find the project to get its path
+    const project = projects.find(p => p.id === ticket.projectId);
+    if (!project) {
+      console.error('[Agent Debug] Project not found:', ticket.projectId);
+      return;
+    }
+    
+      console.warn('🚀 [Agent Debug] Starting agent with project:', { projectId: project.id, path: project.path });
+    
     try {
+      // Actually start the agent run via Tauri
+      const { startAgentRun } = await import('./lib/tauri');
+      console.warn('🚀 [Agent Debug] Calling startAgentRun...');
+      const runId = await startAgentRun(ticketId, agentType, project.path);
+      console.warn('🚀 [Agent Debug] Agent run started, runId:', runId);
+      
+      // Update the ticket with the real run ID
+      // This should trigger the TicketModal to set up event listeners
+      const updates = { lockedByRunId: runId, updatedAt: new Date() };
+      console.warn('🚀 [Agent Debug] Updating ticket with lockedByRunId:', runId);
+      
+      setTickets((prev) =>
+        prev.map((t) => (t.id === ticketId ? { ...t, ...updates } : t))
+      );
+      
       await storeUpdateTicket(ticketId, updates);
-      closeTicketModal();
-    } catch {
-      setTickets(originalTickets);
+      console.warn('🚀 [Agent Debug] Ticket updated, modal should now show agent running');
+      // Don't close the modal so user can see progress
+      // closeTicketModal();
+    } catch (err) {
+      console.error('❌ [Agent Debug] Failed to start agent:', err);
+    }
+  };
+
+  const handleDeleteTicket = async (ticketId: string) => {
+    await deleteTicket(ticketId);
+    setTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    closeTicketModal();
+  };
+
+  const handleAgentComplete = async (runId: string, status: string) => {
+    console.warn('🏁 [Agent] Run completed:', { runId, status });
+    // Clear the lockedByRunId on the ticket
+    if (selectedTicket) {
+      const updates = { lockedByRunId: undefined, updatedAt: new Date() };
+      setTickets((prev) =>
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, ...updates } : t))
+      );
+      await storeUpdateTicket(selectedTicket.id, updates);
     }
   };
 
@@ -206,12 +311,18 @@ function App() {
         navItems={navItems}
         activeItem={activeNav}
         onItemClick={setActiveNav}
+        boards={boards}
+        currentBoard={currentBoard}
+        onBoardSelect={handleBoardSelect}
+        onCreateBoard={() => setIsCreateBoardModalOpen(true)}
+        onRenameBoard={handleRenameBoard}
+        onDeleteBoard={requestDeleteBoard}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <Header
-          title="Agent Kanban"
-          subtitle="Manage your coding tasks and let AI agents do the work."
+          title={activeNav === 'boards' && currentBoard ? currentBoard.name : 'Agent Kanban'}
+          subtitle={activeNav === 'boards' && currentBoard ? 'Manage your coding tasks and let AI agents do the work.' : undefined}
           action={
             activeNav === 'boards' && boards.length > 0 ? (
               <button
@@ -266,7 +377,7 @@ function App() {
                     Create your first board to start managing tickets with AI agents.
                   </p>
                   <button
-                    onClick={handleCreateBoard}
+                    onClick={() => setIsCreateBoardModalOpen(true)}
                     className="px-6 py-3 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors font-medium shadow-sm"
                   >
                     Create Your First Board
@@ -285,34 +396,99 @@ function App() {
         )}
 
         {activeNav === 'runs' && (
-          <div className="bg-board-column rounded-xl p-6 border border-board-border">
+          <div className="bg-board-column rounded-xl p-6 border border-board-border overflow-auto">
             <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
-            <p className="text-board-text-secondary">
-              Agent runs will be displayed here. Start a run from a ticket to see activity.
+            <p className="text-board-text-secondary mb-4">
+              View active and completed agent runs.
             </p>
-            <div className="mt-4 space-y-2">
-              {tickets
-                .filter((t) => t.lockedByRunId)
-                .map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
-                  >
-                    <div>
-                      <span className="font-medium text-board-text">{ticket.title}</span>
-                      <span className="text-sm text-board-text-muted ml-2">
-                        Running with {ticket.agentPref || 'agent'}
-                      </span>
-                    </div>
-                    <span className="text-status-warning text-sm flex items-center gap-1">
-                      <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
-                      In Progress
-                    </span>
-                  </div>
-                ))}
-              {tickets.filter((t) => t.lockedByRunId).length === 0 && (
-                <p className="text-board-text-muted text-sm">No active runs</p>
-              )}
+            
+            {/* Active Runs Section */}
+            {tickets.filter((t) => t.lockedByRunId).length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
+                  Active Runs
+                </h4>
+                <div className="space-y-2">
+                  {tickets
+                    .filter((t) => t.lockedByRunId)
+                    .map((ticket) => (
+                      <div
+                        key={ticket.id}
+                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-board-text truncate">{ticket.title}</span>
+                            <span className="text-xs text-board-text-muted font-mono shrink-0">
+                              #{ticket.id.slice(0, 8)}
+                            </span>
+                          </div>
+                          <span className="text-sm text-board-text-muted">
+                            Running with {ticket.agentPref || 'agent'}
+                          </span>
+                        </div>
+                        <span className="text-status-warning text-sm flex items-center gap-1">
+                          <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
+                          In Progress
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Recent Runs Section */}
+            <div>
+              <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
+                Recent Runs
+              </h4>
+              <div className="space-y-2">
+                {recentRuns.length === 0 ? (
+                  <p className="text-board-text-muted text-sm">No runs yet. Start a run from a ticket to see activity.</p>
+                ) : (
+                  recentRuns.map((run) => {
+                    const ticket = tickets.find((t) => t.id === run.ticketId);
+                    const statusConfig = {
+                      running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
+                      queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
+                      finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
+                      error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
+                      aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
+                    };
+                    const status = statusConfig[run.status] || statusConfig.error;
+                    const startedAt = new Date(run.startedAt);
+                    const endedAt = run.endedAt ? new Date(run.endedAt) : null;
+                    const timeAgo = getTimeAgo(startedAt);
+                    const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
+                    
+                    return (
+                      <div
+                        key={run.id}
+                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-board-text truncate">
+                              {ticket?.title || 'Unknown Ticket'}
+                            </span>
+                            <span className="text-xs text-board-text-muted font-mono shrink-0">
+                              #{run.ticketId.slice(0, 8)}
+                            </span>
+                          </div>
+                          <span className="text-sm text-board-text-muted">
+                            {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} &middot; {timeAgo}
+                            {duration && ` · ${duration}`}
+                          </span>
+                        </div>
+                        <span className={`${status.color} text-sm flex items-center gap-1 shrink-0`}>
+                          <span className={`inline-block w-2 h-2 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
+                          {status.label}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -328,14 +504,14 @@ function App() {
             {/* Settings Tabs */}
             <div className="flex border-b border-board-border mb-4">
               <button
-                onClick={() => setSettingsTab('appearance')}
+                onClick={() => setSettingsTab('general')}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'appearance'
+                  settingsTab === 'general'
                     ? 'border-b-2 border-board-accent text-board-accent'
                     : 'text-board-text-muted hover:text-board-text'
                 }`}
               >
-                Appearance
+                General
               </button>
               <button
                 onClick={() => setSettingsTab('projects')}
@@ -381,7 +557,7 @@ function App() {
             
             {/* Settings Content */}
             <div className="flex-1 overflow-auto bg-board-column rounded-xl p-6 border border-board-border">
-              {settingsTab === 'appearance' && <AppearanceSettings />}
+              {settingsTab === 'general' && <GeneralSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}
               {settingsTab === 'claude' && <ClaudeSettings />}
@@ -400,6 +576,8 @@ function App() {
           onUpdate={handleUpdateTicket}
           onAddComment={handleAddComment}
           onRunWithAgent={handleRunWithAgent}
+          onDelete={handleDeleteTicket}
+          onAgentComplete={handleAgentComplete}
         />
       )}
 
@@ -411,6 +589,37 @@ function App() {
           onCreate={handleCreateTicket}
         />
       )}
+
+      <CreateBoardModal
+        open={isCreateBoardModalOpen}
+        onOpenChange={setIsCreateBoardModalOpen}
+      />
+
+      <RenameBoardModal
+        open={renameBoardModalOpen}
+        onOpenChange={setRenameBoardModalOpen}
+        board={boardToRename}
+      />
+
+      <ConfirmModal
+        open={deleteConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) cancelDeleteBoard();
+        }}
+        title="Delete Board"
+        message={
+          deleteConfirmation
+            ? deleteConfirmation.ticketCount > 0
+              ? `Delete "${deleteConfirmation.board.name}"? This will also delete ${deleteConfirmation.ticketCount} ticket${deleteConfirmation.ticketCount === 1 ? '' : 's'}.`
+              : `Delete "${deleteConfirmation.board.name}"?`
+            : ''
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteBoard}
+        onCancel={cancelDeleteBoard}
+      />
     </div>
   );
 }

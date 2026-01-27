@@ -72,22 +72,33 @@ impl AgentProcess {
 
     /// Wait for the process to complete, streaming output
     pub fn wait_with_output(
-        mut self,
+        self,
         timeout: Option<Duration>,
         on_log: Option<Arc<LogCallback>>,
     ) -> Result<(Option<i32>, RunOutcome), SpawnError> {
+        let (exit_code, outcome, _) = self.wait_with_capture(timeout, on_log, false)?;
+        Ok((exit_code, outcome))
+    }
+
+    /// Wait for the process to complete, streaming output and optionally capturing stdout
+    pub fn wait_with_capture(
+        mut self,
+        timeout: Option<Duration>,
+        on_log: Option<Arc<LogCallback>>,
+        capture_stdout: bool,
+    ) -> Result<(Option<i32>, RunOutcome, Option<String>), SpawnError> {
         let stdout = self.child.stdout.take();
         let stderr = self.child.stderr.take();
         let cancelled = self.cancelled.clone();
 
         let on_log_stdout = on_log.clone();
         let stdout_handle = stdout.map(|out| {
-            thread::spawn(move || read_stream(out, LogStream::Stdout, on_log_stdout))
+            thread::spawn(move || read_stream_with_capture(out, LogStream::Stdout, on_log_stdout, capture_stdout))
         });
 
         let on_log_stderr = on_log;
         let stderr_handle = stderr.map(|err| {
-            thread::spawn(move || read_stream(err, LogStream::Stderr, on_log_stderr))
+            thread::spawn(move || read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, false))
         });
 
         let deadline = timeout.map(|t| Instant::now() + t);
@@ -121,9 +132,11 @@ impl AgentProcess {
 
             match self.child.try_wait() {
                 Ok(Some(status)) => {
-                    if let Some(h) = stdout_handle {
-                        let _ = h.join();
-                    }
+                    let captured_stdout = if let Some(h) = stdout_handle {
+                        h.join().ok().flatten()
+                    } else {
+                        None
+                    };
                     if let Some(h) = stderr_handle {
                         let _ = h.join();
                     }
@@ -135,7 +148,7 @@ impl AgentProcess {
                         RunOutcome::Error
                     };
 
-                    return Ok((exit_code, outcome));
+                    return Ok((exit_code, outcome, captured_stdout));
                 }
                 Ok(None) => {
                     thread::sleep(Duration::from_millis(100));
@@ -163,12 +176,38 @@ impl CancelHandle {
 }
 
 /// Read a stream line by line, calling the callback for each line
+#[allow(dead_code)]
 fn read_stream<R: std::io::Read>(reader: R, stream: LogStream, on_log: Option<Arc<LogCallback>>) {
+    let _ = read_stream_with_capture(reader, stream, on_log, false);
+}
+
+/// Read a stream line by line, calling the callback for each line and optionally capturing output
+fn read_stream_with_capture<R: std::io::Read>(
+    reader: R, 
+    stream: LogStream, 
+    on_log: Option<Arc<LogCallback>>,
+    capture: bool,
+) -> Option<String> {
+    let stream_name = match stream {
+        LogStream::Stdout => "stdout",
+        LogStream::Stderr => "stderr",
+    };
+    tracing::debug!("Starting to read {} stream (capture={})", stream_name, capture);
     let reader = BufReader::new(reader);
+    let mut line_count = 0;
+    let mut captured = if capture { Some(Vec::new()) } else { None };
 
     for line in reader.lines() {
         match line {
             Ok(content) => {
+                line_count += 1;
+                tracing::debug!("[{}] Line {}: {} chars", stream_name, line_count, content.len());
+                
+                // Capture if requested
+                if let Some(ref mut lines) = captured {
+                    lines.push(content.clone());
+                }
+                
                 if let Some(ref callback) = on_log {
                     callback(LogLine {
                         stream,
@@ -177,9 +216,15 @@ fn read_stream<R: std::io::Read>(reader: R, stream: LogStream, on_log: Option<Ar
                     });
                 }
             }
-            Err(_) => break,
+            Err(e) => {
+                tracing::debug!("[{}] Stream ended with error: {}", stream_name, e);
+                break;
+            }
         }
     }
+    tracing::debug!("[{}] Stream finished, read {} lines", stream_name, line_count);
+    
+    captured.map(|lines| lines.join("\n"))
 }
 
 /// Callback for receiving the cancel handle after spawn
@@ -199,12 +244,91 @@ pub fn run_agent_with_cancel_callback(
     on_log: Option<Arc<LogCallback>>,
     on_spawn: Option<OnSpawnCallback>,
 ) -> Result<AgentRunResult, SpawnError> {
+    tracing::info!("=== run_agent_with_cancel_callback CALLED ===");
+    tracing::info!("Agent kind: {:?}, run_id: {}", config.kind, config.run_id);
     let start_time = Instant::now();
 
     let (command, args) = match config.kind {
         AgentKind::Cursor => super::cursor::build_command(&config),
         AgentKind::Claude => super::claude::build_command(&config),
     };
+    
+    tracing::info!("Built command: {} {:?}", command, args);
+
+    let env_vars = build_env_vars(&config);
+    let env_refs: Vec<(&str, &str)> = env_vars
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    
+    tracing::info!("Env vars: {:?}", env_vars.iter().map(|(k, _)| k).collect::<Vec<_>>());
+    tracing::info!("Working directory: {:?}", config.repo_path);
+
+    tracing::info!("Spawning agent process...");
+    let process = AgentProcess::spawn(
+        &command,
+        &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        &config.repo_path,
+        &env_refs,
+    )?;
+    tracing::info!("Agent process spawned successfully");
+
+    // Provide the cancel handle to the caller before we start waiting
+    if let Some(callback) = on_spawn {
+        callback(process.cancel_handle());
+    }
+
+    let timeout = config.timeout_secs.map(Duration::from_secs);
+    // Enable stdout capture for agent summary extraction
+    let result = process.wait_with_capture(timeout, on_log, true);
+
+    let duration_secs = start_time.elapsed().as_secs_f64();
+
+    match result {
+        Ok((exit_code, outcome, captured_stdout)) => Ok(AgentRunResult {
+            run_id: config.run_id,
+            exit_code,
+            status: outcome,
+            summary: None, // Will be filled in by caller
+            duration_secs,
+            captured_stdout,
+        }),
+        Err(SpawnError::Timeout(secs)) => Ok(AgentRunResult {
+            run_id: config.run_id,
+            exit_code: None,
+            status: RunOutcome::Timeout,
+            summary: Some(format!("Process timed out after {} seconds", secs)),
+            duration_secs,
+            captured_stdout: None,
+        }),
+        Err(SpawnError::Cancelled) => Ok(AgentRunResult {
+            run_id: config.run_id,
+            exit_code: None,
+            status: RunOutcome::Cancelled,
+            summary: Some("Process was cancelled".to_string()),
+            duration_secs,
+            captured_stdout: None,
+        }),
+        Err(e) => Err(e),
+    }
+}
+
+/// Run an agent with the given configuration, capturing stdout for multi-stage workflows
+pub fn run_agent_with_capture(
+    config: AgentRunConfig,
+    on_log: Option<Arc<LogCallback>>,
+    on_spawn: Option<OnSpawnCallback>,
+) -> Result<AgentRunResult, SpawnError> {
+    tracing::info!("=== run_agent_with_capture CALLED ===");
+    tracing::info!("Agent kind: {:?}, run_id: {}", config.kind, config.run_id);
+    let start_time = Instant::now();
+
+    let (command, args) = match config.kind {
+        AgentKind::Cursor => super::cursor::build_command(&config),
+        AgentKind::Claude => super::claude::build_command(&config),
+    };
+    
+    tracing::info!("Built command: {} {:?}", command, args);
 
     let env_vars = build_env_vars(&config);
     let env_refs: Vec<(&str, &str)> = env_vars
@@ -219,23 +343,23 @@ pub fn run_agent_with_cancel_callback(
         &env_refs,
     )?;
 
-    // Provide the cancel handle to the caller before we start waiting
     if let Some(callback) = on_spawn {
         callback(process.cancel_handle());
     }
 
     let timeout = config.timeout_secs.map(Duration::from_secs);
-    let result = process.wait_with_output(timeout, on_log);
+    let result = process.wait_with_capture(timeout, on_log, true);
 
     let duration_secs = start_time.elapsed().as_secs_f64();
 
     match result {
-        Ok((exit_code, outcome)) => Ok(AgentRunResult {
+        Ok((exit_code, outcome, captured_stdout)) => Ok(AgentRunResult {
             run_id: config.run_id,
             exit_code,
             status: outcome,
-            summary: None, // Will be filled in by hooks
+            summary: None,
             duration_secs,
+            captured_stdout,
         }),
         Err(SpawnError::Timeout(secs)) => Ok(AgentRunResult {
             run_id: config.run_id,
@@ -243,6 +367,7 @@ pub fn run_agent_with_cancel_callback(
             status: RunOutcome::Timeout,
             summary: Some(format!("Process timed out after {} seconds", secs)),
             duration_secs,
+            captured_stdout: None,
         }),
         Err(SpawnError::Cancelled) => Ok(AgentRunResult {
             run_id: config.run_id,
@@ -250,6 +375,7 @@ pub fn run_agent_with_cancel_callback(
             status: RunOutcome::Cancelled,
             summary: Some("Process was cancelled".to_string()),
             duration_secs,
+            captured_stdout: None,
         }),
         Err(e) => Err(e),
     }
@@ -291,6 +417,7 @@ mod tests {
             timeout_secs: Some(300),
             api_url: "http://localhost:7432".to_string(),
             api_token: "test-token".to_string(),
+            model: None,
         };
 
         let env_vars = build_env_vars(&config);
@@ -360,6 +487,7 @@ mod tests {
             timeout_secs: None,
             api_url: "http://x".to_string(),
             api_token: "tok".to_string(),
+            model: None,
         };
         let env_vars = build_env_vars(&config);
         assert_eq!(env_vars.len(), 5);

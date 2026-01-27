@@ -65,7 +65,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{CreateTicket, CreateRun, Priority, AgentType};
+    use crate::db::models::{CreateTicket, CreateRun, Priority, AgentType, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -86,12 +86,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         let event = db.create_event(&NormalizedEvent {

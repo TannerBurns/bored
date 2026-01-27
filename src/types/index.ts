@@ -52,6 +52,9 @@ export interface Column {
   wipLimit?: number;
 }
 
+// Note: 'basic' workflow has been removed - all tickets now use multi_stage
+export type WorkflowType = 'multi_stage';
+
 export interface Ticket {
   id: string;
   boardId: string;
@@ -66,6 +69,8 @@ export interface Ticket {
   lockExpiresAt?: Date;
   projectId?: string;
   agentPref?: 'cursor' | 'claude' | 'any';
+  workflowType?: WorkflowType;
+  model?: string;
 }
 
 export type ReadinessCheck =
@@ -97,6 +102,10 @@ export interface AgentRun {
   exitCode?: number;
   summaryMd?: string;
   metadata?: Record<string, unknown>;
+  /** For sub-runs: the parent run ID */
+  parentRunId?: string;
+  /** For sub-runs: the stage name (e.g., "branch", "plan", "implement", "deslop") */
+  stage?: string;
 }
 
 export interface AgentEvent {
@@ -137,6 +146,8 @@ export interface CreateTicketInput {
   columnId: string;
   projectId?: string;
   agentPref?: 'cursor' | 'claude' | 'any';
+  workflowType?: WorkflowType;
+  model?: string;
 }
 
 // Worker types

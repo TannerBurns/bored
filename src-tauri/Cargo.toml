@@ -47,6 +47,7 @@ futures = "0.3"
 
 # System utilities
 dirs = "5"
+regex = "1"
 
 [features]
 default = ["custom-protocol"]

@@ -19,6 +19,8 @@ interface BoardState {
   selectBoard: (boardId: string) => Promise<void>;
   loadBoardData: (boardId: string) => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
+  updateBoard: (boardId: string, name: string) => Promise<Board>;
+  deleteBoard: (boardId: string) => Promise<void>;
   createTicket: (input: CreateTicketInput) => Promise<Ticket>;
   updateTicket: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
   moveTicket: (ticketId: string, columnId: string, updatedAt?: Date) => Promise<void>;
@@ -92,7 +94,12 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   createBoard: async (name: string) => {
     if (isTauri()) {
       const board = await invoke<Board>('create_board', { name });
-      set((state) => ({ boards: [board, ...state.boards] }));
+      set((state) => ({ 
+        boards: [board, ...state.boards],
+        currentBoard: board,
+      }));
+      // Load the board data (columns come pre-created with the board)
+      await get().loadBoardData(board.id);
       return board;
     }
     const board: Board = {
@@ -101,8 +108,58 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    set((state) => ({ boards: [board, ...state.boards] }));
+    set((state) => ({ 
+      boards: [board, ...state.boards],
+      currentBoard: board,
+    }));
     return board;
+  },
+
+  updateBoard: async (boardId: string, name: string) => {
+    if (isTauri()) {
+      const updatedBoard = await invoke<Board>('update_board', { boardId, name });
+      set((state) => ({
+        boards: state.boards.map((b) => (b.id === boardId ? updatedBoard : b)),
+        currentBoard: state.currentBoard?.id === boardId ? updatedBoard : state.currentBoard,
+      }));
+      return updatedBoard;
+    }
+    // Demo mode
+    const updatedBoard: Board = {
+      ...get().boards.find((b) => b.id === boardId)!,
+      name,
+      updatedAt: new Date(),
+    };
+    set((state) => ({
+      boards: state.boards.map((b) => (b.id === boardId ? updatedBoard : b)),
+      currentBoard: state.currentBoard?.id === boardId ? updatedBoard : state.currentBoard,
+    }));
+    return updatedBoard;
+  },
+
+  deleteBoard: async (boardId: string) => {
+    if (isTauri()) {
+      await invoke('delete_board', { boardId });
+    }
+    
+    const { boards, currentBoard } = get();
+    const remainingBoards = boards.filter((b) => b.id !== boardId);
+    
+    // If we deleted the current board, switch to another one
+    let newCurrentBoard = currentBoard;
+    if (currentBoard?.id === boardId) {
+      newCurrentBoard = remainingBoards[0] || null;
+    }
+    
+    set({ boards: remainingBoards, currentBoard: newCurrentBoard });
+    
+    // Load the new current board's data if we switched
+    if (newCurrentBoard && newCurrentBoard.id !== currentBoard?.id) {
+      await get().loadBoardData(newCurrentBoard.id);
+    } else if (!newCurrentBoard) {
+      // No boards left, clear columns and tickets
+      set({ columns: [], tickets: [] });
+    }
   },
 
   createTicket: async (input: CreateTicketInput) => {
@@ -120,6 +177,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           labels: input.labels,
           projectId: input.projectId,
           agentPref: input.agentPref,
+          workflowType: input.workflowType,
+          model: input.model,
         },
       });
       set((state) => ({
@@ -138,6 +197,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       labels: input.labels,
       projectId: input.projectId,
       agentPref: input.agentPref,
+      workflowType: input.workflowType || 'multi_stage',
+      model: input.model,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

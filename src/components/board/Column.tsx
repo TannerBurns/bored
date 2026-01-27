@@ -16,7 +16,9 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
   });
 
   const ticketCount = tickets.length;
-  const isOverWipLimit = column.wipLimit !== undefined && ticketCount > column.wipLimit;
+  const wipLimit = column.wipLimit;
+  const hasWipLimit = wipLimit != null && wipLimit > 0;
+  const isOverWipLimit = hasWipLimit && ticketCount > wipLimit;
 
   return (
     <div
@@ -37,7 +39,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
             )}
           >
             {ticketCount}
-            {column.wipLimit !== undefined && `/${column.wipLimit}`}
+            {hasWipLimit && `/${wipLimit}`}
           </span>
         </div>
       </div>

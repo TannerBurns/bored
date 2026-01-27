@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref};
+use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType};
 use crate::agents::AgentKind;
 
 impl Database {
@@ -9,7 +9,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref
+                          lock_expires_at, project_id, agent_pref, workflow_type, model
                    FROM tickets WHERE id = ?"#
             )?;
             
@@ -30,7 +30,7 @@ impl Database {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
-                              lock_expires_at, project_id, agent_pref
+                              lock_expires_at, project_id, agent_pref, workflow_type, model
                        FROM tickets WHERE id = ?"#
                 )?;
                 stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -47,15 +47,27 @@ impl Database {
             let description_md = updates.description_md.as_ref().unwrap_or(&existing.description_md);
             let priority = updates.priority.as_ref().unwrap_or(&existing.priority);
             let labels = updates.labels.as_ref().unwrap_or(&existing.labels);
-            let project_id = updates.project_id.as_ref().or(existing.project_id.as_ref());
+            // Handle project_id: None means keep existing, Some("") means clear, Some(id) means set
+            let project_id = match &updates.project_id {
+                Some(id) if id.is_empty() => None, // Empty string means clear the project
+                Some(id) => Some(id.as_str()),
+                None => existing.project_id.as_deref(), // Keep existing
+            };
             let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
+            let workflow_type = updates.workflow_type.as_ref().unwrap_or(&existing.workflow_type);
+            // Handle model: None means keep existing, Some("") means clear, Some(value) means set
+            let model = match &updates.model {
+                Some(m) if m.is_empty() => None, // Empty string means clear the model
+                Some(m) => Some(m.as_str()),
+                None => existing.model.as_deref(), // Keep existing
+            };
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
 
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, agent_pref = ?, updated_at = ?
+                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -64,6 +76,8 @@ impl Database {
                     labels_json,
                     project_id,
                     agent_pref.map(|p| p.as_str()),
+                    workflow_type.as_str(),
+                    model,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -73,7 +87,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref
+                          lock_expires_at, project_id, agent_pref, workflow_type, model
                    FROM tickets WHERE id = ?"#
             )?;
             stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -217,7 +231,7 @@ impl Database {
             let ticket = tx.query_row(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref
+                          lock_expires_at, project_id, agent_pref, workflow_type, model
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
                 [run_id],
@@ -238,8 +252,8 @@ impl Database {
             conn.execute(
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
-                    created_at, updated_at, project_id, agent_pref)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    created_at, updated_at, project_id, agent_pref, workflow_type, model)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -252,6 +266,8 @@ impl Database {
                     now.to_rfc3339(),
                     ticket.project_id,
                     ticket.agent_pref.as_ref().map(|p| p.as_str()),
+                    ticket.workflow_type.as_str(),
+                    ticket.model,
                 ],
             )?;
 
@@ -269,6 +285,8 @@ impl Database {
                 lock_expires_at: None,
                 project_id: ticket.project_id.clone(),
                 agent_pref: ticket.agent_pref.clone(),
+                workflow_type: ticket.workflow_type.clone(),
+                model: ticket.model.clone(),
             })
         })
     }
@@ -279,13 +297,13 @@ impl Database {
                 Some(_) => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref
+                            lock_expires_at, project_id, agent_pref, workflow_type, model
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref
+                            lock_expires_at, project_id, agent_pref, workflow_type, model
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
             };
@@ -336,6 +354,11 @@ impl Database {
         
         let agent_pref_str: Option<String> = row.get(12)?;
         let agent_pref = agent_pref_str.and_then(|s| AgentPref::parse(&s));
+        
+        let workflow_type_str: String = row.get::<_, Option<String>>(13)?.unwrap_or_else(|| "basic".to_string());
+        let workflow_type = WorkflowType::parse(&workflow_type_str).unwrap_or_default();
+        
+        let model: Option<String> = row.get(14)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -351,6 +374,8 @@ impl Database {
             lock_expires_at: row.get::<_, Option<String>>(10)?.map(parse_datetime),
             project_id: row.get(11)?,
             agent_pref,
+            workflow_type,
+            model,
         })
     }
 }
@@ -382,6 +407,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         (board.id, ready_column.id.clone(), ticket)
@@ -402,12 +429,15 @@ mod tests {
             labels: vec!["bug".to_string()],
             project_id: None,
             agent_pref: Some(AgentPref::Cursor),
+            workflow_type: WorkflowType::MultiStage,
+            model: None,
         }).unwrap();
         
         assert_eq!(ticket.title, "Test Ticket");
         assert_eq!(ticket.priority, Priority::High);
         assert_eq!(ticket.labels, vec!["bug"]);
         assert_eq!(ticket.agent_pref, Some(AgentPref::Cursor));
+        assert_eq!(ticket.workflow_type, WorkflowType::MultiStage);
     }
 
     #[test]
@@ -425,6 +455,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let tickets = db.get_tickets(&board.id, None).unwrap();
@@ -446,6 +478,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         db.move_ticket(&ticket.id, &columns[1].id).unwrap();
@@ -477,6 +511,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
@@ -500,6 +536,8 @@ mod tests {
             labels: vec!["test".to_string()],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let fetched = db.get_ticket(&created.id).unwrap();
@@ -530,6 +568,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -539,6 +579,8 @@ mod tests {
             labels: None,
             project_id: None,
             agent_pref: None,
+            workflow_type: None,
+            model: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -556,8 +598,91 @@ mod tests {
             labels: None,
             project_id: None,
             agent_pref: None,
+            workflow_type: None,
+            model: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn update_ticket_clears_project_with_empty_string() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+        }).unwrap();
+        
+        assert_eq!(ticket.project_id, Some(project.id.clone()));
+        
+        let updated = db.update_ticket(&ticket.id, &UpdateTicket {
+            title: None,
+            description_md: None,
+            priority: None,
+            labels: None,
+            project_id: Some(String::new()), // Empty string clears project
+            agent_pref: None,
+            workflow_type: None,
+            model: None,
+        }).unwrap();
+        
+        assert_eq!(updated.project_id, None);
+    }
+
+    #[test]
+    fn update_ticket_keeps_project_when_none() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let project = db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: true,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+        }).unwrap();
+        
+        let updated = db.update_ticket(&ticket.id, &UpdateTicket {
+            title: Some("Updated Title".to_string()),
+            description_md: None,
+            priority: None,
+            labels: None,
+            project_id: None, // None means keep existing
+            agent_pref: None,
+            workflow_type: None,
+            model: None,
+        }).unwrap();
+        
+        assert_eq!(updated.project_id, Some(project.id));
+        assert_eq!(updated.title, "Updated Title");
     }
 
     #[test]
@@ -575,6 +700,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         db.delete_ticket(&ticket.id).unwrap();
@@ -605,6 +732,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -636,6 +765,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let initial_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -663,6 +794,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -687,6 +820,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -717,6 +852,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -762,6 +899,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -819,6 +958,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: Some(AgentPref::Claude),
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -856,6 +997,8 @@ mod tests {
             labels: vec![],
             project_id: Some(project.id.clone()),
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -886,6 +1029,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         // Create urgent ticket second
@@ -898,6 +1043,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -925,6 +1072,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: Some(AgentPref::Cursor),
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -955,6 +1104,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: Some(AgentPref::Any),
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -989,6 +1140,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);

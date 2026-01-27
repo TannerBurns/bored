@@ -114,6 +114,43 @@ impl Database {
                 )?;
             }
             
+            if current_version < 4 && current_version > 0 {
+                tracing::info!("Applying migration v4: workflow_type, parent_run_id, stage");
+                // Add columns one at a time to handle potential errors gracefully
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN workflow_type TEXT NOT NULL DEFAULT 'basic'",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE CASCADE",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE agent_runs ADD COLUMN stage TEXT",
+                    [],
+                );
+                let _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL",
+                    [],
+                );
+            }
+            
+            if current_version < 5 && current_version > 0 {
+                tracing::info!("Applying migration v5: model column for tickets");
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN model TEXT",
+                    [],
+                );
+            }
+            
+            if current_version < 6 && current_version > 0 {
+                tracing::info!("Applying migration v6: convert basic workflow to multi_stage");
+                let _ = conn.execute(
+                    "UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic'",
+                    [],
+                );
+            }
+            
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

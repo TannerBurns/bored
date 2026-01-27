@@ -1,6 +1,31 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Workflow type for ticket execution
+/// Note: Basic workflow has been removed - all tickets now use MultiStage
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowType {
+    #[default]
+    MultiStage,
+}
+
+impl WorkflowType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WorkflowType::MultiStage => "multi_stage",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            // Accept both for backward compatibility during migration
+            "basic" | "multi_stage" => Some(WorkflowType::MultiStage),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -140,6 +165,9 @@ pub struct Ticket {
     pub lock_expires_at: Option<DateTime<Utc>>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    #[serde(default)]
+    pub workflow_type: WorkflowType,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -171,7 +199,7 @@ pub struct Comment {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
     Cursor,
@@ -233,6 +261,10 @@ pub struct AgentRun {
     pub exit_code: Option<i32>,
     pub summary_md: Option<String>,
     pub metadata: Option<serde_json::Value>,
+    /// For sub-runs: the parent run ID
+    pub parent_run_id: Option<String>,
+    /// For sub-runs: the stage name (e.g., "branch", "plan", "implement", "deslop")
+    pub stage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -316,6 +348,9 @@ pub struct CreateTicket {
     pub labels: Vec<String>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    #[serde(default)]
+    pub workflow_type: WorkflowType,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,6 +359,12 @@ pub struct CreateRun {
     pub ticket_id: String,
     pub agent_type: AgentType,
     pub repo_path: String,
+    /// For sub-runs: the parent run ID
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
+    /// For sub-runs: the stage name
+    #[serde(default)]
+    pub stage: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,6 +385,8 @@ pub struct UpdateTicket {
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    pub workflow_type: Option<WorkflowType>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,6 +520,47 @@ mod tests {
         fn parse_unknown_returns_custom() {
             let parsed = EventType::parse("custom_event");
             assert_eq!(parsed, EventType::Custom("custom_event".to_string()));
+        }
+    }
+
+    mod workflow_type_tests {
+        use super::*;
+
+        #[test]
+        fn as_str_returns_snake_case() {
+            assert_eq!(WorkflowType::MultiStage.as_str(), "multi_stage");
+        }
+
+        #[test]
+        fn parse_valid_values() {
+            // Both "basic" and "multi_stage" parse to MultiStage for backward compatibility
+            assert_eq!(WorkflowType::parse("basic"), Some(WorkflowType::MultiStage));
+            assert_eq!(WorkflowType::parse("multi_stage"), Some(WorkflowType::MultiStage));
+        }
+
+        #[test]
+        fn parse_invalid_returns_none() {
+            assert_eq!(WorkflowType::parse(""), None);
+            assert_eq!(WorkflowType::parse("invalid"), None);
+            assert_eq!(WorkflowType::parse("BASIC"), None);
+        }
+
+        #[test]
+        fn default_is_multi_stage() {
+            assert_eq!(WorkflowType::default(), WorkflowType::MultiStage);
+        }
+
+        #[test]
+        fn roundtrip_as_str_parse() {
+            assert_eq!(WorkflowType::parse(WorkflowType::MultiStage.as_str()), Some(WorkflowType::MultiStage));
+        }
+
+        #[test]
+        fn serializes_to_snake_case() {
+            assert_eq!(
+                serde_json::to_string(&WorkflowType::MultiStage).unwrap(),
+                "\"multi_stage\""
+            );
         }
     }
 

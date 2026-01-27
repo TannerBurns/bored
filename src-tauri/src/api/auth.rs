@@ -31,9 +31,16 @@ pub async fn auth_middleware(
 
     match token {
         Some(t) if t == state.api_token => Ok(next.run(request).await),
-        Some(_) => {
+        Some(t) => {
+            // Log at debug level with full details, warn level with just the path
+            // This happens when Cursor IDE has cached stale hooks.json
+            tracing::debug!(
+                "Invalid API token: received '{}' expected '{}'",
+                t,
+                state.api_token
+            );
             tracing::warn!(
-                "Invalid API token provided for {} {}",
+                "Invalid API token for {} {} (see docs/guides/06-cursor-integration.md for troubleshooting)",
                 request.method(),
                 request.uri().path()
             );

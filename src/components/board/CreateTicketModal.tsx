@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settingsStore';
-import type { Column, Ticket, CreateTicketInput } from '../../types';
+import { getProjects } from '../../lib/tauri';
+import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 
 interface CreateTicketModalProps {
   columns: Column[];
@@ -25,8 +26,26 @@ export function CreateTicketModal({
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
   const [projectId, setProjectId] = useState('');
   const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>(defaultAgentPref);
+  const [model, setModel] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        setProjectsLoading(true);
+        const data = await getProjects();
+        setProjects(data);
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+    loadProjects();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +77,8 @@ export function CreateTicketModal({
         columnId,
         projectId: projectId || undefined,
         agentPref,
+        workflowType: 'multi_stage',
+        model: model || undefined,
       });
       
       onClose();
@@ -81,7 +102,7 @@ export function CreateTicketModal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black bg-opacity-50"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -228,6 +249,31 @@ export function CreateTicketModal({
               </select>
             </div>
 
+            {/* Model Selection */}
+            <div>
+              <label
+                htmlFor="model"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
+              >
+                AI Model
+              </label>
+              <select
+                id="model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              >
+                <option value="">Default (auto)</option>
+                <option value="opus-4.5">Opus 4.5</option>
+                <option value="sonnet-4.5">Sonnet 4.5</option>
+                <option value="sonnet-4">Sonnet 4</option>
+                <option value="haiku-4.5">Haiku 4.5</option>
+              </select>
+              <p className="mt-1 text-xs text-board-text-muted">
+                Select AI model for agent runs
+              </p>
+            </div>
+
             {/* Labels */}
             <div>
               <label
@@ -246,22 +292,28 @@ export function CreateTicketModal({
               />
             </div>
 
-            {/* Project ID */}
+            {/* Project */}
             <div>
               <label
                 htmlFor="projectId"
                 className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
-                Project ID
+                Project
               </label>
-              <input
+              <select
                 id="projectId"
-                type="text"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
-                placeholder="Optional project identifier"
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-              />
+                disabled={projectsLoading}
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border disabled:opacity-50"
+              >
+                <option value="">No project</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

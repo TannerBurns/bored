@@ -67,9 +67,15 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('denies Ready to In Progress (system only)', () => {
+    it('allows Ready to In Progress', () => {
       const ticket = makeTicket({ columnId: 'col-ready' });
       const result = validateTransition(ticket, columns, 'col-inprogress');
+      expect(result.valid).toBe(true);
+    });
+
+    it('denies Ready to Done', () => {
+      const ticket = makeTicket({ columnId: 'col-ready' });
+      const result = validateTransition(ticket, columns, 'col-done');
       expect(result.valid).toBe(false);
     });
   });
@@ -84,6 +90,12 @@ describe('validateTransition', () => {
     it('allows unlocked In Progress to Blocked', () => {
       const ticket = makeTicket({ columnId: 'col-inprogress' });
       const result = validateTransition(ticket, columns, 'col-blocked');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows unlocked In Progress to Review', () => {
+      const ticket = makeTicket({ columnId: 'col-inprogress' });
+      const result = validateTransition(ticket, columns, 'col-review');
       expect(result.valid).toBe(true);
     });
 
@@ -157,6 +169,18 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('allows Blocked to In Progress', () => {
+      const ticket = makeTicket({ columnId: 'col-blocked' });
+      const result = validateTransition(ticket, columns, 'col-inprogress');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows Blocked to Review', () => {
+      const ticket = makeTicket({ columnId: 'col-blocked' });
+      const result = validateTransition(ticket, columns, 'col-review');
+      expect(result.valid).toBe(true);
+    });
+
     it('denies Blocked to Done', () => {
       const ticket = makeTicket({ columnId: 'col-blocked' });
       const result = validateTransition(ticket, columns, 'col-done');
@@ -197,15 +221,21 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('allows Done to Backlog (reopen)', () => {
+      const ticket = makeTicket({ columnId: 'col-done' });
+      const result = validateTransition(ticket, columns, 'col-backlog');
+      expect(result.valid).toBe(true);
+    });
+
     it('denies Done to Ready', () => {
       const ticket = makeTicket({ columnId: 'col-done' });
       const result = validateTransition(ticket, columns, 'col-ready');
       expect(result.valid).toBe(false);
     });
 
-    it('denies Done to Backlog', () => {
+    it('denies Done to In Progress', () => {
       const ticket = makeTicket({ columnId: 'col-done' });
-      const result = validateTransition(ticket, columns, 'col-backlog');
+      const result = validateTransition(ticket, columns, 'col-inprogress');
       expect(result.valid).toBe(false);
     });
   });

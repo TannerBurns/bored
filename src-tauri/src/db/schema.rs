@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS tickets (
     locked_by_run_id TEXT,
     lock_expires_at TEXT,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-    agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any'))
+    agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
+    workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
+    model TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -103,11 +105,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     ended_at TEXT,
     exit_code INTEGER,
     summary_md TEXT,
-    metadata_json TEXT
+    metadata_json TEXT,
+    parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE CASCADE,
+    stage TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_ticket ON agent_runs(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 
 -- Agent events table (audit trail for hook events)
 CREATE TABLE IF NOT EXISTS agent_events (
@@ -155,6 +160,36 @@ CREATE TABLE IF NOT EXISTS repo_locks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_repo_locks_expires ON repo_locks(lock_expires_at);
+"#;
+
+/// Migration SQL for schema version 4
+/// Adds workflow_type to tickets, parent_run_id and stage to agent_runs
+pub const MIGRATION_V4: &str = r#"
+-- Add workflow_type column to tickets (defaults to 'basic' for backward compatibility)
+ALTER TABLE tickets ADD COLUMN workflow_type TEXT NOT NULL DEFAULT 'basic';
+
+-- Add parent_run_id column to agent_runs for sub-run tracking
+ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE CASCADE;
+
+-- Add stage column to agent_runs for tracking workflow stages
+ALTER TABLE agent_runs ADD COLUMN stage TEXT;
+
+-- Index for efficient sub-run queries
+CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+"#;
+
+/// Migration SQL for schema version 5
+/// Adds model column to tickets for per-ticket AI model selection
+pub const MIGRATION_V5: &str = r#"
+-- Add model column to tickets for AI model selection (e.g., 'claude-opus-4-5')
+ALTER TABLE tickets ADD COLUMN model TEXT;
+"#;
+
+/// Migration SQL for schema version 6
+/// Removes single-shot (basic) workflow - all tickets use multi_stage
+pub const MIGRATION_V6: &str = r#"
+-- Convert all 'basic' workflow types to 'multi_stage'
+UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic';
 "#;
 
 /// Default columns for a new board

@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State, Window};
 
-use crate::agents::{self, cursor, AgentKind, AgentRunConfig, LogLine, RunOutcome};
+use crate::agents::{self, cursor, AgentKind};
 use crate::agents::spawner::CancelHandle;
+use crate::agents::orchestrator::{WorkflowOrchestrator, OrchestratorConfig};
 use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
 use crate::db::Database;
 
@@ -36,7 +37,7 @@ fn get_hook_script_path(app: &AppHandle) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
-/// Update project hooks.json with run-specific configuration (run_id, api_url, api_token)
+/// Update project hooks with run-specific configuration (run_id, api_url, api_token)
 /// This ensures the hook script has access to the current run context
 fn update_project_hooks_for_run(
     repo_path: &std::path::Path,
@@ -44,15 +45,37 @@ fn update_project_hooks_for_run(
     api_url: &str,
     api_token: &str,
     run_id: &str,
+    agent_kind: AgentKind,
 ) -> Result<(), String> {
-    cursor::install_hooks_with_run_id(
-        repo_path,
-        hook_script_path,
-        Some(api_url),
-        Some(api_token),
-        Some(run_id),
-    )
-    .map_err(|e| format!("Failed to update hooks.json: {}", e))
+    tracing::debug!(
+        "Updating project hooks: run_id={}, api_url={}, token_prefix={}...",
+        run_id,
+        api_url,
+        &api_token.chars().take(8).collect::<String>()
+    );
+    
+    match agent_kind {
+        AgentKind::Cursor => {
+            cursor::install_hooks_with_run_id(
+                repo_path,
+                hook_script_path,
+                Some(api_url),
+                Some(api_token),
+                Some(run_id),
+            )
+            .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e))
+        }
+        AgentKind::Claude => {
+            agents::claude::install_local_hooks_with_run_id(
+                repo_path,
+                hook_script_path,
+                Some(api_url),
+                Some(api_token),
+                Some(run_id),
+            )
+            .map_err(|e| format!("Failed to update Claude settings.local.json: {}", e))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,12 +120,17 @@ pub async fn start_agent_run(
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
 ) -> Result<String, String> {
-    tracing::info!("Starting {} agent run for ticket: {}", agent_type, ticket_id);
+    tracing::info!("=== START_AGENT_RUN CALLED ===");
+    tracing::info!("Agent type: {}, Ticket ID: {}, Repo path: {}", agent_type, ticket_id, repo_path);
 
-    let (db_agent_type, agent_kind) = match agent_type.as_str() {
-        "cursor" => (AgentType::Cursor, AgentKind::Cursor),
-        "claude" => (AgentType::Claude, AgentKind::Claude),
+    let agent_kind = match agent_type.as_str() {
+        "cursor" => AgentKind::Cursor,
+        "claude" => AgentKind::Claude,
         _ => return Err(format!("Invalid agent type: {}", agent_type)),
+    };
+    let db_agent_type = match agent_kind {
+        AgentKind::Cursor => AgentType::Cursor,
+        AgentKind::Claude => AgentType::Claude,
     };
 
     let ticket = db
@@ -114,10 +142,63 @@ pub async fn start_agent_run(
             ticket_id: ticket_id.clone(),
             agent_type: db_agent_type,
             repo_path: repo_path.clone(),
+            parent_run_id: None,
+            stage: None,
         })
         .map_err(|e| format!("Failed to create run: {}", e))?;
 
     let run_id = run.id.clone();
+    
+    // Lock the ticket with a 30-minute expiration (same as worker default)
+    // This ensures the cleanup service can release stale locks
+    let lock_expires_at = chrono::Utc::now() + chrono::Duration::minutes(30);
+    db.lock_ticket(&ticket_id, &run_id, lock_expires_at)
+        .map_err(|e| format!("Failed to lock ticket: {}", e))?;
+    tracing::info!("Locked ticket {} with run {} until {}", ticket_id, run_id, lock_expires_at);
+
+    // Create a git worktree for isolated agent execution
+    // This allows multiple agents to work on the same project in parallel
+    let worktree_info = {
+        use agents::worktree::{create_worktree, WorktreeConfig, generate_branch_name};
+        
+        let branch_name = generate_branch_name(&ticket_id, &ticket.title);
+        let config = WorktreeConfig {
+            repo_path: std::path::PathBuf::from(&repo_path),
+            branch_name: branch_name.clone(),
+            run_id: run_id.clone(),
+            base_dir: None, // Use default temp directory
+        };
+        
+        match create_worktree(&config) {
+            Ok(info) => {
+                tracing::info!(
+                    "Created worktree for run {} at {} on branch {}",
+                    run_id,
+                    info.path.display(),
+                    info.branch_name
+                );
+                Some(info)
+            }
+            Err(e) => {
+                // If worktree creation fails, fall back to using the main repo
+                // This handles non-git directories or other edge cases
+                tracing::warn!(
+                    "Failed to create worktree, falling back to main repo: {}",
+                    e
+                );
+                None
+            }
+        }
+    };
+    
+    // Use worktree path if available, otherwise fall back to main repo
+    let working_path = worktree_info
+        .as_ref()
+        .map(|w| w.path.clone())
+        .unwrap_or_else(|| std::path::PathBuf::from(&repo_path));
+    let working_path_str = working_path.to_string_lossy().to_string();
+    
+    tracing::info!("Agent will work in: {}", working_path_str);
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", 
@@ -126,17 +207,21 @@ pub async fn start_agent_run(
     let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
         .unwrap_or_else(|_| "default-token".to_string());
 
-    // Update project hooks.json with run-specific configuration
-    // This ensures the hook script receives AGENT_KANBAN_RUN_ID and API credentials
+    // Get hook script path for updating project hooks
     let app_handle = window.app_handle();
-    if let Some(hook_script_path) = get_hook_script_path(&app_handle) {
-        let repo_path_buf = std::path::PathBuf::from(&repo_path);
+    let hook_script_path = get_hook_script_path(&app_handle);
+    
+    // Update project hooks with run-specific configuration
+    // This ensures the hook script receives AGENT_KANBAN_RUN_ID and API credentials
+    // Install hooks in the working directory (worktree or main repo)
+    if let Some(ref hook_path) = hook_script_path {
         if let Err(e) = update_project_hooks_for_run(
-            &repo_path_buf,
-            &hook_script_path,
+            &working_path,
+            hook_path,
             &api_url,
             &api_token,
             &run_id,
+            agent_kind,
         ) {
             tracing::warn!("Failed to update project hooks: {}", e);
             // Continue anyway - hooks might already be configured or not needed
@@ -145,141 +230,141 @@ pub async fn start_agent_run(
         tracing::warn!("Could not determine hook script path, hooks may not track this run");
     }
 
-    let prompt = agents::prompt::generate_ticket_prompt(&ticket);
-
-    let config = AgentRunConfig {
-        kind: agent_kind,
-        ticket_id: ticket_id.clone(),
-        run_id: run_id.clone(),
-        repo_path: std::path::PathBuf::from(&repo_path),
-        prompt,
-        timeout_secs: Some(3600), // 1 hour default
-        api_url,
-        api_token,
-    };
+    // All tickets now use multi-stage workflow
+    tracing::info!("Workflow type: {:?}, run_id: {}, working_path: {}", ticket.workflow_type, run_id, working_path.display());
 
     let db_clone = db.inner().clone();
     let run_id_for_task = run_id.clone();
-    let run_id_for_cleanup = run_id.clone();
+    let ticket_id_for_task = ticket_id.clone();
     let window_clone = window.clone();
+    
+    // Store original repo path for worktree cleanup
+    let main_repo_path = std::path::PathBuf::from(&repo_path);
 
     // Clone the Arc<Mutex<HashMap>> so we can move it into the async task
     let running_agents_handles = running_agents.handles.clone();
 
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
-        {
-            tracing::error!("Failed to update run status: {}", e);
-        }
+    // Execute multi-stage workflow
+    {
+        let ticket_for_orchestrator = ticket.clone();
+        let api_url_for_orchestrator = api_url.clone();
+        let api_token_for_orchestrator = api_token.clone();
+        let hook_script_path_for_orchestrator = hook_script_path.clone();
+        let cancel_handles_for_orchestrator = running_agents_handles.clone();
+        let worktree_for_cleanup = worktree_info.clone();
+        let main_repo_for_cleanup = main_repo_path.clone();
+        
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None) {
+                tracing::error!("Failed to update run status: {}", e);
+            }
 
-        let window_for_logs = window_clone.clone();
-        let run_id_for_logs = run_id_for_task.clone();
-        let on_log: Arc<agents::LogCallback> = Arc::new(Box::new(move |log: LogLine| {
-            let event = AgentLogEvent {
-                run_id: run_id_for_logs.clone(),
-                stream: match log.stream {
-                    agents::LogStream::Stdout => "stdout".to_string(),
-                    agents::LogStream::Stderr => "stderr".to_string(),
-                },
-                content: log.content,
-                timestamp: log.timestamp.to_rfc3339(),
-            };
-            let _ = window_for_logs.emit("agent-log", event);
-        }));
+            // Clone for cleanup after orchestrator takes ownership
+            let cancel_handles_for_cleanup = cancel_handles_for_orchestrator.clone();
+            
+            // Use the working path (worktree if created, otherwise main repo)
+            let orchestrator_working_path = worktree_for_cleanup
+                .as_ref()
+                .map(|w| w.path.clone())
+                .unwrap_or_else(|| main_repo_for_cleanup.clone());
+            
+            let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
+                db: db_clone.clone(),
+                window: Some(window_clone.clone()),
+                app_handle: None, // Direct runs use Window for event emission
+                parent_run_id: run_id_for_task.clone(),
+                ticket: ticket_for_orchestrator,
+                repo_path: orchestrator_working_path,
+                agent_kind,
+                api_url: api_url_for_orchestrator,
+                api_token: api_token_for_orchestrator,
+                hook_script_path: hook_script_path_for_orchestrator,
+                cancel_handles: cancel_handles_for_orchestrator,
+                worktree_branch: worktree_for_cleanup.as_ref().map(|w| w.branch_name.clone()),
+            });
 
-        let config_clone = config.clone();
-        let on_log_clone = on_log.clone();
+            // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
+            tracing::info!("Starting multi-stage workflow execution for run {}", run_id_for_task);
+            let start_time = std::time::Instant::now();
+            let result = orchestrator.execute().await;
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            
+            tracing::info!("Multi-stage workflow execution completed for run {} in {:.1}s, result: {:?}", 
+                run_id_for_task, duration_secs, result.is_ok());
 
-        // Clone handles for use in the spawn callback
-        let handles_for_spawn = running_agents_handles.clone();
-        let run_id_for_spawn = run_id_for_task.clone();
+            // Clean up cancel handles for the parent run
+            {
+                let mut handles = cancel_handles_for_cleanup.lock().expect("cancel handles mutex poisoned");
+                handles.remove(&run_id_for_task);
+            }
 
-        // Create the callback to store the cancel handle when the process spawns
-        let on_spawn: agents::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
-            handles_for_spawn
-                .lock()
-                .expect("running agents mutex poisoned")
-                .insert(run_id_for_spawn.clone(), cancel_handle);
+            // Update parent run status based on result
+            match result {
+                Ok(()) => {
+                    tracing::info!("Updating parent run {} status to Finished", run_id_for_task);
+                    if let Err(e) = db_clone.update_run_status(
+                        &run_id_for_task,
+                        RunStatus::Finished,
+                        Some(0),
+                        Some("Multi-stage workflow completed successfully"),
+                    ) {
+                        tracing::error!("Failed to update run status to Finished: {}", e);
+                    } else {
+                        tracing::info!("Successfully updated parent run {} status to Finished", run_id_for_task);
+                    }
+                    
+                    let event = AgentCompleteEvent {
+                        run_id: run_id_for_task.clone(),
+                        status: "finished".to_string(),
+                        exit_code: Some(0),
+                        duration_secs,
+                    };
+                    if let Err(e) = window_clone.emit("agent-complete", &event) {
+                        tracing::error!("Failed to emit agent-complete event: {}", e);
+                    } else {
+                        tracing::info!("Emitted agent-complete event for run {}", run_id_for_task);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Multi-stage workflow failed for run {}: {}", run_id_for_task, e);
+                    if let Err(db_err) = db_clone.update_run_status(
+                        &run_id_for_task,
+                        RunStatus::Error,
+                        None,
+                        Some(&format!("Multi-stage workflow failed: {}", e)),
+                    ) {
+                        tracing::error!("Failed to update run status to Error: {}", db_err);
+                    }
+                    
+                    let event = AgentErrorEvent {
+                        run_id: run_id_for_task.clone(),
+                        error: e,
+                    };
+                    if let Err(emit_err) = window_clone.emit("agent-error", &event) {
+                        tracing::error!("Failed to emit agent-error event: {}", emit_err);
+                    }
+                }
+            }
+
+            // Unlock the ticket
+            tracing::info!("Unlocking ticket {} after multi-stage workflow", ticket_id_for_task);
+            if let Err(e) = db_clone.unlock_ticket(&ticket_id_for_task) {
+                tracing::error!("Failed to unlock ticket: {}", e);
+            } else {
+                tracing::info!("Successfully unlocked ticket {}", ticket_id_for_task);
+            }
+            
+            // Clean up the worktree if we created one
+            if let Some(ref worktree) = worktree_for_cleanup {
+                use agents::worktree::remove_worktree;
+                if let Err(e) = remove_worktree(&worktree.path, &main_repo_for_cleanup) {
+                    tracing::error!("Failed to remove worktree {}: {}", worktree.path.display(), e);
+                } else {
+                    tracing::info!("Removed worktree at {}", worktree.path.display());
+                }
+            }
         });
-
-        let result = tokio::task::spawn_blocking(move || {
-            agents::spawner::run_agent_with_cancel_callback(
-                config_clone,
-                Some(on_log_clone),
-                Some(on_spawn),
-            )
-        })
-        .await;
-
-        // Clean up the cancel handle now that the run is complete
-        running_agents_handles
-            .lock()
-            .expect("running agents mutex poisoned")
-            .remove(&run_id_for_cleanup);
-
-        match result {
-            Ok(Ok(agent_result)) => {
-                let status = match agent_result.status {
-                    RunOutcome::Success => RunStatus::Finished,
-                    RunOutcome::Error => RunStatus::Error,
-                    RunOutcome::Timeout => RunStatus::Error,
-                    RunOutcome::Cancelled => RunStatus::Aborted,
-                };
-                let status_str = status.as_str().to_string();
-
-                if let Err(e) = db_clone.update_run_status(
-                    &agent_result.run_id,
-                    status,
-                    agent_result.exit_code,
-                    agent_result.summary.as_deref(),
-                ) {
-                    tracing::error!("Failed to update run status: {}", e);
-                }
-
-                let event = AgentCompleteEvent {
-                    run_id: agent_result.run_id,
-                    status: status_str,
-                    exit_code: agent_result.exit_code,
-                    duration_secs: agent_result.duration_secs,
-                };
-                let _ = window_clone.emit("agent-complete", event);
-            }
-            Ok(Err(e)) => {
-                tracing::error!("Agent run failed: {}", e);
-                if let Err(db_err) = db_clone.update_run_status(
-                    &run_id_for_task,
-                    RunStatus::Error,
-                    None,
-                    Some(&e.to_string()),
-                ) {
-                    tracing::error!("Failed to update run status: {}", db_err);
-                }
-
-                let event = AgentErrorEvent {
-                    run_id: run_id_for_task,
-                    error: e.to_string(),
-                };
-                let _ = window_clone.emit("agent-error", event);
-            }
-            Err(e) => {
-                tracing::error!("Task join error: {}", e);
-                if let Err(db_err) = db_clone.update_run_status(
-                    &run_id_for_task,
-                    RunStatus::Error,
-                    None,
-                    Some(&e.to_string()),
-                ) {
-                    tracing::error!("Failed to update run status: {}", db_err);
-                }
-
-                let event = AgentErrorEvent {
-                    run_id: run_id_for_task,
-                    error: e.to_string(),
-                };
-                let _ = window_clone.emit("agent-error", event);
-            }
-        }
-    });
+    }
 
     Ok(run_id)
 }
@@ -304,7 +389,33 @@ pub async fn cancel_agent_run(
 
     // Update the status in the database
     db.update_run_status(&run_id, RunStatus::Aborted, None, Some("Cancelled by user"))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    
+    // Also unlock any ticket that was locked by this run
+    // We need to find the ticket first
+    if let Ok(run) = db.get_run(&run_id) {
+        if let Err(e) = db.unlock_ticket(&run.ticket_id) {
+            tracing::warn!("Failed to unlock ticket after cancel: {}", e);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Clean up stale runs that are stuck in "Running" status
+/// This is useful for runs that crashed or were interrupted without proper cleanup
+#[tauri::command]
+pub async fn cleanup_stale_runs(
+    db: State<'_, Arc<Database>>,
+) -> Result<u32, String> {
+    tracing::info!("Cleaning up stale runs");
+    
+    // Find all runs with status "running" and mark them as aborted
+    let count = db.cleanup_stale_running_status()
+        .map_err(|e| format!("Failed to cleanup stale runs: {}", e))?;
+    
+    tracing::info!("Cleaned up {} stale runs", count);
+    Ok(count)
 }
 
 #[tauri::command]
@@ -314,6 +425,16 @@ pub async fn get_agent_runs(
 ) -> Result<Vec<AgentRun>, String> {
     tracing::info!("Getting agent runs for ticket: {}", ticket_id);
     db.get_runs(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_recent_runs(
+    limit: Option<u32>,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<AgentRun>, String> {
+    let limit = limit.unwrap_or(50);
+    tracing::info!("Getting recent {} agent runs", limit);
+    db.get_recent_runs(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

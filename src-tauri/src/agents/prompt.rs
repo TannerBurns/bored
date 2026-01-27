@@ -147,12 +147,235 @@ Your actions are being tracked via hooks. The board will be automatically update
     )
 }
 
+// ===== Multi-Stage Workflow Prompt Generators =====
+
+/// Generate a prompt for the branch creation stage
+pub fn generate_branch_prompt(ticket: &Ticket) -> String {
+    let id_prefix: String = ticket.id.chars().take(8).collect();
+    let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
+    
+    format!(
+        r#"Create a new git branch for this task.
+
+## Task
+Create and switch to a new branch: `{branch_name}`
+
+## Instructions
+1. Check if you're on a clean working tree (stash changes if needed)
+2. Fetch the latest from the remote
+3. Create the branch from the main/master branch
+4. Push the branch to origin with -u flag
+
+Do NOT start implementing any code changes. Just create the branch.
+"#
+    )
+}
+
+/// Generate a prompt to ask the agent what branch was created
+pub fn generate_get_branch_name_prompt() -> String {
+    r#"What is the exact name of the git branch you just created?
+
+Reply with ONLY the branch name on a single line, nothing else.
+For example: ticket/abc12345/add-feature
+"#.to_string()
+}
+
+/// Generate a prompt for the planning stage
+pub fn generate_plan_prompt(ticket: &Ticket) -> String {
+    let mut prompt = String::new();
+    
+    prompt.push_str("Create an implementation plan for this task.\n\n");
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+    
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Description\n\n");
+        prompt.push_str(&ticket.description_md);
+        prompt.push_str("\n\n");
+    }
+    
+    let priority_context = match ticket.priority {
+        Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
+        Priority::High => "This is a high-priority task.",
+        Priority::Medium => "",
+        Priority::Low => "This is a low-priority task. Plan thoroughly.",
+    };
+
+    if !priority_context.is_empty() {
+        prompt.push_str(&format!("{}\n\n", priority_context));
+    }
+    
+    if !ticket.labels.is_empty() {
+        prompt.push_str("## Labels\n\n");
+        for label in &ticket.labels {
+            prompt.push_str(&format!("- {}\n", label));
+        }
+        prompt.push('\n');
+    }
+    
+    prompt.push_str(r#"## Instructions
+
+1. Analyze the task requirements
+2. Identify the files that need to be modified or created
+3. Break down the implementation into numbered steps
+4. Consider edge cases and potential issues
+5. Output a clear, actionable plan
+
+Format your plan as:
+```
+## Implementation Plan
+
+### Files to Modify
+- file1.rs - reason
+- file2.ts - reason
+
+### Steps
+1. Step description
+2. Step description
+...
+
+### Testing Strategy
+- How to verify the implementation works
+```
+
+Do NOT implement any code. Just create the plan.
+"#);
+    
+    prompt
+}
+
+/// Generate a prompt for the implementation stage
+pub fn generate_implement_prompt(ticket: &Ticket, plan: &str) -> String {
+    let mut prompt = String::new();
+    
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+    
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Description\n\n");
+        prompt.push_str(&ticket.description_md);
+        prompt.push_str("\n\n");
+    }
+    
+    prompt.push_str("## Implementation Plan\n\n");
+    prompt.push_str(plan);
+    prompt.push_str("\n\n");
+    
+    prompt.push_str(r#"## Instructions
+
+Execute the implementation plan above. For each step:
+1. Make the necessary code changes
+2. Verify the changes compile/pass type checking
+3. Move to the next step
+
+Focus on implementing the plan. Do NOT:
+- Run the full QA sequence (that comes in the next stages)
+- Commit changes (that comes later)
+- Add tests (that comes in a separate stage)
+
+Just implement the core functionality as described in the plan.
+"#);
+    
+    prompt
+}
+
+/// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
+pub fn generate_command_prompt(command: &str, repo_path: &std::path::Path) -> String {
+    // Try to read the command file content
+    let cursor_cmd_path = repo_path.join(".cursor/rules").join(format!("{}.md", command));
+    let claude_cmd_path = repo_path.join(".claude/commands").join(format!("{}.md", command));
+    
+    let cmd_content = std::fs::read_to_string(&cursor_cmd_path)
+        .or_else(|_| std::fs::read_to_string(&claude_cmd_path))
+        .ok();
+    
+    if let Some(content) = cmd_content {
+        format!(
+            r#"Execute the following command: /{command}
+
+## Command Instructions
+
+{content}
+
+Execute these instructions carefully. When complete, report what was done.
+"#
+        )
+    } else {
+        // Fallback prompts if command file not found
+        match command {
+            "deslop" => r#"Execute the /deslop command:
+
+Remove AI-generated code patterns:
+- Unnecessary comments explaining obvious code
+- Overly verbose or redundant code
+- Placeholder TODOs that should be resolved
+- Defensive code that's not actually needed
+
+Focus on making the code clean and production-ready.
+"#.to_string(),
+            
+            "cleanup" => r#"Execute the /cleanup command:
+
+Fix all linting and type errors:
+1. Run the linter and fix any issues
+2. Run type checking and fix any errors
+3. Ensure all imports are correct
+4. Fix any formatting issues
+
+Report any issues that couldn't be automatically fixed.
+"#.to_string(),
+            
+            "unit-tests" => r#"Execute the /unit-tests command:
+
+Add test coverage for the recent changes:
+1. Identify the new or modified code
+2. Create unit tests covering the main functionality
+3. Test edge cases and error conditions
+4. Ensure tests pass
+
+Focus on meaningful tests that verify behavior, not just coverage.
+"#.to_string(),
+            
+            "review-changes" => r#"Execute the /review-changes command:
+
+Review all recent changes:
+1. Check for code quality issues
+2. Verify the implementation matches requirements
+3. Look for potential bugs or edge cases
+4. Ensure consistent style and patterns
+
+Make any necessary improvements.
+"#.to_string(),
+            
+            "add-and-commit" => r#"Execute the /add-and-commit command:
+
+Stage and commit all changes:
+1. Review what will be committed
+2. Stage all relevant files
+3. Create a detailed commit message describing:
+   - What was changed
+   - Why it was changed
+   - Any notable implementation decisions
+
+Use conventional commit format if the project uses it.
+"#.to_string(),
+            
+            _ => format!(
+                r#"Execute the /{command} command:
+
+Follow the project's conventions for this command.
+If a command file exists at .cursor/rules/{command}.md or .claude/commands/{command}.md, follow those instructions.
+"#
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
 
     fn create_test_ticket() -> Ticket {
+        use crate::db::models::WorkflowType;
         Ticket {
             id: "ticket-1".to_string(),
             board_id: "board-1".to_string(),
@@ -167,6 +390,8 @@ mod tests {
             lock_expires_at: None,
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }
     }
 

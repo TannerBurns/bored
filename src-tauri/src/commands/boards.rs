@@ -26,3 +26,22 @@ pub async fn create_board(
     tracing::info!("Creating board: {}", name);
     db.create_board(&name).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn update_board(
+    board_id: String,
+    name: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Board, String> {
+    tracing::info!("Updating board {}: name={}", board_id, name);
+    db.update_board(&board_id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_board(
+    board_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Deleting board: {}", board_id);
+    db.delete_board(&board_id).map_err(|e| e.to_string())
+}

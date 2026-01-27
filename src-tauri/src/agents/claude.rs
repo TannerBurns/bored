@@ -18,9 +18,35 @@ fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Map normalized model name to Claude Code format
+/// e.g., "opus-4.5" -> "claude-opus-4-5"
+fn map_model_for_claude(model: &str) -> String {
+    match model {
+        "opus-4.5" => "claude-opus-4-5".to_string(),
+        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+        "sonnet-4" => "claude-sonnet-4".to_string(),
+        "haiku-4.5" => "claude-haiku-4-5".to_string(),
+        other => other.to_string(),
+    }
+}
+
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
-    let args = vec!["-p".to_string(), config.prompt.clone()];
+    let mut args = vec![
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--dangerously-skip-permissions".to_string(),
+    ];
+    
+    if let Some(ref model) = config.model {
+        args.push("--model".to_string());
+        args.push(map_model_for_claude(model));
+    }
+    
+    args.push("-p".to_string());
+    args.push(config.prompt.clone());
+    
     (command, args)
 }
 
@@ -246,14 +272,38 @@ pub fn local_settings_path(project: &Path) -> PathBuf {
     project.join(".claude").join("settings.local.json")
 }
 
+/// Check if a settings file contains hooks configuration
+fn settings_file_has_hooks(path: &Path) -> bool {
+    if !path.exists() {
+        return false;
+    }
+    
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(json) => {
+                    // Check if "hooks" key exists and is not empty
+                    json.get("hooks")
+                        .and_then(|h| h.as_object())
+                        .map(|obj| !obj.is_empty())
+                        .unwrap_or(false)
+                }
+                Err(_) => false,
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 pub fn check_global_hooks_installed() -> bool {
     user_settings_path()
-        .map(|p| p.exists())
+        .map(|p| settings_file_has_hooks(&p))
         .unwrap_or(false)
 }
 
 pub fn check_project_hooks_installed(project: &Path) -> bool {
-    project_settings_path(project).exists() || local_settings_path(project).exists()
+    settings_file_has_hooks(&project_settings_path(project)) 
+        || settings_file_has_hooks(&local_settings_path(project))
 }
 
 pub const COMMAND_TEMPLATES: &[&str] = &[
@@ -453,6 +503,17 @@ pub fn install_local_hooks(
     api_url: Option<&str>,
     api_token: Option<&str>,
 ) -> std::io::Result<()> {
+    install_local_hooks_with_run_id(project, hook_script_path, api_url, api_token, None)
+}
+
+/// Install hooks to project's .claude/settings.local.json with run_id support
+pub fn install_local_hooks_with_run_id(
+    project: &Path,
+    hook_script_path: &str,
+    api_url: Option<&str>,
+    api_token: Option<&str>,
+    run_id: Option<&str>,
+) -> std::io::Result<()> {
     let claude_dir = project.join(".claude");
     std::fs::create_dir_all(&claude_dir)?;
 
@@ -465,7 +526,13 @@ pub fn install_local_hooks(
         serde_json::json!({})
     };
 
-    let hooks = generate_hooks_settings_with_api(hook_script_path, api_url, api_token);
+    let hooks = generate_hooks_settings_with_config(HooksConfig {
+        hook_script_path,
+        api_url,
+        api_token,
+        run_id,
+        ticket_id: None,
+    });
     if let Some(obj) = settings.as_object_mut() {
         obj.insert("hooks".to_string(), hooks["hooks"].clone());
     }
@@ -495,6 +562,7 @@ mod tests {
             timeout_secs: Some(300),
             api_url: "http://localhost:7432".to_string(),
             api_token: "token".to_string(),
+            model: None,
         }
     }
 
@@ -511,6 +579,56 @@ mod tests {
         let (_, args) = build_command(&config);
         assert!(args.contains(&"-p".to_string()));
         assert!(args.contains(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_prompt_immediately_follows_p_flag() {
+        // The -p flag must be immediately followed by the prompt value,
+        // otherwise -p will consume the next flag (like --output-format) as its argument
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        
+        let p_index = args.iter().position(|a| a == "-p").expect("-p flag must be present");
+        let prompt_index = args.iter().position(|a| a == "Test prompt").expect("prompt must be present");
+        
+        assert_eq!(prompt_index, p_index + 1, "-p must be immediately followed by the prompt");
+    }
+
+    #[test]
+    fn build_command_includes_model_when_specified() {
+        let mut config = create_test_config();
+        config.model = Some("opus-4.5".to_string());
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--model".to_string()));
+        // Model should be mapped to Claude format
+        assert!(args.contains(&"claude-opus-4-5".to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_maps_model_names_correctly() {
+        let test_cases = [
+            ("opus-4.5", "claude-opus-4-5"),
+            ("sonnet-4.5", "claude-sonnet-4-5"),
+            ("sonnet-4", "claude-sonnet-4"),
+            ("haiku-4.5", "claude-haiku-4-5"),
+            ("unknown-model", "unknown-model"), // Pass through unknown
+        ];
+        
+        for (input, expected) in test_cases {
+            let mut config = create_test_config();
+            config.model = Some(input.to_string());
+            let (_, args) = build_command(&config);
+            assert!(args.contains(&expected.to_string()), 
+                "Expected {} to be mapped to {}", input, expected);
+        }
+    }
+
+    #[test]
+    fn build_command_no_model_when_none() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(!args.contains(&"--model".to_string()));
     }
 
     #[test]

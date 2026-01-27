@@ -90,6 +90,106 @@ describe('useBoardStore', () => {
       expect(boards[0]).toEqual(newBoard);
       expect(boards[1]).toEqual(mockBoard);
     });
+
+    it('sets new board as currentBoard', async () => {
+      useBoardStore.getState().setBoards([mockBoard]);
+      useBoardStore.setState({ currentBoard: mockBoard });
+      const newBoard = await useBoardStore.getState().createBoard('New Board');
+      expect(useBoardStore.getState().currentBoard).toEqual(newBoard);
+    });
+  });
+
+  describe('updateBoard', () => {
+    it('updates board name in demo mode', async () => {
+      useBoardStore.getState().setBoards([mockBoard]);
+      const updated = await useBoardStore.getState().updateBoard('board-1', 'Renamed Board');
+      expect(updated.name).toBe('Renamed Board');
+      expect(updated.id).toBe('board-1');
+    });
+
+    it('updates board in boards list', async () => {
+      useBoardStore.getState().setBoards([mockBoard]);
+      await useBoardStore.getState().updateBoard('board-1', 'Renamed Board');
+      expect(useBoardStore.getState().boards[0].name).toBe('Renamed Board');
+    });
+
+    it('does not modify other boards', async () => {
+      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      useBoardStore.getState().setBoards([mockBoard, board2]);
+      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
+      expect(useBoardStore.getState().boards[1].name).toBe('Board 2');
+    });
+
+    it('updates currentBoard if it matches', async () => {
+      useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
+      expect(useBoardStore.getState().currentBoard?.name).toBe('Renamed');
+    });
+
+    it('does not update currentBoard if it does not match', async () => {
+      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: board2 });
+      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
+      expect(useBoardStore.getState().currentBoard?.name).toBe('Board 2');
+    });
+
+    it('sets updatedAt to current date', async () => {
+      useBoardStore.getState().setBoards([mockBoard]);
+      const before = new Date();
+      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
+      const after = new Date();
+      const updatedAt = useBoardStore.getState().boards[0].updatedAt;
+      expect(updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+      expect(updatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+    });
+  });
+
+  describe('deleteBoard', () => {
+    it('removes board from boards list', async () => {
+      useBoardStore.getState().setBoards([mockBoard]);
+      await useBoardStore.getState().deleteBoard('board-1');
+      expect(useBoardStore.getState().boards).toHaveLength(0);
+    });
+
+    it('does not modify other boards', async () => {
+      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      useBoardStore.setState({ boards: [mockBoard, board2] });
+      await useBoardStore.getState().deleteBoard('board-1');
+      expect(useBoardStore.getState().boards).toHaveLength(1);
+      expect(useBoardStore.getState().boards[0].id).toBe('board-2');
+    });
+
+    it('switches to another board when deleting currentBoard', async () => {
+      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: mockBoard });
+      await useBoardStore.getState().deleteBoard('board-1');
+      expect(useBoardStore.getState().currentBoard?.id).toBe('board-2');
+    });
+
+    it('sets currentBoard to null when deleting last board', async () => {
+      useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      await useBoardStore.getState().deleteBoard('board-1');
+      expect(useBoardStore.getState().currentBoard).toBeNull();
+    });
+
+    it('clears columns and tickets when no boards remain', async () => {
+      useBoardStore.setState({
+        boards: [mockBoard],
+        currentBoard: mockBoard,
+        columns: [mockColumn],
+        tickets: [mockTicket],
+      });
+      await useBoardStore.getState().deleteBoard('board-1');
+      expect(useBoardStore.getState().columns).toHaveLength(0);
+      expect(useBoardStore.getState().tickets).toHaveLength(0);
+    });
+
+    it('preserves currentBoard when deleting a different board', async () => {
+      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: mockBoard });
+      await useBoardStore.getState().deleteBoard('board-2');
+      expect(useBoardStore.getState().currentBoard?.id).toBe('board-1');
+    });
   });
 
   describe('selectBoard', () => {

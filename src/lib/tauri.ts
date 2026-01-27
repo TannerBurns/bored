@@ -109,16 +109,33 @@ export async function moveTicket(
   return invoke('move_ticket', { ticketId, columnId });
 }
 
+export async function deleteTicket(ticketId: string): Promise<void> {
+  return invoke('delete_ticket', { ticketId });
+}
+
 export async function startAgentRun(
   ticketId: string,
   agentType: 'cursor' | 'claude',
   repoPath: string
-): Promise<AgentRun> {
+): Promise<string> {
+  // Backend returns just the run ID as a string
   return invoke('start_agent_run', { ticketId, agentType, repoPath });
 }
 
 export async function getAgentRuns(ticketId: string): Promise<AgentRun[]> {
   return invoke('get_agent_runs', { ticketId });
+}
+
+export async function getRecentRuns(limit?: number): Promise<AgentRun[]> {
+  return invoke('get_recent_runs', { limit });
+}
+
+export async function cancelAgentRun(runId: string): Promise<void> {
+  return invoke('cancel_agent_run', { runId });
+}
+
+export async function cleanupStaleRuns(): Promise<number> {
+  return invoke('cleanup_stale_runs');
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun> {

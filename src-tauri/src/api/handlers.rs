@@ -111,6 +111,8 @@ pub async fn create_ticket(
         labels: req.labels,
         project_id: req.project_id,
         agent_pref: req.agent_pref,
+        workflow_type: req.workflow_type.unwrap_or_default(),
+        model: req.model,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -147,6 +149,8 @@ pub async fn update_ticket(
         labels: req.labels,
         project_id: req.project_id,
         agent_pref: req.agent_pref,
+        workflow_type: req.workflow_type,
+        model: req.model,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {
@@ -244,8 +248,10 @@ pub async fn reserve_ticket(
 
     let run = state.db.create_run(&CreateRun {
         ticket_id: ticket_id.clone(),
-        agent_type: req.agent_type.clone(),
+        agent_type: req.agent_type,
         repo_path,
+        parent_run_id: None,
+        stage: None,
     })?;
 
     let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
@@ -289,8 +295,10 @@ pub async fn create_run(
 
     let run = state.db.create_run(&CreateRun {
         ticket_id: req.ticket_id.clone(),
-        agent_type: req.agent_type.clone(),
+        agent_type: req.agent_type,
         repo_path: req.repo_path,
+        parent_run_id: None,
+        stage: None,
     })?;
 
     // Lock the ticket to prevent concurrent runs
@@ -445,7 +453,7 @@ pub async fn create_event(
     let normalized = NormalizedEvent {
         run_id: run_id.clone(),
         ticket_id: run.ticket_id.clone(),
-        agent_type: run.agent_type.clone(),
+        agent_type: run.agent_type,
         event_type: EventType::parse(&req.event_type),
         payload: AgentEventPayload {
             raw: None,
@@ -575,8 +583,10 @@ pub async fn queue_next(
 
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: req.agent_type.clone(),
+                agent_type: req.agent_type,
                 repo_path,
+                parent_run_id: None,
+                stage: None,
             })?;
 
             let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
