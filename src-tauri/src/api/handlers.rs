@@ -111,6 +111,8 @@ pub async fn create_ticket(
         labels: req.labels,
         project_id: req.project_id,
         agent_pref: req.agent_pref,
+        workflow_type: req.workflow_type.unwrap_or_default(),
+        model: req.model,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -147,6 +149,8 @@ pub async fn update_ticket(
         labels: req.labels,
         project_id: req.project_id,
         agent_pref: req.agent_pref,
+        workflow_type: req.workflow_type,
+        model: req.model,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {
@@ -246,6 +250,8 @@ pub async fn reserve_ticket(
         ticket_id: ticket_id.clone(),
         agent_type: req.agent_type.clone(),
         repo_path,
+        parent_run_id: None,
+        stage: None,
     })?;
 
     let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
@@ -291,6 +297,8 @@ pub async fn create_run(
         ticket_id: req.ticket_id.clone(),
         agent_type: req.agent_type.clone(),
         repo_path: req.repo_path,
+        parent_run_id: None,
+        stage: None,
     })?;
 
     // Lock the ticket to prevent concurrent runs
@@ -577,6 +585,8 @@ pub async fn queue_next(
                 ticket_id: ticket.id.clone(),
                 agent_type: req.agent_type.clone(),
                 repo_path,
+                parent_run_id: None,
+                stage: None,
             })?;
 
             let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);

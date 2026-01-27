@@ -6,7 +6,8 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json
+                          started_at, ended_at, exit_code, summary_md, metadata_json,
+                          parent_run_id, stage
                    FROM agent_runs WHERE id = ?"#
             )?;
             
@@ -29,6 +30,8 @@ impl Database {
                     exit_code: row.get(7)?,
                     summary_md: row.get(8)?,
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    parent_run_id: row.get(10)?,
+                    stage: row.get(11)?,
                 })
             }).map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => {
@@ -46,8 +49,8 @@ impl Database {
             
             conn.execute(
                 r#"INSERT INTO agent_runs 
-                   (id, ticket_id, agent_type, repo_path, status, started_at)
-                   VALUES (?, ?, ?, ?, ?, ?)"#,
+                   (id, ticket_id, agent_type, repo_path, status, started_at, parent_run_id, stage)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     run_id,
                     run.ticket_id,
@@ -55,6 +58,8 @@ impl Database {
                     run.repo_path,
                     RunStatus::Queued.as_str(),
                     now.to_rfc3339(),
+                    run.parent_run_id,
+                    run.stage,
                 ],
             )?;
 
@@ -69,6 +74,8 @@ impl Database {
                 exit_code: None,
                 summary_md: None,
                 metadata: None,
+                parent_run_id: run.parent_run_id.clone(),
+                stage: run.stage.clone(),
             })
         })
     }
@@ -100,7 +107,8 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json
+                          started_at, ended_at, exit_code, summary_md, metadata_json,
+                          parent_run_id, stage
                    FROM agent_runs WHERE ticket_id = ? ORDER BY started_at DESC"#
             )?;
             
@@ -123,6 +131,8 @@ impl Database {
                     exit_code: row.get(7)?,
                     summary_md: row.get(8)?,
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    parent_run_id: row.get(10)?,
+                    stage: row.get(11)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -130,12 +140,117 @@ impl Database {
             Ok(runs)
         })
     }
+
+    /// Get recent runs across all tickets (for the runs view)
+    pub fn get_recent_runs(&self, limit: u32) -> Result<Vec<AgentRun>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
+                          started_at, ended_at, exit_code, summary_md, metadata_json,
+                          parent_run_id, stage
+                   FROM agent_runs 
+                   WHERE parent_run_id IS NULL
+                   ORDER BY started_at DESC 
+                   LIMIT ?"#
+            )?;
+            
+            let runs = stmt.query_map([limit], |row| {
+                let agent_type_str: String = row.get(2)?;
+                let status_str: String = row.get(4)?;
+                let metadata_json: Option<String> = row.get(9)?;
+                
+                Ok(AgentRun {
+                    id: row.get(0)?,
+                    ticket_id: row.get(1)?,
+                    agent_type: match agent_type_str.as_str() {
+                        "cursor" => AgentType::Cursor,
+                        _ => AgentType::Claude,
+                    },
+                    repo_path: row.get(3)?,
+                    status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
+                    started_at: parse_datetime(row.get(5)?),
+                    ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
+                    exit_code: row.get(7)?,
+                    summary_md: row.get(8)?,
+                    metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    parent_run_id: row.get(10)?,
+                    stage: row.get(11)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(runs)
+        })
+    }
+
+    /// Get all sub-runs for a parent run
+    pub fn get_sub_runs(&self, parent_run_id: &str) -> Result<Vec<AgentRun>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
+                          started_at, ended_at, exit_code, summary_md, metadata_json,
+                          parent_run_id, stage
+                   FROM agent_runs WHERE parent_run_id = ? ORDER BY started_at ASC"#
+            )?;
+            
+            let runs = stmt.query_map([parent_run_id], |row| {
+                let agent_type_str: String = row.get(2)?;
+                let status_str: String = row.get(4)?;
+                let metadata_json: Option<String> = row.get(9)?;
+                
+                Ok(AgentRun {
+                    id: row.get(0)?,
+                    ticket_id: row.get(1)?,
+                    agent_type: match agent_type_str.as_str() {
+                        "cursor" => AgentType::Cursor,
+                        _ => AgentType::Claude,
+                    },
+                    repo_path: row.get(3)?,
+                    status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
+                    started_at: parse_datetime(row.get(5)?),
+                    ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
+                    exit_code: row.get(7)?,
+                    summary_md: row.get(8)?,
+                    metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                    parent_run_id: row.get(10)?,
+                    stage: row.get(11)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+            
+            Ok(runs)
+        })
+    }
+    
+    /// Clean up stale runs that are stuck in "running" or "queued" status.
+    /// This is useful for runs that crashed or were interrupted without proper cleanup.
+    /// Returns the number of runs that were marked as aborted.
+    pub fn cleanup_stale_running_status(&self) -> Result<u32, DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now();
+            
+            // Mark all "running" or "queued" runs as aborted
+            let count = conn.execute(
+                r#"UPDATE agent_runs 
+                   SET status = ?, ended_at = ?, summary_md = COALESCE(summary_md, 'Run was stale - marked as aborted during cleanup')
+                   WHERE status IN (?, ?)"#,
+                rusqlite::params![
+                    RunStatus::Aborted.as_str(),
+                    now.to_rfc3339(),
+                    RunStatus::Running.as_str(),
+                    RunStatus::Queued.as_str(),
+                ],
+            )?;
+            
+            Ok(count as u32)
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{CreateTicket, Priority};
+    use crate::db::models::{CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -156,12 +271,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         assert_eq!(run.status, RunStatus::Queued);
@@ -187,12 +306,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Claude,
             repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         db.update_run_status(&run.id, RunStatus::Finished, Some(0), Some("Done")).unwrap();
@@ -219,12 +342,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let created = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/repo".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         let fetched = db.get_run(&created.id).unwrap();
@@ -259,12 +386,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/repo".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         let artifacts = RunArtifacts {
@@ -302,12 +433,16 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Claude,
             repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
         
         let fetched = db.get_run_artifacts(&run.id).unwrap();

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType};
+use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType, WorkflowType};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +15,9 @@ pub struct CreateTicketInput {
     pub labels: Vec<String>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    #[serde(default)]
+    pub workflow_type: Option<WorkflowType>,
+    pub model: Option<String>,
 }
 
 #[tauri::command]
@@ -41,6 +44,8 @@ pub async fn create_ticket(
         labels: ticket.labels,
         project_id: ticket.project_id,
         agent_pref: ticket.agent_pref,
+        workflow_type: ticket.workflow_type.unwrap_or_default(),
+        model: ticket.model,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }

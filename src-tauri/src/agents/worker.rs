@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 
 use super::{AgentKind, AgentRunConfig, RunOutcome};
 use super::spawner::{self, CancelHandle};
+use super::worktree::{self, WorktreeConfig};
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket};
 
 #[derive(Debug, Clone)]
@@ -176,16 +177,38 @@ impl Worker {
             .or(self.config.project_id.as_ref())
             .cloned();
         
-        if let Some(ref pid) = project_id {
-            if !self.db.acquire_repo_lock(pid, &run_id, lock_expires)? {
-                tracing::debug!(
-                    "Worker {} could not acquire repo lock for project {}, skipping ticket {}",
-                    self.id, pid, ticket.id
+        // Create a worktree for isolated execution
+        let branch_name = worktree::generate_branch_name(&ticket.id, &ticket.title);
+        let worktree_config = WorktreeConfig {
+            repo_path: std::path::PathBuf::from(&repo_path),
+            branch_name: branch_name.clone(),
+            run_id: run_id.clone(),
+            base_dir: None,
+        };
+        
+        let worktree_info = match worktree::create_worktree(&worktree_config) {
+            Ok(info) => {
+                tracing::info!(
+                    "Worker {} created worktree at {} for ticket {}",
+                    self.id, info.path.display(), ticket.id
                 );
-                self.db.unlock_ticket(&ticket.id)?;
-                return Ok(false);
+                Some(info)
             }
-        }
+            Err(e) => {
+                // Fall back to using main repo if worktree creation fails
+                tracing::warn!(
+                    "Worker {} failed to create worktree for ticket {}: {}. Using main repo.",
+                    self.id, ticket.id, e
+                );
+                None
+            }
+        };
+        
+        // Use worktree path if available
+        let working_path = worktree_info
+            .as_ref()
+            .map(|w| w.path.to_string_lossy().to_string())
+            .unwrap_or_else(|| repo_path.clone());
 
         let run = match self.db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
@@ -193,14 +216,16 @@ impl Worker {
                 AgentKind::Cursor => AgentType::Cursor,
                 AgentKind::Claude => AgentType::Claude,
             },
-            repo_path: repo_path.clone(),
+            repo_path: working_path.clone(),  // Use worktree path
+            parent_run_id: None,
+            stage: None,
         }) {
             Ok(run) => run,
             Err(e) => {
-                // Clean up: unlock ticket and release repo lock (both use temporary run_id)
+                // Clean up: unlock ticket and remove worktree
                 let _ = self.db.unlock_ticket(&ticket.id);
-                if let Some(ref pid) = project_id {
-                    let _ = self.db.release_repo_lock(pid, &run_id);
+                if let Some(ref wt) = worktree_info {
+                    let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
                 }
                 return Err(e.into());
             }
@@ -208,7 +233,7 @@ impl Worker {
 
         // Re-lock with actual run ID (atomic reservation used temporary ID)
         if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
-            // Clean up: mark run as error, unlock ticket (still uses temp run_id), release repo lock
+            // Clean up: mark run as error, unlock ticket, remove worktree
             let _ = self.db.update_run_status(
                 &run.id,
                 RunStatus::Error,
@@ -216,34 +241,10 @@ impl Worker {
                 Some("Failed to re-lock ticket with actual run ID"),
             );
             let _ = self.db.unlock_ticket(&ticket.id);
-            if let Some(ref pid) = project_id {
-                let _ = self.db.release_repo_lock(pid, &run_id);
+            if let Some(ref wt) = worktree_info {
+                let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
             }
             return Err(e.into());
-        }
-        
-        // Update repo lock to use actual run ID (was acquired with temporary run_id).
-        // This MUST succeed; otherwise, the heartbeat and cleanup will use run.id
-        // but the lock is still owned by the temporary run_id, causing both to fail
-        // and leaving the lock held indefinitely.
-        if let Some(ref pid) = project_id {
-            if let Err(e) = self.db.update_repo_lock_owner(pid, &run_id, &run.id) {
-                tracing::error!(
-                    "Failed to update repo lock owner for project {}: {}. Aborting run to prevent orphaned lock.",
-                    pid, e
-                );
-                // Clean up: mark run as error, unlock ticket, release repo lock with original run_id
-                let _ = self.db.update_run_status(
-                    &run.id,
-                    RunStatus::Error,
-                    None,
-                    Some("Failed to update repo lock owner"),
-                );
-                let _ = self.db.unlock_ticket(&ticket.id);
-                // Release with the ORIGINAL temporary run_id since the update failed
-                let _ = self.db.release_repo_lock(pid, &run_id);
-                return Err(format!("Failed to update repo lock owner: {}", e).into());
-            }
         }
 
         if let Ok(columns) = self.db.get_columns(&ticket.board_id) {
@@ -271,7 +272,7 @@ impl Worker {
             .unwrap_or(true);
         
         let prompt = super::prompt::generate_ticket_prompt_full(&ticket, Some(self.config.agent_type), requires_git);
-        let result = self.run_agent(&run.id, &repo_path, &prompt).await;
+        let result = self.run_agent(&run.id, &working_path, &prompt, ticket.model.as_deref()).await;
         heartbeat_handle.abort();
 
         match result {
@@ -323,9 +324,13 @@ impl Worker {
         }
 
         self.db.unlock_ticket(&ticket.id)?;
-        if let Some(ref pid) = project_id {
-            if let Err(e) = self.db.release_repo_lock(pid, &run.id) {
-                tracing::warn!("Failed to release repo lock for project {}: {}", pid, e);
+        
+        // Clean up worktree if we created one
+        if let Some(ref wt) = worktree_info {
+            if let Err(e) = worktree::remove_worktree(&wt.path, &wt.repo_path) {
+                tracing::warn!("Failed to remove worktree {}: {}", wt.path.display(), e);
+            } else {
+                tracing::info!("Worker {} removed worktree at {}", self.id, wt.path.display());
             }
         }
 
@@ -358,11 +363,10 @@ impl Worker {
         Err("No project configured for ticket".into())
     }
 
-    fn start_heartbeat(&self, ticket_id: &str, run_id: &str, project_id: Option<&str>) -> tokio::task::JoinHandle<()> {
+    fn start_heartbeat(&self, ticket_id: &str, run_id: &str, _project_id: Option<&str>) -> tokio::task::JoinHandle<()> {
         let db = self.db.clone();
         let ticket_id = ticket_id.to_string();
         let run_id = run_id.to_string();
-        let project_id = project_id.map(|s| s.to_string());
         let interval_secs = self.config.heartbeat_interval_secs;
         let lock_mins = self.config.lock_duration_mins;
         let running = self.running.clone();
@@ -375,17 +379,7 @@ impl Worker {
 
                 let new_expires = chrono::Utc::now() + chrono::Duration::minutes(lock_mins);
 
-                // Extend repo lock first (if applicable) to avoid race condition where
-                // ticket lock is extended but repo lock is not. This ensures we never
-                // have an extended ticket lock without a matching repo lock.
-                if let Some(ref pid) = project_id {
-                    if let Err(e) = db.extend_repo_lock(pid, &run_id, new_expires) {
-                        tracing::error!("Heartbeat failed for repo lock on project {}: {}", pid, e);
-                        break;
-                    }
-                }
-
-                // Only extend ticket lock after repo lock succeeds
+                // Extend ticket lock (no repo lock needed with worktrees)
                 if let Err(e) = db.extend_lock(&ticket_id, &run_id, new_expires) {
                     tracing::error!("Heartbeat failed for ticket {}: {}", ticket_id, e);
                     break;
@@ -399,6 +393,7 @@ impl Worker {
         run_id: &str,
         repo_path: &str,
         prompt: &str,
+        model: Option<&str>,
     ) -> Result<super::AgentRunResult, Box<dyn std::error::Error + Send + Sync>> {
         let config = AgentRunConfig {
             kind: self.config.agent_type,
@@ -409,6 +404,7 @@ impl Worker {
             timeout_secs: Some(self.config.agent_timeout_secs),
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
+            model: model.map(String::from),
         };
 
         let cancel_handle_storage = self.cancel_handle.clone();

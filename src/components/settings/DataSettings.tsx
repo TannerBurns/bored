@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useBoardStore } from '../../stores/boardStore';
 import { isTauri } from '../../lib/utils';
+import { cleanupStaleRuns } from '../../lib/tauri';
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -32,11 +33,40 @@ function CheckIcon({ className }: { className?: string }) {
   );
 }
 
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+    </svg>
+  );
+}
+
 export function DataSettings() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [resetComplete, setResetComplete] = useState(false);
   const [confirmText, setConfirmText] = useState('');
+  
+  // Stale run cleanup state
+  const [isCleaningRuns, setIsCleaningRuns] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{ count: number; error?: string } | null>(null);
+  
+  const handleCleanupStaleRuns = async () => {
+    if (!isTauri()) return;
+    
+    setIsCleaningRuns(true);
+    setCleanupResult(null);
+    
+    try {
+      const count = await cleanupStaleRuns();
+      setCleanupResult({ count });
+    } catch (error) {
+      console.error('Failed to cleanup stale runs:', error);
+      setCleanupResult({ count: 0, error: String(error) });
+    } finally {
+      setIsCleaningRuns(false);
+    }
+  };
 
   const handleFactoryReset = async () => {
     if (confirmText !== 'RESET') return;
@@ -150,6 +180,46 @@ export function DataSettings() {
           </div>
         </div>
       </div>
+
+      {/* Cleanup Stale Runs */}
+      {isTauri() && (
+        <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-status-warning/10 rounded-lg">
+              <RefreshIcon className="w-5 h-5 text-status-warning" />
+            </div>
+            <div>
+              <h3 className="font-medium text-board-text">Cleanup Stale Runs</h3>
+              <p className="text-sm text-board-text-muted mt-0.5">
+                Mark any stuck "Running" or "Queued" agent runs as aborted. Use this if you have 
+                runs that are stuck and never completed.
+              </p>
+            </div>
+          </div>
+
+          {cleanupResult && (
+            <div className={`rounded-lg p-3 ${cleanupResult.error ? 'bg-status-error/10 border border-status-error/30' : 'bg-status-success/10 border border-status-success/30'}`}>
+              {cleanupResult.error ? (
+                <p className="text-sm text-status-error">{cleanupResult.error}</p>
+              ) : (
+                <p className="text-sm text-status-success">
+                  {cleanupResult.count === 0 
+                    ? 'No stale runs found.' 
+                    : `Cleaned up ${cleanupResult.count} stale run${cleanupResult.count === 1 ? '' : 's'}.`}
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleCleanupStaleRuns}
+            disabled={isCleaningRuns}
+            className="px-4 py-2 bg-status-warning/10 text-status-warning border border-status-warning/30 rounded-lg hover:bg-status-warning/20 disabled:opacity-50 transition-colors font-medium"
+          >
+            {isCleaningRuns ? 'Cleaning...' : 'Cleanup Stale Runs'}
+          </button>
+        </div>
+      )}
 
       {/* Factory Reset */}
       <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-status-error/30">

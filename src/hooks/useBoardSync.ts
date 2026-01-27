@@ -1,8 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useBoardStore } from '../stores/boardStore';
 import { getColumns, getTickets } from '../lib/tauri';
 import { isTauri } from '../lib/utils';
 import type { Board, Column, Ticket } from '../types';
+
+interface TicketMovedEvent {
+  ticketId: string;
+  columnName: string;
+  columnId: string;
+}
 
 type SetTicketsAction = Ticket[] | ((prev: Ticket[]) => Ticket[]);
 type SetColumnsAction = Column[] | ((prev: Column[]) => Column[]);
@@ -93,6 +100,39 @@ export function useBoardSync(): BoardSyncState {
       setCurrentBoardLocal(storeCurrentBoard);
     }
   }, [storeCurrentBoard, currentBoard?.id, currentBoard?.name]);
+
+  // Listen for backend-initiated ticket movements (e.g., from multi-stage workflow)
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | null = null;
+
+    const setupListener = async () => {
+      try {
+        unlisten = await listen<TicketMovedEvent>('ticket-moved', (event) => {
+          const { ticketId, columnId } = event.payload;
+          console.log('[useBoardSync] ticket-moved event received:', event.payload);
+          
+          // Update the ticket's columnId in local state
+          setTickets((prev) =>
+            prev.map((t) =>
+              t.id === ticketId ? { ...t, columnId, updatedAt: new Date() } : t
+            )
+          );
+        });
+      } catch (error) {
+        console.error('Failed to set up ticket-moved listener:', error);
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   const handleBoardSelect = async (boardId: string) => {
     const board = localBoards.find((b) => b.id === boardId);

@@ -588,28 +588,28 @@ Move test tickets to the Ready column so agents can work on them:
 > **Important:** This phase uses the test project and tickets defined in the "Test Scenario" section above. Ensure you have created the test project at `~/agent-kanban-test-project` before proceeding.
 
 ### 5.1 Agent Controls - Prerequisites
-- [ ] Create or select a ticket with:
+- [X] Create or select a ticket with:
   - A valid project assigned (the test project)
   - Ticket is NOT locked by a run
-- [ ] Open the ticket modal
-- [ ] Verify Agent Controls section shows:
+- [X] Open the ticket modal
+- [X] Verify Agent Controls section shows:
   - "Run with Cursor" button (purple)
   - "Run with Claude" button (green)
   - Both buttons should be enabled
 
 ### 5.2 Agent Controls - No Project Warning
-- [ ] Create or select a ticket WITHOUT a project assigned
-- [ ] Open the ticket modal
-- [ ] Verify Agent Controls shows warning: "Assign a project to this ticket..."
-- [ ] Verify both Run buttons are disabled
+- [X] Create or select a ticket WITHOUT a project assigned
+- [X] Open the ticket modal
+- [X] Verify Agent Controls shows warning: "Assign a project to this ticket..."
+- [X] Verify both Run buttons are disabled
 
 ### 5.3 Run with Cursor Agent - Test Ticket 1 (Multiply Function)
 > Note: This requires Cursor IDE to be properly configured
 
 **Setup:**
-- [ ] Create **Test Ticket 1** (Add multiply function) from the Test Scenario section
-- [ ] Assign it to the test project (`~/agent-kanban-test-project`)
-- [ ] Move ticket to the **Ready** column
+- [X] Create **Test Ticket 1** (Add multiply function) from the Test Scenario section
+- [X] Assign it to the test project (`~/agent-kanban-test-project`)
+- [X] Move ticket to the **Ready** column
 
 **Execution:**
 - [ ] Open the ticket modal
@@ -625,22 +625,22 @@ Move test tickets to the Ready column so agents can work on them:
   - Previous Runs section shows the run
 
 **Outcome Verification:**
-- [ ] Open terminal and navigate to test project:
+- [X] Open terminal and navigate to test project:
   ```bash
   cd ~/agent-kanban-test-project
   ```
-- [ ] Check git status shows changes:
+- [X] Check git status shows changes:
   ```bash
   git status
   ```
-- [ ] Verify `src/index.js` contains a `multiply` function
-- [ ] Verify `multiply` is exported in `module.exports`
-- [ ] Verify `src/test.js` contains a test for multiply
-- [ ] Run tests and verify they pass:
+- [X] Verify `src/index.js` contains a `multiply` function
+- [X] Verify `multiply` is exported in `module.exports`
+- [X] Verify `src/test.js` contains a test for multiply
+- [X] Run tests and verify they pass:
   ```bash
   npm test
   ```
-- [ ] Commit the changes:
+- [X] Commit the changes:
   ```bash
   git add . && git commit -m "Add multiply function"
   ```
@@ -649,53 +649,53 @@ Move test tickets to the Ready column so agents can work on them:
 > Note: This requires Claude Code CLI to be installed
 
 **Setup:**
-- [ ] Create **Test Ticket 2** (Add divide function) from the Test Scenario section
-- [ ] Assign it to the test project
-- [ ] Move ticket to the **Ready** column
+- [X] Create **Test Ticket 2** (Add divide function) from the Test Scenario section
+- [X] Assign it to the test project
+- [X] Move ticket to the **Ready** column
 
 **Execution:**
-- [ ] Open the ticket modal
-- [ ] Click **Run with Claude**
-- [ ] Verify same UI behavior as Cursor agent
-- [ ] Wait for agent to complete
+- [X] Open the ticket modal
+- [X] Click **Run with Claude**
+- [X] Verify same UI behavior as Cursor agent
+- [X] Wait for agent to complete
 
 **Outcome Verification:**
-- [ ] Check git status shows changes
-- [ ] Verify `src/index.js` contains a `divide` function
-- [ ] Verify `divide` throws error when dividing by zero
-- [ ] Verify `divide` is exported in `module.exports`
-- [ ] Verify `src/test.js` contains both divide tests
-- [ ] Run tests and verify they pass:
+- [X] Check git status shows changes
+- [X] Verify `src/index.js` contains a `divide` function
+- [X] Verify `divide` throws error when dividing by zero
+- [X] Verify `divide` is exported in `module.exports`
+- [X] Verify `src/test.js` contains both divide tests
+- [X] Run tests and verify they pass:
   ```bash
   npm test
   ```
-- [ ] Commit the changes:
+- [X] Commit the changes:
   ```bash
   git add . && git commit -m "Add divide function with zero check"
   ```
 
 ### 5.5 Cancel Agent Run
-- [ ] Create a new test ticket with a complex task
-- [ ] Start an agent run on the ticket
-- [ ] Click **Cancel** while still running
-- [ ] Verify run is cancelled (status shows "aborted")
-- [ ] Verify ticket becomes unlocked
-- [ ] Verify partial changes (if any) in the test project
+- [X] Create a new test ticket with a complex task
+- [X] Start an agent run on the ticket
+- [X] Click **Cancel** while still running
+- [X] Verify run is cancelled (status shows "aborted")
+- [X] Verify ticket becomes unlocked
+- [X] Verify partial changes (if any) in the test project
 
 ### 5.6 Agent Error Handling
-- [ ] Create a ticket with an impossible or unclear task
-- [ ] Run an agent on it
-- [ ] Observe how the agent handles the situation
+- [X] Create a ticket with an impossible or unclear task
+- [X] Run an agent on it
+- [X] Observe how the agent handles the situation
 - [ ] Verify ticket moves to **Blocked** on failure
 - [ ] Verify error information is captured in the run
 
 ### 5.7 Agent Runs View
-- [ ] Navigate to **Agent Runs** in sidebar
-- [ ] If any runs are in progress, verify they appear with:
+- [X] Navigate to **Agent Runs** in sidebar
+- [X] If any runs are in progress, verify they appear with:
   - Ticket title
   - Agent type
   - "In Progress" status indicator
-- [ ] Verify completed runs show appropriate status
+- [X] Verify completed runs show appropriate status
 
 ### 5.8 Run Comparison (Optional)
 > Compare the same task completed by different agents

@@ -134,7 +134,7 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{CreateRun, CreateTicket, AgentType, Priority};
+    use crate::db::{CreateRun, CreateTicket, AgentType, Priority, WorkflowType};
     use chrono::{Duration as ChronoDuration, Utc};
 
     fn setup_test_db() -> Database {
@@ -164,6 +164,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
 
         // Create a run and lock the ticket with an expired time
@@ -171,6 +173,8 @@ mod tests {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
@@ -204,6 +208,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
 
         // Create a run and lock the ticket with a future expiration
@@ -211,6 +217,8 @@ mod tests {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
 
         let future_time = Utc::now() + ChronoDuration::minutes(30);
@@ -242,6 +250,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
 
         // Create a run with running status
@@ -249,6 +259,8 @@ mod tests {
             ticket_id: ticket.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
 
         db.update_run_status(&run.id, RunStatus::Running, None, None).unwrap();
@@ -319,6 +331,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
 
         let ticket2 = db.create_ticket(&CreateTicket {
@@ -330,18 +344,24 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
 
         let run1 = db.create_run(&CreateRun {
             ticket_id: ticket1.id.clone(),
             agent_type: AgentType::Cursor,
             repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
 
         let run2 = db.create_run(&CreateRun {
             ticket_id: ticket2.id.clone(),
             agent_type: AgentType::Claude,
             repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
         }).unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);

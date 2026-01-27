@@ -84,6 +84,13 @@ impl Database {
         })
     }
 
+    /// Find a column by name (case-insensitive)
+    pub fn find_column_by_name(&self, board_id: &str, name: &str) -> Result<Option<Column>, DbError> {
+        let columns = self.get_columns(board_id)?;
+        let name_lower = name.to_lowercase();
+        Ok(columns.into_iter().find(|c| c.name.to_lowercase() == name_lower))
+    }
+
     pub fn update_board(&self, board_id: &str, name: &str) -> Result<Board, DbError> {
         self.with_conn_mut(|conn| {
             let now = chrono::Utc::now();

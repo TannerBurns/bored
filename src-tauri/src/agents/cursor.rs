@@ -4,12 +4,18 @@ use std::process::Command;
 
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
+    // Cursor CLI uses positional prompt argument, not -p <prompt> like Claude
+    // --print enables headless/scripting mode with console output
+    // --force allows tool execution without interactive approval
+    // --approve-mcps auto-approves MCP servers in headless mode
     let args = vec![
         "agent".to_string(),
-        "-p".to_string(),
-        config.prompt.clone(),
+        "--print".to_string(),
+        "--force".to_string(),
+        "--approve-mcps".to_string(),
         "--output-format".to_string(),
         "text".to_string(),
+        config.prompt.clone(), // Prompt is a positional argument at the end
     ];
     (command, args)
 }
@@ -18,7 +24,6 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
 pub struct CursorSettings {
     pub executable_path: Option<String>,
     pub extra_flags: Vec<String>,
-    pub yolo_mode: bool,
 }
 
 #[allow(dead_code)]
@@ -31,14 +36,21 @@ pub fn build_command_with_settings(
         .clone()
         .unwrap_or_else(|| "cursor".to_string());
 
-    let mut args = vec!["agent".to_string(), "-p".to_string(), config.prompt.clone()];
-    args.push("--output-format".to_string());
-    args.push("text".to_string());
+    // Build args with proper Cursor CLI syntax
+    let mut args = vec![
+        "agent".to_string(),
+        "--print".to_string(),
+        "--force".to_string(),
+        "--approve-mcps".to_string(),
+        "--output-format".to_string(),
+        "text".to_string(),
+    ];
 
-    if settings.yolo_mode {
-        args.push("--yolo".to_string());
-    }
+    // Add extra flags before the prompt
     args.extend(settings.extra_flags.clone());
+    
+    // Prompt is a positional argument at the end
+    args.push(config.prompt.clone());
 
     (command, args)
 }
@@ -71,32 +83,33 @@ pub fn generate_hooks_json_with_api(
 }
 
 pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value {
-    let mut env_map = serde_json::Map::new();
+    // Build environment variable prefix for shell command
+    // Cursor hooks format (version 1) requires command to be a shell-executable string
+    let mut env_prefix = String::new();
     
     if let Some(url) = config.api_url {
-        env_map.insert("AGENT_KANBAN_API_URL".to_string(), serde_json::json!(url));
+        env_prefix.push_str(&format!("AGENT_KANBAN_API_URL='{}' ", url));
     }
     if let Some(token) = config.api_token {
-        env_map.insert("AGENT_KANBAN_API_TOKEN".to_string(), serde_json::json!(token));
+        env_prefix.push_str(&format!("AGENT_KANBAN_API_TOKEN='{}' ", token));
     }
     if let Some(run_id) = config.run_id {
-        env_map.insert("AGENT_KANBAN_RUN_ID".to_string(), serde_json::json!(run_id));
+        env_prefix.push_str(&format!("AGENT_KANBAN_RUN_ID='{}' ", run_id));
     }
     
-    let env = if env_map.is_empty() { None } else { Some(serde_json::Value::Object(env_map)) };
-    
+    // Create hook command with env vars and script path
+    // Format: ENV_VAR='value' /path/to/script.js eventName
     let make_hook = |event: &str| {
-        let mut hook = serde_json::json!({
-            "command": config.hook_script_path,
-            "args": [event]
-        });
-        if let Some(ref env_obj) = env {
-            hook.as_object_mut().unwrap().insert("env".to_string(), env_obj.clone());
-        }
-        hook
+        let command = format!("{}node '{}' {}", env_prefix, config.hook_script_path, event);
+        // Each hook is an array of command objects (Cursor 1.7+ format)
+        serde_json::json!([{
+            "command": command
+        }])
     };
 
+    // Cursor hooks.json v1 format
     serde_json::json!({
+        "version": 1,
         "hooks": {
             "beforeShellExecution": make_hook("beforeShellExecution"),
             "beforeReadFile": make_hook("beforeReadFile"),
@@ -109,29 +122,18 @@ pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value
 
 #[allow(dead_code)]
 pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_json::Value {
+    // Updated to use Cursor 1.7+ hooks.json v1 format
+    let make_hook = |event: &str| {
+        let command = format!("AGENT_KANBAN_API_URL='{}' node '{}' {}", api_url, hook_script_path, event);
+        serde_json::json!([{ "command": command }])
+    };
+    
     serde_json::json!({
+        "version": 1,
         "hooks": {
-            "beforeShellExecution": {
-                "command": hook_script_path,
-                "args": ["beforeShellExecution"],
-                "env": {
-                    "AGENT_KANBAN_API_URL": api_url
-                }
-            },
-            "afterFileEdit": {
-                "command": hook_script_path,
-                "args": ["afterFileEdit"],
-                "env": {
-                    "AGENT_KANBAN_API_URL": api_url
-                }
-            },
-            "stop": {
-                "command": hook_script_path,
-                "args": ["stop"],
-                "env": {
-                    "AGENT_KANBAN_API_URL": api_url
-                }
-            }
+            "beforeShellExecution": make_hook("beforeShellExecution"),
+            "afterFileEdit": make_hook("afterFileEdit"),
+            "stop": make_hook("stop")
         }
     })
 }
@@ -370,6 +372,7 @@ mod tests {
             timeout_secs: Some(300),
             api_url: "http://localhost:7432".to_string(),
             api_token: "token".to_string(),
+            model: None,
         }
     }
 
@@ -391,27 +394,29 @@ mod tests {
     fn build_command_includes_prompt() {
         let config = create_test_config();
         let (_, args) = build_command(&config);
-        assert!(args.contains(&"-p".to_string()));
+        // Prompt is a positional argument at the end
         assert!(args.contains(&"Test prompt".to_string()));
+        // Should include --print for headless mode
+        assert!(args.contains(&"--print".to_string()));
+        // Should include --force for tool execution
+        assert!(args.contains(&"--force".to_string()));
     }
 
     #[test]
-    fn default_settings_no_yolo() {
+    fn default_settings_has_none_executable() {
         let settings = CursorSettings::default();
-        assert!(!settings.yolo_mode);
         assert!(settings.executable_path.is_none());
         assert!(settings.extra_flags.is_empty());
     }
 
     #[test]
-    fn build_with_yolo_mode() {
+    fn build_command_includes_headless_flags() {
         let config = create_test_config();
-        let settings = CursorSettings {
-            yolo_mode: true,
-            ..Default::default()
-        };
-        let (_, args) = build_command_with_settings(&config, &settings);
-        assert!(args.contains(&"--yolo".to_string()));
+        let (_, args) = build_command(&config);
+        // Should include flags for headless execution
+        assert!(args.contains(&"--print".to_string()));
+        assert!(args.contains(&"--force".to_string()));
+        assert!(args.contains(&"--approve-mcps".to_string()));
     }
 
     #[test]
@@ -428,11 +433,14 @@ mod tests {
     #[test]
     fn generate_hooks_config_structure() {
         let config = generate_hooks_config("http://localhost:7432", "/path/to/hook.sh");
+        // Should have version 1
+        assert_eq!(config.get("version").unwrap().as_i64().unwrap(), 1);
         assert!(config.get("hooks").is_some());
         let hooks = config.get("hooks").unwrap();
-        assert!(hooks.get("beforeShellExecution").is_some());
-        assert!(hooks.get("afterFileEdit").is_some());
-        assert!(hooks.get("stop").is_some());
+        // Each hook should be an array
+        assert!(hooks.get("beforeShellExecution").unwrap().is_array());
+        assert!(hooks.get("afterFileEdit").unwrap().is_array());
+        assert!(hooks.get("stop").unwrap().is_array());
     }
 
     #[test]
@@ -471,8 +479,12 @@ mod tests {
         let script_path = "/custom/path/hook.js";
         let config = generate_hooks_json(script_path);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
-        assert_eq!(shell_hook.get("command").unwrap().as_str().unwrap(), script_path);
+        // Each hook is an array of command objects
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let shell_hook = &shell_hook_array[0];
+        let command = shell_hook.get("command").unwrap().as_str().unwrap();
+        // Command should contain the script path
+        assert!(command.contains(script_path));
     }
 
     #[test]
@@ -523,23 +535,24 @@ mod tests {
     }
 
     #[test]
-    fn generate_hooks_json_each_hook_has_correct_args() {
+    fn generate_hooks_json_each_hook_has_correct_event_in_command() {
         let config = generate_hooks_json("/path/to/hook.js");
         let hooks = config.get("hooks").unwrap();
         
-        let expected_args: Vec<(&str, &str)> = vec![
-            ("beforeShellExecution", "beforeShellExecution"),
-            ("beforeReadFile", "beforeReadFile"),
-            ("beforeMCPExecution", "beforeMCPExecution"),
-            ("afterFileEdit", "afterFileEdit"),
-            ("stop", "stop"),
+        let expected_events = vec![
+            "beforeShellExecution",
+            "beforeReadFile",
+            "beforeMCPExecution",
+            "afterFileEdit",
+            "stop",
         ];
 
-        for (hook_name, expected_arg) in expected_args {
-            let hook = hooks.get(hook_name).unwrap();
-            let args = hook.get("args").unwrap().as_array().unwrap();
-            assert_eq!(args.len(), 1);
-            assert_eq!(args[0].as_str().unwrap(), expected_arg);
+        for event in expected_events {
+            let hook_array = hooks.get(event).unwrap().as_array().unwrap();
+            assert_eq!(hook_array.len(), 1, "Hook {} should have exactly one command", event);
+            let command = hook_array[0].get("command").unwrap().as_str().unwrap();
+            // Event name should be at the end of the command
+            assert!(command.ends_with(event), "Command should end with event name: {}", event);
         }
     }
 
@@ -667,26 +680,29 @@ mod tests {
     }
 
     #[test]
-    fn generate_hooks_json_with_api_includes_env() {
+    fn generate_hooks_json_with_api_includes_env_in_command() {
         let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"), None, None);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        let env = shell_hook.get("env").unwrap();
-        assert_eq!(env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(), "http://localhost:7432");
+        // Env vars should be embedded in the command string
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
     }
 
     #[test]
-    fn generate_hooks_json_with_api_none_has_no_env() {
+    fn generate_hooks_json_with_api_none_has_no_env_in_command() {
         let config = generate_hooks_json_with_api("/path/to/hook.js", None, None, None);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        assert!(shell_hook.get("env").is_none());
+        // Should not contain env var prefix
+        assert!(!command.contains("AGENT_KANBAN_API_URL="));
     }
 
     #[test]
-    fn install_hooks_with_api_url_includes_env() {
+    fn install_hooks_with_api_url_includes_env_in_command() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
@@ -696,14 +712,15 @@ mod tests {
         let content = std::fs::read_to_string(&hooks_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         
-        let env = parsed["hooks"]["beforeShellExecution"]["env"].as_object().unwrap();
-        assert_eq!(env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(), "http://localhost:7432");
+        let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
+        let command = hook_array[0]["command"].as_str().unwrap();
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
-    fn generate_hooks_json_with_api_and_token_includes_both_env_vars() {
+    fn generate_hooks_json_with_api_and_token_includes_both_in_command() {
         let config = generate_hooks_json_with_api(
             "/path/to/hook.js",
             Some("http://localhost:7432"),
@@ -711,35 +728,26 @@ mod tests {
             None,
         );
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        let env = shell_hook.get("env").unwrap();
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
-            "http://localhost:7432"
-        );
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
-            "test-token-123"
-        );
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token-123'"));
     }
 
     #[test]
-    fn generate_hooks_json_with_token_only_includes_token_env() {
+    fn generate_hooks_json_with_token_only_includes_token_in_command() {
         let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"), None);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        let env = shell_hook.get("env").unwrap();
-        assert!(env.get("AGENT_KANBAN_API_URL").is_none());
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
-            "test-token-456"
-        );
+        assert!(!command.contains("AGENT_KANBAN_API_URL="));
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token-456'"));
     }
 
     #[test]
-    fn generate_hooks_json_with_run_id_includes_run_id_env() {
+    fn generate_hooks_json_with_run_id_includes_run_id_in_command() {
         let config = generate_hooks_json_with_api(
             "/path/to/hook.js",
             Some("http://localhost:7432"),
@@ -747,25 +755,16 @@ mod tests {
             Some("run-12345"),
         );
         let hooks = config.get("hooks").unwrap();
-        let shell_hook = hooks.get("beforeShellExecution").unwrap();
+        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
         
-        let env = shell_hook.get("env").unwrap();
-        assert_eq!(
-            env.get("AGENT_KANBAN_RUN_ID").unwrap().as_str().unwrap(),
-            "run-12345"
-        );
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
-            "http://localhost:7432"
-        );
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
-            "test-token"
-        );
+        assert!(command.contains("AGENT_KANBAN_RUN_ID='run-12345'"));
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='test-token'"));
     }
 
     #[test]
-    fn install_hooks_with_api_url_and_token_includes_both() {
+    fn install_hooks_with_api_url_and_token_includes_both_in_command() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
         
@@ -781,15 +780,10 @@ mod tests {
         let content = std::fs::read_to_string(&hooks_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
         
-        let env = parsed["hooks"]["beforeShellExecution"]["env"].as_object().unwrap();
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_URL").unwrap().as_str().unwrap(),
-            "http://localhost:7432"
-        );
-        assert_eq!(
-            env.get("AGENT_KANBAN_API_TOKEN").unwrap().as_str().unwrap(),
-            "my-secret-token"
-        );
+        let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
+        let command = hook_array[0]["command"].as_str().unwrap();
+        assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
+        assert!(command.contains("AGENT_KANBAN_API_TOKEN='my-secret-token'"));
         
         std::fs::remove_dir_all(&temp_dir).ok();
     }

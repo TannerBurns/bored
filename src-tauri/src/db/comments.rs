@@ -69,7 +69,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{CreateTicket, Priority};
+    use crate::db::models::{CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -90,6 +90,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let comment = db.create_comment(&CreateComment {

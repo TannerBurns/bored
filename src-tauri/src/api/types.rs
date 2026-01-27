@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::db::{Priority, AgentType, AgentPref, Ticket, Column};
+use crate::db::{Priority, AgentType, AgentPref, Ticket, Column, WorkflowType};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +16,9 @@ pub struct CreateTicketRequest {
     pub labels: Vec<String>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    #[serde(default)]
+    pub workflow_type: Option<WorkflowType>,
+    pub model: Option<String>,
 }
 
 fn default_priority() -> Priority {
@@ -31,6 +34,8 @@ pub struct UpdateTicketRequest {
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
     pub agent_pref: Option<AgentPref>,
+    pub workflow_type: Option<WorkflowType>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

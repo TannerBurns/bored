@@ -195,6 +195,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       labels: input.labels,
       projectId: input.projectId,
       agentPref: input.agentPref,
+      workflowType: input.workflowType || 'basic',
       createdAt: new Date(),
       updatedAt: new Date(),
     };

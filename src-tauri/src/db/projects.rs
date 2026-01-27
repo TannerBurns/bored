@@ -286,7 +286,7 @@ impl Database {
 mod tests {
     use super::*;
     use crate::db::Database;
-    use crate::db::models::{CreateTicket, Priority};
+    use crate::db::models::{CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -466,6 +466,8 @@ mod tests {
             labels: vec![],
             project_id: Some(project.id.clone()),
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -499,6 +501,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -524,6 +528,8 @@ mod tests {
             labels: vec![],
             project_id: None,
             agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
