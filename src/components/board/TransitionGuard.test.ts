@@ -39,28 +39,25 @@ describe('validateTransition', () => {
     });
   });
 
-  describe('valid transitions from Backlog', () => {
+  describe('all column transitions are allowed', () => {
     it('allows Backlog to Ready', () => {
       const ticket = makeTicket({ columnId: 'col-backlog' });
       const result = validateTransition(ticket, columns, 'col-ready');
       expect(result.valid).toBe(true);
     });
 
-    it('denies Backlog to In Progress', () => {
+    it('allows Backlog to In Progress', () => {
       const ticket = makeTicket({ columnId: 'col-backlog' });
       const result = validateTransition(ticket, columns, 'col-inprogress');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('Cannot move');
+      expect(result.valid).toBe(true);
     });
 
-    it('denies Backlog to Done', () => {
+    it('allows Backlog to Done', () => {
       const ticket = makeTicket({ columnId: 'col-backlog' });
       const result = validateTransition(ticket, columns, 'col-done');
-      expect(result.valid).toBe(false);
+      expect(result.valid).toBe(true);
     });
-  });
 
-  describe('valid transitions from Ready', () => {
     it('allows Ready to Backlog', () => {
       const ticket = makeTicket({ columnId: 'col-ready' });
       const result = validateTransition(ticket, columns, 'col-backlog');
@@ -73,14 +70,32 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('denies Ready to Done', () => {
+    it('allows Ready to Done', () => {
       const ticket = makeTicket({ columnId: 'col-ready' });
       const result = validateTransition(ticket, columns, 'col-done');
-      expect(result.valid).toBe(false);
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows Done to Ready', () => {
+      const ticket = makeTicket({ columnId: 'col-done' });
+      const result = validateTransition(ticket, columns, 'col-ready');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows Done to In Progress', () => {
+      const ticket = makeTicket({ columnId: 'col-done' });
+      const result = validateTransition(ticket, columns, 'col-inprogress');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows Blocked to Done', () => {
+      const ticket = makeTicket({ columnId: 'col-blocked' });
+      const result = validateTransition(ticket, columns, 'col-done');
+      expect(result.valid).toBe(true);
     });
   });
 
-  describe('In Progress transitions', () => {
+  describe('In Progress lock behavior', () => {
     it('allows unlocked In Progress to Ready', () => {
       const ticket = makeTicket({ columnId: 'col-inprogress' });
       const result = validateTransition(ticket, columns, 'col-ready');
@@ -156,90 +171,6 @@ describe('validateTransition', () => {
     });
   });
 
-  describe('valid transitions from Blocked', () => {
-    it('allows Blocked to Ready', () => {
-      const ticket = makeTicket({ columnId: 'col-blocked' });
-      const result = validateTransition(ticket, columns, 'col-ready');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Blocked to Backlog', () => {
-      const ticket = makeTicket({ columnId: 'col-blocked' });
-      const result = validateTransition(ticket, columns, 'col-backlog');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Blocked to In Progress', () => {
-      const ticket = makeTicket({ columnId: 'col-blocked' });
-      const result = validateTransition(ticket, columns, 'col-inprogress');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Blocked to Review', () => {
-      const ticket = makeTicket({ columnId: 'col-blocked' });
-      const result = validateTransition(ticket, columns, 'col-review');
-      expect(result.valid).toBe(true);
-    });
-
-    it('denies Blocked to Done', () => {
-      const ticket = makeTicket({ columnId: 'col-blocked' });
-      const result = validateTransition(ticket, columns, 'col-done');
-      expect(result.valid).toBe(false);
-    });
-  });
-
-  describe('valid transitions from Review', () => {
-    it('allows Review to Done', () => {
-      const ticket = makeTicket({ columnId: 'col-review' });
-      const result = validateTransition(ticket, columns, 'col-done');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Review to Blocked', () => {
-      const ticket = makeTicket({ columnId: 'col-review' });
-      const result = validateTransition(ticket, columns, 'col-blocked');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Review to Ready', () => {
-      const ticket = makeTicket({ columnId: 'col-review' });
-      const result = validateTransition(ticket, columns, 'col-ready');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Review to In Progress (retry)', () => {
-      const ticket = makeTicket({ columnId: 'col-review' });
-      const result = validateTransition(ticket, columns, 'col-inprogress');
-      expect(result.valid).toBe(true);
-    });
-  });
-
-  describe('valid transitions from Done', () => {
-    it('allows Done to Review (reopen)', () => {
-      const ticket = makeTicket({ columnId: 'col-done' });
-      const result = validateTransition(ticket, columns, 'col-review');
-      expect(result.valid).toBe(true);
-    });
-
-    it('allows Done to Backlog (reopen)', () => {
-      const ticket = makeTicket({ columnId: 'col-done' });
-      const result = validateTransition(ticket, columns, 'col-backlog');
-      expect(result.valid).toBe(true);
-    });
-
-    it('denies Done to Ready', () => {
-      const ticket = makeTicket({ columnId: 'col-done' });
-      const result = validateTransition(ticket, columns, 'col-ready');
-      expect(result.valid).toBe(false);
-    });
-
-    it('denies Done to In Progress', () => {
-      const ticket = makeTicket({ columnId: 'col-done' });
-      const result = validateTransition(ticket, columns, 'col-inprogress');
-      expect(result.valid).toBe(false);
-    });
-  });
-
   describe('edge cases', () => {
     it('returns invalid when current column not found', () => {
       const ticket = makeTicket({ columnId: 'nonexistent' });
@@ -255,7 +186,7 @@ describe('validateTransition', () => {
       expect(result.reason).toContain('Column not found');
     });
 
-    it('allows transition for unknown column names (defers to backend)', () => {
+    it('allows transition for custom column names', () => {
       const customColumns: Column[] = [
         { id: 'col-custom1', boardId: 'board-1', name: 'Custom1', position: 0 },
         { id: 'col-custom2', boardId: 'board-1', name: 'Custom2', position: 1 },

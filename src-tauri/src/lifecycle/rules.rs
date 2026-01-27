@@ -26,37 +26,18 @@ pub fn can_transition(
 
 fn check_user_transition(
     from: TicketState,
-    to: TicketState,
+    _to: TicketState,
     is_locked: bool,
 ) -> TransitionPermission {
     use TicketState::*;
 
-    let allowed: &[(TicketState, TicketState)] = &[
-        (Backlog, Ready),
-        (Ready, Backlog),
-        (InProgress, Ready),
-        (InProgress, Blocked),
-        (Blocked, Ready),
-        (Blocked, Backlog),
-        (Review, Done),
-        (Review, Blocked),
-        (Review, Ready),
-        (Review, InProgress),
-        (Done, Review),
-    ];
-
-    if allowed.contains(&(from, to)) {
-        if from == InProgress && is_locked {
-            return TransitionPermission::RequiresUnlock;
-        }
-        TransitionPermission::Allowed
-    } else {
-        TransitionPermission::Denied(format!(
-            "Cannot move ticket from {} to {}",
-            from.to_column_name(),
-            to.to_column_name()
-        ))
+    // Only restriction: locked tickets in InProgress require unlock first
+    if from == InProgress && is_locked {
+        return TransitionPermission::RequiresUnlock;
     }
+
+    // All other transitions are allowed
+    TransitionPermission::Allowed
 }
 
 fn check_system_transition(from: TicketState, to: TicketState) -> TransitionPermission {
@@ -89,29 +70,38 @@ mod tests {
     }
 
     #[test]
-    fn test_backlog_to_ready_allowed() {
-        assert_eq!(can_transition(Backlog, Ready, false, false), TransitionPermission::Allowed);
+    fn test_all_transitions_allowed() {
+        // All transitions between different states should be allowed (when not locked)
+        let states = [Backlog, Ready, InProgress, Blocked, Review, Done];
+        for from in states {
+            for to in states {
+                if from != to && from != InProgress {
+                    assert_eq!(
+                        can_transition(from, to, false, false), 
+                        TransitionPermission::Allowed,
+                        "Expected {:?} -> {:?} to be allowed",
+                        from, to
+                    );
+                }
+            }
+        }
     }
 
     #[test]
-    fn test_ready_to_backlog_allowed() {
-        assert_eq!(can_transition(Ready, Backlog, false, false), TransitionPermission::Allowed);
-    }
-
-    #[test]
-    fn test_in_progress_requires_unlock() {
+    fn test_in_progress_requires_unlock_when_locked() {
+        // When locked, InProgress transitions require unlock
         assert_eq!(can_transition(InProgress, Ready, true, false), TransitionPermission::RequiresUnlock);
+        assert_eq!(can_transition(InProgress, Blocked, true, false), TransitionPermission::RequiresUnlock);
+        assert_eq!(can_transition(InProgress, Done, true, false), TransitionPermission::RequiresUnlock);
+    }
+
+    #[test]
+    fn test_in_progress_allowed_when_not_locked() {
+        // When not locked, InProgress transitions are allowed
         assert_eq!(can_transition(InProgress, Ready, false, false), TransitionPermission::Allowed);
-    }
-
-    #[test]
-    fn test_review_to_done_allowed() {
-        assert_eq!(can_transition(Review, Done, false, false), TransitionPermission::Allowed);
-    }
-
-    #[test]
-    fn test_done_to_review_allowed() {
-        assert_eq!(can_transition(Done, Review, false, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(InProgress, Blocked, false, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(InProgress, Done, false, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(InProgress, Backlog, false, false), TransitionPermission::Allowed);
     }
 
     #[test]
@@ -120,11 +110,5 @@ mod tests {
         assert_eq!(can_transition(InProgress, Review, false, true), TransitionPermission::Allowed);
         assert_eq!(can_transition(InProgress, Blocked, false, true), TransitionPermission::Allowed);
         assert_eq!(can_transition(InProgress, Ready, false, true), TransitionPermission::Allowed);
-    }
-
-    #[test]
-    fn test_invalid_transitions_denied() {
-        assert!(matches!(can_transition(Backlog, InProgress, false, false), TransitionPermission::Denied(_)));
-        assert!(matches!(can_transition(Done, Ready, false, false), TransitionPermission::Denied(_)));
     }
 }
