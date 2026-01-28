@@ -310,16 +310,30 @@ impl Worker {
             Ok(None) => {
                 tracing::warn!("Worker {} found no pending tasks for ticket {}, skipping", self.id, ticket.id);
                 
-                // Stop heartbeat before cleanup
-                heartbeat_handle.abort();
-                
                 // Update run status to Finished (no work to do is not an error)
-                let _ = self.db.update_run_status(
+                // IMPORTANT: Keep heartbeat running until status update succeeds to prevent
+                // the lock from expiring while the run is still marked as "Running"
+                if let Err(e) = self.db.update_run_status(
                     &run.id,
                     RunStatus::Finished,
                     None,
                     Some("No pending tasks for ticket"),
-                );
+                ) {
+                    tracing::error!(
+                        "Worker {} failed to update run {} status to Finished: {}",
+                        self.id, run.id, e
+                    );
+                    // Try to mark as Error instead so the run doesn't stay stuck in Running
+                    let _ = self.db.update_run_status(
+                        &run.id,
+                        RunStatus::Error,
+                        None,
+                        Some(&format!("Failed to update status: {}", e)),
+                    );
+                }
+                
+                // Now safe to stop heartbeat since status is no longer Running
+                heartbeat_handle.abort();
                 
                 // Clean up
                 self.db.unlock_ticket(&ticket.id)?;
