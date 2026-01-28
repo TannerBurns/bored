@@ -47,6 +47,8 @@ pub struct WorktreeInfo {
     pub branch_name: String,
     /// The original repo path
     pub repo_path: PathBuf,
+    /// Whether this is a temporary branch (not the ticket's permanent branch)
+    pub is_temp_branch: bool,
 }
 
 /// Get the default base directory for worktrees
@@ -168,6 +170,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                 path: worktree_path,
                 branch_name: unique_branch,
                 repo_path: repo_root,
+                is_temp_branch: false,
             });
         }
         
@@ -186,6 +189,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
         path: worktree_path,
         branch_name: config.branch_name.clone(),
         repo_path: repo_root,
+        is_temp_branch: false,
     })
 }
 
@@ -481,6 +485,7 @@ pub fn create_worktree_with_existing_branch(
         path: worktree_path,
         branch_name: branch_name.to_string(),
         repo_path: repo_root,
+        is_temp_branch: false,
     })
 }
 

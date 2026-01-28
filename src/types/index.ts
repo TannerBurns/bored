@@ -190,3 +190,41 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
 }
+
+// Task Queue System types
+
+export type TaskType = 'custom' | 'sync_with_main' | 'add_tests' | 'review_polish' | 'fix_lint';
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+
+export interface Task {
+  id: string;
+  ticketId: string;
+  orderIndex: number;
+  taskType: TaskType;
+  title?: string;
+  content?: string;
+  status: TaskStatus;
+  runId?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+}
+
+export interface CreateTaskInput {
+  ticketId: string;
+  title?: string;
+  content?: string;
+}
+
+export interface TaskCounts {
+  pending: number;
+  inProgress: number;
+  completed: number;
+  failed: number;
+}
+
+export interface PresetTaskInfo {
+  typeName: string;
+  displayName: string;
+  description: string;
+}

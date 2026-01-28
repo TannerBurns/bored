@@ -6,6 +6,7 @@ mod tickets;
 mod runs;
 mod events;
 mod comments;
+pub mod tasks;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -157,6 +158,43 @@ impl Database {
                     "ALTER TABLE tickets ADD COLUMN branch_name TEXT",
                     [],
                 );
+            }
+            
+            if current_version < 8 && current_version > 0 {
+                tracing::info!("Applying migration v8: tasks table for task queue system");
+                conn.execute_batch(schema::MIGRATION_V8)?;
+                
+                // Create Task 1 for existing tickets based on column status
+                // 
+                // Note on UTF-8 handling: SQLite's length() and substr() functions count
+                // Unicode code points (not bytes) for TEXT columns, which is consistent with
+                // Rust's chars().count() and chars().take() used in create_ticket().
+                // Both correctly handle multi-byte UTF-8 characters like emoji.
+                tracing::info!("Creating initial tasks for existing tickets...");
+                let task_count = conn.execute(
+                    r#"INSERT INTO tasks (id, ticket_id, order_index, task_type, title, content, status, created_at)
+                       SELECT 
+                           lower(hex(randomblob(16))),
+                           t.id,
+                           0,
+                           'custom',
+                           CASE 
+                               WHEN length(t.title) > 50 THEN substr(t.title, 1, 47) || '...'
+                               ELSE t.title
+                           END,
+                           CASE WHEN t.description_md = '' THEN NULL ELSE t.description_md END,
+                           CASE 
+                               WHEN c.name IN ('Done', 'Review') THEN 'completed'
+                               WHEN c.name = 'In Progress' THEN 'in_progress'
+                               ELSE 'pending'
+                           END,
+                           t.created_at
+                       FROM tickets t
+                       JOIN columns c ON t.column_id = c.id
+                       WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE ticket_id = t.id)"#,
+                    [],
+                )?;
+                tracing::info!("Created {} initial tasks for existing tickets", task_count);
             }
             
             conn.execute(

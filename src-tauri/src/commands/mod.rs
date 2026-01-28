@@ -3,6 +3,7 @@ pub mod claude;
 pub mod cursor;
 pub mod projects;
 pub mod runs;
+pub mod tasks;
 pub mod tickets;
 pub mod workers;
 
@@ -11,6 +12,10 @@ pub use claude::*;
 pub use cursor::*;
 pub use projects::*;
 pub use runs::{start_agent_run, get_agent_runs, get_recent_runs, get_agent_run, get_run_events, cancel_agent_run};
+pub use tasks::{
+    get_tasks, get_task, create_task, add_preset_task, delete_task,
+    get_next_pending_task, has_pending_tasks, get_task_counts, update_task, get_preset_types,
+};
 pub use tickets::*;
 pub use workers::{
     start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status,

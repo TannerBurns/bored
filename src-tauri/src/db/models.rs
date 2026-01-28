@@ -405,6 +405,136 @@ pub enum ReadinessCheck {
     ProjectPathMissing { path: String },
 }
 
+// ===== Task Queue System =====
+
+/// Type of task - determines prompt generation strategy
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskType {
+    /// User-defined instructions (from description or manual entry)
+    #[default]
+    Custom,
+    /// Merge main branch, resolve conflicts
+    SyncWithMain,
+    /// Add test coverage for recent changes
+    AddTests,
+    /// Review code, fix issues, polish
+    ReviewPolish,
+    /// Fix all lint/type errors
+    FixLint,
+}
+
+impl TaskType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskType::Custom => "custom",
+            TaskType::SyncWithMain => "sync_with_main",
+            TaskType::AddTests => "add_tests",
+            TaskType::ReviewPolish => "review_polish",
+            TaskType::FixLint => "fix_lint",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "custom" => Some(TaskType::Custom),
+            "sync_with_main" => Some(TaskType::SyncWithMain),
+            "add_tests" => Some(TaskType::AddTests),
+            "review_polish" => Some(TaskType::ReviewPolish),
+            "fix_lint" => Some(TaskType::FixLint),
+            _ => None,
+        }
+    }
+    
+    /// Get a human-readable display name for the task type
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TaskType::Custom => "Custom Task",
+            TaskType::SyncWithMain => "Sync with Main",
+            TaskType::AddTests => "Add Tests",
+            TaskType::ReviewPolish => "Review & Polish",
+            TaskType::FixLint => "Fix Lint Errors",
+        }
+    }
+}
+
+/// Status of a task in the queue
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    /// Waiting to be worked
+    #[default]
+    Pending,
+    /// Currently being executed
+    InProgress,
+    /// Successfully finished
+    Completed,
+    /// Encountered an error
+    Failed,
+}
+
+impl TaskStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskStatus::Pending => "pending",
+            TaskStatus::InProgress => "in_progress",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(TaskStatus::Pending),
+            "in_progress" => Some(TaskStatus::InProgress),
+            "completed" => Some(TaskStatus::Completed),
+            "failed" => Some(TaskStatus::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// A task in the ticket's task queue
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub id: String,
+    pub ticket_id: String,
+    pub order_index: i32,
+    pub task_type: TaskType,
+    /// Short summary (auto-generated or user-provided)
+    pub title: Option<String>,
+    /// The prompt/instructions for the agent
+    pub content: Option<String>,
+    pub status: TaskStatus,
+    /// The run that executed this task
+    pub run_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+/// Create a new task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTask {
+    pub ticket_id: String,
+    #[serde(default)]
+    pub task_type: TaskType,
+    pub title: Option<String>,
+    pub content: Option<String>,
+}
+
+/// Update an existing task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTask {
+    pub title: Option<String>,
+    pub content: Option<String>,
+    pub status: Option<TaskStatus>,
+    pub run_id: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

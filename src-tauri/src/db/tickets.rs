@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType};
+use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType, CreateTask, TaskType};
 use crate::agents::AgentKind;
 
 impl Database {
@@ -116,6 +116,14 @@ impl Database {
         })
     }
 
+    /// Attempt to lock a ticket for an agent run.
+    /// 
+    /// This method uses atomic locking semantics: it only acquires the lock if:
+    /// - The ticket is not currently locked (locked_by_run_id IS NULL), OR
+    /// - The existing lock has expired (lock_expires_at < now)
+    /// 
+    /// Returns Ok(()) if the lock was acquired, Err(LockConflict) if another run
+    /// holds a valid lock, or Err(NotFound) if the ticket doesn't exist.
     pub fn lock_ticket(
         &self,
         ticket_id: &str,
@@ -123,20 +131,41 @@ impl Database {
         expires_at: DateTime<Utc>,
     ) -> Result<(), DbError> {
         self.with_conn(|conn| {
+            let now = chrono::Utc::now();
+            let now_str = now.to_rfc3339();
+            
+            // Atomically acquire lock only if not held by another run
             let affected = conn.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?, lock_expires_at = ?, updated_at = ?
-                   WHERE id = ?"#,
+                   WHERE id = ? 
+                     AND (locked_by_run_id IS NULL OR lock_expires_at < ?)"#,
                 rusqlite::params![
                     run_id,
                     expires_at.to_rfc3339(),
-                    chrono::Utc::now().to_rfc3339(),
+                    now_str,
                     ticket_id,
+                    now_str,
                 ],
             )?;
             
             if affected == 0 {
-                return Err(DbError::NotFound(format!("Ticket {}", ticket_id)));
+                // Check if ticket exists to give appropriate error
+                let exists: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM tickets WHERE id = ?)",
+                    [ticket_id],
+                    |row| row.get(0),
+                )?;
+                
+                if !exists {
+                    return Err(DbError::NotFound(format!("Ticket {}", ticket_id)));
+                }
+                
+                // Ticket exists but has a valid lock held by another run
+                return Err(DbError::Validation(format!(
+                    "Ticket {} is already locked by another run",
+                    ticket_id
+                )));
             }
             Ok(())
         })
@@ -251,7 +280,7 @@ impl Database {
     }
 
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
-        self.with_conn(|conn| {
+        let created_ticket = self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now();
             let labels_json = serde_json::to_string(&ticket.labels).unwrap_or_else(|_| "[]".to_string());
@@ -297,7 +326,48 @@ impl Database {
                 model: ticket.model.clone(),
                 branch_name: ticket.branch_name.clone(),
             })
-        })
+        })?;
+        
+        // Auto-create Task 1 from the ticket description
+        // This is the initial task that defines the work to be done
+        // CRITICAL: Every ticket MUST have at least one task. Workers expect this invariant.
+        // If task creation fails, we must delete the ticket and return an error to maintain consistency.
+        //
+        // UTF-8 handling: chars().count() counts Unicode code points (not bytes), which is
+        // consistent with SQLite's length() function used in the V8 migration. Both correctly
+        // handle multi-byte UTF-8 characters like emoji. Extended grapheme clusters (e.g., 
+        // emoji with skin tone modifiers) are counted as multiple code points by both.
+        let task_title = if created_ticket.title.chars().count() > 50 {
+            format!("{}...", created_ticket.title.chars().take(47).collect::<String>())
+        } else {
+            created_ticket.title.clone()
+        };
+        
+        if let Err(e) = self.create_task(&CreateTask {
+            ticket_id: created_ticket.id.clone(),
+            task_type: TaskType::Custom,
+            title: Some(task_title),
+            content: if created_ticket.description_md.is_empty() {
+                None
+            } else {
+                Some(created_ticket.description_md.clone())
+            },
+        }) {
+            // Task creation failed - delete the ticket to maintain invariant
+            tracing::error!(
+                "Failed to create initial task for ticket {}: {}. Deleting ticket to maintain invariant.",
+                created_ticket.id, e
+            );
+            if let Err(delete_err) = self.delete_ticket(&created_ticket.id) {
+                tracing::error!("Failed to delete ticket {} after task creation failure: {}", created_ticket.id, delete_err);
+            }
+            return Err(DbError::Validation(format!(
+                "Failed to create initial task for ticket: {}. Ticket creation aborted.",
+                e
+            )));
+        }
+        
+        Ok(created_ticket)
     }
 
     pub fn get_tickets(&self, board_id: &str, column_id: Option<&str>) -> Result<Vec<Ticket>, DbError> {
@@ -850,6 +920,81 @@ mod tests {
     }
 
     #[test]
+    fn lock_ticket_fails_when_already_locked() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        
+        // First lock should succeed
+        db.lock_ticket(&ticket.id, "run-1", expires).unwrap();
+        
+        // Second lock attempt should fail (ticket is already locked with valid lock)
+        let result = db.lock_ticket(&ticket.id, "run-2", expires);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+        
+        // Original lock should still be in place
+        let locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(locked.locked_by_run_id, Some("run-1".to_string()));
+    }
+
+    #[test]
+    fn lock_ticket_succeeds_when_lock_expired() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        // Lock with an already-expired timestamp
+        let expired = chrono::Utc::now() - chrono::Duration::minutes(5);
+        db.lock_ticket(&ticket.id, "run-1", expired).unwrap();
+        
+        // Second lock should succeed because the first lock has expired
+        let new_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "run-2", new_expires).unwrap();
+        
+        // New lock should be in place
+        let locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(locked.locked_by_run_id, Some("run-2".to_string()));
+    }
+
+    #[test]
+    fn lock_ticket_not_found() {
+        let db = create_test_db();
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        let result = db.lock_ticket("nonexistent", "run-1", expires);
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
     fn release_lock_correct_run() {
         let db = create_test_db();
         let board = db.create_board("Board").unwrap();
@@ -1301,5 +1446,120 @@ mod tests {
         // Verify it persists
         let fetched = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(fetched.branch_name, Some("feat/preset/my-branch".to_string()));
+    }
+
+    #[test]
+    fn create_ticket_auto_creates_initial_task() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "My Feature Request".to_string(),
+            description_md: "Implement this feature".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        // Verify Task 1 was automatically created
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].order_index, 0);
+        assert_eq!(tasks[0].title, Some("My Feature Request".to_string()));
+        assert_eq!(tasks[0].content, Some("Implement this feature".to_string()));
+    }
+
+    #[test]
+    fn create_ticket_truncates_long_title_for_task() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let long_title = "A".repeat(60); // 60 chars, should be truncated to 50
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: long_title.clone(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        // Title should be truncated with "..."
+        let task_title = tasks[0].title.as_ref().unwrap();
+        assert!(task_title.chars().count() <= 50); // Check character count, not byte count
+        assert!(task_title.ends_with("..."));
+    }
+
+    #[test]
+    fn create_ticket_truncates_utf8_title_safely() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        // Title with multi-byte UTF-8 characters (emoji are 4 bytes each)
+        // This would panic with byte-based slicing if byte 47 lands mid-character
+        let emoji_title = "🎉".repeat(60); // 60 emoji = 240 bytes, 60 characters
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: emoji_title.clone(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        let task_title = tasks[0].title.as_ref().unwrap();
+        // Should be 47 emoji + "..." = 50 characters
+        assert_eq!(task_title.chars().count(), 50);
+        assert!(task_title.ends_with("..."));
+        // Verify we got exactly 47 emoji (not corrupted by bad slicing)
+        assert_eq!(task_title.chars().filter(|&c| c == '🎉').count(), 47);
+    }
+
+    #[test]
+    fn create_ticket_empty_description_creates_task_with_no_content() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Quick Task".to_string(),
+            description_md: "".to_string(), // Empty description
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].content, None); // No content since description was empty
     }
 }

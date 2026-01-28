@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -144,6 +144,25 @@ CREATE TABLE IF NOT EXISTS repo_locks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_repo_locks_expires ON repo_locks(lock_expires_at);
+
+-- Tasks table (task queue for tickets)
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY NOT NULL,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    order_index INTEGER NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'custom' CHECK(task_type IN ('custom', 'sync_with_main', 'add_tests', 'review_polish', 'fix_lint')),
+    title TEXT,
+    content TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+    run_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
 "#;
 
 /// Migration SQL for schema version 3
@@ -198,6 +217,29 @@ UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic';
 pub const MIGRATION_V7: &str = r#"
 -- Add branch_name column to tickets for persistent branch tracking
 ALTER TABLE tickets ADD COLUMN branch_name TEXT;
+"#;
+
+/// Migration SQL for schema version 8
+/// Adds tasks table for task queue system
+pub const MIGRATION_V8: &str = r#"
+-- Tasks table (task queue for tickets)
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY NOT NULL,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    order_index INTEGER NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'custom' CHECK(task_type IN ('custom', 'sync_with_main', 'add_tests', 'review_polish', 'fix_lint')),
+    title TEXT,
+    content TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+    run_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
 "#;
 
 /// Default columns for a new board
