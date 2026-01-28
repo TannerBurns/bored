@@ -165,6 +165,11 @@ impl Database {
                 conn.execute_batch(schema::MIGRATION_V8)?;
                 
                 // Create Task 1 for existing tickets based on column status
+                // 
+                // Note on UTF-8 handling: SQLite's length() and substr() functions count
+                // Unicode code points (not bytes) for TEXT columns, which is consistent with
+                // Rust's chars().count() and chars().take() used in create_ticket().
+                // Both correctly handle multi-byte UTF-8 characters like emoji.
                 tracing::info!("Creating initial tasks for existing tickets...");
                 let task_count = conn.execute(
                     r#"INSERT INTO tasks (id, ticket_id, order_index, task_type, title, content, status, created_at)

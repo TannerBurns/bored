@@ -217,18 +217,11 @@ impl WorkflowOrchestrator {
                     fallback
                 };
                 
-                // Store the NEW branch name on ticket
-                if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &new_branch_name) {
-                    tracing::warn!("Failed to store branch name on ticket: {}", e);
-                } else {
-                    tracing::info!("Stored branch name '{}' on ticket {}", new_branch_name, self.ticket.id);
-                    let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
-                        "ticketId": self.ticket.id,
-                        "branchName": new_branch_name,
-                    }));
-                }
-                
-                // Rename the temp branch to the new name
+                // Rename the temp branch to the new name BEFORE updating the database.
+                // This ensures the database only records the new branch name after the git
+                // rename succeeds. If we updated the database first and the rename failed,
+                // the database would have the new name while git still has the old name,
+                // causing subsequent runs to fail when they try to use the recorded branch.
                 if self.is_cancelled() {
                     return Err("Workflow cancelled".to_string());
                 }
@@ -252,6 +245,17 @@ Do NOT start implementing any code changes. Just rename the branch.
                 );
                 
                 let _rename_result = self.run_stage("branch", &rename_prompt).await?;
+                
+                // Now that the git rename succeeded, store the NEW branch name on ticket
+                if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &new_branch_name) {
+                    tracing::warn!("Failed to store branch name on ticket: {}", e);
+                } else {
+                    tracing::info!("Stored branch name '{}' on ticket {}", new_branch_name, self.ticket.id);
+                    let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
+                        "ticketId": self.ticket.id,
+                        "branchName": new_branch_name,
+                    }));
+                }
             } else {
                 // We have a permanent branch name already
                 tracing::info!("Using pre-determined branch name: {}", branch_name);
