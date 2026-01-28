@@ -381,9 +381,10 @@ impl Worker {
             (ticket.branch_name.clone(), true)
         } else {
             // First run - pass the temp branch name so orchestrator knows the worktree is on a branch.
-            // Set branch_already_created = false so it still generates an AI branch name.
-            // The orchestrator can detect the temp branch pattern and rename it appropriately.
-            (Some(worktree.branch_name.clone()), !worktree.is_temp_branch)
+            // If is_temp_branch = true, the branch was already created by the worktree,
+            // so branch_already_created should also be true to prevent the orchestrator from
+            // trying to create a branch that already exists.
+            (Some(worktree.branch_name.clone()), worktree.is_temp_branch)
         };
         
         let runner_config = RunnerConfig {
