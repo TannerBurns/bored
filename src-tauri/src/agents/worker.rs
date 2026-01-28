@@ -306,8 +306,30 @@ impl Worker {
             }
             Ok(None) => {
                 tracing::warn!("Worker {} found no pending tasks for ticket {}, skipping", self.id, ticket.id);
+                
+                // Stop heartbeat before cleanup
+                heartbeat_handle.abort();
+                
+                // Update run status to Finished (no work to do is not an error)
+                let _ = self.db.update_run_status(
+                    &run.id,
+                    RunStatus::Finished,
+                    None,
+                    Some("No pending tasks for ticket"),
+                );
+                
+                // Clean up
                 self.db.unlock_ticket(&ticket.id)?;
                 let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                
+                // Reset worker status
+                {
+                    let mut status = self.status.lock().expect("status mutex poisoned");
+                    status.status = WorkerState::Idle;
+                    status.current_ticket_id = None;
+                    status.current_run_id = None;
+                }
+                
                 return Ok(false);
             }
             Err(e) => {
