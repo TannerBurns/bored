@@ -140,6 +140,7 @@ pub async fn run_diagnostic_agent(
     context: DiagnosticContext,
     api_url: &str,
     api_token: &str,
+    model: Option<String>,
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let ticket_id_owned = ticket_id.to_string();
@@ -168,8 +169,7 @@ pub async fn run_diagnostic_agent(
     // Build the diagnostic prompt
     let prompt = build_diagnostic_prompt(&context);
     
-    // Configure and run the agent
-    // Don't specify a model - let Claude CLI use its default
+    // Configure and run the agent using the ticket's model preference
     let agent_config = AgentRunConfig {
         kind: AgentKind::Claude,
         ticket_id: ticket_id.to_string(),
@@ -179,7 +179,7 @@ pub async fn run_diagnostic_agent(
         timeout_secs: Some(300), // 5 minute timeout for diagnostics
         api_url: api_url.to_string(),
         api_token: api_token.to_string(),
-        model: None,
+        model,
     };
     
     // Spawn the agent in a blocking task since spawner uses sync I/O

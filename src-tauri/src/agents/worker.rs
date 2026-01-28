@@ -555,6 +555,7 @@ impl Worker {
         let db_clone = self.db.clone();
         let app_handle = self.config.app_handle.clone();
         let ticket_id = ticket.id.clone();
+        let ticket_model = ticket.model.clone();
         let api_url = self.config.api_url.clone();
         let api_token = self.config.api_token.clone();
         let context_clone = context.clone();
@@ -571,6 +572,7 @@ impl Worker {
                 context_clone.clone(),
                 &api_url,
                 &api_token,
+                ticket_model,
             ).await {
                 Ok(()) => {
                     tracing::info!(
