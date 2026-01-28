@@ -6,3 +6,6 @@ export { TicketModal } from './TicketModal';
 export { CreateTicketModal } from './CreateTicketModal';
 export { AgentControls } from './AgentControls';
 export { TransitionErrorToast, validateTransition } from './TransitionGuard';
+export { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
+export { FullscreenCommentModal } from './FullscreenCommentModal';
+export { CreateCommentModal } from './CreateCommentModal';

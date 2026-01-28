@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getProjects } from '../../lib/tauri';
+import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 
 interface CreateTicketModalProps {
@@ -27,10 +28,12 @@ export function CreateTicketModal({
   const [projectId, setProjectId] = useState('');
   const [agentPref, setAgentPref] = useState<'cursor' | 'claude' | 'any'>(defaultAgentPref);
   const [model, setModel] = useState<string>('');
+  const [branchName, setBranchName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -79,6 +82,7 @@ export function CreateTicketModal({
         agentPref,
         workflowType: 'multi_stage',
         model: model || undefined,
+        branchName: branchName.trim() || undefined,
       });
       
       onClose();
@@ -107,10 +111,10 @@ export function CreateTicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-board-column rounded-xl shadow-2xl border border-board-border">
-        <form onSubmit={handleSubmit}>
+      <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col bg-board-column rounded-xl shadow-2xl border border-board-border">
+        <form onSubmit={handleSubmit} className="flex flex-col max-h-[90vh]">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-board-border">
+          <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-board-border">
             <h2 className="text-lg font-semibold text-board-text">Create Ticket</h2>
             <button
               type="button"
@@ -135,8 +139,8 @@ export function CreateTicketModal({
             </button>
           </div>
 
-          {/* Content */}
-          <div className="p-4 space-y-4">
+          {/* Content - scrollable */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* Error message */}
             {error && (
               <div className="p-3 bg-status-error/10 border border-status-error/30 rounded-lg text-sm text-status-error">
@@ -165,17 +169,43 @@ export function CreateTicketModal({
 
             {/* Description */}
             <div>
-              <label
-                htmlFor="description"
-                className="block text-sm font-medium text-board-text-secondary mb-1.5"
-              >
-                Description
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="description"
+                  className="block text-sm font-medium text-board-text-secondary"
+                >
+                  Description
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreenOpen(true)}
+                  className="p-1 text-board-text-muted hover:text-board-text transition-colors rounded hover:bg-board-surface"
+                  aria-label="Expand description"
+                  title="Edit fullscreen"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="15 3 21 3 21 9" />
+                    <polyline points="9 21 3 21 3 15" />
+                    <line x1="21" y1="3" x2="14" y2="10" />
+                    <line x1="3" y1="21" x2="10" y2="14" />
+                  </svg>
+                </button>
+              </div>
               <textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add more details, acceptance criteria, etc."
+                placeholder="Add more details, acceptance criteria, etc. (Markdown supported)"
                 rows={4}
                 className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
@@ -315,10 +345,31 @@ export function CreateTicketModal({
                 ))}
               </select>
             </div>
+
+            {/* Branch Name (optional) */}
+            <div>
+              <label
+                htmlFor="branchName"
+                className="block text-sm font-medium text-board-text-secondary mb-1.5"
+              >
+                Branch Name (optional)
+              </label>
+              <input
+                id="branchName"
+                type="text"
+                value={branchName}
+                onChange={(e) => setBranchName(e.target.value)}
+                placeholder="feat/JIRA-123/add-feature"
+                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              />
+              <p className="mt-1 text-xs text-board-text-muted">
+                Leave empty for AI-generated branch name on first run
+              </p>
+            </div>
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end gap-2 p-4 border-t border-board-border">
+          <div className="flex-shrink-0 flex justify-end gap-2 p-4 border-t border-board-border">
             <button
               type="button"
               onClick={onClose}
@@ -339,6 +390,17 @@ export function CreateTicketModal({
           </div>
         </form>
       </div>
+
+      {/* Fullscreen Description Modal */}
+      <FullscreenDescriptionModal
+        description={description}
+        isOpen={isFullscreenOpen}
+        onClose={() => setIsFullscreenOpen(false)}
+        onSave={async (newDescription) => {
+          setDescription(newDescription);
+        }}
+        ticketTitle={title || 'New Ticket'}
+      />
     </div>
   );
 }

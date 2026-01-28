@@ -314,7 +314,177 @@ pub fn cleanup_stale_worktrees() -> Result<usize, WorktreeError> {
     Ok(cleaned)
 }
 
-/// Generate a branch name for a ticket
+/// Check if a branch exists in the repository
+pub fn branch_exists(repo_path: &Path, branch_name: &str) -> Result<bool, WorktreeError> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", &format!("refs/heads/{}", branch_name)])
+        .current_dir(repo_path)
+        .output()?;
+    
+    Ok(output.status.success())
+}
+
+/// Create a worktree using an existing branch
+/// 
+/// This is used when a ticket already has a branch assigned and we want to
+/// continue working on it in a new worktree.
+pub fn create_worktree_with_existing_branch(
+    repo_path: &Path,
+    branch_name: &str,
+    run_id: &str,
+    base_dir: Option<PathBuf>,
+) -> Result<WorktreeInfo, WorktreeError> {
+    // Validate repo path
+    if !is_git_repo(repo_path) {
+        return Err(WorktreeError::InvalidRepo(repo_path.to_path_buf()));
+    }
+    
+    // Get the actual repo root
+    let repo_root = get_repo_root(repo_path)?;
+    
+    // Determine worktree path
+    let base = base_dir.unwrap_or_else(get_default_worktree_base);
+    let worktree_path = base.join(run_id);
+    
+    // Check if path already exists
+    if worktree_path.exists() {
+        return Err(WorktreeError::PathExists(worktree_path));
+    }
+    
+    // Create base directory if needed
+    if let Some(parent) = worktree_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            WorktreeError::DirectoryError(format!("Failed to create {}: {}", parent.display(), e))
+        })?;
+    }
+    
+    // Fetch latest from remote (best effort)
+    let _ = Command::new("git")
+        .args(["fetch", "--all"])
+        .current_dir(&repo_root)
+        .output();
+    
+    // Check if branch exists locally
+    let branch_exists_locally = branch_exists(&repo_root, branch_name)?;
+    
+    if branch_exists_locally {
+        // Branch exists - create worktree pointing to it
+        // First check if it's already checked out in another worktree
+        let output = Command::new("git")
+            .args([
+                "worktree", "add",
+                worktree_path.to_string_lossy().as_ref(),
+                branch_name,
+            ])
+            .current_dir(&repo_root)
+            .output()?;
+        
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            
+            // If branch is already checked out elsewhere, we need to detach and checkout
+            if stderr.contains("already checked out") {
+                // Create worktree in detached state first, then checkout the branch
+                let output = Command::new("git")
+                    .args([
+                        "worktree", "add",
+                        "--detach",
+                        worktree_path.to_string_lossy().as_ref(),
+                        branch_name,
+                    ])
+                    .current_dir(&repo_root)
+                    .output()?;
+                
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(WorktreeError::GitError(format!(
+                        "Failed to create worktree: {}", stderr.trim()
+                    )));
+                }
+                
+                // Force checkout the branch in the worktree
+                let checkout_output = Command::new("git")
+                    .args(["checkout", "-B", branch_name])
+                    .current_dir(&worktree_path)
+                    .output()?;
+                
+                if !checkout_output.status.success() {
+                    let stderr = String::from_utf8_lossy(&checkout_output.stderr);
+                    tracing::warn!("Failed to checkout branch in worktree: {}", stderr.trim());
+                }
+            } else {
+                return Err(WorktreeError::GitError(format!(
+                    "Failed to create worktree: {}", stderr.trim()
+                )));
+            }
+        }
+    } else {
+        // Branch doesn't exist locally - try to fetch from remote or create fresh
+        // First try to find it on remote
+        let remote_check = Command::new("git")
+            .args(["ls-remote", "--heads", "origin", branch_name])
+            .current_dir(&repo_root)
+            .output()?;
+        
+        let has_remote = remote_check.status.success() 
+            && !String::from_utf8_lossy(&remote_check.stdout).trim().is_empty();
+        
+        if has_remote {
+            // Fetch and create worktree from remote branch
+            let _ = Command::new("git")
+                .args(["fetch", "origin", &format!("{}:{}", branch_name, branch_name)])
+                .current_dir(&repo_root)
+                .output();
+            
+            let output = Command::new("git")
+                .args([
+                    "worktree", "add",
+                    worktree_path.to_string_lossy().as_ref(),
+                    branch_name,
+                ])
+                .current_dir(&repo_root)
+                .output()?;
+            
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(WorktreeError::GitError(format!(
+                    "Failed to create worktree from remote branch: {}", stderr.trim()
+                )));
+            }
+        } else {
+            // Branch doesn't exist anywhere - create it fresh
+            let output = Command::new("git")
+                .args([
+                    "worktree", "add",
+                    "-b", branch_name,
+                    worktree_path.to_string_lossy().as_ref(),
+                ])
+                .current_dir(&repo_root)
+                .output()?;
+            
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(WorktreeError::GitError(format!(
+                    "Failed to create worktree with new branch: {}", stderr.trim()
+                )));
+            }
+        }
+    }
+    
+    tracing::info!(
+        "Created worktree at {} for existing branch {}",
+        worktree_path.display(),
+        branch_name
+    );
+    
+    Ok(WorktreeInfo {
+        path: worktree_path,
+        branch_name: branch_name.to_string(),
+        repo_path: repo_root,
+    })
+}
+
+/// Generate a branch name for a ticket (fallback deterministic naming)
 pub fn generate_branch_name(ticket_id: &str, ticket_title: &str) -> String {
     // Sanitize the title for use in a branch name
     let sanitized_title: String = ticket_title

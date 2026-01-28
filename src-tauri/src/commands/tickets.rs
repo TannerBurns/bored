@@ -18,6 +18,8 @@ pub struct CreateTicketInput {
     #[serde(default)]
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
+    /// Optional pre-defined branch name (if not provided, will be AI-generated on first run)
+    pub branch_name: Option<String>,
 }
 
 #[tauri::command]
@@ -46,6 +48,7 @@ pub async fn create_ticket(
         agent_pref: ticket.agent_pref,
         workflow_type: ticket.workflow_type.unwrap_or_default(),
         model: ticket.model,
+        branch_name: ticket.branch_name,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }
@@ -110,4 +113,14 @@ pub async fn add_comment(
         metadata: None,
     };
     db.create_comment(&create).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_comment(
+    comment_id: String,
+    body: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Comment, String> {
+    tracing::info!("Updating comment: {}", comment_id);
+    db.update_comment(&comment_id, &body).map_err(|e| e.to_string())
 }

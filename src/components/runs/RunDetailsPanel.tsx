@@ -57,16 +57,35 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   
   const statusRef = useRef<RunStatus | undefined>(undefined);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   
   useEffect(() => {
     statusRef.current = run?.status;
   }, [run?.status]);
 
   useEffect(() => {
-    if (activeTab === 'logs' && logsEndRef.current?.scrollIntoView) {
+    if (activeTab === 'logs' && shouldAutoScroll && logsEndRef.current?.scrollIntoView) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [logs, activeTab]);
+  }, [logs, activeTab, shouldAutoScroll]);
+
+  // Handle scroll to detect if user is at bottom
+  const handleLogsScroll = () => {
+    const container = logsContainerRef.current;
+    if (!container) return;
+    
+    // Check if user is near the bottom (within 50px)
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    setShouldAutoScroll(isAtBottom);
+  };
+
+  // Reset auto-scroll when logs are cleared or tab changes
+  useEffect(() => {
+    if (logs.length === 0) {
+      setShouldAutoScroll(true);
+    }
+  }, [logs.length]);
 
   const loadRun = useCallback(async () => {
     try {
@@ -232,7 +251,11 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div 
+        ref={activeTab === 'logs' ? logsContainerRef : undefined}
+        onScroll={activeTab === 'logs' ? handleLogsScroll : undefined}
+        className="flex-1 overflow-y-auto p-4"
+      >
         {activeTab === 'timeline' ? (
           <EventTimeline runId={runId} />
         ) : (

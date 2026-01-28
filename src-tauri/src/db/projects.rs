@@ -468,6 +468,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -503,6 +504,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -530,6 +532,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();

@@ -9,7 +9,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                    FROM tickets WHERE id = ?"#
             )?;
             
@@ -30,7 +30,7 @@ impl Database {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
-                              lock_expires_at, project_id, agent_pref, workflow_type, model
+                              lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                        FROM tickets WHERE id = ?"#
                 )?;
                 stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -61,13 +61,19 @@ impl Database {
                 Some(m) => Some(m.as_str()),
                 None => existing.model.as_deref(), // Keep existing
             };
+            // Handle branch_name: None means keep existing, Some("") means clear, Some(value) means set
+            let branch_name = match &updates.branch_name {
+                Some(b) if b.is_empty() => None, // Empty string means clear the branch
+                Some(b) => Some(b.as_str()),
+                None => existing.branch_name.as_deref(), // Keep existing
+            };
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
 
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, updated_at = ?
+                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -78,6 +84,7 @@ impl Database {
                     agent_pref.map(|p| p.as_str()),
                     workflow_type.as_str(),
                     model,
+                    branch_name,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -87,7 +94,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                    FROM tickets WHERE id = ?"#
             )?;
             stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -231,7 +238,7 @@ impl Database {
             let ticket = tx.query_row(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
                 [run_id],
@@ -252,8 +259,8 @@ impl Database {
             conn.execute(
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
-                    created_at, updated_at, project_id, agent_pref, workflow_type, model)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -268,6 +275,7 @@ impl Database {
                     ticket.agent_pref.as_ref().map(|p| p.as_str()),
                     ticket.workflow_type.as_str(),
                     ticket.model,
+                    ticket.branch_name,
                 ],
             )?;
 
@@ -287,6 +295,7 @@ impl Database {
                 agent_pref: ticket.agent_pref.clone(),
                 workflow_type: ticket.workflow_type.clone(),
                 model: ticket.model.clone(),
+                branch_name: ticket.branch_name.clone(),
             })
         })
     }
@@ -297,13 +306,13 @@ impl Database {
                 Some(_) => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model
+                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model
+                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
             };
@@ -359,6 +368,7 @@ impl Database {
         let workflow_type = WorkflowType::parse(&workflow_type_str).unwrap_or_default();
         
         let model: Option<String> = row.get(14)?;
+        let branch_name: Option<String> = row.get(15)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -376,6 +386,23 @@ impl Database {
             agent_pref,
             workflow_type,
             model,
+            branch_name,
+        })
+    }
+
+    /// Set the branch name for a ticket (used after agent generates branch name)
+    pub fn set_ticket_branch(&self, ticket_id: &str, branch_name: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            let affected = conn.execute(
+                "UPDATE tickets SET branch_name = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![branch_name, now, ticket_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
+            }
+            Ok(())
         })
     }
 }
@@ -409,6 +436,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         (board.id, ready_column.id.clone(), ticket)
@@ -431,6 +459,7 @@ mod tests {
             agent_pref: Some(AgentPref::Cursor),
             workflow_type: WorkflowType::MultiStage,
             model: None,
+            branch_name: None,
         }).unwrap();
         
         assert_eq!(ticket.title, "Test Ticket");
@@ -457,6 +486,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let tickets = db.get_tickets(&board.id, None).unwrap();
@@ -480,6 +510,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         db.move_ticket(&ticket.id, &columns[1].id).unwrap();
@@ -513,6 +544,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
@@ -538,6 +570,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let fetched = db.get_ticket(&created.id).unwrap();
@@ -570,6 +603,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -581,6 +615,7 @@ mod tests {
             agent_pref: None,
             workflow_type: None,
             model: None,
+            branch_name: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -600,6 +635,7 @@ mod tests {
             agent_pref: None,
             workflow_type: None,
             model: None,
+            branch_name: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
@@ -627,6 +663,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         assert_eq!(ticket.project_id, Some(project.id.clone()));
@@ -640,6 +677,7 @@ mod tests {
             agent_pref: None,
             workflow_type: None,
             model: None,
+            branch_name: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, None);
@@ -668,6 +706,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -679,6 +718,7 @@ mod tests {
             agent_pref: None,
             workflow_type: None,
             model: None,
+            branch_name: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, Some(project.id));
@@ -702,6 +742,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         db.delete_ticket(&ticket.id).unwrap();
@@ -734,6 +775,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -767,6 +809,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let initial_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -796,6 +839,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -822,6 +866,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -854,6 +899,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -901,6 +947,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -960,6 +1007,7 @@ mod tests {
             agent_pref: Some(AgentPref::Claude),
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -999,6 +1047,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1031,6 +1080,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         // Create urgent ticket second
@@ -1045,6 +1095,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1074,6 +1125,7 @@ mod tests {
             agent_pref: Some(AgentPref::Cursor),
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1106,6 +1158,7 @@ mod tests {
             agent_pref: Some(AgentPref::Any),
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1142,6 +1195,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1154,5 +1208,98 @@ mod tests {
         
         let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
         assert!(claude_result.is_some());
+    }
+
+    #[test]
+    fn set_ticket_branch_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        assert!(ticket.branch_name.is_none());
+        
+        db.set_ticket_branch(&ticket.id, "feat/abc123/add-feature").unwrap();
+        
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated.branch_name, Some("feat/abc123/add-feature".to_string()));
+    }
+
+    #[test]
+    fn set_ticket_branch_not_found() {
+        let db = create_test_db();
+        let result = db.set_ticket_branch("nonexistent-id", "some-branch");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn set_ticket_branch_updates_timestamp() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let before = ticket.updated_at;
+        
+        // Small delay to ensure timestamp differs
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        
+        db.set_ticket_branch(&ticket.id, "fix/123/bug-fix").unwrap();
+        
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert!(updated.updated_at >= before);
+    }
+
+    #[test]
+    fn create_ticket_with_branch_name() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: Some("feat/preset/my-branch".to_string()),
+        }).unwrap();
+        
+        assert_eq!(ticket.branch_name, Some("feat/preset/my-branch".to_string()));
+        
+        // Verify it persists
+        let fetched = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(fetched.branch_name, Some("feat/preset/my-branch".to_string()));
     }
 }

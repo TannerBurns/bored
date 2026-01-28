@@ -151,6 +151,14 @@ impl Database {
                 );
             }
             
+            if current_version < 7 && current_version > 0 {
+                tracing::info!("Applying migration v7: branch_name column for tickets");
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN branch_name TEXT",
+                    [],
+                );
+            }
+            
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

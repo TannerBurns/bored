@@ -168,6 +168,8 @@ pub struct Ticket {
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
+    /// The git branch name for this ticket (agent-generated)
+    pub branch_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -351,6 +353,8 @@ pub struct CreateTicket {
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
+    /// Optional pre-defined branch name (if not provided, will be AI-generated on first run)
+    pub branch_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,6 +391,7 @@ pub struct UpdateTicket {
     pub agent_pref: Option<AgentPref>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
+    pub branch_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

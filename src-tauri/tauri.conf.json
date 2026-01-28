@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "Agent Kanban",
+    "productName": "Bored",
     "version": "0.1.0"
   },
   "tauri": {
@@ -33,7 +33,7 @@
         "icons/icon.ico"
       ],
       "identifier": "com.agent-kanban.app",
-      "longDescription": "Agent Kanban - AI-powered task management for coding agents",
+      "longDescription": "Bored - AI-powered task management for coding agents",
       "macOS": {
         "entitlements": null,
         "exceptionDomain": "",
@@ -45,7 +45,7 @@
         "scripts/*",
         "scripts/commands/*"
       ],
-      "shortDescription": "Agent Kanban",
+      "shortDescription": "Bored",
       "targets": "all",
       "windows": {
         "certificateThumbprint": null,
@@ -64,7 +64,7 @@
         "fullscreen": false,
         "height": 800,
         "resizable": true,
-        "title": "Agent Kanban",
+        "title": "Bored",
         "width": 1200
       }
     ]

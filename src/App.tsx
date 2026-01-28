@@ -174,6 +174,7 @@ function App() {
     openCreateModal,
     closeCreateModal,
     addComment,
+    updateComment,
     createTicket: storeCreateTicket,
     updateTicket: storeUpdateTicket,
     moveTicket: storeMoveTicket,
@@ -236,6 +237,10 @@ function App() {
 
   const handleAddComment = async (ticketId: string, body: string) => {
     await addComment(ticketId, body);
+  };
+
+  const handleUpdateComment = async (commentId: string, body: string) => {
+    await updateComment(commentId, body);
   };
 
   const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
@@ -321,7 +326,7 @@ function App() {
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <Header
-          title={activeNav === 'boards' && currentBoard ? currentBoard.name : 'Agent Kanban'}
+          title={activeNav === 'boards' && currentBoard ? currentBoard.name : 'Bored'}
           subtitle={activeNav === 'boards' && currentBoard ? 'Manage your coding tasks and let AI agents do the work.' : undefined}
           action={
             activeNav === 'boards' && boards.length > 0 ? (
@@ -575,6 +580,7 @@ function App() {
           onClose={closeTicketModal}
           onUpdate={handleUpdateTicket}
           onAddComment={handleAddComment}
+          onUpdateComment={handleUpdateComment}
           onRunWithAgent={handleRunWithAgent}
           onDelete={handleDeleteTicket}
           onAgentComplete={handleAgentComplete}

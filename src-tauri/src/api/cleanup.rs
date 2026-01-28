@@ -166,6 +166,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
 
         // Create a run and lock the ticket with an expired time
@@ -210,6 +211,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
 
         // Create a run and lock the ticket with a future expiration
@@ -252,6 +254,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
 
         // Create a run with running status
@@ -333,6 +336,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
 
         let ticket2 = db.create_ticket(&CreateTicket {
@@ -346,6 +350,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
 
         let run1 = db.create_run(&CreateRun {

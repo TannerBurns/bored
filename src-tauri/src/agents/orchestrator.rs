@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager, Window};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
-use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome};
-use super::prompt::{generate_branch_prompt, generate_get_branch_name_prompt, generate_plan_prompt, generate_implement_prompt, generate_command_prompt};
+use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
+use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt};
 use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
@@ -167,31 +167,87 @@ impl WorkflowOrchestrator {
         
         // Handle branch creation based on whether we're in a worktree
         if let Some(ref branch_name) = self.worktree_branch {
-            // Worktree mode: branch already created, just add the comment
+            // Worktree mode: branch already created via worktree creation
             tracing::info!("Using worktree branch: {}", branch_name);
-            self.add_branch_comment(branch_name);
-        } else {
-            // Traditional mode: have the agent create a branch
-            // Stage 0: Create branch
-            if self.is_cancelled() {
-                return Err("Workflow cancelled".to_string());
-            }
-            let _branch_result = self.run_stage("branch", &generate_branch_prompt(&self.ticket)).await?;
             
-            // Ask the agent what branch was created
-            if self.is_cancelled() {
-                return Err("Workflow cancelled".to_string());
-            }
-            let branch_name_result = self.run_stage("get-branch-name", &generate_get_branch_name_prompt()).await?;
-            
-            // Post the agent's output as a comment - it contains the branch information
-            if let Some(ref output) = branch_name_result.captured_stdout {
-                let output_text = output.trim();
-                if !output_text.is_empty() {
-                    tracing::info!("Adding branch comment from agent output ({} chars)", output_text.len());
-                    self.add_branch_comment(output_text);
+            // Store branch name on ticket if not already set
+            if self.ticket.branch_name.is_none() {
+                if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, branch_name) {
+                    tracing::warn!("Failed to store branch name on ticket: {}", e);
+                } else {
+                    tracing::info!("Stored branch name '{}' on ticket {}", branch_name, self.ticket.id);
                 }
             }
+        } else {
+            // Traditional mode: have the agent generate and create a branch
+            // First, ask agent to generate a meaningful branch name
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            
+            let branch_gen_result = self.run_stage("branch-gen", &generate_branch_name_generation_prompt(&self.ticket)).await?;
+            
+            // Try to parse the generated branch name
+            // For Claude, we need to extract text from stream-json format first
+            let generated_branch = branch_gen_result.captured_stdout
+                .as_ref()
+                .and_then(|output| {
+                    // Try extracting text from stream-json (Claude format)
+                    let text_content = extract_text_from_stream_json(output)
+                        .unwrap_or_else(|| output.clone());
+                    
+                    tracing::debug!("Branch-gen output (extracted): {}", text_content);
+                    parse_branch_name_from_output(&text_content)
+                });
+            
+            // Use generated name or fall back to deterministic
+            let branch_to_create = if let Some(ref name) = generated_branch {
+                tracing::info!("Agent generated branch name: {}", name);
+                name.clone()
+            } else {
+                // Fallback to deterministic naming
+                let fallback = super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
+                tracing::warn!("Could not parse generated branch name, using fallback: {}", fallback);
+                fallback
+            };
+            
+            // Store branch name on ticket BEFORE creating the branch
+            // This allows the UI to show the branch immediately
+            if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &branch_to_create) {
+                tracing::warn!("Failed to store branch name on ticket: {}", e);
+            } else {
+                tracing::info!("Stored branch name '{}' on ticket {}", branch_to_create, self.ticket.id);
+                // Emit event for frontend to update the ticket display
+                let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
+                    "ticketId": self.ticket.id,
+                    "branchName": branch_to_create,
+                }));
+            }
+            
+            // Now have the agent create the branch with that name
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            
+            let branch_prompt = format!(
+                r#"Create a new git branch for this task.
+
+## Task
+Create and switch to a new branch: `{}`
+
+## Instructions
+1. Check if you're on a clean working tree (stash changes if needed)
+2. Switch to the main branch (or master if main doesn't exist)
+3. Pull the latest changes from origin: `git pull origin main`
+4. Create and switch to the new branch from main
+5. Push the branch to origin with -u flag
+
+Do NOT start implementing any code changes. Just create the branch.
+"#,
+                branch_to_create
+            );
+            
+            let _branch_result = self.run_stage("branch", &branch_prompt).await?;
         }
         
         // Stage 1: Plan
@@ -259,29 +315,6 @@ impl WorkflowOrchestrator {
     }
     
     /// Add a comment to the ticket with the branch information from agent output
-    fn add_branch_comment(&self, agent_output: &str) {
-        let comment_text = format!("## Branch Created\n\n{}", agent_output);
-        let create_comment = CreateComment {
-            ticket_id: self.ticket.id.clone(),
-            author_type: AuthorType::System,
-            body_md: comment_text.clone(),
-            metadata: Some(serde_json::json!({
-                "type": "branch_created",
-                "output": agent_output,
-            })),
-        };
-        if let Err(e) = self.db.create_comment(&create_comment) {
-            tracing::warn!("Failed to add branch comment: {}", e);
-        } else {
-            tracing::info!("Added branch comment for ticket {} ({} chars)", self.ticket.id, agent_output.len());
-            // Emit event for frontend
-            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
-                "ticketId": self.ticket.id,
-                "comment": comment_text,
-            }));
-        }
-    }
-    
     /// Move the ticket to a column by name (best effort - logs warning if column not found)
     fn move_ticket_to_column(&self, column_name: &str) {
         tracing::info!("Attempting to move ticket {} to column '{}' on board {}", 
