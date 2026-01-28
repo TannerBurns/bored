@@ -36,6 +36,14 @@ pub enum WorktreeError {
         operation: String,
     },
     
+    #[error("Network error: {message}")]
+    NetworkError {
+        message: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        operation: String,
+    },
+    
     #[error("Git operation timed out after {timeout_secs} seconds")]
     Timeout {
         timeout_secs: u64,
@@ -48,6 +56,7 @@ impl WorktreeError {
     pub fn stderr(&self) -> Option<&str> {
         match self {
             WorktreeError::SshAuthFailed { stderr, .. } => Some(stderr.as_str()),
+            WorktreeError::NetworkError { stderr, .. } => Some(stderr.as_str()),
             _ => None,
         }
     }
@@ -56,6 +65,7 @@ impl WorktreeError {
     pub fn exit_code(&self) -> Option<i32> {
         match self {
             WorktreeError::SshAuthFailed { exit_code, .. } => *exit_code,
+            WorktreeError::NetworkError { exit_code, .. } => *exit_code,
             _ => None,
         }
     }
@@ -64,6 +74,7 @@ impl WorktreeError {
     pub fn operation(&self) -> Option<&str> {
         match self {
             WorktreeError::SshAuthFailed { operation, .. } => Some(operation.as_str()),
+            WorktreeError::NetworkError { operation, .. } => Some(operation.as_str()),
             WorktreeError::Timeout { operation, .. } => Some(operation.as_str()),
             _ => None,
         }
@@ -73,6 +84,7 @@ impl WorktreeError {
     pub fn diagnostic_type(&self) -> DiagnosticType {
         match self {
             WorktreeError::SshAuthFailed { .. } => DiagnosticType::SshAuth,
+            WorktreeError::NetworkError { .. } => DiagnosticType::NetworkError,
             WorktreeError::Timeout { .. } => DiagnosticType::Timeout,
             WorktreeError::ExecutionError(_) => DiagnosticType::Permission,
             WorktreeError::GitError(msg) => {
@@ -162,8 +174,18 @@ fn run_git_with_timeout(
                     let _ = stderr_handle.read_to_end(&mut stderr);
                 }
                 
-                // Check for SSH authentication errors
+                // Check for network errors first (before SSH auth)
                 let stderr_str = String::from_utf8_lossy(&stderr);
+                if is_network_error(&stderr_str) {
+                    return Err(WorktreeError::NetworkError {
+                        message: extract_network_error_message(&stderr_str),
+                        stderr: stderr_str.to_string(),
+                        exit_code: status.code(),
+                        operation: operation.to_string(),
+                    });
+                }
+                
+                // Check for SSH authentication errors
                 if is_ssh_auth_error(&stderr_str) {
                     return Err(WorktreeError::SshAuthFailed {
                         message: extract_ssh_error_message(&stderr_str),
@@ -199,6 +221,20 @@ fn run_git_with_timeout(
     }
 }
 
+/// Check if stderr indicates a network connectivity error
+fn is_network_error(stderr: &str) -> bool {
+    let network_patterns = [
+        "Connection refused",
+        "Connection timed out",
+        "Could not resolve host",
+        "Network is unreachable",
+        "No route to host",
+        "Connection reset by peer",
+    ];
+    
+    network_patterns.iter().any(|pattern| stderr.contains(pattern))
+}
+
 /// Check if stderr indicates an SSH authentication error
 fn is_ssh_auth_error(stderr: &str) -> bool {
     let ssh_auth_patterns = [
@@ -208,13 +244,36 @@ fn is_ssh_auth_error(stderr: &str) -> bool {
         "Could not read from remote repository",
         "Authentication failed",
         "no mutual signature algorithm",
-        "Connection refused",
-        "Connection timed out",
         "ssh_askpass:",
         "passphrase for key",
     ];
     
     ssh_auth_patterns.iter().any(|pattern| stderr.contains(pattern))
+}
+
+/// Extract a user-friendly error message from network-related stderr output
+fn extract_network_error_message(stderr: &str) -> String {
+    if stderr.contains("Connection refused") {
+        return "Connection refused. The remote server may be down or blocking connections.".to_string();
+    }
+    if stderr.contains("Connection timed out") {
+        return "Connection timed out. Check your network connection and try again.".to_string();
+    }
+    if stderr.contains("Could not resolve host") {
+        return "Could not resolve hostname. Check your DNS settings and network connection.".to_string();
+    }
+    if stderr.contains("Network is unreachable") {
+        return "Network is unreachable. Check your internet connection.".to_string();
+    }
+    if stderr.contains("No route to host") {
+        return "No route to host. The server may be unreachable from your network.".to_string();
+    }
+    if stderr.contains("Connection reset by peer") {
+        return "Connection was reset by the remote server.".to_string();
+    }
+    
+    // Default: return first line of stderr
+    stderr.lines().next().unwrap_or("Network error").to_string()
 }
 
 /// Extract a user-friendly error message from SSH stderr output
@@ -228,12 +287,6 @@ fn extract_ssh_error_message(stderr: &str) -> String {
     }
     if stderr.contains("Host key verification failed") {
         return "SSH host key verification failed. The remote host may have changed.".to_string();
-    }
-    if stderr.contains("Connection refused") {
-        return "SSH connection refused. The remote server may be down or blocking connections.".to_string();
-    }
-    if stderr.contains("Connection timed out") {
-        return "SSH connection timed out. Check your network connection.".to_string();
     }
     
     // Default: return first line of stderr
@@ -345,13 +398,21 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
         "git fetch --all",
     );
     
-    // If fetch fails due to SSH auth, propagate the error
+    // If fetch fails due to SSH auth or network issues, propagate the error
     if let Err(ref e) = fetch_result {
         match e {
-            WorktreeError::SshAuthFailed { .. } | WorktreeError::Timeout { .. } => {
+            WorktreeError::SshAuthFailed { .. } | WorktreeError::NetworkError { .. } | WorktreeError::Timeout { .. } => {
                 return Err(match e {
                     WorktreeError::SshAuthFailed { message, stderr, exit_code, operation } => {
                         WorktreeError::SshAuthFailed {
+                            message: message.clone(),
+                            stderr: stderr.clone(),
+                            exit_code: *exit_code,
+                            operation: operation.clone(),
+                        }
+                    }
+                    WorktreeError::NetworkError { message, stderr, exit_code, operation } => {
+                        WorktreeError::NetworkError {
                             message: message.clone(),
                             stderr: stderr.clone(),
                             exit_code: *exit_code,
@@ -620,13 +681,21 @@ pub fn create_worktree_with_existing_branch(
         "git fetch --all",
     );
     
-    // If fetch fails due to SSH auth, propagate the error
+    // If fetch fails due to SSH auth or network issues, propagate the error
     if let Err(ref e) = fetch_result {
         match e {
-            WorktreeError::SshAuthFailed { .. } | WorktreeError::Timeout { .. } => {
+            WorktreeError::SshAuthFailed { .. } | WorktreeError::NetworkError { .. } | WorktreeError::Timeout { .. } => {
                 return Err(match e {
                     WorktreeError::SshAuthFailed { message, stderr, exit_code, operation } => {
                         WorktreeError::SshAuthFailed {
+                            message: message.clone(),
+                            stderr: stderr.clone(),
+                            exit_code: *exit_code,
+                            operation: operation.clone(),
+                        }
+                    }
+                    WorktreeError::NetworkError { message, stderr, exit_code, operation } => {
+                        WorktreeError::NetworkError {
                             message: message.clone(),
                             stderr: stderr.clone(),
                             exit_code: *exit_code,
@@ -714,13 +783,21 @@ pub fn create_worktree_with_existing_branch(
             "git ls-remote --heads origin",
         );
         
-        // If remote check fails with SSH auth error, propagate it
+        // If remote check fails with SSH auth or network error, propagate it
         if let Err(ref e) = remote_check_result {
             match e {
-                WorktreeError::SshAuthFailed { .. } | WorktreeError::Timeout { .. } => {
+                WorktreeError::SshAuthFailed { .. } | WorktreeError::NetworkError { .. } | WorktreeError::Timeout { .. } => {
                     return Err(match e {
                         WorktreeError::SshAuthFailed { message, stderr, exit_code, operation } => {
                             WorktreeError::SshAuthFailed {
+                                message: message.clone(),
+                                stderr: stderr.clone(),
+                                exit_code: *exit_code,
+                                operation: operation.clone(),
+                            }
+                        }
+                        WorktreeError::NetworkError { message, stderr, exit_code, operation } => {
+                            WorktreeError::NetworkError {
                                 message: message.clone(),
                                 stderr: stderr.clone(),
                                 exit_code: *exit_code,
@@ -754,13 +831,21 @@ pub fn create_worktree_with_existing_branch(
                 &format!("git fetch origin {}", branch_name),
             );
             
-            // Propagate SSH auth failures
+            // Propagate SSH auth and network failures
             if let Err(ref e) = fetch_branch_result {
                 match e {
-                    WorktreeError::SshAuthFailed { .. } | WorktreeError::Timeout { .. } => {
+                    WorktreeError::SshAuthFailed { .. } | WorktreeError::NetworkError { .. } | WorktreeError::Timeout { .. } => {
                         return Err(match e {
                             WorktreeError::SshAuthFailed { message, stderr, exit_code, operation } => {
                                 WorktreeError::SshAuthFailed {
+                                    message: message.clone(),
+                                    stderr: stderr.clone(),
+                                    exit_code: *exit_code,
+                                    operation: operation.clone(),
+                                }
+                            }
+                            WorktreeError::NetworkError { message, stderr, exit_code, operation } => {
+                                WorktreeError::NetworkError {
                                     message: message.clone(),
                                     stderr: stderr.clone(),
                                     exit_code: *exit_code,
@@ -900,5 +985,59 @@ mod tests {
         let base = get_default_worktree_base();
         assert!(base.to_string_lossy().contains("agent-kanban"));
         assert!(base.to_string_lossy().contains("worktrees"));
+    }
+    
+    #[test]
+    fn test_is_network_error_connection_refused() {
+        assert!(is_network_error("ssh: connect to host github.com port 22: Connection refused"));
+        assert!(is_network_error("Connection refused"));
+    }
+    
+    #[test]
+    fn test_is_network_error_connection_timed_out() {
+        assert!(is_network_error("ssh: connect to host github.com port 22: Connection timed out"));
+        assert!(is_network_error("Connection timed out"));
+    }
+    
+    #[test]
+    fn test_is_network_error_host_resolution() {
+        assert!(is_network_error("ssh: Could not resolve host github.com"));
+        assert!(is_network_error("fatal: Could not resolve host: github.com"));
+    }
+    
+    #[test]
+    fn test_is_network_error_unreachable() {
+        assert!(is_network_error("Network is unreachable"));
+        assert!(is_network_error("No route to host"));
+    }
+    
+    #[test]
+    fn test_network_error_not_ssh_auth() {
+        // Network errors should NOT be detected as SSH auth errors
+        assert!(!is_ssh_auth_error("Connection refused"));
+        assert!(!is_ssh_auth_error("Connection timed out"));
+        assert!(!is_ssh_auth_error("Could not resolve host"));
+    }
+    
+    #[test]
+    fn test_ssh_auth_error_patterns() {
+        // These should still be detected as SSH auth errors
+        assert!(is_ssh_auth_error("Permission denied (publickey)"));
+        assert!(is_ssh_auth_error("Host key verification failed"));
+        assert!(is_ssh_auth_error("passphrase for key"));
+    }
+    
+    #[test]
+    fn test_network_error_diagnostic_type() {
+        let error = WorktreeError::NetworkError {
+            message: "Connection refused".to_string(),
+            stderr: "ssh: connect to host github.com port 22: Connection refused".to_string(),
+            exit_code: Some(128),
+            operation: "git fetch".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::NetworkError);
+        assert_eq!(error.operation(), Some("git fetch"));
+        assert!(error.stderr().is_some());
     }
 }

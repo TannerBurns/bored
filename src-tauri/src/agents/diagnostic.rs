@@ -441,4 +441,53 @@ mod tests {
         assert_eq!(context.error_type, DiagnosticType::Timeout);
         assert_eq!(context.operation, "git clone");
     }
+    
+    #[test]
+    fn test_classify_network_error() {
+        let error = WorktreeError::NetworkError {
+            message: "Connection refused".to_string(),
+            stderr: "ssh: connect to host github.com port 22: Connection refused".to_string(),
+            exit_code: Some(128),
+            operation: "git fetch".to_string(),
+        };
+        
+        let context = classify_worktree_error(&error);
+        assert_eq!(context.error_type, DiagnosticType::NetworkError);
+        assert_eq!(context.operation, "git fetch");
+        assert!(context.stderr.contains("Connection refused"));
+    }
+    
+    #[test]
+    fn test_fallback_comment_network_error() {
+        let context = DiagnosticContext {
+            repo_path: PathBuf::from("/tmp/repo"),
+            operation: "git fetch".to_string(),
+            error_type: DiagnosticType::NetworkError,
+            stderr: "ssh: connect to host github.com port 22: Connection refused".to_string(),
+            exit_code: Some(128),
+            additional_context: None,
+        };
+        
+        let comment = create_fallback_diagnostic_comment(&context);
+        assert!(comment.contains("Network Error"));
+        assert!(comment.contains("internet connection"));
+        // Should NOT contain SSH key troubleshooting
+        assert!(!comment.contains("ssh-add"));
+    }
+    
+    #[test]
+    fn test_network_error_not_classified_as_ssh() {
+        // This is the key test - network errors should get NetworkError type, not SshAuth
+        let error = WorktreeError::NetworkError {
+            message: "Connection timed out".to_string(),
+            stderr: "Connection timed out".to_string(),
+            exit_code: Some(128),
+            operation: "git fetch --all".to_string(),
+        };
+        
+        let context = classify_worktree_error(&error);
+        // Should be NetworkError, NOT SshAuth
+        assert_eq!(context.error_type, DiagnosticType::NetworkError);
+        assert_ne!(context.error_type, DiagnosticType::SshAuth);
+    }
 }
