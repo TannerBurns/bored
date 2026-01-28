@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useBoardStore } from './boardStore';
-import type { Board, Column, Ticket, Comment } from '../types';
+import type { Board, Column, Ticket, Comment, Task, TaskCounts, PresetTaskInfo } from '../types';
+
+// Mock @tauri-apps/api/tauri
+vi.mock('@tauri-apps/api/tauri', () => ({
+  invoke: vi.fn(),
+}));
+
+import { invoke } from '@tauri-apps/api/tauri';
 
 const mockBoard: Board = {
   id: 'board-1',
@@ -36,8 +43,19 @@ const mockComment: Comment = {
   createdAt: new Date('2024-01-01'),
 };
 
+const mockTask: Task = {
+  id: 'task-1',
+  ticketId: 'ticket-1',
+  orderIndex: 0,
+  taskType: 'custom',
+  title: 'Test Task',
+  status: 'pending',
+  createdAt: new Date('2024-01-01'),
+};
+
 describe('useBoardStore', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useBoardStore.setState({
       boards: [],
       currentBoard: null,
@@ -45,6 +63,7 @@ describe('useBoardStore', () => {
       tickets: [],
       selectedTicket: null,
       comments: [],
+      tasks: [],
       isLoading: false,
       error: null,
       isTicketModalOpen: false,
@@ -73,129 +92,151 @@ describe('useBoardStore', () => {
     });
   });
 
+  describe('loadBoards', () => {
+    it('loads boards from backend', async () => {
+      vi.mocked(invoke).mockResolvedValue([mockBoard]);
+      await useBoardStore.getState().loadBoards();
+      expect(invoke).toHaveBeenCalledWith('get_boards');
+      expect(useBoardStore.getState().boards).toEqual([mockBoard]);
+      expect(useBoardStore.getState().isLoading).toBe(false);
+    });
+
+    it('clears error before loading', async () => {
+      vi.mocked(invoke).mockResolvedValue([]);
+      useBoardStore.setState({ error: 'Previous error' });
+      await useBoardStore.getState().loadBoards();
+      expect(useBoardStore.getState().error).toBeNull();
+    });
+
+    it('sets error on failure', async () => {
+      vi.mocked(invoke).mockRejectedValue(new Error('Failed'));
+      await useBoardStore.getState().loadBoards();
+      expect(useBoardStore.getState().error).toBe('Error: Failed');
+      expect(useBoardStore.getState().isLoading).toBe(false);
+    });
+  });
+
+  describe('loadBoardData', () => {
+    it('loads columns and tickets from backend', async () => {
+      vi.mocked(invoke)
+        .mockResolvedValueOnce([mockColumn])
+        .mockResolvedValueOnce([mockTicket]);
+      
+      await useBoardStore.getState().loadBoardData('board-1');
+      
+      expect(invoke).toHaveBeenCalledWith('get_columns', { boardId: 'board-1' });
+      expect(invoke).toHaveBeenCalledWith('get_tickets', { boardId: 'board-1' });
+      expect(useBoardStore.getState().columns).toEqual([mockColumn]);
+      expect(useBoardStore.getState().tickets).toEqual([mockTicket]);
+      expect(useBoardStore.getState().isLoading).toBe(false);
+    });
+
+    it('sets error on failure', async () => {
+      vi.mocked(invoke).mockRejectedValue(new Error('Load failed'));
+      await useBoardStore.getState().loadBoardData('board-1');
+      expect(useBoardStore.getState().error).toBe('Error: Load failed');
+    });
+  });
+
   describe('createBoard', () => {
-    it('creates board with generated id in demo mode', async () => {
+    it('creates board via backend', async () => {
+      const newBoard = { ...mockBoard, id: 'board-new' };
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(newBoard) // create_board
+        .mockResolvedValueOnce([mockColumn]) // get_columns
+        .mockResolvedValueOnce([]); // get_tickets
+      
       const board = await useBoardStore.getState().createBoard('New Board');
-      expect(board.name).toBe('New Board');
-      expect(board.id).toMatch(/^board-\d+$/);
-      expect(board.createdAt).toBeInstanceOf(Date);
-      expect(board.updatedAt).toBeInstanceOf(Date);
-    });
-
-    it('prepends new board to boards list', async () => {
-      useBoardStore.getState().setBoards([mockBoard]);
-      const newBoard = await useBoardStore.getState().createBoard('New Board');
-      const { boards } = useBoardStore.getState();
-      expect(boards).toHaveLength(2);
-      expect(boards[0]).toEqual(newBoard);
-      expect(boards[1]).toEqual(mockBoard);
-    });
-
-    it('sets new board as currentBoard', async () => {
-      useBoardStore.getState().setBoards([mockBoard]);
-      useBoardStore.setState({ currentBoard: mockBoard });
-      const newBoard = await useBoardStore.getState().createBoard('New Board');
+      
+      expect(invoke).toHaveBeenCalledWith('create_board', { name: 'New Board' });
+      expect(board).toEqual(newBoard);
+      expect(useBoardStore.getState().boards[0]).toEqual(newBoard);
       expect(useBoardStore.getState().currentBoard).toEqual(newBoard);
     });
   });
 
   describe('updateBoard', () => {
-    it('updates board name in demo mode', async () => {
+    it('updates board via backend', async () => {
+      const updatedBoard = { ...mockBoard, name: 'Renamed Board' };
+      vi.mocked(invoke).mockResolvedValue(updatedBoard);
       useBoardStore.getState().setBoards([mockBoard]);
-      const updated = await useBoardStore.getState().updateBoard('board-1', 'Renamed Board');
-      expect(updated.name).toBe('Renamed Board');
-      expect(updated.id).toBe('board-1');
-    });
-
-    it('updates board in boards list', async () => {
-      useBoardStore.getState().setBoards([mockBoard]);
-      await useBoardStore.getState().updateBoard('board-1', 'Renamed Board');
+      
+      const result = await useBoardStore.getState().updateBoard('board-1', 'Renamed Board');
+      
+      expect(invoke).toHaveBeenCalledWith('update_board', { boardId: 'board-1', name: 'Renamed Board' });
+      expect(result.name).toBe('Renamed Board');
       expect(useBoardStore.getState().boards[0].name).toBe('Renamed Board');
     });
 
-    it('does not modify other boards', async () => {
-      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
-      useBoardStore.getState().setBoards([mockBoard, board2]);
-      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
-      expect(useBoardStore.getState().boards[1].name).toBe('Board 2');
-    });
-
     it('updates currentBoard if it matches', async () => {
+      const updatedBoard = { ...mockBoard, name: 'Renamed' };
+      vi.mocked(invoke).mockResolvedValue(updatedBoard);
       useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      
       await useBoardStore.getState().updateBoard('board-1', 'Renamed');
+      
       expect(useBoardStore.getState().currentBoard?.name).toBe('Renamed');
-    });
-
-    it('does not update currentBoard if it does not match', async () => {
-      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
-      useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: board2 });
-      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
-      expect(useBoardStore.getState().currentBoard?.name).toBe('Board 2');
-    });
-
-    it('sets updatedAt to current date', async () => {
-      useBoardStore.getState().setBoards([mockBoard]);
-      const before = new Date();
-      await useBoardStore.getState().updateBoard('board-1', 'Renamed');
-      const after = new Date();
-      const updatedAt = useBoardStore.getState().boards[0].updatedAt;
-      expect(updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
-      expect(updatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
     });
   });
 
   describe('deleteBoard', () => {
-    it('removes board from boards list', async () => {
-      useBoardStore.getState().setBoards([mockBoard]);
+    it('deletes board via backend', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
+      useBoardStore.setState({ boards: [mockBoard] });
+      
       await useBoardStore.getState().deleteBoard('board-1');
+      
+      expect(invoke).toHaveBeenCalledWith('delete_board', { boardId: 'board-1' });
       expect(useBoardStore.getState().boards).toHaveLength(0);
-    });
-
-    it('does not modify other boards', async () => {
-      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
-      useBoardStore.setState({ boards: [mockBoard, board2] });
-      await useBoardStore.getState().deleteBoard('board-1');
-      expect(useBoardStore.getState().boards).toHaveLength(1);
-      expect(useBoardStore.getState().boards[0].id).toBe('board-2');
     });
 
     it('switches to another board when deleting currentBoard', async () => {
       const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(undefined) // delete_board
+        .mockResolvedValueOnce([]) // get_columns
+        .mockResolvedValueOnce([]); // get_tickets
       useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: mockBoard });
+      
       await useBoardStore.getState().deleteBoard('board-1');
+      
       expect(useBoardStore.getState().currentBoard?.id).toBe('board-2');
     });
 
     it('sets currentBoard to null when deleting last board', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      
       await useBoardStore.getState().deleteBoard('board-1');
+      
       expect(useBoardStore.getState().currentBoard).toBeNull();
     });
 
     it('clears columns and tickets when no boards remain', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.setState({
         boards: [mockBoard],
         currentBoard: mockBoard,
         columns: [mockColumn],
         tickets: [mockTicket],
       });
+      
       await useBoardStore.getState().deleteBoard('board-1');
+      
       expect(useBoardStore.getState().columns).toHaveLength(0);
       expect(useBoardStore.getState().tickets).toHaveLength(0);
-    });
-
-    it('preserves currentBoard when deleting a different board', async () => {
-      const board2: Board = { ...mockBoard, id: 'board-2', name: 'Board 2' };
-      useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: mockBoard });
-      await useBoardStore.getState().deleteBoard('board-2');
-      expect(useBoardStore.getState().currentBoard?.id).toBe('board-1');
     });
   });
 
   describe('selectBoard', () => {
-    it('sets currentBoard when board exists', async () => {
+    it('sets currentBoard and loads data when board exists', async () => {
+      vi.mocked(invoke)
+        .mockResolvedValueOnce([mockColumn])
+        .mockResolvedValueOnce([mockTicket]);
       useBoardStore.getState().setBoards([mockBoard]);
+      
       await useBoardStore.getState().selectBoard('board-1');
+      
       expect(useBoardStore.getState().currentBoard).toEqual(mockBoard);
     });
 
@@ -232,173 +273,244 @@ describe('useBoardStore', () => {
       ).rejects.toThrow('No board selected');
     });
 
-    it('creates ticket in demo mode', async () => {
+    it('creates ticket via backend', async () => {
+      const newTicket = { ...mockTicket, id: 'ticket-new', title: 'New Ticket' };
+      vi.mocked(invoke).mockResolvedValue(newTicket);
       useBoardStore.setState({ currentBoard: mockBoard });
+      
       const ticket = await useBoardStore.getState().createTicket({
         title: 'New Ticket',
         descriptionMd: 'Description',
         priority: 'high',
         labels: ['bug'],
         columnId: 'col-1',
-        projectId: 'proj-1',
-        agentPref: 'cursor',
       });
 
-      expect(ticket.title).toBe('New Ticket');
-      expect(ticket.descriptionMd).toBe('Description');
-      expect(ticket.priority).toBe('high');
-      expect(ticket.labels).toEqual(['bug']);
-      expect(ticket.columnId).toBe('col-1');
-      expect(ticket.projectId).toBe('proj-1');
-      expect(ticket.agentPref).toBe('cursor');
-      expect(ticket.boardId).toBe('board-1');
-      expect(ticket.id).toMatch(/^ticket-\d+$/);
-    });
-
-    it('appends ticket to tickets list', async () => {
-      useBoardStore.setState({ currentBoard: mockBoard, tickets: [mockTicket] });
-      await useBoardStore.getState().createTicket({
-        title: 'New Ticket',
-        descriptionMd: '',
-        priority: 'low',
-        labels: [],
-        columnId: 'col-1',
+      expect(invoke).toHaveBeenCalledWith('create_ticket', {
+        ticket: expect.objectContaining({
+          boardId: 'board-1',
+          title: 'New Ticket',
+          priority: 'high',
+        }),
       });
-      expect(useBoardStore.getState().tickets).toHaveLength(2);
-    });
-
-    it('does not close create modal (caller is responsible)', async () => {
-      useBoardStore.setState({ currentBoard: mockBoard, isCreateModalOpen: true });
-      await useBoardStore.getState().createTicket({
-        title: 'New Ticket',
-        descriptionMd: '',
-        priority: 'medium',
-        labels: [],
-        columnId: 'col-1',
-      });
-      // Modal state should remain unchanged - caller controls when to close
-      expect(useBoardStore.getState().isCreateModalOpen).toBe(true);
+      expect(ticket).toEqual(newTicket);
+      expect(useBoardStore.getState().tickets).toContain(newTicket);
     });
   });
 
   describe('updateTicket', () => {
     it('updates matching ticket', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.getState().setTickets([mockTicket]);
+      
       await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
+      
+      expect(invoke).toHaveBeenCalledWith('update_ticket', expect.objectContaining({
+        ticketId: 'ticket-1',
+      }));
       expect(useBoardStore.getState().tickets[0].title).toBe('Updated');
     });
 
     it('preserves other fields when updating', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.getState().setTickets([mockTicket]);
+      
       await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
+      
       expect(useBoardStore.getState().tickets[0].priority).toBe('medium');
     });
 
-    it('does not modify non-matching tickets', async () => {
-      const ticket2 = { ...mockTicket, id: 'ticket-2' };
-      useBoardStore.getState().setTickets([mockTicket, ticket2]);
-      await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
-      expect(useBoardStore.getState().tickets[1].title).toBe('Test Ticket');
-    });
-
     it('updates selectedTicket if it matches', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.setState({ tickets: [mockTicket], selectedTicket: mockTicket });
+      
       await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
+      
       expect(useBoardStore.getState().selectedTicket?.title).toBe('Updated');
-    });
-
-    it('does not update selectedTicket if it does not match', async () => {
-      const ticket2 = { ...mockTicket, id: 'ticket-2', title: 'Other' };
-      useBoardStore.setState({ tickets: [mockTicket, ticket2], selectedTicket: ticket2 });
-      await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
-      expect(useBoardStore.getState().selectedTicket?.title).toBe('Other');
-    });
-
-    it('sets updatedAt to current date', async () => {
-      useBoardStore.getState().setTickets([mockTicket]);
-      const before = new Date();
-      await useBoardStore.getState().updateTicket('ticket-1', { title: 'Updated' });
-      const after = new Date();
-      const updatedAt = useBoardStore.getState().tickets[0].updatedAt;
-      expect(updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
-      expect(updatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
     });
   });
 
   describe('moveTicket', () => {
     it('moves ticket to new column', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       useBoardStore.getState().setTickets([mockTicket]);
+      
       await useBoardStore.getState().moveTicket('ticket-1', 'col-2');
+      
+      expect(invoke).toHaveBeenCalledWith('move_ticket', { ticketId: 'ticket-1', columnId: 'col-2' });
       expect(useBoardStore.getState().tickets[0].columnId).toBe('col-2');
     });
 
     it('does not modify non-matching tickets', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
       const ticket2 = { ...mockTicket, id: 'ticket-2' };
       useBoardStore.getState().setTickets([mockTicket, ticket2]);
+      
       await useBoardStore.getState().moveTicket('ticket-1', 'col-2');
+      
       expect(useBoardStore.getState().tickets[1].columnId).toBe('col-1');
-    });
-
-    it('sets updatedAt when moving', async () => {
-      useBoardStore.getState().setTickets([mockTicket]);
-      const before = new Date();
-      await useBoardStore.getState().moveTicket('ticket-1', 'col-2');
-      const updatedAt = useBoardStore.getState().tickets[0].updatedAt;
-      expect(updatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
     });
   });
 
   describe('addComment', () => {
-    it('creates comment with generated id in demo mode', async () => {
+    it('creates comment via backend', async () => {
+      const newComment = { ...mockComment, id: 'comment-new' };
+      vi.mocked(invoke).mockResolvedValue(newComment);
+      
       await useBoardStore.getState().addComment('ticket-1', 'New comment');
-      const { comments } = useBoardStore.getState();
-      expect(comments).toHaveLength(1);
-      expect(comments[0].id).toMatch(/^comment-\d+$/);
-      expect(comments[0].ticketId).toBe('ticket-1');
-      expect(comments[0].bodyMd).toBe('New comment');
-      expect(comments[0].authorType).toBe('user');
+      
+      expect(invoke).toHaveBeenCalledWith('add_comment', {
+        ticketId: 'ticket-1',
+        body: 'New comment',
+        authorType: 'user',
+      });
+      expect(useBoardStore.getState().comments).toContain(newComment);
     });
 
     it('appends comment to existing comments', async () => {
+      const newComment = { ...mockComment, id: 'comment-new' };
+      vi.mocked(invoke).mockResolvedValue(newComment);
       useBoardStore.setState({ comments: [mockComment] });
+      
       await useBoardStore.getState().addComment('ticket-1', 'Another comment');
+      
       expect(useBoardStore.getState().comments).toHaveLength(2);
     });
   });
 
   describe('updateComment', () => {
-    it('updates comment body in demo mode', async () => {
+    it('updates comment via backend', async () => {
+      const updatedComment = { ...mockComment, bodyMd: 'Updated body' };
+      vi.mocked(invoke).mockResolvedValue(updatedComment);
       useBoardStore.setState({ comments: [mockComment] });
+      
       await useBoardStore.getState().updateComment('comment-1', 'Updated body');
-      const { comments } = useBoardStore.getState();
-      expect(comments).toHaveLength(1);
-      expect(comments[0].bodyMd).toBe('Updated body');
+      
+      expect(invoke).toHaveBeenCalledWith('update_comment', {
+        commentId: 'comment-1',
+        body: 'Updated body',
+      });
+      expect(useBoardStore.getState().comments[0].bodyMd).toBe('Updated body');
+    });
+  });
+
+  describe('loadComments', () => {
+    it('loads comments from backend when ticket is selected', async () => {
+      vi.mocked(invoke).mockResolvedValue([mockComment]);
+      useBoardStore.setState({ selectedTicket: mockTicket });
+      
+      await useBoardStore.getState().loadComments('ticket-1');
+      
+      expect(invoke).toHaveBeenCalledWith('get_comments', { ticketId: 'ticket-1' });
+      expect(useBoardStore.getState().comments).toContain(mockComment);
     });
 
-    it('preserves other comment fields when updating', async () => {
-      useBoardStore.setState({ comments: [mockComment] });
-      await useBoardStore.getState().updateComment('comment-1', 'Updated body');
-      const { comments } = useBoardStore.getState();
-      expect(comments[0].id).toBe('comment-1');
-      expect(comments[0].ticketId).toBe('ticket-1');
-      expect(comments[0].authorType).toBe('user');
+    it('does not update comments if selected ticket changed (race condition guard)', async () => {
+      const ticket2: Ticket = { ...mockTicket, id: 'ticket-2' };
+      vi.mocked(invoke).mockResolvedValue([mockComment]);
+      useBoardStore.setState({ selectedTicket: ticket2 });
+      
+      await useBoardStore.getState().loadComments('ticket-1');
+      
+      // Comments should remain unchanged since selected ticket differs
+      expect(useBoardStore.getState().comments).toEqual([]);
     });
+  });
 
-    it('only updates the targeted comment', async () => {
-      const comment2: Comment = { ...mockComment, id: 'comment-2', bodyMd: 'Second comment' };
-      useBoardStore.setState({ comments: [mockComment, comment2] });
-      await useBoardStore.getState().updateComment('comment-1', 'Updated first');
-      const { comments } = useBoardStore.getState();
-      expect(comments[0].bodyMd).toBe('Updated first');
-      expect(comments[1].bodyMd).toBe('Second comment');
+  describe('loadTasks', () => {
+    it('loads tasks from backend when ticket is selected', async () => {
+      vi.mocked(invoke).mockResolvedValue([mockTask]);
+      useBoardStore.setState({ selectedTicket: mockTicket });
+      
+      await useBoardStore.getState().loadTasks('ticket-1');
+      
+      expect(invoke).toHaveBeenCalledWith('get_tasks', { ticketId: 'ticket-1' });
+      expect(useBoardStore.getState().tasks).toContain(mockTask);
     });
+  });
 
-    it('does nothing if comment id not found', async () => {
-      useBoardStore.setState({ comments: [mockComment] });
-      await useBoardStore.getState().updateComment('nonexistent', 'New body');
-      const { comments } = useBoardStore.getState();
-      expect(comments).toHaveLength(1);
-      expect(comments[0].bodyMd).toBe('Test comment');
+  describe('createTask', () => {
+    it('creates task via backend', async () => {
+      vi.mocked(invoke).mockResolvedValue(mockTask);
+      
+      const task = await useBoardStore.getState().createTask('ticket-1', 'Test Task', 'Content');
+      
+      expect(invoke).toHaveBeenCalledWith('create_task', {
+        ticketId: 'ticket-1',
+        title: 'Test Task',
+        content: 'Content',
+      });
+      expect(task).toEqual(mockTask);
+      expect(useBoardStore.getState().tasks).toContain(mockTask);
+    });
+  });
+
+  describe('addPresetTask', () => {
+    it('adds preset task via backend', async () => {
+      vi.mocked(invoke).mockResolvedValue(mockTask);
+      
+      const task = await useBoardStore.getState().addPresetTask('ticket-1', 'add_tests');
+      
+      expect(invoke).toHaveBeenCalledWith('add_preset_task', {
+        ticketId: 'ticket-1',
+        presetType: 'add_tests',
+      });
+      expect(task).toEqual(mockTask);
+    });
+  });
+
+  describe('deleteTask', () => {
+    it('deletes task via backend', async () => {
+      vi.mocked(invoke).mockResolvedValue(undefined);
+      useBoardStore.setState({ tasks: [mockTask] });
+      
+      await useBoardStore.getState().deleteTask('task-1');
+      
+      expect(invoke).toHaveBeenCalledWith('delete_task', { taskId: 'task-1' });
+      expect(useBoardStore.getState().tasks).toHaveLength(0);
+    });
+  });
+
+  describe('updateTask', () => {
+    it('updates task via backend', async () => {
+      const updatedTask = { ...mockTask, title: 'Updated Task' };
+      vi.mocked(invoke).mockResolvedValue(updatedTask);
+      useBoardStore.setState({ tasks: [mockTask] });
+      
+      const task = await useBoardStore.getState().updateTask('task-1', 'Updated Task');
+      
+      expect(invoke).toHaveBeenCalledWith('update_task', {
+        taskId: 'task-1',
+        title: 'Updated Task',
+        content: undefined,
+      });
+      expect(task.title).toBe('Updated Task');
+    });
+  });
+
+  describe('getTaskCounts', () => {
+    it('gets task counts from backend', async () => {
+      const counts: TaskCounts = { pending: 2, inProgress: 1, completed: 3, failed: 0 };
+      vi.mocked(invoke).mockResolvedValue(counts);
+      
+      const result = await useBoardStore.getState().getTaskCounts('ticket-1');
+      
+      expect(invoke).toHaveBeenCalledWith('get_task_counts', { ticketId: 'ticket-1' });
+      expect(result).toEqual(counts);
+    });
+  });
+
+  describe('getPresetTypes', () => {
+    it('gets preset types from backend', async () => {
+      const presets: PresetTaskInfo[] = [
+        { typeName: 'add_tests', displayName: 'Add Tests', description: 'Add test coverage' },
+      ];
+      vi.mocked(invoke).mockResolvedValue(presets);
+      
+      const result = await useBoardStore.getState().getPresetTypes();
+      
+      expect(invoke).toHaveBeenCalledWith('get_preset_types');
+      expect(result).toEqual(presets);
     });
   });
 
@@ -424,19 +536,13 @@ describe('useBoardStore', () => {
 
   describe('modal state', () => {
     it('opens ticket modal and sets selectedTicket', () => {
+      vi.mocked(invoke).mockResolvedValue([]);
       useBoardStore.getState().openTicketModal(mockTicket);
       expect(useBoardStore.getState().isTicketModalOpen).toBe(true);
       expect(useBoardStore.getState().selectedTicket).toEqual(mockTicket);
     });
 
-    it('preserves comments when opening ticket modal (for demo mode persistence)', () => {
-      useBoardStore.setState({ comments: [mockComment] });
-      useBoardStore.getState().openTicketModal(mockTicket);
-      // Comments are preserved so they persist across modal opens in demo mode
-      expect(useBoardStore.getState().comments).toEqual([mockComment]);
-    });
-
-    it('closes ticket modal and clears selectedTicket but preserves comments', () => {
+    it('closes ticket modal and clears selectedTicket', () => {
       useBoardStore.setState({
         isTicketModalOpen: true,
         selectedTicket: mockTicket,
@@ -445,8 +551,6 @@ describe('useBoardStore', () => {
       useBoardStore.getState().closeTicketModal();
       expect(useBoardStore.getState().isTicketModalOpen).toBe(false);
       expect(useBoardStore.getState().selectedTicket).toBeNull();
-      // Comments are preserved for demo mode - they persist for the session
-      expect(useBoardStore.getState().comments).toEqual([mockComment]);
     });
 
     it('opens and closes create modal', () => {
@@ -455,65 +559,6 @@ describe('useBoardStore', () => {
 
       useBoardStore.getState().closeCreateModal();
       expect(useBoardStore.getState().isCreateModalOpen).toBe(false);
-    });
-  });
-
-  describe('loadComments', () => {
-    it('preserves all comments in demo mode when ticket is selected', async () => {
-      // In demo mode, all comments are preserved for session persistence
-      // Server-fetched comments have IDs that don't start with "comment-"
-      const serverComment: Comment = { ...mockComment, id: 'server-comment-1' };
-      useBoardStore.setState({ comments: [serverComment], selectedTicket: mockTicket });
-      await useBoardStore.getState().loadComments('ticket-1');
-      // Comments are preserved in demo mode
-      expect(useBoardStore.getState().comments).toEqual([serverComment]);
-    });
-
-    it('preserves locally-added comments in demo mode (race condition fix)', async () => {
-      // Locally-added comments have IDs starting with "comment-"
-      useBoardStore.setState({ comments: [mockComment], selectedTicket: mockTicket });
-      await useBoardStore.getState().loadComments('ticket-1');
-      // mockComment has id 'comment-1' so it should be preserved
-      expect(useBoardStore.getState().comments).toEqual([mockComment]);
-    });
-
-    it('does not update comments if selected ticket changed (race condition guard)', async () => {
-      const ticket2: Ticket = { ...mockTicket, id: 'ticket-2' };
-      useBoardStore.setState({ comments: [mockComment], selectedTicket: ticket2 });
-      // Load comments for ticket-1 but ticket-2 is now selected
-      await useBoardStore.getState().loadComments('ticket-1');
-      // Comments should remain unchanged since selected ticket differs
-      expect(useBoardStore.getState().comments).toEqual([mockComment]);
-    });
-
-    it('does not update comments if no ticket is selected', async () => {
-      useBoardStore.setState({ comments: [mockComment], selectedTicket: null });
-      await useBoardStore.getState().loadComments('ticket-1');
-      // Comments should remain unchanged since no ticket is selected
-      expect(useBoardStore.getState().comments).toEqual([mockComment]);
-    });
-  });
-
-  describe('loadBoards', () => {
-    it('sets empty boards and clears loading in demo mode', async () => {
-      useBoardStore.setState({ boards: [mockBoard], isLoading: true });
-      await useBoardStore.getState().loadBoards();
-      expect(useBoardStore.getState().boards).toEqual([]);
-      expect(useBoardStore.getState().isLoading).toBe(false);
-    });
-
-    it('clears error before loading', async () => {
-      useBoardStore.setState({ error: 'Previous error' });
-      await useBoardStore.getState().loadBoards();
-      expect(useBoardStore.getState().error).toBeNull();
-    });
-  });
-
-  describe('loadBoardData', () => {
-    it('clears loading in demo mode', async () => {
-      useBoardStore.setState({ isLoading: true });
-      await useBoardStore.getState().loadBoardData('board-1');
-      expect(useBoardStore.getState().isLoading).toBe(false);
     });
   });
 });

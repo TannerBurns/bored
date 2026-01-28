@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';
-import { isTauri } from '../../lib/utils';
+import { logger } from '../../lib/logger';
 import {
   validateWorker,
   installCommandsToUser,
@@ -34,8 +34,6 @@ export function WorkerPanel({ projects }: Props) {
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
-    if (!isTauri()) return;
-    
     try {
       const [workerData, queueData] = await Promise.all([
         invoke<WorkerStatus[]>('get_workers'),
@@ -45,7 +43,7 @@ export function WorkerPanel({ projects }: Props) {
       setQueueStatus(queueData);
       setError(null);
     } catch (err) {
-      console.error('Failed to load worker status:', err);
+      logger.error('Failed to load worker status:', err);
       setError(String(err));
     }
   }, []);
@@ -58,7 +56,7 @@ export function WorkerPanel({ projects }: Props) {
 
   // Validate when project or agent type changes
   const runValidation = useCallback(async () => {
-    if (!isTauri() || !newWorkerProject) {
+    if (!newWorkerProject) {
       setValidationResult(null);
       setValidationError(null);
       return;
@@ -77,7 +75,7 @@ export function WorkerPanel({ projects }: Props) {
       const result = await validateWorker(newWorkerType, project.path);
       setValidationResult(result);
     } catch (err) {
-      console.error('Validation failed:', err);
+      logger.error('Validation failed:', err);
       setValidationResult(null);
       setValidationError(String(err));
     } finally {
@@ -128,8 +126,6 @@ export function WorkerPanel({ projects }: Props) {
   };
 
   const handleStartWorker = async () => {
-    if (!isTauri()) return;
-    
     setIsStarting(true);
     setError(null);
     
@@ -141,7 +137,7 @@ export function WorkerPanel({ projects }: Props) {
       await loadStatus();
       setNewWorkerProject('');
     } catch (err) {
-      console.error('Failed to start worker:', err);
+      logger.error('Failed to start worker:', err);
       setError(String(err));
     } finally {
       setIsStarting(false);
@@ -149,8 +145,6 @@ export function WorkerPanel({ projects }: Props) {
   };
 
   const handleStopWorker = async (workerId: string, isWorking: boolean) => {
-    if (!isTauri()) return;
-    
     // If worker is actively processing a ticket, confirm before stopping
     if (isWorking) {
       const confirmed = window.confirm(
@@ -163,19 +157,17 @@ export function WorkerPanel({ projects }: Props) {
       await invoke('stop_worker', { workerId });
       await loadStatus();
     } catch (err) {
-      console.error('Failed to stop worker:', err);
+      logger.error('Failed to stop worker:', err);
       setError(String(err));
     }
   };
 
   const handleStopAll = async () => {
-    if (!isTauri()) return;
-    
     try {
       await invoke('stop_all_workers');
       await loadStatus();
     } catch (err) {
-      console.error('Failed to stop workers:', err);
+      logger.error('Failed to stop workers:', err);
       setError(String(err));
     }
   };

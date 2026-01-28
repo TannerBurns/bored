@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { EventTimeline } from '../timeline/EventTimeline';
-import { isTauri } from '../../lib/utils';
 import type { AgentRun, RunStatus } from '../../types';
 
 interface AgentLogEvent {
@@ -101,8 +100,6 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
   useEffect(() => {
     setLogs([]);
-    
-    if (!isTauri()) return;
     
     let cancelled = false;
     let unlisten: (() => void) | undefined;
