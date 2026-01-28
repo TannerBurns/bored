@@ -284,13 +284,17 @@ impl Worker {
             }
         };
 
-        // Re-lock with actual run ID
-        if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
+        // Transfer lock ownership from temporary run_id to actual run ID
+        if let Err(e) = self.db.update_ticket_lock_owner(&ticket.id, &run_id, &run.id, Some(lock_expires)) {
+            tracing::error!(
+                "Worker {} failed to transfer lock from {} to {}: {}",
+                self.id, run_id, run.id, e
+            );
             let _ = self.db.update_run_status(
                 &run.id,
                 RunStatus::Error,
                 None,
-                Some("Failed to re-lock ticket with actual run ID"),
+                Some("Failed to transfer ticket lock to actual run ID"),
             );
             let _ = self.db.unlock_ticket(&ticket.id);
             let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
