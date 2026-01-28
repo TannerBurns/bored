@@ -233,11 +233,14 @@ impl Worker {
                 run_id: run_id.clone(),
                 base_dir: None,
             }) {
-                Ok(info) => {
+                Ok(mut info) => {
                     tracing::info!(
                         "Worker {} created worktree at {} with temp branch {}",
                         self.id, info.path.display(), info.branch_name
                     );
+                    // Mark this as a temp branch so downstream knows a branch was created
+                    // but it's not the ticket's permanent branch yet
+                    info.is_temp_branch = true;
                     Some(info)
                 }
                 Err(e) => {
@@ -370,15 +373,17 @@ impl Worker {
         // - Ticket movement
         
         // Determine branch setup based on whether ticket already has a branch:
-        // - First run (no branch): Use None so orchestrator generates AI branch name
+        // - First run (no branch): Pass the temp branch name so orchestrator knows git state,
+        //   but set branch_already_created = false so it generates an AI branch name
         // - Subsequent runs (has branch): Use the existing branch name
         let (worktree_branch, branch_already_created) = if ticket.branch_name.is_some() {
             // Subsequent run - use existing branch (worktree attached to it)
             (ticket.branch_name.clone(), true)
         } else {
-            // First run - let orchestrator generate AI branch name
-            // The worktree has a temp branch, but we pass None so orchestrator generates a good name
-            (None, false)
+            // First run - pass the temp branch name so orchestrator knows the worktree is on a branch.
+            // Set branch_already_created = false so it still generates an AI branch name.
+            // The orchestrator can detect the temp branch pattern and rename it appropriately.
+            (Some(worktree.branch_name.clone()), !worktree.is_temp_branch)
         };
         
         let runner_config = RunnerConfig {

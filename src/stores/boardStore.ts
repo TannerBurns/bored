@@ -377,10 +377,12 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       return task;
     }
     // Demo mode
+    // Calculate orderIndex based on tasks for THIS ticket only, not all tasks
+    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
     const task: Task = {
       id: `task-${Date.now()}`,
       ticketId,
-      orderIndex: get().tasks.length,
+      orderIndex: ticketTasks.length,
       taskType: 'custom',
       title,
       content,
@@ -404,10 +406,12 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       review_polish: 'Review & Polish',
       fix_lint: 'Fix Lint Errors',
     };
+    // Calculate orderIndex based on tasks for THIS ticket only, not all tasks
+    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
     const task: Task = {
       id: `task-${Date.now()}`,
       ticketId,
-      orderIndex: get().tasks.length,
+      orderIndex: ticketTasks.length,
       taskType: presetType as Task['taskType'],
       title: presetNames[presetType] || presetType,
       status: 'pending',
