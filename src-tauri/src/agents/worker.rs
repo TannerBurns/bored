@@ -373,18 +373,17 @@ impl Worker {
         // - Ticket movement
         
         // Determine branch setup based on whether ticket already has a branch:
-        // - First run (no branch): Pass the temp branch name so orchestrator knows git state,
-        //   but set branch_already_created = false so it generates an AI branch name
+        // - First run (no branch): Pass None so orchestrator generates an AI branch name
         // - Subsequent runs (has branch): Use the existing branch name
         let (worktree_branch, branch_already_created) = if ticket.branch_name.is_some() {
             // Subsequent run - use existing branch (worktree attached to it)
             (ticket.branch_name.clone(), true)
         } else {
-            // First run - pass the temp branch name so orchestrator knows the worktree is on a branch.
-            // If is_temp_branch = true, the branch was already created by the worktree,
-            // so branch_already_created should also be true to prevent the orchestrator from
-            // trying to create a branch that already exists.
-            (Some(worktree.branch_name.clone()), worktree.is_temp_branch)
+            // First run - the worktree was created with a temp branch, but we want
+            // the orchestrator to generate a proper AI-named branch. Pass None so
+            // the orchestrator runs its branch-gen stage to create a meaningful name.
+            // The agent will switch from the temp branch to the new AI-generated branch.
+            (None, false)
         };
         
         let runner_config = RunnerConfig {
