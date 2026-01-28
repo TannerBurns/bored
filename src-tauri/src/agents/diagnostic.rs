@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::AppHandle;
 
-use crate::db::{AgentType, CreateRun, Database, RunStatus};
+use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
 use super::worktree::{DiagnosticType, WorktreeError};
 use super::spawner;
-use super::{AgentKind, AgentRunConfig};
+use super::{AgentKind, AgentRunConfig, extract_text_from_stream_json};
 
 /// Context for diagnostic analysis
 #[derive(Debug, Clone)]
@@ -129,7 +129,8 @@ pub fn classify_worktree_error(error: &WorktreeError) -> DiagnosticContext {
 ///
 /// This spawns a lightweight Claude agent that:
 /// 1. Analyzes the error context
-/// 2. Writes a helpful comment on the ticket with troubleshooting steps
+/// 2. Produces troubleshooting guidance as output
+/// 3. Posts the output as a comment on the ticket
 ///
 /// The agent runs against the main repo (not a worktree) since worktree creation failed.
 pub async fn run_diagnostic_agent(
@@ -141,6 +142,7 @@ pub async fn run_diagnostic_agent(
     api_token: &str,
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
+    let ticket_id_owned = ticket_id.to_string();
     
     tracing::info!(
         "Starting diagnostic agent for ticket {}: error_type={:?}, operation={}",
@@ -186,28 +188,69 @@ pub async fn run_diagnostic_agent(
     
     match result {
         Ok(Ok(agent_result)) => {
-            let status = if agent_result.exit_code == Some(0) {
+            let exit_code = agent_result.exit_code;
+            let status = if exit_code == Some(0) {
                 RunStatus::Finished
             } else {
                 RunStatus::Error
             };
             
+            // Try to extract text from the agent's output
+            let extracted_text = agent_result.captured_stdout
+                .as_ref()
+                .and_then(|output| extract_text_from_stream_json(output));
+            
             if let Err(e) = db.update_run_status(
                 &run.id,
-                status,
-                agent_result.exit_code,
-                agent_result.summary.as_deref(),
+                status.clone(),
+                exit_code,
+                extracted_text.as_deref(),
             ) {
                 tracing::warn!("Failed to update diagnostic run status: {}", e);
             }
             
             tracing::info!(
-                "Diagnostic agent completed for ticket {}: exit_code={:?}",
-                ticket_id,
-                agent_result.exit_code
+                "Diagnostic agent completed for ticket {}: exit_code={:?}, has_output={}",
+                ticket_id_owned,
+                exit_code,
+                extracted_text.is_some()
             );
             
-            Ok(())
+            // If we got text output from the agent, post it as a comment
+            if let Some(ref comment_text) = extracted_text {
+                if !comment_text.trim().is_empty() {
+                    tracing::info!(
+                        "Posting diagnostic comment for ticket {} ({} chars)",
+                        ticket_id_owned,
+                        comment_text.len()
+                    );
+                    
+                    if let Err(e) = db.create_comment(&CreateComment {
+                        ticket_id: ticket_id_owned.clone(),
+                        author_type: AuthorType::System,
+                        body_md: comment_text.clone(),
+                        metadata: None,
+                    }) {
+                        tracing::error!(
+                            "Failed to create diagnostic comment for ticket {}: {}",
+                            ticket_id_owned, e
+                        );
+                        return Err(DiagnosticError::SpawnFailed(format!(
+                            "Failed to post diagnostic comment: {}", e
+                        )));
+                    }
+                    
+                    return Ok(());
+                }
+            }
+            
+            // No output extracted - return error so fallback comment is used
+            let error_msg = format!(
+                "Diagnostic agent produced no usable output (exit_code={:?})",
+                exit_code
+            );
+            tracing::warn!("{}", error_msg);
+            Err(DiagnosticError::SpawnFailed(error_msg))
         }
         Ok(Err(spawn_error)) => {
             let error_msg = format!("Diagnostic agent spawn failed: {}", spawn_error);
