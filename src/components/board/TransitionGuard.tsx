@@ -17,24 +17,8 @@ export function validateTransition(
     return { valid: false, reason: 'Column not found' };
   }
 
-  // Same column is always allowed
-  if (currentColumn.id === targetColumn.id) {
-    return { valid: true };
-  }
-
-  // Check if ticket is locked by an active agent run
-  const isLocked = ticket.lockedByRunId && 
-    ticket.lockExpiresAt && 
-    new Date(ticket.lockExpiresAt) > new Date();
-  
-  const currentName = currentColumn.name.toLowerCase();
-  const isInProgress = currentName === 'in progress' || currentName === 'in_progress' || currentName === 'inprogress';
-  
-  if (isLocked && isInProgress) {
-    return { valid: false, reason: 'Ticket is locked by an active agent run' };
-  }
-
-  // All transitions are allowed
+  // All transitions are allowed - no restrictions
+  // Users can move tickets freely between any columns
   return { valid: true };
 }
 

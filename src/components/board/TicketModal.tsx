@@ -43,6 +43,7 @@ export function TicketModal({
   const [editAgentPref, setEditAgentPref] = useState<'cursor' | 'claude' | 'any'>(ticket.agentPref || 'any');
   const [editModel, setEditModel] = useState<string>(ticket.model || '');
   const [editBranchName, setEditBranchName] = useState<string>(ticket.branchName || '');
+  const [editColumnId, setEditColumnId] = useState<string>(ticket.columnId);
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -104,6 +105,7 @@ export function TicketModal({
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
     setEditBranchName(ticket.branchName || '');
+    setEditColumnId(ticket.columnId);
     setIsEditing(false);
     setShowDeleteConfirm(false);
   }, [ticket.id]);
@@ -546,6 +548,12 @@ export function TicketModal({
         model: editModel || undefined, // Empty string means use default
         branchName: editBranchName || undefined, // Empty string means no branch set
       });
+      
+      // Move ticket to new column if changed
+      if (editColumnId !== ticket.columnId) {
+        await useBoardStore.getState().moveTicket(ticket.id, editColumnId);
+      }
+      
       setIsEditing(false);
     } finally {
       setIsSaving(false);
@@ -572,6 +580,7 @@ export function TicketModal({
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
     setEditBranchName(ticket.branchName || '');
+    setEditColumnId(ticket.columnId);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -673,6 +682,24 @@ export function TicketModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Column */}
+          {isEditing ? (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2">Column</h3>
+              <select
+                value={editColumnId}
+                onChange={(e) => setEditColumnId(e.target.value)}
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+              >
+                {columns.map((column) => (
+                  <option key={column.id} value={column.id}>
+                    {column.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
           {/* Priority */}
           {isEditing ? (
             <div>

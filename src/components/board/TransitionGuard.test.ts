@@ -95,26 +95,26 @@ describe('validateTransition', () => {
     });
   });
 
-  describe('In Progress lock behavior', () => {
-    it('allows unlocked In Progress to Ready', () => {
+  describe('In Progress transitions (no lock restrictions)', () => {
+    it('allows In Progress to Ready', () => {
       const ticket = makeTicket({ columnId: 'col-inprogress' });
       const result = validateTransition(ticket, columns, 'col-ready');
       expect(result.valid).toBe(true);
     });
 
-    it('allows unlocked In Progress to Blocked', () => {
+    it('allows In Progress to Blocked', () => {
       const ticket = makeTicket({ columnId: 'col-inprogress' });
       const result = validateTransition(ticket, columns, 'col-blocked');
       expect(result.valid).toBe(true);
     });
 
-    it('allows unlocked In Progress to Review', () => {
+    it('allows In Progress to Review', () => {
       const ticket = makeTicket({ columnId: 'col-inprogress' });
       const result = validateTransition(ticket, columns, 'col-review');
       expect(result.valid).toBe(true);
     });
 
-    it('denies locked In Progress to Ready when lock not expired', () => {
+    it('allows locked In Progress to Ready (no restrictions)', () => {
       const futureDate = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
       const ticket = makeTicket({ 
         columnId: 'col-inprogress',
@@ -122,11 +122,10 @@ describe('validateTransition', () => {
         lockExpiresAt: futureDate,
       });
       const result = validateTransition(ticket, columns, 'col-ready');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('locked');
+      expect(result.valid).toBe(true);
     });
 
-    it('denies locked In Progress to Blocked when lock not expired', () => {
+    it('allows locked In Progress to Blocked (no restrictions)', () => {
       const futureDate = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
       const ticket = makeTicket({ 
         columnId: 'col-inprogress',
@@ -134,8 +133,7 @@ describe('validateTransition', () => {
         lockExpiresAt: futureDate,
       });
       const result = validateTransition(ticket, columns, 'col-blocked');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('locked');
+      expect(result.valid).toBe(true);
     });
 
     it('allows In Progress to Ready when lock has expired', () => {
