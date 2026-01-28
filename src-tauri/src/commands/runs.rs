@@ -324,16 +324,19 @@ pub async fn start_agent_run(
             };
             
             // Store the branch name on the ticket immediately
+            // This is critical - if we fail to store, we must abort to prevent
+            // orphaned branches and inconsistent state between DB and git
             if let Err(e) = db.set_ticket_branch(&ticket_id, &branch) {
-                tracing::warn!("Failed to store branch name on ticket: {}", e);
-            } else {
-                tracing::info!("Stored branch name '{}' on ticket {}", branch, ticket_id);
-                // Emit event for frontend to update
-                let _ = window.emit("ticket-branch-updated", serde_json::json!({
-                    "ticketId": ticket_id,
-                    "branchName": branch,
-                }));
+                // Unlock the ticket before returning error
+                let _ = db.unlock_ticket(&ticket_id);
+                return Err(format!("Failed to store branch name on ticket: {}. Aborting run to prevent inconsistent state.", e));
             }
+            tracing::info!("Stored branch name '{}' on ticket {}", branch, ticket_id);
+            // Emit event for frontend to update
+            let _ = window.emit("ticket-branch-updated", serde_json::json!({
+                "ticketId": ticket_id,
+                "branchName": branch,
+            }));
             
             branch
         };
@@ -392,6 +395,9 @@ pub async fn start_agent_run(
         (worktree, branch_to_use)
     };
     
+    // Track whether worktree (and thus the branch) was successfully created
+    let worktree_created = worktree_info.is_some();
+    
     // Use worktree path if available, otherwise fall back to main repo
     let working_path = worktree_info
         .as_ref()
@@ -399,7 +405,7 @@ pub async fn start_agent_run(
         .unwrap_or_else(|| std::path::PathBuf::from(&repo_path));
     let working_path_str = working_path.to_string_lossy().to_string();
     
-    tracing::info!("Agent will work in: {}", working_path_str);
+    tracing::info!("Agent will work in: {} (worktree_created: {})", working_path_str, worktree_created);
 
     // Get hook script path for updating project hooks
     let app_handle = window.app_handle();
@@ -476,14 +482,16 @@ pub async fn start_agent_run(
                 .map(|w| w.path.clone())
                 .unwrap_or_else(|| main_repo_for_cleanup.clone());
             
-            // Pass the branch name to skip branch generation stages
-            // The branch was already generated and created via worktree
-            let worktree_branch = if worktree_for_cleanup.is_some() {
-                Some(branch_name_for_orchestrator)
-            } else {
-                // If worktree creation failed, orchestrator should create branch
-                None
-            };
+            // Always pass the branch name to skip branch name generation
+            // The branch name was already generated (via AI or fallback) and stored in DB
+            // The `branch_already_created` flag tells orchestrator if it needs to create the branch
+            let worktree_branch = Some(branch_name_for_orchestrator);
+            let branch_already_created = worktree_for_cleanup.is_some();
+            
+            tracing::info!(
+                "Orchestrator config: worktree_branch={:?}, branch_already_created={}",
+                worktree_branch, branch_already_created
+            );
             
             let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
                 db: db_clone.clone(),
@@ -498,6 +506,7 @@ pub async fn start_agent_run(
                 hook_script_path: hook_script_path_for_orchestrator,
                 cancel_handles: cancel_handles_for_orchestrator,
                 worktree_branch,
+                branch_already_created,
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs

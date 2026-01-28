@@ -29,7 +29,11 @@ pub struct OrchestratorConfig {
     pub api_token: String,
     pub hook_script_path: Option<String>,
     pub cancel_handles: CancelHandlesMap,
+    /// The branch name to use (if already known). If None, orchestrator will generate one.
     pub worktree_branch: Option<String>,
+    /// Whether the branch was already created (e.g., via worktree creation).
+    /// If false but worktree_branch is Some, orchestrator will create the branch.
+    pub branch_already_created: bool,
 }
 
 /// The stages in a multi-stage workflow
@@ -74,8 +78,11 @@ pub struct WorkflowOrchestrator {
     cancel_handles: CancelHandlesMap,
     /// Flag to indicate if the workflow has been cancelled
     cancelled: Arc<AtomicBool>,
-    /// If running in a worktree, the branch name (skips branch creation stage)
+    /// The branch name to use (if already known). If None, orchestrator will generate one.
     worktree_branch: Option<String>,
+    /// Whether the branch was already created (e.g., via worktree creation).
+    /// If false but worktree_branch is Some, orchestrator will create the branch.
+    branch_already_created: bool,
 }
 
 impl WorkflowOrchestrator {
@@ -94,6 +101,7 @@ impl WorkflowOrchestrator {
             cancel_handles: config.cancel_handles,
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,
+            branch_already_created: config.branch_already_created,
         }
     }
     
@@ -165,10 +173,11 @@ impl WorkflowOrchestrator {
         // Move ticket to "In Progress" when workflow starts
         self.move_ticket_to_column("In Progress");
         
-        // Handle branch creation based on whether we're in a worktree
+        // Handle branch creation based on whether we already have a branch name
+        // and whether it was already created (e.g., via worktree)
         if let Some(ref branch_name) = self.worktree_branch {
-            // Worktree mode: branch already created via worktree creation
-            tracing::info!("Using worktree branch: {}", branch_name);
+            // We have a branch name already
+            tracing::info!("Using pre-determined branch name: {}", branch_name);
             
             // Store branch name on ticket if not already set
             if self.ticket.branch_name.is_none() {
@@ -178,8 +187,38 @@ impl WorkflowOrchestrator {
                     tracing::info!("Stored branch name '{}' on ticket {}", branch_name, self.ticket.id);
                 }
             }
+            
+            // If branch wasn't already created (e.g., worktree creation failed),
+            // we need to create it now
+            if !self.branch_already_created {
+                tracing::info!("Branch '{}' not yet created, creating now...", branch_name);
+                
+                if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                }
+                
+                let branch_prompt = format!(
+                    r#"Create a new git branch for this task.
+
+## Task
+Create and switch to a new branch: `{}`
+
+## Instructions
+1. Check if you're on a clean working tree (stash changes if needed)
+2. Switch to the main branch (or master if main doesn't exist)
+3. Pull the latest changes from origin: `git pull origin main`
+4. Create and switch to the new branch from main
+5. Push the branch to origin with -u flag
+
+Do NOT start implementing any code changes. Just create the branch.
+"#,
+                    branch_name
+                );
+                
+                let _branch_result = self.run_stage("branch", &branch_prompt).await?;
+            }
         } else {
-            // Traditional mode: have the agent generate and create a branch
+            // No branch name yet - generate and create a branch
             // First, ask agent to generate a meaningful branch name
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());

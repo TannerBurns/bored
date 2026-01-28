@@ -286,6 +286,20 @@ impl Worker {
         // - Branch comments
         // - Agent summary comments
         // - Ticket movement
+        // Determine branch setup:
+        // - If we have a worktree, the branch was created by worktree creation
+        // - If ticket has a branch but worktree failed, the branch exists in git already
+        // - If ticket has no branch, orchestrator will generate and create one
+        let worktree_branch = worktree_info
+            .as_ref()
+            .map(|w| w.branch_name.clone())
+            .or_else(|| ticket.branch_name.clone());
+        
+        // Branch already created if:
+        // - Worktree was created (branch created/attached via worktree), OR
+        // - Ticket already has a branch name (from previous run)
+        let branch_already_created = worktree_info.is_some() || ticket.branch_name.is_some();
+        
         let runner_config = RunnerConfig {
             db: self.db.clone(),
             window: None, // Workers don't have a window
@@ -298,7 +312,8 @@ impl Worker {
             api_token: self.config.api_token.clone(),
             hook_script_path: self.config.hook_script_path.clone(),
             cancel_handles: self.cancel_handles.clone(),
-            worktree_branch: worktree_info.as_ref().map(|w| w.branch_name.clone()),
+            worktree_branch,
+            branch_already_created,
             timeout_secs: self.config.agent_timeout_secs,
         };
 
