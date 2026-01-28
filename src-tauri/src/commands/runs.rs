@@ -112,6 +112,13 @@ async fn generate_ai_branch_name(
         tracing::warn!("Failed to create branch-gen sub-run: {}", e);
     }
     
+    // Use agent-appropriate model for branch generation
+    // Cursor doesn't recognize Claude model names, so only set model for Claude agent
+    let model = match agent_kind {
+        AgentKind::Claude => Some("claude-opus-4-5".to_string()),
+        AgentKind::Cursor => None, // Let Cursor use its default model
+    };
+    
     let config = AgentRunConfig {
         kind: agent_kind,
         ticket_id: ticket.id.clone(),
@@ -121,7 +128,7 @@ async fn generate_ai_branch_name(
         timeout_secs: Some(60), // Short timeout for branch generation
         api_url: String::new(), // Not needed for branch generation
         api_token: String::new(), // Not needed for branch generation
-        model: Some("claude-opus-4-5".to_string()),
+        model,
     };
     
     // Run synchronously in a blocking task
@@ -485,8 +492,15 @@ pub async fn start_agent_run(
             // Always pass the branch name to skip branch name generation
             // The branch name was already generated (via AI or fallback) and stored in DB
             // The `branch_already_created` flag tells orchestrator if it needs to create the branch
+            //
+            // Branch already created if:
+            // - Worktree was created (branch created/attached via worktree), OR
+            // - Ticket already had a branch name from a previous run (branch exists in git)
+            //
+            // Note: We check the original ticket.branch_name, NOT the newly generated one,
+            // because ticket.branch_name reflects whether the branch existed BEFORE this run.
             let worktree_branch = Some(branch_name_for_orchestrator);
-            let branch_already_created = worktree_for_cleanup.is_some();
+            let branch_already_created = worktree_for_cleanup.is_some() || ticket_for_orchestrator.branch_name.is_some();
             
             tracing::info!(
                 "Orchestrator config: worktree_branch={:?}, branch_already_created={}",
