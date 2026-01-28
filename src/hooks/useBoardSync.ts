@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useBoardStore } from '../stores/boardStore';
 import { getColumns, getTickets } from '../lib/tauri';
-import { isTauri } from '../lib/utils';
+import { logger } from '../lib/logger';
 import type { Board, Column, Ticket } from '../types';
 
 interface TicketMovedEvent {
@@ -75,29 +75,27 @@ export function useBoardSync(): BoardSyncState {
 
     if (storeCurrentBoard.id !== currentBoard?.id) {
       setCurrentBoardLocal(storeCurrentBoard);
-      if (isTauri()) {
-        // Track this request to handle race conditions
-        const requestId = storeCurrentBoard.id;
-        currentRequestRef.current = requestId;
-        
-        Promise.all([
-          getColumns(storeCurrentBoard.id),
-          getTickets(storeCurrentBoard.id),
-        ])
-          .then(([columnsData, ticketsData]) => {
-            // Only apply results if this is still the current request
-            if (currentRequestRef.current === requestId) {
-              setColumns(columnsData);
-              setTickets(ticketsData);
-            }
-          })
-          .catch((error) => {
-            // Only log error if this is still the current request
-            if (currentRequestRef.current === requestId) {
-              console.error('Failed to load board data:', error);
-            }
-          });
-      }
+      // Track this request to handle race conditions
+      const requestId = storeCurrentBoard.id;
+      currentRequestRef.current = requestId;
+      
+      Promise.all([
+        getColumns(storeCurrentBoard.id),
+        getTickets(storeCurrentBoard.id),
+      ])
+        .then(([columnsData, ticketsData]) => {
+          // Only apply results if this is still the current request
+          if (currentRequestRef.current === requestId) {
+            setColumns(columnsData);
+            setTickets(ticketsData);
+          }
+        })
+        .catch((error) => {
+          // Only log error if this is still the current request
+          if (currentRequestRef.current === requestId) {
+            logger.error('Failed to load board data:', error);
+          }
+        });
     } else if (storeCurrentBoard.name !== currentBoard?.name) {
       setCurrentBoardLocal(storeCurrentBoard);
     }
@@ -105,15 +103,13 @@ export function useBoardSync(): BoardSyncState {
 
   // Listen for backend-initiated ticket movements (e.g., from multi-stage workflow)
   useEffect(() => {
-    if (!isTauri()) return;
-
     let unlisten: (() => void) | null = null;
 
     const setupListener = async () => {
       try {
         unlisten = await listen<TicketMovedEvent>('ticket-moved', (event) => {
           const { ticketId, columnId } = event.payload;
-          console.log('[useBoardSync] ticket-moved event received:', event.payload);
+          logger.debug('ticket-moved event received', event.payload);
           
           // Update the ticket's columnId in local state
           setTickets((prev) =>
@@ -123,7 +119,7 @@ export function useBoardSync(): BoardSyncState {
           );
         });
       } catch (error) {
-        console.error('Failed to set up ticket-moved listener:', error);
+        logger.error('Failed to set up ticket-moved listener:', error);
       }
     };
 
@@ -139,7 +135,7 @@ export function useBoardSync(): BoardSyncState {
   // Poll for ticket updates periodically to catch worker-initiated changes
   // Workers run headless and don't emit frontend events, so we need to poll
   useEffect(() => {
-    if (!isTauri() || !currentBoard) return;
+    if (!currentBoard) return;
 
     const pollTickets = async () => {
       try {
@@ -160,7 +156,7 @@ export function useBoardSync(): BoardSyncState {
                 updatedSelectedTicket.lockExpiresAt !== selectedTicket.lockExpiresAt;
               
               if (hasChanged) {
-                console.log('[useBoardSync] Updating selectedTicket with polled data:', {
+                logger.debug('Updating selectedTicket with polled data', {
                   id: updatedSelectedTicket.id,
                   lockedByRunId: updatedSelectedTicket.lockedByRunId,
                   columnId: updatedSelectedTicket.columnId,
@@ -171,7 +167,7 @@ export function useBoardSync(): BoardSyncState {
           }
         }
       } catch (error) {
-        console.error('[useBoardSync] Failed to poll tickets:', error);
+        logger.error('Failed to poll tickets:', error);
       }
     };
 
@@ -190,22 +186,20 @@ export function useBoardSync(): BoardSyncState {
     setCurrentBoardLocal(board);
     setCurrentBoard(board);
 
-    if (isTauri()) {
-      try {
-        const [columnsData, ticketsData] = await Promise.all([
-          getColumns(board.id),
-          getTickets(board.id),
-        ]);
-        // Only apply results if this is still the current request
-        if (currentRequestRef.current === boardId) {
-          setColumns(columnsData);
-          setTickets(ticketsData);
-        }
-      } catch (error) {
-        // Only log error if this is still the current request
-        if (currentRequestRef.current === boardId) {
-          console.error('Failed to load board data:', error);
-        }
+    try {
+      const [columnsData, ticketsData] = await Promise.all([
+        getColumns(board.id),
+        getTickets(board.id),
+      ]);
+      // Only apply results if this is still the current request
+      if (currentRequestRef.current === boardId) {
+        setColumns(columnsData);
+        setTickets(ticketsData);
+      }
+    } catch (error) {
+      // Only log error if this is still the current request
+      if (currentRequestRef.current === boardId) {
+        logger.error('Failed to load board data:', error);
       }
     }
   };
@@ -217,16 +211,14 @@ export function useBoardSync(): BoardSyncState {
     // Otherwise, fetch the ticket count from the backend
     if (board.id === currentBoard?.id) {
       ticketCount = tickets.length;
-    } else if (isTauri()) {
+    } else {
       try {
         const boardTickets = await getTickets(board.id);
         ticketCount = boardTickets.length;
       } catch (error) {
-        console.error('Failed to get ticket count:', error);
+        logger.error('Failed to get ticket count:', error);
         ticketCount = 0;
       }
-    } else {
-      ticketCount = 0;
     }
 
     setDeleteConfirmation({ board, ticketCount });
@@ -238,7 +230,7 @@ export function useBoardSync(): BoardSyncState {
     try {
       await deleteBoard(deleteConfirmation.board.id);
     } catch (error) {
-      console.error('Failed to delete board:', error);
+      logger.error('Failed to delete board:', error);
       alert(
         'Failed to delete board: ' +
           (error instanceof Error ? error.message : 'Unknown error')

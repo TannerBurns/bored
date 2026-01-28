@@ -4,9 +4,14 @@ import { useBoardSync } from './useBoardSync';
 import { useBoardStore } from '../stores/boardStore';
 import type { Board, Ticket } from '../types';
 
-// Mock isTauri to return false (demo mode)
-vi.mock('../lib/utils', () => ({
-  isTauri: () => false,
+// Mock Tauri APIs
+vi.mock('@tauri-apps/api/tauri', () => ({
+  invoke: vi.fn(() => Promise.resolve([])),
+}));
+
+vi.mock('../lib/tauri', () => ({
+  getColumns: vi.fn(() => Promise.resolve([])),
+  getTickets: vi.fn(() => Promise.resolve([])),
 }));
 
 // Mock Tauri event listener
@@ -42,6 +47,7 @@ const mockTicket: Ticket = {
 
 describe('useBoardSync', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     useBoardStore.setState({
       boards: [],
       currentBoard: null,
@@ -49,6 +55,7 @@ describe('useBoardSync', () => {
       tickets: [],
       selectedTicket: null,
       comments: [],
+      tasks: [],
       isLoading: false,
       error: null,
       isTicketModalOpen: false,
@@ -144,7 +151,7 @@ describe('useBoardSync', () => {
       });
     });
 
-    it('uses 0 ticket count for non-current board in demo mode', async () => {
+    it('uses 0 ticket count for non-current board when API returns empty', async () => {
       useBoardStore.setState({
         boards: [mockBoard, mockBoard2],
         currentBoard: mockBoard,

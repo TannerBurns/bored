@@ -14,7 +14,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
-import { isTauri } from './lib/utils';
+import { logger } from './lib/logger';
 import type { Ticket, Project, Board as BoardType, AgentRun } from './types';
 import './index.css';
 
@@ -105,35 +105,33 @@ function App() {
     const loadData = async () => {
       setIsLoading(true);
       
-      if (isTauri()) {
-        try {
-          const apiConfig = await getApiConfig();
-          api.configure({
-            baseUrl: apiConfig.url,
-            token: apiConfig.token,
-          });
+      try {
+        const apiConfig = await getApiConfig();
+        api.configure({
+          baseUrl: apiConfig.url,
+          token: apiConfig.token,
+        });
+        
+        const [projectsData, boardsData] = await Promise.all([
+          getProjects(),
+          getBoards(),
+        ]);
+        setProjects(projectsData);
+        storeSetBoards(boardsData);
+        
+        if (boardsData.length > 0) {
+          const firstBoard = boardsData[0];
+          storeSetCurrentBoard(firstBoard);
           
-          const [projectsData, boardsData] = await Promise.all([
-            getProjects(),
-            getBoards(),
+          const [columnsData, ticketsData] = await Promise.all([
+            getColumns(firstBoard.id),
+            getTickets(firstBoard.id),
           ]);
-          setProjects(projectsData);
-          storeSetBoards(boardsData);
-          
-          if (boardsData.length > 0) {
-            const firstBoard = boardsData[0];
-            storeSetCurrentBoard(firstBoard);
-            
-            const [columnsData, ticketsData] = await Promise.all([
-              getColumns(firstBoard.id),
-              getTickets(firstBoard.id),
-            ]);
-            setColumns(columnsData);
-            setTickets(ticketsData);
-          }
-        } catch (error) {
-          console.error('Failed to load data:', error);
+          setColumns(columnsData);
+          setTickets(ticketsData);
         }
+      } catch (error) {
+        logger.error('Failed to load data:', error);
       }
       
       setIsLoading(false);
@@ -147,13 +145,11 @@ function App() {
     if (activeNav !== 'runs') return;
     
     const loadRecentRuns = async () => {
-      if (isTauri()) {
-        try {
-          const runs = await getRecentRuns(50);
-          setRecentRuns(runs);
-        } catch (error) {
-          console.error('Failed to load recent runs:', error);
-        }
+      try {
+        const runs = await getRecentRuns(50);
+        setRecentRuns(runs);
+      } catch (error) {
+        logger.error('Failed to load recent runs:', error);
       }
     };
     
@@ -190,7 +186,7 @@ function App() {
     try {
       await storeMoveTicket(ticketId, newColumnId, updatedAt);
     } catch (error) {
-      console.error('Failed to move ticket:', error);
+      logger.error('Failed to move ticket:', error);
       setTickets(originalTickets);
     }
   };
@@ -229,7 +225,7 @@ function App() {
     try {
       await storeUpdateTicket(ticketId, updatesWithTimestamp);
     } catch (error) {
-      console.error('Failed to update ticket:', error);
+      logger.error('Failed to update ticket:', error);
       setTickets(originalTickets);
     }
   };
@@ -243,50 +239,50 @@ function App() {
   };
 
   const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
-    console.warn('🚀🚀🚀 [Agent Debug] handleRunWithAgent called:', { ticketId, agentType });
+    logger.debug('handleRunWithAgent called', { ticketId, agentType });
     
     // Find the ticket to get its project info
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
-      console.error('[Agent Debug] Ticket not found:', ticketId);
+      logger.error('Ticket not found:', ticketId);
       return;
     }
     
     if (!ticket.projectId) {
-      console.error('[Agent Debug] Ticket has no projectId:', ticketId);
+      logger.error('Ticket has no projectId:', ticketId);
       return;
     }
     
     // Find the project to get its path
     const project = projects.find(p => p.id === ticket.projectId);
     if (!project) {
-      console.error('[Agent Debug] Project not found:', ticket.projectId);
+      logger.error('Project not found:', ticket.projectId);
       return;
     }
     
-      console.warn('🚀 [Agent Debug] Starting agent with project:', { projectId: project.id, path: project.path });
+    logger.debug('Starting agent with project', { projectId: project.id, path: project.path });
     
     try {
       // Actually start the agent run via Tauri
-      console.warn('🚀 [Agent Debug] Calling startAgentRun...');
+      logger.debug('Calling startAgentRun...');
       const runId = await startAgentRun(ticketId, agentType, project.path);
-      console.warn('🚀 [Agent Debug] Agent run started, runId:', runId);
+      logger.info('Agent run started', { runId });
       
       // Update the ticket with the real run ID
       // This should trigger the TicketModal to set up event listeners
       const updates = { lockedByRunId: runId, updatedAt: new Date() };
-      console.warn('🚀 [Agent Debug] Updating ticket with lockedByRunId:', runId);
+      logger.debug('Updating ticket with lockedByRunId', { runId });
       
       setTickets((prev) =>
         prev.map((t) => (t.id === ticketId ? { ...t, ...updates } : t))
       );
       
       await storeUpdateTicket(ticketId, updates);
-      console.warn('🚀 [Agent Debug] Ticket updated, modal should now show agent running');
+      logger.debug('Ticket updated, modal should now show agent running');
       // Don't close the modal so user can see progress
       // closeTicketModal();
     } catch (err) {
-      console.error('❌ [Agent Debug] Failed to start agent:', err);
+      logger.error('Failed to start agent:', err);
     }
   };
 
@@ -297,7 +293,7 @@ function App() {
   };
 
   const handleAgentComplete = async (runId: string, status: string) => {
-    console.warn('🏁 [Agent] Run completed:', { runId, status });
+    logger.info('Agent run completed', { runId, status });
     // Clear the lockedByRunId on the ticket
     if (selectedTicket) {
       const updates = { lockedByRunId: undefined, updatedAt: new Date() };

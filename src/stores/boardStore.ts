@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/tauri';
 import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts, PresetTaskInfo } from '../types';
-import { isTauri } from '../lib/utils';
+import { logger } from '../lib/logger';
 
 interface BoardState {
   boards: Board[];
@@ -66,12 +66,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   loadBoards: async () => {
     set({ isLoading: true, error: null });
     try {
-      if (isTauri()) {
-        const boards = await invoke<Board[]>('get_boards');
-        set({ boards, isLoading: false });
-      } else {
-        set({ boards: [], isLoading: false });
-      }
+      const boards = await invoke<Board[]>('get_boards');
+      set({ boards, isLoading: false });
     } catch (error) {
       set({ error: String(error), isLoading: false });
     }
@@ -89,59 +85,29 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   loadBoardData: async (boardId: string) => {
     set({ isLoading: true, error: null });
     try {
-      if (isTauri()) {
-        const [columns, tickets] = await Promise.all([
-          invoke<Column[]>('get_columns', { boardId }),
-          invoke<Ticket[]>('get_tickets', { boardId }),
-        ]);
-        set({ columns, tickets, isLoading: false });
-      } else {
-        set({ isLoading: false });
-      }
+      const [columns, tickets] = await Promise.all([
+        invoke<Column[]>('get_columns', { boardId }),
+        invoke<Ticket[]>('get_tickets', { boardId }),
+      ]);
+      set({ columns, tickets, isLoading: false });
     } catch (error) {
       set({ error: String(error), isLoading: false });
     }
   },
 
   createBoard: async (name: string) => {
-    if (isTauri()) {
-      const board = await invoke<Board>('create_board', { name });
-      set((state) => ({ 
-        boards: [board, ...state.boards],
-        currentBoard: board,
-      }));
-      // Load the board data (columns come pre-created with the board)
-      await get().loadBoardData(board.id);
-      return board;
-    }
-    const board: Board = {
-      id: `board-${Date.now()}`,
-      name,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const board = await invoke<Board>('create_board', { name });
     set((state) => ({ 
       boards: [board, ...state.boards],
       currentBoard: board,
     }));
+    // Load the board data (columns come pre-created with the board)
+    await get().loadBoardData(board.id);
     return board;
   },
 
   updateBoard: async (boardId: string, name: string) => {
-    if (isTauri()) {
-      const updatedBoard = await invoke<Board>('update_board', { boardId, name });
-      set((state) => ({
-        boards: state.boards.map((b) => (b.id === boardId ? updatedBoard : b)),
-        currentBoard: state.currentBoard?.id === boardId ? updatedBoard : state.currentBoard,
-      }));
-      return updatedBoard;
-    }
-    // Demo mode
-    const updatedBoard: Board = {
-      ...get().boards.find((b) => b.id === boardId)!,
-      name,
-      updatedAt: new Date(),
-    };
+    const updatedBoard = await invoke<Board>('update_board', { boardId, name });
     set((state) => ({
       boards: state.boards.map((b) => (b.id === boardId ? updatedBoard : b)),
       currentBoard: state.currentBoard?.id === boardId ? updatedBoard : state.currentBoard,
@@ -150,9 +116,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   deleteBoard: async (boardId: string) => {
-    if (isTauri()) {
-      await invoke('delete_board', { boardId });
-    }
+    await invoke('delete_board', { boardId });
     
     const { boards, currentBoard } = get();
     const remainingBoards = boards.filter((b) => b.id !== boardId);
@@ -178,44 +142,21 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     const { currentBoard } = get();
     if (!currentBoard) throw new Error('No board selected');
 
-    if (isTauri()) {
-      const ticket = await invoke<Ticket>('create_ticket', {
-        ticket: {
-          boardId: currentBoard.id,
-          columnId: input.columnId,
-          title: input.title,
-          descriptionMd: input.descriptionMd,
-          priority: input.priority,
-          labels: input.labels,
-          projectId: input.projectId,
-          agentPref: input.agentPref,
-          workflowType: input.workflowType,
-          model: input.model,
-          branchName: input.branchName,
-        },
-      });
-      set((state) => ({
-        tickets: [...state.tickets, ticket],
-      }));
-      return ticket;
-    }
-
-    const ticket: Ticket = {
-      id: `ticket-${Date.now()}`,
-      boardId: currentBoard.id,
-      columnId: input.columnId,
-      title: input.title,
-      descriptionMd: input.descriptionMd,
-      priority: input.priority,
-      labels: input.labels,
-      projectId: input.projectId,
-      agentPref: input.agentPref,
-      workflowType: input.workflowType || 'multi_stage',
-      model: input.model,
-      branchName: input.branchName,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const ticket = await invoke<Ticket>('create_ticket', {
+      ticket: {
+        boardId: currentBoard.id,
+        columnId: input.columnId,
+        title: input.title,
+        descriptionMd: input.descriptionMd,
+        priority: input.priority,
+        labels: input.labels,
+        projectId: input.projectId,
+        agentPref: input.agentPref,
+        workflowType: input.workflowType,
+        model: input.model,
+        branchName: input.branchName,
+      },
+    });
     set((state) => ({
       tickets: [...state.tickets, ticket],
     }));
@@ -225,9 +166,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   updateTicket: async (ticketId: string, updates: Partial<Ticket>) => {
     const updatedAt = updates.updatedAt ?? new Date();
     const updatesWithTimestamp = { ...updates, updatedAt };
-    if (isTauri()) {
-      await invoke('update_ticket', { ticketId, updates: updatesWithTimestamp });
-    }
+    await invoke('update_ticket', { ticketId, updates: updatesWithTimestamp });
     set((state) => ({
       tickets: state.tickets.map((t) =>
         t.id === ticketId ? { ...t, ...updatesWithTimestamp } : t
@@ -252,9 +191,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }));
 
     try {
-      if (isTauri()) {
-        await invoke('move_ticket', { ticketId, columnId });
-      }
+      await invoke('move_ticket', { ticketId, columnId });
     } catch (error) {
       const { currentBoard } = get();
       if (currentBoard) {
@@ -268,81 +205,51 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   loadComments: async (ticketId: string) => {
     try {
-      if (isTauri()) {
-        const fetchedComments = await invoke<Comment[]>('get_comments', { ticketId });
-        // Guard against race condition: only update if this ticket is still selected
-        if (get().selectedTicket?.id === ticketId) {
-          // Merge fetched comments with any locally-added comments (optimistic updates)
-          // Local comments have temporary IDs like "comment-{timestamp}"
-          const currentComments = get().comments;
-          const fetchedIds = new Set(fetchedComments.map((c) => c.id));
-          const localComments = currentComments.filter(
-            (c) => c.id.startsWith('comment-') && c.ticketId === ticketId && !fetchedIds.has(c.id)
-          );
-          set({ comments: [...fetchedComments, ...localComments] });
-        }
+      const fetchedComments = await invoke<Comment[]>('get_comments', { ticketId });
+      // Guard against race condition: only update if this ticket is still selected
+      if (get().selectedTicket?.id === ticketId) {
+        // Merge fetched comments with any locally-added comments (optimistic updates)
+        // Local comments have temporary IDs like "comment-{timestamp}"
+        const currentComments = get().comments;
+        const fetchedIds = new Set(fetchedComments.map((c) => c.id));
+        const localComments = currentComments.filter(
+          (c) => c.id.startsWith('comment-') && c.ticketId === ticketId && !fetchedIds.has(c.id)
+        );
+        set({ comments: [...fetchedComments, ...localComments] });
       }
-      // In non-Tauri (demo) mode, comments are stored in memory and persist for the session
-      // No action needed - comments are already in the store and TicketModal filters by ticketId
     } catch (error) {
-      console.error('Failed to load comments:', error);
-      // On error in Tauri mode, keep existing comments for this ticket
+      logger.error('Failed to load comments:', error);
     }
   },
 
   addComment: async (ticketId: string, body: string) => {
-    if (isTauri()) {
-      const comment = await invoke<Comment>('add_comment', {
-        ticketId,
-        body,
-        authorType: 'user',
-      });
-      set((state) => ({ comments: [...state.comments, comment] }));
-      return;
-    }
-    const comment: Comment = {
-      id: `comment-${Date.now()}`,
+    const comment = await invoke<Comment>('add_comment', {
       ticketId,
+      body,
       authorType: 'user',
-      bodyMd: body,
-      createdAt: new Date(),
-    };
+    });
     set((state) => ({ comments: [...state.comments, comment] }));
   },
 
   updateComment: async (commentId: string, body: string) => {
-    if (isTauri()) {
-      const updatedComment = await invoke<Comment>('update_comment', {
-        commentId,
-        body,
-      });
-      set((state) => ({
-        comments: state.comments.map((c) =>
-          c.id === commentId ? updatedComment : c
-        ),
-      }));
-      return;
-    }
-    // Demo mode - update in memory
+    const updatedComment = await invoke<Comment>('update_comment', {
+      commentId,
+      body,
+    });
     set((state) => ({
       comments: state.comments.map((c) =>
-        c.id === commentId ? { ...c, bodyMd: body } : c
+        c.id === commentId ? updatedComment : c
       ),
     }));
   },
 
   openTicketModal: (ticket: Ticket) => {
-    // In demo mode, we keep all comments in memory and filter by ticketId when displaying
-    // In Tauri mode, comments are loaded from the backend
-    // We don't clear comments here to preserve locally-added comments in demo mode
     set({ selectedTicket: ticket, isTicketModalOpen: true });
     get().loadComments(ticket.id);
     get().loadTasks(ticket.id);
   },
 
   closeTicketModal: () => {
-    // Don't clear comments - in demo mode they should persist in memory for the session
-    // In Tauri mode, they'll be reloaded from the backend anyway
     set({ isTicketModalOpen: false, selectedTicket: null });
   },
 
@@ -358,122 +265,46 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   // Task queue management
   loadTasks: async (ticketId: string) => {
     try {
-      if (isTauri()) {
-        const fetchedTasks = await invoke<Task[]>('get_tasks', { ticketId });
-        // Only update if this ticket is still selected
-        if (get().selectedTicket?.id === ticketId) {
-          set({ tasks: fetchedTasks });
-        }
+      const fetchedTasks = await invoke<Task[]>('get_tasks', { ticketId });
+      // Only update if this ticket is still selected
+      if (get().selectedTicket?.id === ticketId) {
+        set({ tasks: fetchedTasks });
       }
     } catch (error) {
-      console.error('Failed to load tasks:', error);
+      logger.error('Failed to load tasks:', error);
     }
   },
 
   createTask: async (ticketId: string, title?: string, content?: string) => {
-    if (isTauri()) {
-      const task = await invoke<Task>('create_task', { ticketId, title, content });
-      set((state) => ({ tasks: [...state.tasks, task] }));
-      return task;
-    }
-    // Demo mode
-    // Calculate orderIndex based on tasks for THIS ticket only, not all tasks
-    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
-    const task: Task = {
-      id: `task-${Date.now()}`,
-      ticketId,
-      orderIndex: ticketTasks.length,
-      taskType: 'custom',
-      title,
-      content,
-      status: 'pending',
-      createdAt: new Date(),
-    };
+    const task = await invoke<Task>('create_task', { ticketId, title, content });
     set((state) => ({ tasks: [...state.tasks, task] }));
     return task;
   },
 
   addPresetTask: async (ticketId: string, presetType: string) => {
-    if (isTauri()) {
-      const task = await invoke<Task>('add_preset_task', { ticketId, presetType });
-      set((state) => ({ tasks: [...state.tasks, task] }));
-      return task;
-    }
-    // Demo mode
-    const presetNames: Record<string, string> = {
-      sync_with_main: 'Sync with Main',
-      add_tests: 'Add Tests',
-      review_polish: 'Review & Polish',
-      fix_lint: 'Fix Lint Errors',
-    };
-    // Calculate orderIndex based on tasks for THIS ticket only, not all tasks
-    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
-    const task: Task = {
-      id: `task-${Date.now()}`,
-      ticketId,
-      orderIndex: ticketTasks.length,
-      taskType: presetType as Task['taskType'],
-      title: presetNames[presetType] || presetType,
-      status: 'pending',
-      createdAt: new Date(),
-    };
+    const task = await invoke<Task>('add_preset_task', { ticketId, presetType });
     set((state) => ({ tasks: [...state.tasks, task] }));
     return task;
   },
 
   deleteTask: async (taskId: string) => {
-    if (isTauri()) {
-      await invoke('delete_task', { taskId });
-    }
+    await invoke('delete_task', { taskId });
     set((state) => ({ tasks: state.tasks.filter((t) => t.id !== taskId) }));
   },
 
   updateTask: async (taskId: string, title?: string, content?: string) => {
-    if (isTauri()) {
-      const task = await invoke<Task>('update_task', { taskId, title, content });
-      set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? task : t)),
-      }));
-      return task;
-    }
-    // Demo mode - only spread fields that are actually being updated (not undefined)
-    const existing = get().tasks.find((t) => t.id === taskId);
-    if (!existing) throw new Error('Task not found');
-    const updated = {
-      ...existing,
-      ...(title !== undefined && { title }),
-      ...(content !== undefined && { content }),
-    };
+    const task = await invoke<Task>('update_task', { taskId, title, content });
     set((state) => ({
-      tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
+      tasks: state.tasks.map((t) => (t.id === taskId ? task : t)),
     }));
-    return updated;
+    return task;
   },
 
   getTaskCounts: async (ticketId: string) => {
-    if (isTauri()) {
-      return invoke<TaskCounts>('get_task_counts', { ticketId });
-    }
-    // Demo mode - calculate from local tasks
-    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
-    return {
-      pending: ticketTasks.filter((t) => t.status === 'pending').length,
-      inProgress: ticketTasks.filter((t) => t.status === 'in_progress').length,
-      completed: ticketTasks.filter((t) => t.status === 'completed').length,
-      failed: ticketTasks.filter((t) => t.status === 'failed').length,
-    };
+    return invoke<TaskCounts>('get_task_counts', { ticketId });
   },
 
   getPresetTypes: async () => {
-    if (isTauri()) {
-      return invoke<PresetTaskInfo[]>('get_preset_types');
-    }
-    // Demo mode
-    return [
-      { typeName: 'sync_with_main', displayName: 'Sync with Main', description: 'Merge the latest changes from main branch' },
-      { typeName: 'add_tests', displayName: 'Add Tests', description: 'Add test coverage for recent changes' },
-      { typeName: 'review_polish', displayName: 'Review & Polish', description: 'Review code quality and apply best practices' },
-      { typeName: 'fix_lint', displayName: 'Fix Lint Errors', description: 'Fix all linting and type checking errors' },
-    ];
+    return invoke<PresetTaskInfo[]>('get_preset_types');
   },
 }));

@@ -3,6 +3,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { cn } from '../../lib/utils';
+import { logger } from '../../lib/logger';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../../lib/constants';
 import { getProjects } from '../../lib/tauri';
 import { MarkdownViewer } from '../common/MarkdownViewer';
@@ -81,25 +82,17 @@ export function TicketModal({
   useEffect(() => {
     const wasRunning = isAgentRunning;
     const nowRunning = !!ticket.lockedByRunId;
-    console.log('[TicketModal Debug] Syncing agent running state:', { wasRunning, nowRunning, lockedByRunId: ticket.lockedByRunId });
+    logger.debug('Syncing agent running state', { wasRunning, nowRunning, lockedByRunId: ticket.lockedByRunId });
     if (wasRunning !== nowRunning) {
       setIsAgentRunning(nowRunning);
       // If a new run just started, clear previous logs
       if (nowRunning && !wasRunning) {
-        console.log('[TicketModal Debug] New run started, clearing logs');
+        logger.debug('New run started, clearing logs');
         setAgentLogs([]);
         setAgentError(null);
       }
     }
   }, [ticket.lockedByRunId, isAgentRunning]);
-  
-  // Debug logging
-  console.log('[TicketModal Debug] Render state:', {
-    ticketId: ticket.id,
-    lockedByRunId: ticket.lockedByRunId,
-    isAgentRunning,
-    logsCount: agentLogs.length,
-  });
 
   // Reset edit state when the ticket prop changes (e.g., user selects a different ticket)
   useEffect(() => {
@@ -122,7 +115,7 @@ export function TicketModal({
         const data = await getProjects();
         setProjects(data);
       } catch (e) {
-        console.error('Failed to load projects:', e);
+        logger.error('Failed to load projects:', e);
       } finally {
         setProjectsLoading(false);
       }
@@ -135,12 +128,12 @@ export function TicketModal({
   useEffect(() => {
     const loadRuns = async () => {
       try {
-        console.log('[TicketModal Debug] Loading agent runs for ticket:', ticket.id, 'lockedByRunId:', ticket.lockedByRunId);
+        logger.debug('Loading agent runs for ticket', { ticketId: ticket.id, lockedByRunId: ticket.lockedByRunId });
         const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
-        console.log('[TicketModal Debug] Loaded runs:', runs);
+        logger.debug('Loaded runs', { count: runs.length });
         setAgentRuns(runs);
       } catch (err) {
-        console.error('[TicketModal Debug] Failed to load runs:', err);
+        logger.error('Failed to load runs:', err);
       }
     };
     loadRuns();
@@ -150,12 +143,12 @@ export function TicketModal({
   useEffect(() => {
     const runId = ticket.lockedByRunId;
     if (!runId) {
-      console.log('[TicketModal Debug] No active run, skipping event listeners');
+      logger.debug('No active run, skipping event listeners');
       setIsAgentRunning(false);
       return;
     }
 
-    console.log('[TicketModal Debug] Setting up event listeners for run:', runId);
+    logger.debug('Setting up event listeners for run', { runId });
     setIsAgentRunning(true);
     
     let isCancelled = false;
@@ -164,7 +157,7 @@ export function TicketModal({
     const setupListeners = async () => {
       const unlistenLog = await listen<AgentLogEvent>('agent-log', (event) => {
         if (isCancelled) return;
-        console.warn('📝 [TicketModal] agent-log received:', event.payload.stream, event.payload.content.substring(0, 100));
+        logger.debug('agent-log received', { stream: event.payload.stream });
         if (event.payload.runId === runId) {
           setAgentLogs((prev) => [
             ...prev,
@@ -180,7 +173,7 @@ export function TicketModal({
 
       const unlistenComplete = await listen<AgentCompleteEvent>('agent-complete', (event) => {
         if (isCancelled) return;
-        console.warn('✅ [TicketModal] agent-complete received:', event.payload);
+        logger.info('agent-complete received', event.payload);
         if (event.payload.runId === runId) {
           setIsAgentRunning(false);
           onAgentComplete?.(event.payload.runId, event.payload.status);
@@ -196,7 +189,7 @@ export function TicketModal({
 
       const unlistenError = await listen<AgentErrorEvent>('agent-error', (event) => {
         if (isCancelled) return;
-        console.warn('❌ [TicketModal] agent-error received:', event.payload);
+        logger.error('agent-error received', event.payload);
         if (event.payload.runId === runId) {
           setIsAgentRunning(false);
           setAgentError(event.payload.error);
@@ -213,7 +206,7 @@ export function TicketModal({
       // Listen for stage updates in multi-stage workflows - reload runs to update the Current Run section
       const unlistenStage = await listen<AgentStageUpdateEvent>('agent-stage-update', (event) => {
         if (isCancelled) return;
-        console.warn('🔄 [TicketModal] agent-stage-update received:', event.payload);
+        logger.debug('agent-stage-update received', event.payload);
         if (event.payload.parentRunId === runId) {
           // Reload runs to update the stages in the Current Run section
           invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(setAgentRuns);
@@ -225,13 +218,13 @@ export function TicketModal({
       }
       unlisteners.push(unlistenStage);
       
-      console.warn('🎧 [TicketModal] Event listeners set up for run:', runId);
+      logger.debug('Event listeners set up for run', { runId });
     };
 
     setupListeners();
 
     return () => {
-      console.log('[TicketModal Debug] Cleaning up event listeners');
+      logger.debug('Cleaning up event listeners');
       isCancelled = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
@@ -243,7 +236,7 @@ export function TicketModal({
     const runId = ticket.lockedByRunId;
     if (!runId) return;
 
-    console.log('[TicketModal Polling] Starting polling for run:', runId);
+    logger.debug('Starting polling for run', { runId });
     let isCancelled = false;
     let lastEventCount = 0;
 
@@ -270,7 +263,7 @@ export function TicketModal({
 
         // Convert events to log format and update if we have new ones
         if (events.length > lastEventCount) {
-          console.log('[TicketModal Polling] New events:', events.length - lastEventCount, 'total:', events.length);
+          logger.debug('New events received', { newCount: events.length - lastEventCount, total: events.length });
           const newLogs = events
             .map(e => {
               const stream = getLogStream(e.eventType);
@@ -294,21 +287,21 @@ export function TicketModal({
         // Find sub-runs for the current run to track stage changes
         const currentRun = runs.find(r => r.id === runId);
         const subRuns = runs.filter(r => r.parentRunId === runId);
-        console.log('[TicketModal Polling] Runs fetched:', runs.length, 'subRuns:', subRuns.length, 'subRuns:', subRuns.map(r => `${r.stage}:${r.status}`));
+        logger.debug('Runs fetched', { count: runs.length, subRunCount: subRuns.length });
         
         // Always update agentRuns to ensure UI reflects latest state
         setAgentRuns(runs);
 
         // Check if the run has completed
         if (currentRun && currentRun.status !== 'running') {
-          console.log('[TicketModal Polling] Run completed:', currentRun.status);
+          logger.debug('Run completed', { status: currentRun.status });
           setIsAgentRunning(false);
           if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted') {
             onAgentComplete?.(runId, currentRun.status);
           }
         }
       } catch (error) {
-        console.error('[TicketModal Polling] Failed to poll run data:', error);
+        logger.error('Failed to poll run data:', error);
       }
     };
 
@@ -317,7 +310,7 @@ export function TicketModal({
     const interval = setInterval(pollRunData, 1500);
 
     return () => {
-      console.log('[TicketModal Polling] Stopping polling for run:', runId);
+      logger.debug('Stopping polling for run', { runId });
       isCancelled = true;
       clearInterval(interval);
     };
@@ -335,7 +328,7 @@ export function TicketModal({
       try {
         useBoardStore.getState().loadComments(ticket.id);
       } catch (error) {
-        console.error('[TicketModal] Failed to poll comments:', error);
+        logger.error('Failed to poll comments:', error);
       }
     };
 
@@ -357,7 +350,7 @@ export function TicketModal({
       try {
         unlisten = await listen<TicketCommentAddedEvent>('ticket-comment-added', async (event) => {
           if (isCancelled) return;
-          console.log('[TicketModal] ticket-comment-added event received:', event.payload);
+          logger.debug('ticket-comment-added event received', event.payload);
           
           // Only reload if it's for this ticket
           if (event.payload.ticketId === ticket.id) {
@@ -365,12 +358,12 @@ export function TicketModal({
             try {
               useBoardStore.getState().loadComments(ticket.id);
             } catch (error) {
-              console.error('Failed to reload comments:', error);
+              logger.error('Failed to reload comments:', error);
             }
           }
         });
       } catch (error) {
-        console.error('Failed to set up ticket-comment-added listener:', error);
+        logger.error('Failed to set up ticket-comment-added listener:', error);
       }
     };
 
@@ -393,7 +386,7 @@ export function TicketModal({
       try {
         unlisten = await listen<{ ticketId: string; branchName: string }>('ticket-branch-updated', async (event) => {
           if (isCancelled) return;
-          console.log('[TicketModal] ticket-branch-updated event received:', event.payload);
+          logger.debug('ticket-branch-updated event received', event.payload);
           
           // Only update if it's for this ticket
           if (event.payload.ticketId === ticket.id) {
@@ -403,12 +396,12 @@ export function TicketModal({
               // Also update local edit state if in edit mode
               setEditBranchName(event.payload.branchName);
             } catch (error) {
-              console.error('Failed to update ticket branch name:', error);
+              logger.error('Failed to update ticket branch name:', error);
             }
           }
         });
       } catch (error) {
-        console.error('Failed to set up ticket-branch-updated listener:', error);
+        logger.error('Failed to set up ticket-branch-updated listener:', error);
       }
     };
 
@@ -450,28 +443,28 @@ export function TicketModal({
   const handleCancelAgent = async () => {
     const runId = ticket.lockedByRunId;
     if (!runId) {
-      console.warn('⚠️ [TicketModal] Cancel clicked but no lockedByRunId');
+      logger.warn('Cancel clicked but no lockedByRunId');
       return;
     }
     
-    console.warn('🛑 [TicketModal] Cancelling agent run:', runId);
+    logger.info('Cancelling agent run', { runId });
     setIsCancelling(true);
     try {
       await invoke('cancel_agent_run', { runId });
-      console.warn('✅ [TicketModal] Agent cancelled successfully');
+      logger.info('Agent cancelled successfully');
       setIsAgentRunning(false);
       setAgentLogs([]);
       
       // Reload runs to show updated status
       const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
-      console.warn('✅ [TicketModal] Reloaded runs after cancel:', runs);
+      logger.debug('Reloaded runs after cancel', { count: runs.length });
       setAgentRuns(runs);
       
       // Update the ticket to clear lockedByRunId (the backend should have done this)
       // But we need to notify the parent to refresh the ticket
       onAgentComplete?.(runId, 'aborted');
     } catch (err) {
-      console.error('❌ [TicketModal] Failed to cancel agent:', err);
+      logger.error('Failed to cancel agent:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsCancelling(false);
@@ -480,7 +473,7 @@ export function TicketModal({
 
   // Force clear the ticket lock (for stuck states)
   const handleForceClearLock = async () => {
-    console.warn('🔓 [TicketModal] Force clearing ticket lock');
+    logger.info('Force clearing ticket lock');
     try {
       // Just update the ticket to clear lockedByRunId
       await onUpdate(ticket.id, { lockedByRunId: undefined });
@@ -489,9 +482,9 @@ export function TicketModal({
       // Reload runs
       const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
       setAgentRuns(runs);
-      console.warn('✅ [TicketModal] Lock cleared');
+      logger.info('Lock cleared');
     } catch (err) {
-      console.error('❌ [TicketModal] Failed to clear lock:', err);
+      logger.error('Failed to clear lock:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -525,7 +518,7 @@ export function TicketModal({
         const data = await getProjects();
         setProjects(data);
       } catch (e) {
-        console.error('Failed to load projects:', e);
+        logger.error('Failed to load projects:', e);
       } finally {
         setProjectsLoading(false);
       }
