@@ -510,10 +510,37 @@ pub async fn start_agent_run(
             // Get the next pending task for this ticket (for task-based workflow)
             let task = db_clone.get_next_pending_task(&ticket_for_orchestrator.id).ok().flatten();
             
-            // Mark task as in progress if we found one
+            // Mark task as in progress if we found one - CRITICAL: must succeed before continuing
+            // If this fails (e.g., task is not pending, already claimed by another run),
+            // we must abort to prevent complete_task/fail_task from failing later
+            // (they require status = 'in_progress')
             if let Some(ref t) = task {
                 if let Err(e) = db_clone.start_task(&t.id, &run_id_for_task) {
-                    tracing::warn!("Failed to mark task {} as in_progress: {}", t.id, e);
+                    tracing::error!(
+                        "Failed to mark task {} as in_progress: {}. Aborting run to prevent stuck task.",
+                        t.id, e
+                    );
+                    // Update run status to Error and emit error event
+                    let _ = db_clone.update_run_status(
+                        &run_id_for_task,
+                        RunStatus::Error,
+                        None,
+                        Some(&format!("Failed to start task: {}", e)),
+                    );
+                    let _ = db_clone.unlock_ticket(&ticket_id_for_task);
+                    
+                    // Clean up worktree if created
+                    if let Some(ref worktree) = worktree_for_cleanup {
+                        use agents::worktree::remove_worktree;
+                        let _ = remove_worktree(&worktree.path, &main_repo_for_cleanup);
+                    }
+                    
+                    let event = AgentErrorEvent {
+                        run_id: run_id_for_task.clone(),
+                        error: format!("Failed to start task: {}", e),
+                    };
+                    let _ = window_clone.emit("agent-error", &event);
+                    return;
                 }
             }
             

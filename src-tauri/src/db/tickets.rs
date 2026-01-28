@@ -301,6 +301,9 @@ impl Database {
         
         // Auto-create Task 1 from the ticket description
         // This is the initial task that defines the work to be done
+        // CRITICAL: Every ticket MUST have at least one task. Workers expect this invariant.
+        // If task creation fails, we must delete the ticket and return an error to maintain consistency.
+        //
         // Use chars().count() for character count (not byte count) to handle UTF-8 safely
         let task_title = if created_ticket.title.chars().count() > 50 {
             format!("{}...", created_ticket.title.chars().take(47).collect::<String>())
@@ -318,7 +321,18 @@ impl Database {
                 Some(created_ticket.description_md.clone())
             },
         }) {
-            tracing::warn!("Failed to create initial task for ticket {}: {}", created_ticket.id, e);
+            // Task creation failed - delete the ticket to maintain invariant
+            tracing::error!(
+                "Failed to create initial task for ticket {}: {}. Deleting ticket to maintain invariant.",
+                created_ticket.id, e
+            );
+            if let Err(delete_err) = self.delete_ticket(&created_ticket.id) {
+                tracing::error!("Failed to delete ticket {} after task creation failure: {}", created_ticket.id, delete_err);
+            }
+            return Err(DbError::Validation(format!(
+                "Failed to create initial task for ticket: {}. Ticket creation aborted.",
+                e
+            )));
         }
         
         Ok(created_ticket)

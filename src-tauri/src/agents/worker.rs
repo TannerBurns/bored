@@ -316,10 +316,26 @@ impl Worker {
             }
         };
         
-        // Mark task as in progress
+        // Mark task as in progress - CRITICAL: must succeed before continuing
+        // If this fails (e.g., task is not pending, already claimed by another run),
+        // we must abort to prevent complete_task/fail_task from failing later
+        // (they require status = 'in_progress')
         if let Some(ref t) = task {
             if let Err(e) = self.db.start_task(&t.id, &run.id) {
-                tracing::warn!("Failed to mark task {} as in_progress: {}", t.id, e);
+                tracing::error!(
+                    "Worker {} failed to mark task {} as in_progress: {}. Aborting run to prevent stuck task.",
+                    self.id, t.id, e
+                );
+                // Clean up: unlock ticket, remove worktree, update run status
+                let _ = self.db.update_run_status(
+                    &run.id,
+                    RunStatus::Error,
+                    None,
+                    Some(&format!("Failed to start task: {}", e)),
+                );
+                self.db.unlock_ticket(&ticket.id)?;
+                let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                return Err(format!("Failed to start task {}: {}", t.id, e).into());
             }
         }
 
