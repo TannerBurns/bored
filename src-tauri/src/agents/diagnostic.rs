@@ -169,6 +169,7 @@ pub async fn run_diagnostic_agent(
     let prompt = build_diagnostic_prompt(&context);
     
     // Configure and run the agent
+    // Don't specify a model - let Claude CLI use its default
     let agent_config = AgentRunConfig {
         kind: AgentKind::Claude,
         ticket_id: ticket_id.to_string(),
@@ -178,7 +179,7 @@ pub async fn run_diagnostic_agent(
         timeout_secs: Some(300), // 5 minute timeout for diagnostics
         api_url: api_url.to_string(),
         api_token: api_token.to_string(),
-        model: Some("sonnet-4".to_string()), // Use fast model for diagnostics
+        model: None,
     };
     
     // Spawn the agent in a blocking task since spawner uses sync I/O
