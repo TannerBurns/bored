@@ -394,7 +394,21 @@ Do NOT start implementing any code changes. Just create the branch.
         
         let plan = if !plan_prompt.is_empty() {
             let plan_result = self.run_stage("plan", &plan_prompt).await?;
-            plan_result.captured_stdout.unwrap_or_default()
+            // Extract only the text content from stream-json output.
+            // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
+            // which can be 100K+ tokens. We only need the final plan text.
+            let raw_output = plan_result.captured_stdout.unwrap_or_default();
+            let extracted = extract_text_from_stream_json(&raw_output)
+                .unwrap_or_else(|| raw_output.clone());
+            
+            tracing::info!(
+                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+                raw_output.len(),
+                extracted.len(),
+                if raw_output.is_empty() { 0 } else { 100 - (extracted.len() * 100 / raw_output.len()) }
+            );
+            
+            extracted
         } else {
             String::new()
         };
