@@ -88,6 +88,7 @@ mod tests {
             agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
+            branch_name: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {

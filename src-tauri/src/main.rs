@@ -169,6 +169,7 @@ fn main() {
             commands::delete_ticket,
             commands::get_comments,
             commands::add_comment,
+            commands::update_comment,
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
             commands::runs::get_recent_runs,

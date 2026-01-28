@@ -5,7 +5,11 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { cn } from '../../lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../../lib/constants';
 import { getProjects } from '../../lib/tauri';
-import type { Project, AgentRun } from '../../types';
+import { MarkdownViewer } from '../common/MarkdownViewer';
+import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
+import { FullscreenCommentModal } from './FullscreenCommentModal';
+import { CreateCommentModal } from './CreateCommentModal';
+import type { Project, AgentRun, Comment } from '../../types';
 import type {
   AgentLogEvent,
   AgentCompleteEvent,
@@ -22,6 +26,7 @@ export function TicketModal({
   onClose,
   onUpdate,
   onAddComment,
+  onUpdateComment,
   onRunWithAgent,
   onDelete,
   onAgentComplete,
@@ -34,6 +39,7 @@ export function TicketModal({
   const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
   const [editAgentPref, setEditAgentPref] = useState<'cursor' | 'claude' | 'any'>(ticket.agentPref || 'any');
   const [editModel, setEditModel] = useState<string>(ticket.model || '');
+  const [editBranchName, setEditBranchName] = useState<string>(ticket.branchName || '');
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -49,12 +55,23 @@ export function TicketModal({
   const [isCancelling, setIsCancelling] = useState(false);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   
   // Run details view state
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   // eventType can be a string or {custom: "value"} due to Rust serde enum serialization
   const [runEvents, setRunEvents] = useState<Array<{ id: string; eventType: unknown; payload: unknown; createdAt: string }>>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  
+  // Fullscreen description modal state
+  const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  
+  // Fullscreen comment modal state
+  const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
+  
+  // Create comment modal state
+  const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   
@@ -91,6 +108,7 @@ export function TicketModal({
     setEditProjectId(ticket.projectId || '');
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
+    setEditBranchName(ticket.branchName || '');
     setIsEditing(false);
     setShowDeleteConfirm(false);
   }, [ticket.id]);
@@ -366,10 +384,68 @@ export function TicketModal({
     };
   }, [ticket.id]);
 
-  // Auto-scroll logs
+  // Listen for branch name updates from the orchestrator
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [agentLogs]);
+    let unlisten: UnlistenFn | null = null;
+    let isCancelled = false;
+
+    const setupListener = async () => {
+      try {
+        unlisten = await listen<{ ticketId: string; branchName: string }>('ticket-branch-updated', async (event) => {
+          if (isCancelled) return;
+          console.log('[TicketModal] ticket-branch-updated event received:', event.payload);
+          
+          // Only update if it's for this ticket
+          if (event.payload.ticketId === ticket.id) {
+            // Update the ticket in the store with the new branch name
+            try {
+              const { useBoardStore } = await import('../../stores/boardStore');
+              useBoardStore.getState().updateTicket(ticket.id, { branchName: event.payload.branchName });
+              // Also update local edit state if in edit mode
+              setEditBranchName(event.payload.branchName);
+            } catch (error) {
+              console.error('Failed to update ticket branch name:', error);
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Failed to set up ticket-branch-updated listener:', error);
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      isCancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [ticket.id]);
+
+  // Auto-scroll logs only if user is at the bottom
+  useEffect(() => {
+    if (shouldAutoScroll && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [agentLogs, shouldAutoScroll]);
+
+  // Handle scroll to detect if user is at bottom
+  const handleLogsScroll = () => {
+    const container = logsContainerRef.current;
+    if (!container) return;
+    
+    // Check if user is near the bottom (within 50px)
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    setShouldAutoScroll(isAtBottom);
+  };
+
+  // Reset auto-scroll when logs are cleared or agent starts
+  useEffect(() => {
+    if (agentLogs.length === 0) {
+      setShouldAutoScroll(true);
+    }
+  }, [agentLogs.length]);
 
   // Handle cancel agent
   const handleCancelAgent = async () => {
@@ -476,6 +552,7 @@ export function TicketModal({
         workflowType: 'multi_stage',
         agentPref: editAgentPref,
         model: editModel || undefined, // Empty string means use default
+        branchName: editBranchName || undefined, // Empty string means no branch set
       });
       setIsEditing(false);
     } finally {
@@ -502,6 +579,7 @@ export function TicketModal({
     setEditProjectId(ticket.projectId || '');
     setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
+    setEditBranchName(ticket.branchName || '');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -647,9 +725,36 @@ export function TicketModal({
 
           {/* Description */}
           <div>
-            <h3 className="text-sm font-medium text-board-text-muted mb-2">
-              Description
-            </h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-board-text-muted">
+                Description
+              </h3>
+              {!isEditing && (
+                <button
+                  onClick={() => setIsFullscreenOpen(true)}
+                  className="p-1 text-board-text-muted hover:text-board-text transition-colors rounded hover:bg-board-surface"
+                  aria-label="Expand description"
+                  title="View fullscreen"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="15 3 21 3 21 9" />
+                    <polyline points="9 21 3 21 3 15" />
+                    <line x1="21" y1="3" x2="14" y2="10" />
+                    <line x1="3" y1="21" x2="10" y2="14" />
+                  </svg>
+                </button>
+              )}
+            </div>
             {isEditing ? (
               <textarea
                 value={editDescription}
@@ -659,10 +764,8 @@ export function TicketModal({
                 placeholder="Add a description..."
               />
             ) : (
-              <div className="prose prose-sm dark:prose-invert max-w-none bg-board-surface rounded-lg p-3 text-board-text-secondary">
-                {ticket.descriptionMd || (
-                  <span className="text-board-text-muted italic">No description</span>
-                )}
+              <div className="bg-board-surface rounded-lg p-3">
+                <MarkdownViewer content={ticket.descriptionMd} />
               </div>
             )}
           </div>
@@ -753,6 +856,38 @@ export function TicketModal({
             </div>
           )}
 
+          {/* Branch Name */}
+          {isEditing ? (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2">Branch Name</h3>
+              <input
+                type="text"
+                value={editBranchName}
+                onChange={(e) => setEditBranchName(e.target.value)}
+                placeholder="feat/JIRA-123/add-feature"
+                className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-board-text-muted">
+                Leave empty for AI-generated branch name on first run
+              </p>
+            </div>
+          ) : (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-1">
+                Branch Name
+              </h3>
+              {ticket.branchName ? (
+                <code className="text-sm text-board-text-secondary bg-board-surface px-2 py-1 rounded font-mono">
+                  {ticket.branchName}
+                </code>
+              ) : (
+                <span className="text-sm text-board-text-muted italic">
+                  Not set (will be AI-generated on first run)
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Agent Status Section */}
           {(ticket.lockedByRunId || agentLogs.length > 0 || agentError) && (
             <div className="space-y-3">
@@ -807,7 +942,11 @@ export function TicketModal({
                   <h3 className="text-sm font-medium text-board-text-muted mb-2">
                     Agent Output ({agentLogs.length} lines)
                   </h3>
-                  <div className="bg-board-surface rounded-lg p-3 max-h-60 overflow-y-auto font-mono text-xs">
+                  <div 
+                    ref={logsContainerRef}
+                    onScroll={handleLogsScroll}
+                    className="bg-board-surface rounded-lg p-3 max-h-60 overflow-y-auto font-mono text-xs"
+                  >
                     {agentLogs.map((log, i) => (
                       <div
                         key={i}
@@ -1167,26 +1306,51 @@ export function TicketModal({
                   <div className="space-y-3 mb-4">
                     {ticketComments.map((comment) => (
                       <div key={comment.id} className="p-3 bg-board-surface rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className={cn(
-                              'text-xs px-1.5 py-0.5 rounded-full text-white',
-                              comment.authorType === 'agent'
-                                ? 'bg-board-accent'
-                                : comment.authorType === 'system'
-                                ? 'bg-board-text-muted'
-                                : 'bg-status-info'
-                            )}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'text-xs px-1.5 py-0.5 rounded-full text-white',
+                                comment.authorType === 'agent'
+                                  ? 'bg-board-accent'
+                                  : comment.authorType === 'system'
+                                  ? 'bg-board-text-muted'
+                                  : 'bg-status-info'
+                              )}
+                            >
+                              {comment.authorType}
+                            </span>
+                            <span className="text-xs text-board-text-muted">
+                              {formatDistanceToNow(new Date(comment.createdAt))} ago
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setFullscreenComment(comment)}
+                            className="p-1 text-board-text-muted hover:text-board-text transition-colors rounded hover:bg-board-surface-raised"
+                            aria-label="Expand comment"
+                            title="View fullscreen"
                           >
-                            {comment.authorType}
-                          </span>
-                          <span className="text-xs text-board-text-muted">
-                            {formatDistanceToNow(new Date(comment.createdAt))} ago
-                          </span>
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="15 3 21 3 21 9" />
+                              <polyline points="9 21 3 21 3 15" />
+                              <line x1="21" y1="3" x2="14" y2="10" />
+                              <line x1="3" y1="21" x2="10" y2="14" />
+                            </svg>
+                          </button>
                         </div>
-                        <p className="text-sm text-board-text-secondary whitespace-pre-wrap">
-                          {comment.bodyMd}
-                        </p>
+                        <div className="text-sm">
+                          <MarkdownViewer content={comment.bodyMd} />
+                        </div>
                       </div>
                     ))}
 
@@ -1209,6 +1373,29 @@ export function TicketModal({
                 className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
               <button
+                onClick={() => setIsCreateCommentModalOpen(true)}
+                className="p-2.5 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface border border-board-border"
+                aria-label="Expand to fullscreen editor"
+                title="Fullscreen editor"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+              <button
                 onClick={handleAddComment}
                 disabled={isSubmitting || !newComment.trim()}
                 className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
@@ -1227,20 +1414,24 @@ export function TicketModal({
                 <div className="flex gap-2">
                   <button
                     onClick={() => onRunWithAgent(ticket.id, 'cursor')}
-                    disabled={!ticket.projectId}
+                    disabled={!ticket.projectId || currentColumn?.name.toLowerCase() === 'backlog'}
                     className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                   >
                     <span>Run with Cursor</span>
                   </button>
                   <button
                     onClick={() => onRunWithAgent(ticket.id, 'claude')}
-                    disabled={!ticket.projectId}
+                    disabled={!ticket.projectId || currentColumn?.name.toLowerCase() === 'backlog'}
                     className="px-3 py-1.5 bg-status-success text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                   >
                     <span>Run with Claude</span>
                   </button>
                 </div>
-                {!ticket.projectId && (
+                {currentColumn?.name.toLowerCase() === 'backlog' ? (
+                  <p className="text-sm text-yellow-400">
+                    Move this ticket to Ready to enable agent runs.
+                  </p>
+                ) : !ticket.projectId && (
                   <p className="text-sm text-yellow-400">
                     Assign a project to this ticket to enable agent runs.
                   </p>
@@ -1311,6 +1502,45 @@ export function TicketModal({
           </div>
         </div>
       </div>
+
+      {/* Fullscreen Description Modal */}
+      <FullscreenDescriptionModal
+        description={ticket.descriptionMd}
+        isOpen={isFullscreenOpen}
+        onClose={() => setIsFullscreenOpen(false)}
+        onSave={async (newDescription) => {
+          await onUpdate(ticket.id, { descriptionMd: newDescription });
+          setEditDescription(newDescription);
+        }}
+        ticketTitle={ticket.title}
+      />
+
+      {/* Fullscreen Comment Modal */}
+      {fullscreenComment && (
+        <FullscreenCommentModal
+          comment={fullscreenComment}
+          isOpen={!!fullscreenComment}
+          onClose={() => setFullscreenComment(null)}
+          onSave={async (commentId, newBody) => {
+            await onUpdateComment(commentId, newBody);
+            // Update the fullscreen comment state with new body
+            setFullscreenComment((prev) => prev ? { ...prev, bodyMd: newBody } : null);
+          }}
+        />
+      )}
+
+      {/* Create Comment Modal */}
+      <CreateCommentModal
+        isOpen={isCreateCommentModalOpen}
+        onClose={() => {
+          setIsCreateCommentModalOpen(false);
+        }}
+        onSubmit={async (body) => {
+          await onAddComment(ticket.id, body);
+          setNewComment('');
+        }}
+        initialContent={newComment}
+      />
     </div>
   );
 }

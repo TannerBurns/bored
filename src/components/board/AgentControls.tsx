@@ -24,12 +24,14 @@ interface AgentErrorEvent {
 
 interface AgentControlsProps {
   ticket: Ticket;
+  columnName?: string;
   onRunStarted?: (runId: string) => void;
   onRunCompleted?: (runId: string, status: string) => void;
 }
 
 export function AgentControls({
   ticket,
+  columnName,
   onRunStarted,
   onRunCompleted,
 }: AgentControlsProps) {
@@ -38,7 +40,9 @@ export function AgentControls({
   const [logs, setLogs] = useState<Array<{ stream: string; content: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const loadRuns = async () => {
@@ -132,9 +136,29 @@ export function AgentControls({
     };
   }, [currentRunId, ticket.id, onRunCompleted]);
 
+  // Auto-scroll logs only if user is at the bottom
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (shouldAutoScroll && logsEndRef.current?.scrollIntoView) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, shouldAutoScroll]);
+
+  // Handle scroll to detect if user is at bottom
+  const handleLogsScroll = () => {
+    const container = logsContainerRef.current;
+    if (!container) return;
+    
+    // Check if user is near the bottom (within 50px)
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+    setShouldAutoScroll(isAtBottom);
+  };
+
+  // Reset auto-scroll when logs are cleared or agent starts
+  useEffect(() => {
+    if (logs.length === 0) {
+      setShouldAutoScroll(true);
+    }
+  }, [logs.length]);
 
   const handleRunAgent = async (agentType: AgentType) => {
     if (!ticket.projectId) {
@@ -176,6 +200,7 @@ export function AgentControls({
   };
 
   const isLocked = !!ticket.lockedByRunId;
+  const isInBacklog = columnName?.toLowerCase() === 'backlog';
 
   return (
     <div className="space-y-4">
@@ -194,7 +219,7 @@ export function AgentControls({
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => handleRunAgent('cursor')}
-          disabled={isRunning || isLocked || !ticket.projectId}
+          disabled={isRunning || isLocked || !ticket.projectId || isInBacklog}
           className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           <svg
@@ -215,7 +240,7 @@ export function AgentControls({
 
         <button
           onClick={() => handleRunAgent('claude')}
-          disabled={isRunning || isLocked || !ticket.projectId}
+          disabled={isRunning || isLocked || !ticket.projectId || isInBacklog}
           className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           <svg
@@ -249,7 +274,11 @@ export function AgentControls({
         )}
       </div>
 
-      {!ticket.projectId && (
+      {isInBacklog ? (
+        <p className="text-sm text-yellow-400">
+          Move this ticket to Ready to enable agent runs.
+        </p>
+      ) : !ticket.projectId && (
         <p className="text-sm text-yellow-400">
           Assign a project to this ticket to enable agent runs.
         </p>
@@ -258,7 +287,11 @@ export function AgentControls({
       {logs.length > 0 && (
         <div className="mt-4">
           <h4 className="text-sm font-medium text-gray-400 mb-2">Output</h4>
-          <div className="bg-gray-900 rounded p-3 max-h-60 overflow-y-auto font-mono text-xs">
+          <div 
+            ref={logsContainerRef}
+            onScroll={handleLogsScroll}
+            className="bg-gray-900 rounded p-3 max-h-60 overflow-y-auto font-mono text-xs"
+          >
             {logs.map((log, i) => (
               <div
                 key={i}

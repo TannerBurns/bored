@@ -39,6 +39,7 @@ export interface TicketModalProps {
   onClose: () => void;
   onUpdate: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
   onAddComment: (ticketId: string, body: string) => Promise<void>;
+  onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;

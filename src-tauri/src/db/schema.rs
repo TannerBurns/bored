@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
     workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
-    model TEXT
+    model TEXT,
+    branch_name TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -190,6 +191,13 @@ ALTER TABLE tickets ADD COLUMN model TEXT;
 pub const MIGRATION_V6: &str = r#"
 -- Convert all 'basic' workflow types to 'multi_stage'
 UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic';
+"#;
+
+/// Migration SQL for schema version 7
+/// Adds branch_name column to tickets for storing agent-generated branch names
+pub const MIGRATION_V7: &str = r#"
+-- Add branch_name column to tickets for persistent branch tracking
+ALTER TABLE tickets ADD COLUMN branch_name TEXT;
 "#;
 
 /// Default columns for a new board

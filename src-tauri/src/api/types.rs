@@ -19,6 +19,8 @@ pub struct CreateTicketRequest {
     #[serde(default)]
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
+    /// Optional pre-defined branch name (if not provided, will be AI-generated on first run)
+    pub branch_name: Option<String>,
 }
 
 fn default_priority() -> Priority {
@@ -36,6 +38,7 @@ pub struct UpdateTicketRequest {
     pub agent_pref: Option<AgentPref>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
+    pub branch_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

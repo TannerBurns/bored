@@ -13,7 +13,7 @@ use tauri::AppHandle;
 
 use super::AgentKind;
 use super::runner::{self, RunnerConfig};
-use super::worktree::{self, WorktreeConfig};
+use super::worktree;
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket};
 
 #[derive(Debug, Clone)]
@@ -186,30 +186,44 @@ impl Worker {
         };
 
         // Create a worktree for isolated execution
-        let branch_name = worktree::generate_branch_name(&ticket.id, &ticket.title);
-        let worktree_config = WorktreeConfig {
-            repo_path: std::path::PathBuf::from(&repo_path),
-            branch_name: branch_name.clone(),
-            run_id: run_id.clone(),
-            base_dir: None,
-        };
+        // - First runs (no branch): skip worktree, let orchestrator generate AI branch name
+        // - Subsequent runs: use worktree with existing branch
+        let repo_path_buf = std::path::PathBuf::from(&repo_path);
         
-        let worktree_info = match worktree::create_worktree(&worktree_config) {
-            Ok(info) => {
-                tracing::info!(
-                    "Worker {} created worktree at {} for ticket {}",
-                    self.id, info.path.display(), ticket.id
-                );
-                Some(info)
+        let worktree_info = if let Some(ref existing_branch) = ticket.branch_name {
+            // Ticket has a branch - create worktree to reuse it
+            tracing::info!(
+                "Worker {} found existing branch for ticket {}: {}, creating worktree",
+                self.id, ticket.id, existing_branch
+            );
+            
+            match worktree::create_worktree_with_existing_branch(&repo_path_buf, existing_branch, &run_id, None) {
+                Ok(info) => {
+                    tracing::info!(
+                        "Worker {} created worktree at {} using branch {}",
+                        self.id, info.path.display(), info.branch_name
+                    );
+                    Some(info)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Worker {} failed to create worktree for ticket {}: {}. Using main repo.",
+                        self.id, ticket.id, e
+                    );
+                    None
+                }
             }
-            Err(e) => {
-                // Fall back to using main repo if worktree creation fails
-                tracing::warn!(
-                    "Worker {} failed to create worktree for ticket {}: {}. Using main repo.",
-                    self.id, ticket.id, e
-                );
-                None
-            }
+        } else {
+            // First run - no branch yet
+            // Skip worktree; orchestrator will run in traditional mode and:
+            // 1. Use AI to generate a meaningful branch name (with Jira IDs, feat/fix prefixes)
+            // 2. Create the branch
+            // 3. Store the branch name on the ticket for subsequent runs
+            tracing::info!(
+                "Worker {} ticket {} has no branch yet, skipping worktree. Orchestrator will generate AI branch.",
+                self.id, ticket.id
+            );
+            None
         };
         
         // Use worktree path if available
@@ -272,6 +286,20 @@ impl Worker {
         // - Branch comments
         // - Agent summary comments
         // - Ticket movement
+        // Determine branch setup:
+        // - If we have a worktree, the branch was created by worktree creation
+        // - If ticket has a branch but worktree failed, the branch exists in git already
+        // - If ticket has no branch, orchestrator will generate and create one
+        let worktree_branch = worktree_info
+            .as_ref()
+            .map(|w| w.branch_name.clone())
+            .or_else(|| ticket.branch_name.clone());
+        
+        // Branch already created if:
+        // - Worktree was created (branch created/attached via worktree), OR
+        // - Ticket already has a branch name (from previous run)
+        let branch_already_created = worktree_info.is_some() || ticket.branch_name.is_some();
+        
         let runner_config = RunnerConfig {
             db: self.db.clone(),
             window: None, // Workers don't have a window
@@ -284,7 +312,8 @@ impl Worker {
             api_token: self.config.api_token.clone(),
             hook_script_path: self.config.hook_script_path.clone(),
             cancel_handles: self.cancel_handles.clone(),
-            worktree_branch: worktree_info.as_ref().map(|w| w.branch_name.clone()),
+            worktree_branch,
+            branch_already_created,
             timeout_secs: self.config.agent_timeout_secs,
         };
 

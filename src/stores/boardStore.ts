@@ -27,6 +27,7 @@ interface BoardState {
   selectTicket: (ticket: Ticket | null) => void;
   loadComments: (ticketId: string) => Promise<void>;
   addComment: (ticketId: string, body: string) => Promise<void>;
+  updateComment: (commentId: string, body: string) => Promise<void>;
   openTicketModal: (ticket: Ticket) => void;
   closeTicketModal: () => void;
   openCreateModal: () => void;
@@ -179,6 +180,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           agentPref: input.agentPref,
           workflowType: input.workflowType,
           model: input.model,
+          branchName: input.branchName,
         },
       });
       set((state) => ({
@@ -199,6 +201,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       agentPref: input.agentPref,
       workflowType: input.workflowType || 'multi_stage',
       model: input.model,
+      branchName: input.branchName,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -294,6 +297,27 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       createdAt: new Date(),
     };
     set((state) => ({ comments: [...state.comments, comment] }));
+  },
+
+  updateComment: async (commentId: string, body: string) => {
+    if (isTauri()) {
+      const updatedComment = await invoke<Comment>('update_comment', {
+        commentId,
+        body,
+      });
+      set((state) => ({
+        comments: state.comments.map((c) =>
+          c.id === commentId ? updatedComment : c
+        ),
+      }));
+      return;
+    }
+    // Demo mode - update in memory
+    set((state) => ({
+      comments: state.comments.map((c) =>
+        c.id === commentId ? { ...c, bodyMd: body } : c
+      ),
+    }));
   },
 
   openTicketModal: (ticket: Ticket) => {

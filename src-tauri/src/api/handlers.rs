@@ -113,6 +113,7 @@ pub async fn create_ticket(
         agent_pref: req.agent_pref,
         workflow_type: req.workflow_type.unwrap_or_default(),
         model: req.model,
+        branch_name: req.branch_name,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -151,6 +152,7 @@ pub async fn update_ticket(
         agent_pref: req.agent_pref,
         workflow_type: req.workflow_type,
         model: req.model,
+        branch_name: req.branch_name,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {

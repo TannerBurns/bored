@@ -33,6 +33,8 @@ pub struct RunnerConfig {
     pub hook_script_path: Option<String>,
     pub cancel_handles: CancelHandlesMap,
     pub worktree_branch: Option<String>,
+    /// Whether the branch was already created (e.g., via worktree creation).
+    pub branch_already_created: bool,
     pub timeout_secs: u64,
 }
 
@@ -241,6 +243,7 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         hook_script_path: config.hook_script_path.clone(),
         cancel_handles: config.cancel_handles.clone(),
         worktree_branch: config.worktree_branch.clone(),
+        branch_already_created: config.branch_already_created,
     });
     
     orchestrator.execute().await

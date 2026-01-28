@@ -366,6 +366,42 @@ describe('useBoardStore', () => {
     });
   });
 
+  describe('updateComment', () => {
+    it('updates comment body in demo mode', async () => {
+      useBoardStore.setState({ comments: [mockComment] });
+      await useBoardStore.getState().updateComment('comment-1', 'Updated body');
+      const { comments } = useBoardStore.getState();
+      expect(comments).toHaveLength(1);
+      expect(comments[0].bodyMd).toBe('Updated body');
+    });
+
+    it('preserves other comment fields when updating', async () => {
+      useBoardStore.setState({ comments: [mockComment] });
+      await useBoardStore.getState().updateComment('comment-1', 'Updated body');
+      const { comments } = useBoardStore.getState();
+      expect(comments[0].id).toBe('comment-1');
+      expect(comments[0].ticketId).toBe('ticket-1');
+      expect(comments[0].authorType).toBe('user');
+    });
+
+    it('only updates the targeted comment', async () => {
+      const comment2: Comment = { ...mockComment, id: 'comment-2', bodyMd: 'Second comment' };
+      useBoardStore.setState({ comments: [mockComment, comment2] });
+      await useBoardStore.getState().updateComment('comment-1', 'Updated first');
+      const { comments } = useBoardStore.getState();
+      expect(comments[0].bodyMd).toBe('Updated first');
+      expect(comments[1].bodyMd).toBe('Second comment');
+    });
+
+    it('does nothing if comment id not found', async () => {
+      useBoardStore.setState({ comments: [mockComment] });
+      await useBoardStore.getState().updateComment('nonexistent', 'New body');
+      const { comments } = useBoardStore.getState();
+      expect(comments).toHaveLength(1);
+      expect(comments[0].bodyMd).toBe('Test comment');
+    });
+  });
+
   describe('setLoading', () => {
     it('sets loading state', () => {
       useBoardStore.getState().setLoading(true);

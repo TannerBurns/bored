@@ -71,6 +71,8 @@ export interface Ticket {
   agentPref?: 'cursor' | 'claude' | 'any';
   workflowType?: WorkflowType;
   model?: string;
+  /** The git branch name for this ticket (agent-generated) */
+  branchName?: string;
 }
 
 export type ReadinessCheck =
@@ -148,6 +150,8 @@ export interface CreateTicketInput {
   agentPref?: 'cursor' | 'claude' | 'any';
   workflowType?: WorkflowType;
   model?: string;
+  /** Optional pre-defined branch name (if not provided, will be AI-generated on first run) */
+  branchName?: string;
 }
 
 // Worker types
