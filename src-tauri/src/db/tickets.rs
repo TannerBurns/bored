@@ -301,8 +301,9 @@ impl Database {
         
         // Auto-create Task 1 from the ticket description
         // This is the initial task that defines the work to be done
-        let task_title = if created_ticket.title.len() > 50 {
-            format!("{}...", &created_ticket.title[..47])
+        // Use chars().count() for character count (not byte count) to handle UTF-8 safely
+        let task_title = if created_ticket.title.chars().count() > 50 {
+            format!("{}...", created_ticket.title.chars().take(47).collect::<String>())
         } else {
             created_ticket.title.clone()
         };
@@ -1379,8 +1380,41 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         // Title should be truncated with "..."
         let task_title = tasks[0].title.as_ref().unwrap();
-        assert!(task_title.len() <= 50);
+        assert!(task_title.chars().count() <= 50); // Check character count, not byte count
         assert!(task_title.ends_with("..."));
+    }
+
+    #[test]
+    fn create_ticket_truncates_utf8_title_safely() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        // Title with multi-byte UTF-8 characters (emoji are 4 bytes each)
+        // This would panic with byte-based slicing if byte 47 lands mid-character
+        let emoji_title = "🎉".repeat(60); // 60 emoji = 240 bytes, 60 characters
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: emoji_title.clone(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        let task_title = tasks[0].title.as_ref().unwrap();
+        // Should be 47 emoji + "..." = 50 characters
+        assert_eq!(task_title.chars().count(), 50);
+        assert!(task_title.ends_with("..."));
+        // Verify we got exactly 47 emoji (not corrupted by bad slicing)
+        assert_eq!(task_title.chars().filter(|&c| c == '🎉').count(), 47);
     }
 
     #[test]
