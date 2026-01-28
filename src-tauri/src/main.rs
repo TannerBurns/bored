@@ -219,6 +219,17 @@ fn main() {
             commands::workers::check_user_commands_installed,
             // API configuration
             commands::get_api_config,
+            // Task queue management
+            commands::tasks::get_tasks,
+            commands::tasks::get_task,
+            commands::tasks::create_task,
+            commands::tasks::add_preset_task,
+            commands::tasks::delete_task,
+            commands::tasks::get_next_pending_task,
+            commands::tasks::has_pending_tasks,
+            commands::tasks::get_task_counts,
+            commands::tasks::update_task,
+            commands::tasks::get_preset_types,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

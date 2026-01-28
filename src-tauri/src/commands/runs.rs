@@ -507,12 +507,23 @@ pub async fn start_agent_run(
                 worktree_branch, branch_already_created
             );
             
+            // Get the next pending task for this ticket (for task-based workflow)
+            let task = db_clone.get_next_pending_task(&ticket_for_orchestrator.id).ok().flatten();
+            
+            // Mark task as in progress if we found one
+            if let Some(ref t) = task {
+                if let Err(e) = db_clone.start_task(&t.id, &run_id_for_task) {
+                    tracing::warn!("Failed to mark task {} as in_progress: {}", t.id, e);
+                }
+            }
+            
             let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
                 db: db_clone.clone(),
                 window: Some(window_clone.clone()),
                 app_handle: None, // Direct runs use Window for event emission
                 parent_run_id: run_id_for_task.clone(),
-                ticket: ticket_for_orchestrator,
+                ticket: ticket_for_orchestrator.clone(),
+                task: task.clone(),
                 repo_path: orchestrator_working_path,
                 agent_kind,
                 api_url: api_url_for_orchestrator,
@@ -558,6 +569,13 @@ pub async fn start_agent_run(
                         tracing::info!("Successfully updated parent run {} status to Finished", run_id_for_task);
                     }
                     
+                    // Mark task as completed
+                    if let Some(ref t) = task {
+                        if let Err(e) = db_clone.complete_task(&t.id) {
+                            tracing::warn!("Failed to mark task {} as completed: {}", t.id, e);
+                        }
+                    }
+                    
                     let event = AgentCompleteEvent {
                         run_id: run_id_for_task.clone(),
                         status: "finished".to_string(),
@@ -579,6 +597,13 @@ pub async fn start_agent_run(
                         Some(&format!("Multi-stage workflow failed: {}", e)),
                     ) {
                         tracing::error!("Failed to update run status to Error: {}", db_err);
+                    }
+                    
+                    // Mark task as failed
+                    if let Some(ref t) = task {
+                        if let Err(fail_err) = db_clone.fail_task(&t.id) {
+                            tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                        }
                     }
                     
                     let event = AgentErrorEvent {

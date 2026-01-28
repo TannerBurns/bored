@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/tauri';
-import type { Board, Column, Ticket, Comment, CreateTicketInput } from '../types';
+import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts, PresetTaskInfo } from '../types';
 import { isTauri } from '../lib/utils';
 
 interface BoardState {
@@ -10,6 +10,7 @@ interface BoardState {
   tickets: Ticket[];
   selectedTicket: Ticket | null;
   comments: Comment[];
+  tasks: Task[];
   isLoading: boolean;
   error: string | null;
   isTicketModalOpen: boolean;
@@ -38,6 +39,15 @@ interface BoardState {
   setTickets: (tickets: Ticket[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  
+  // Task queue management
+  loadTasks: (ticketId: string) => Promise<void>;
+  createTask: (ticketId: string, title?: string, content?: string) => Promise<Task>;
+  addPresetTask: (ticketId: string, presetType: string) => Promise<Task>;
+  deleteTask: (taskId: string) => Promise<void>;
+  updateTask: (taskId: string, title?: string, content?: string) => Promise<Task>;
+  getTaskCounts: (ticketId: string) => Promise<TaskCounts>;
+  getPresetTypes: () => Promise<PresetTaskInfo[]>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -47,6 +57,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   tickets: [],
   selectedTicket: null,
   comments: [],
+  tasks: [],
   isLoading: false,
   error: null,
   isTicketModalOpen: false,
@@ -326,6 +337,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     // We don't clear comments here to preserve locally-added comments in demo mode
     set({ selectedTicket: ticket, isTicketModalOpen: true });
     get().loadComments(ticket.id);
+    get().loadTasks(ticket.id);
   },
 
   closeTicketModal: () => {
@@ -342,4 +354,118 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   setTickets: (tickets) => set({ tickets }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
+
+  // Task queue management
+  loadTasks: async (ticketId: string) => {
+    try {
+      if (isTauri()) {
+        const fetchedTasks = await invoke<Task[]>('get_tasks', { ticketId });
+        // Only update if this ticket is still selected
+        if (get().selectedTicket?.id === ticketId) {
+          set({ tasks: fetchedTasks });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load tasks:', error);
+    }
+  },
+
+  createTask: async (ticketId: string, title?: string, content?: string) => {
+    if (isTauri()) {
+      const task = await invoke<Task>('create_task', { ticketId, title, content });
+      set((state) => ({ tasks: [...state.tasks, task] }));
+      return task;
+    }
+    // Demo mode
+    const task: Task = {
+      id: `task-${Date.now()}`,
+      ticketId,
+      orderIndex: get().tasks.length,
+      taskType: 'custom',
+      title,
+      content,
+      status: 'pending',
+      createdAt: new Date(),
+    };
+    set((state) => ({ tasks: [...state.tasks, task] }));
+    return task;
+  },
+
+  addPresetTask: async (ticketId: string, presetType: string) => {
+    if (isTauri()) {
+      const task = await invoke<Task>('add_preset_task', { ticketId, presetType });
+      set((state) => ({ tasks: [...state.tasks, task] }));
+      return task;
+    }
+    // Demo mode
+    const presetNames: Record<string, string> = {
+      sync_with_main: 'Sync with Main',
+      add_tests: 'Add Tests',
+      review_polish: 'Review & Polish',
+      fix_lint: 'Fix Lint Errors',
+    };
+    const task: Task = {
+      id: `task-${Date.now()}`,
+      ticketId,
+      orderIndex: get().tasks.length,
+      taskType: presetType as Task['taskType'],
+      title: presetNames[presetType] || presetType,
+      status: 'pending',
+      createdAt: new Date(),
+    };
+    set((state) => ({ tasks: [...state.tasks, task] }));
+    return task;
+  },
+
+  deleteTask: async (taskId: string) => {
+    if (isTauri()) {
+      await invoke('delete_task', { taskId });
+    }
+    set((state) => ({ tasks: state.tasks.filter((t) => t.id !== taskId) }));
+  },
+
+  updateTask: async (taskId: string, title?: string, content?: string) => {
+    if (isTauri()) {
+      const task = await invoke<Task>('update_task', { taskId, title, content });
+      set((state) => ({
+        tasks: state.tasks.map((t) => (t.id === taskId ? task : t)),
+      }));
+      return task;
+    }
+    // Demo mode
+    const existing = get().tasks.find((t) => t.id === taskId);
+    if (!existing) throw new Error('Task not found');
+    const updated = { ...existing, title, content };
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
+    }));
+    return updated;
+  },
+
+  getTaskCounts: async (ticketId: string) => {
+    if (isTauri()) {
+      return invoke<TaskCounts>('get_task_counts', { ticketId });
+    }
+    // Demo mode - calculate from local tasks
+    const ticketTasks = get().tasks.filter((t) => t.ticketId === ticketId);
+    return {
+      pending: ticketTasks.filter((t) => t.status === 'pending').length,
+      inProgress: ticketTasks.filter((t) => t.status === 'in_progress').length,
+      completed: ticketTasks.filter((t) => t.status === 'completed').length,
+      failed: ticketTasks.filter((t) => t.status === 'failed').length,
+    };
+  },
+
+  getPresetTypes: async () => {
+    if (isTauri()) {
+      return invoke<PresetTaskInfo[]>('get_preset_types');
+    }
+    // Demo mode
+    return [
+      { typeName: 'sync_with_main', displayName: 'Sync with Main', description: 'Merge the latest changes from main branch' },
+      { typeName: 'add_tests', displayName: 'Add Tests', description: 'Add test coverage for recent changes' },
+      { typeName: 'review_polish', displayName: 'Review & Polish', description: 'Review code quality and apply best practices' },
+      { typeName: 'fix_lint', displayName: 'Fix Lint Errors', description: 'Fix all linting and type checking errors' },
+    ];
+  },
 }));

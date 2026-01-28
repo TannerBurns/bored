@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager, Window};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
+use crate::db::models::{Task, TaskType};
 use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
-use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt};
+use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt, generate_task_plan_prompt, generate_task_implement_prompt, generate_task_prompt};
 use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
@@ -23,6 +24,8 @@ pub struct OrchestratorConfig {
     pub app_handle: Option<AppHandle>,
     pub parent_run_id: String,
     pub ticket: Ticket,
+    /// The task being executed. If None, falls back to legacy ticket-based workflow.
+    pub task: Option<Task>,
     pub repo_path: PathBuf,
     pub agent_kind: AgentKind,
     pub api_url: String,
@@ -69,6 +72,8 @@ pub struct WorkflowOrchestrator {
     app_handle: Option<AppHandle>,
     parent_run_id: String,
     ticket: Ticket,
+    /// The task being executed. If None, falls back to legacy ticket-based workflow.
+    task: Option<Task>,
     repo_path: PathBuf,
     agent_kind: AgentKind,
     api_url: String,
@@ -93,6 +98,7 @@ impl WorkflowOrchestrator {
             app_handle: config.app_handle,
             parent_run_id: config.parent_run_id,
             ticket: config.ticket,
+            task: config.task,
             repo_path: config.repo_path,
             agent_kind: config.agent_kind,
             api_url: config.api_url,
@@ -293,14 +299,45 @@ Do NOT start implementing any code changes. Just create the branch.
         if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
         }
-        let plan_result = self.run_stage("plan", &generate_plan_prompt(&self.ticket)).await?;
-        let plan = plan_result.captured_stdout.unwrap_or_default();
+        
+        // Use task-based prompts if we have a task, otherwise fall back to ticket-based
+        let plan_prompt = if let Some(ref task) = self.task {
+            // For preset tasks, we skip the plan stage and go directly to execution
+            if task.task_type != TaskType::Custom {
+                // Skip plan for preset tasks - they have their own instructions
+                tracing::info!("Skipping plan stage for preset task type: {:?}", task.task_type);
+                String::new()
+            } else {
+                generate_task_plan_prompt(task, &self.ticket)
+            }
+        } else {
+            generate_plan_prompt(&self.ticket)
+        };
+        
+        let plan = if !plan_prompt.is_empty() {
+            let plan_result = self.run_stage("plan", &plan_prompt).await?;
+            plan_result.captured_stdout.unwrap_or_default()
+        } else {
+            String::new()
+        };
         
         // Stage 2: Implement
         if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
         }
-        let _impl_result = self.run_stage("implement", &generate_implement_prompt(&self.ticket, &plan)).await?;
+        
+        let implement_prompt = if let Some(ref task) = self.task {
+            // For preset tasks, use the preset-specific prompt
+            if task.task_type != TaskType::Custom {
+                generate_task_prompt(task, &self.ticket, &self.repo_path)
+            } else {
+                generate_task_implement_prompt(task, &self.ticket, &plan)
+            }
+        } else {
+            generate_implement_prompt(&self.ticket, &plan)
+        };
+        
+        let _impl_result = self.run_stage("implement", &implement_prompt).await?;
         
         // Move ticket to "Review" when entering QA phase
         self.move_ticket_to_column("Review");

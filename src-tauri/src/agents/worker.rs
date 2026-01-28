@@ -185,9 +185,8 @@ impl Worker {
             }
         };
 
-        // Create a worktree for isolated execution
-        // - First runs (no branch): skip worktree, let orchestrator generate AI branch name
-        // - Subsequent runs: use worktree with existing branch
+        // Create a worktree for isolated execution - ALWAYS use worktrees
+        // This ensures agent work never affects the user's main repo/terminal
         let repo_path_buf = std::path::PathBuf::from(&repo_path);
         
         let worktree_info = if let Some(ref existing_branch) = ticket.branch_name {
@@ -206,31 +205,55 @@ impl Worker {
                     Some(info)
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Worker {} failed to create worktree for ticket {}: {}. Using main repo.",
+                    tracing::error!(
+                        "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
                         self.id, ticket.id, e
                     );
-                    None
+                    self.db.unlock_ticket(&ticket.id)?;
+                    return Err(format!("Failed to create worktree: {}", e).into());
                 }
             }
         } else {
             // First run - no branch yet
-            // Skip worktree; orchestrator will run in traditional mode and:
-            // 1. Use AI to generate a meaningful branch name (with Jira IDs, feat/fix prefixes)
-            // 2. Create the branch
-            // 3. Store the branch name on the ticket for subsequent runs
-            tracing::info!(
-                "Worker {} ticket {} has no branch yet, skipping worktree. Orchestrator will generate AI branch.",
-                self.id, ticket.id
+            // Create worktree with a temporary branch name
+            // The orchestrator will generate an AI branch name and switch to it
+            let temp_branch = format!("agent-work/{}/{}", 
+                &ticket.id[..8.min(ticket.id.len())],
+                &run_id[..8.min(run_id.len())]
             );
-            None
+            
+            tracing::info!(
+                "Worker {} ticket {} has no branch yet, creating worktree with temp branch: {}",
+                self.id, ticket.id, temp_branch
+            );
+            
+            match worktree::create_worktree(&worktree::WorktreeConfig {
+                repo_path: repo_path_buf.clone(),
+                branch_name: temp_branch.clone(),
+                run_id: run_id.clone(),
+                base_dir: None,
+            }) {
+                Ok(info) => {
+                    tracing::info!(
+                        "Worker {} created worktree at {} with temp branch {}",
+                        self.id, info.path.display(), info.branch_name
+                    );
+                    Some(info)
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
+                        self.id, ticket.id, e
+                    );
+                    self.db.unlock_ticket(&ticket.id)?;
+                    return Err(format!("Failed to create worktree: {}", e).into());
+                }
+            }
         };
         
-        // Use worktree path if available
-        let working_path = worktree_info
-            .as_ref()
-            .map(|w| w.path.clone())
-            .unwrap_or_else(|| std::path::PathBuf::from(&repo_path));
+        // Worktree is now always created - unwrap is safe here
+        let worktree = worktree_info.expect("Worktree should always be created");
+        let working_path = worktree.path.clone();
 
         // Create the run in the database
         let run = match self.db.create_run(&CreateRun {
@@ -246,9 +269,7 @@ impl Worker {
             Ok(run) => run,
             Err(e) => {
                 let _ = self.db.unlock_ticket(&ticket.id);
-                if let Some(ref wt) = worktree_info {
-                    let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
-                }
+                let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
                 return Err(e.into());
             }
         };
@@ -262,9 +283,7 @@ impl Worker {
                 Some("Failed to re-lock ticket with actual run ID"),
             );
             let _ = self.db.unlock_ticket(&ticket.id);
-            if let Some(ref wt) = worktree_info {
-                let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
-            }
+            let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
             return Err(e.into());
         }
 
@@ -279,6 +298,31 @@ impl Worker {
         // Start heartbeat to keep the lock alive
         let heartbeat_handle = self.start_heartbeat(&ticket.id, &run.id);
 
+        // Get the next pending task for this ticket
+        let task = match self.db.get_next_pending_task(&ticket.id) {
+            Ok(Some(t)) => {
+                tracing::info!("Worker {} found pending task {} for ticket {}", self.id, t.id, ticket.id);
+                Some(t)
+            }
+            Ok(None) => {
+                tracing::warn!("Worker {} found no pending tasks for ticket {}, skipping", self.id, ticket.id);
+                self.db.unlock_ticket(&ticket.id)?;
+                let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                return Ok(false);
+            }
+            Err(e) => {
+                tracing::warn!("Worker {} failed to get tasks for ticket {}: {}", self.id, ticket.id, e);
+                None // Fall back to legacy ticket-based workflow
+            }
+        };
+        
+        // Mark task as in progress
+        if let Some(ref t) = task {
+            if let Err(e) = self.db.start_task(&t.id, &run.id) {
+                tracing::warn!("Failed to mark task {} as in_progress: {}", t.id, e);
+            }
+        }
+
         // Execute the agent using the shared runner
         // This gives us the exact same behavior as manual runs:
         // - Multi-stage workflow with proper stage tracking
@@ -286,25 +330,25 @@ impl Worker {
         // - Branch comments
         // - Agent summary comments
         // - Ticket movement
-        // Determine branch setup:
-        // - If we have a worktree, the branch was created by worktree creation
-        // - If ticket has a branch but worktree failed, the branch exists in git already
-        // - If ticket has no branch, orchestrator will generate and create one
-        let worktree_branch = worktree_info
-            .as_ref()
-            .map(|w| w.branch_name.clone())
-            .or_else(|| ticket.branch_name.clone());
         
-        // Branch already created if:
-        // - Worktree was created (branch created/attached via worktree), OR
-        // - Ticket already has a branch name (from previous run)
-        let branch_already_created = worktree_info.is_some() || ticket.branch_name.is_some();
+        // Determine branch setup based on whether ticket already has a branch:
+        // - First run (no branch): Use None so orchestrator generates AI branch name
+        // - Subsequent runs (has branch): Use the existing branch name
+        let (worktree_branch, branch_already_created) = if ticket.branch_name.is_some() {
+            // Subsequent run - use existing branch (worktree attached to it)
+            (ticket.branch_name.clone(), true)
+        } else {
+            // First run - let orchestrator generate AI branch name
+            // The worktree has a temp branch, but we pass None so orchestrator generates a good name
+            (None, false)
+        };
         
         let runner_config = RunnerConfig {
             db: self.db.clone(),
             window: None, // Workers don't have a window
             app_handle: self.config.app_handle.clone(), // Use app_handle for global event emission
             ticket: ticket.clone(),
+            task: task.clone(),
             run_id: run.id.clone(),
             repo_path: working_path.clone(),
             agent_kind: self.config.agent_type,
@@ -322,16 +366,35 @@ impl Worker {
         // Stop heartbeat
         heartbeat_handle.abort();
 
-        // Log result
+        // Log result and update task status
         match &result {
             Ok(r) => {
                 tracing::info!(
                     "Worker {} completed run {} with status {:?} in {:.1}s",
                     self.id, run.id, r.status, r.duration_secs
                 );
+                
+                // Mark task as completed or failed based on result
+                if let Some(ref t) = task {
+                    let task_result = match r.status {
+                        RunStatus::Finished => self.db.complete_task(&t.id),
+                        RunStatus::Error | RunStatus::Aborted => self.db.fail_task(&t.id),
+                        _ => Ok(t.clone()),
+                    };
+                    if let Err(e) = task_result {
+                        tracing::warn!("Failed to update task {} status: {}", t.id, e);
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
+                
+                // Mark task as failed
+                if let Some(ref t) = task {
+                    if let Err(fail_err) = self.db.fail_task(&t.id) {
+                        tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                    }
+                }
             }
         }
 
@@ -339,12 +402,10 @@ impl Worker {
         self.db.unlock_ticket(&ticket.id)?;
         
         // Clean up worktree
-        if let Some(ref wt) = worktree_info {
-            if let Err(e) = worktree::remove_worktree(&wt.path, &wt.repo_path) {
-                tracing::warn!("Failed to remove worktree {}: {}", wt.path.display(), e);
-            } else {
-                tracing::info!("Worker {} removed worktree at {}", self.id, wt.path.display());
-            }
+        if let Err(e) = worktree::remove_worktree(&worktree.path, &worktree.repo_path) {
+            tracing::warn!("Failed to remove worktree {}: {}", worktree.path.display(), e);
+        } else {
+            tracing::info!("Worker {} removed worktree at {}", self.id, worktree.path.display());
         }
 
         // Update worker status

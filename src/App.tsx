@@ -12,11 +12,10 @@ import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSett
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
-import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns } from './lib/tauri';
+import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { isTauri } from './lib/utils';
 import type { Ticket, Project, Board as BoardType, AgentRun } from './types';
-import { getColumns } from './lib/tauri';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -269,7 +268,6 @@ function App() {
     
     try {
       // Actually start the agent run via Tauri
-      const { startAgentRun } = await import('./lib/tauri');
       console.warn('🚀 [Agent Debug] Calling startAgentRun...');
       const runId = await startAgentRun(ticketId, agentType, project.path);
       console.warn('🚀 [Agent Debug] Agent run started, runId:', runId);

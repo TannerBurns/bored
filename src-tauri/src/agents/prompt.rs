@@ -1,4 +1,4 @@
-use crate::db::models::{Priority, Ticket};
+use crate::db::models::{Priority, Ticket, Task, TaskType};
 use super::AgentKind;
 
 fn slugify(title: &str) -> String {
@@ -483,6 +483,261 @@ If a command file exists at .cursor/rules/{command}.md or .claude/commands/{comm
             ),
         }
     }
+}
+
+// ===== Task-Based Prompt Generators =====
+
+/// Generate a prompt for executing a task
+/// This is the main entry point for task-based prompt generation
+pub fn generate_task_prompt(task: &Task, ticket: &Ticket, repo_path: &std::path::Path) -> String {
+    match task.task_type {
+        TaskType::Custom => generate_custom_task_prompt(task, ticket),
+        TaskType::SyncWithMain => generate_preset_task_prompt("sync-with-main", repo_path),
+        TaskType::AddTests => generate_preset_task_prompt("add-tests", repo_path),
+        TaskType::ReviewPolish => generate_preset_task_prompt("review-polish", repo_path),
+        TaskType::FixLint => generate_preset_task_prompt("fix-lint", repo_path),
+    }
+}
+
+/// Generate a prompt for a custom task
+fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
+    let mut prompt = String::new();
+    
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+    
+    // Include the task-specific content if available
+    if let Some(ref content) = task.content {
+        if !content.is_empty() {
+            prompt.push_str("## Task Instructions\n\n");
+            prompt.push_str(content);
+            prompt.push_str("\n\n");
+        }
+    }
+    
+    // Include ticket context if different from task content
+    if task.content.as_deref() != Some(&ticket.description_md) && !ticket.description_md.is_empty() {
+        prompt.push_str("## Original Ticket Context\n\n");
+        prompt.push_str(&ticket.description_md);
+        prompt.push_str("\n\n");
+    }
+    
+    let priority_context = match ticket.priority {
+        Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
+        Priority::High => "This is a high-priority task.",
+        Priority::Medium => "",
+        Priority::Low => "This is a low-priority task. Take time for quality.",
+    };
+
+    if !priority_context.is_empty() {
+        prompt.push_str(&format!("{}\n\n", priority_context));
+    }
+    
+    if !ticket.labels.is_empty() {
+        prompt.push_str("## Labels\n\n");
+        for label in &ticket.labels {
+            prompt.push_str(&format!("- {}\n", label));
+        }
+        prompt.push('\n');
+    }
+    
+    prompt.push_str(r#"## Instructions
+
+1. Analyze the task requirements
+2. Create a plan before implementing
+3. Implement the required changes
+4. Verify the changes compile/pass type checking
+5. Run the project's test suite if applicable
+
+Focus on completing this specific task. Additional QA stages will follow.
+"#);
+    
+    prompt
+}
+
+/// Generate a prompt for a preset task type by reading the command file
+fn generate_preset_task_prompt(preset_name: &str, repo_path: &std::path::Path) -> String {
+    // Try to read from various locations
+    let locations = [
+        repo_path.join(".cursor/rules").join(format!("{}.md", preset_name)),
+        repo_path.join(".claude/commands").join(format!("{}.md", preset_name)),
+        // Fallback to our bundled command files
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/commands")
+            .join(format!("{}.md", preset_name)),
+    ];
+    
+    for path in &locations {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return format!(
+                "# Preset Task: {}\n\n{}\n\nExecute these instructions carefully. When complete, report what was done.\n",
+                preset_name,
+                content
+            );
+        }
+    }
+    
+    // Fallback prompts if no command file found
+    get_fallback_preset_prompt(preset_name)
+}
+
+/// Get a fallback prompt for a preset if the command file is not found
+fn get_fallback_preset_prompt(preset_name: &str) -> String {
+    match preset_name {
+        "sync-with-main" => r#"# Sync with Main
+
+Merge the latest changes from the main branch into this feature branch.
+
+## Instructions
+
+1. Fetch latest from origin: `git fetch origin main`
+2. Merge main into current branch: `git merge origin/main`
+3. Resolve any conflicts carefully
+4. Run linter and type checker after resolving
+5. Commit the merge
+6. Push the changes
+"#.to_string(),
+        
+        "add-tests" => r#"# Add Tests
+
+Add comprehensive test coverage for the recent changes.
+
+## Instructions
+
+1. Identify what changed: `git diff main...HEAD`
+2. Add unit tests for new functions
+3. Test happy paths, edge cases, and error conditions
+4. Ensure all tests pass
+5. Follow existing test patterns in the codebase
+"#.to_string(),
+        
+        "review-polish" => r#"# Review and Polish
+
+Review all recent changes for code quality and best practices.
+
+## Instructions
+
+1. Review the diff from main
+2. Check code readability and naming
+3. Check error handling and logging
+4. Check for security concerns
+5. Remove unused code and fix formatting
+6. Add documentation where helpful
+"#.to_string(),
+        
+        "fix-lint" => r#"# Fix Lint Errors
+
+Fix all linting and type checking errors.
+
+## Instructions
+
+1. Run the linter (eslint, clippy, etc.)
+2. Run the type checker
+3. Fix all errors
+4. Verify fixes by re-running checks
+5. Run tests to ensure fixes didn't break anything
+"#.to_string(),
+        
+        _ => format!(
+            r#"# Task: {}
+
+Execute the {} task. Follow any project conventions for this task type.
+"#,
+            preset_name, preset_name
+        ),
+    }
+}
+
+/// Generate a planning prompt for a task
+pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
+    let mut prompt = String::new();
+    
+    prompt.push_str("Create an implementation plan for this task.\n\n");
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+    
+    // Use task content if available, otherwise use ticket description
+    let content = task.content.as_deref().unwrap_or(&ticket.description_md);
+    if !content.is_empty() {
+        prompt.push_str("## Requirements\n\n");
+        prompt.push_str(content);
+        prompt.push_str("\n\n");
+    }
+    
+    let priority_context = match ticket.priority {
+        Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
+        Priority::High => "This is a high-priority task.",
+        Priority::Medium => "",
+        Priority::Low => "This is a low-priority task. Plan thoroughly.",
+    };
+
+    if !priority_context.is_empty() {
+        prompt.push_str(&format!("{}\n\n", priority_context));
+    }
+    
+    prompt.push_str(r#"## Instructions
+
+1. Analyze the task requirements
+2. Identify the files that need to be modified or created
+3. Break down the implementation into numbered steps
+4. Consider edge cases and potential issues
+5. Output a clear, actionable plan
+
+Format your plan as:
+```
+## Implementation Plan
+
+### Files to Modify
+- file1.rs - reason
+- file2.ts - reason
+
+### Steps
+1. Step description
+2. Step description
+...
+
+### Testing Strategy
+- How to verify the implementation works
+```
+
+Do NOT implement any code. Just create the plan.
+"#);
+    
+    prompt
+}
+
+/// Generate an implementation prompt for a task with a plan
+pub fn generate_task_implement_prompt(task: &Task, ticket: &Ticket, plan: &str) -> String {
+    let mut prompt = String::new();
+    
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+    
+    // Use task content if available
+    let content = task.content.as_deref().unwrap_or(&ticket.description_md);
+    if !content.is_empty() {
+        prompt.push_str("## Requirements\n\n");
+        prompt.push_str(content);
+        prompt.push_str("\n\n");
+    }
+    
+    prompt.push_str("## Implementation Plan\n\n");
+    prompt.push_str(plan);
+    prompt.push_str("\n\n");
+    
+    prompt.push_str(r#"## Instructions
+
+Execute the implementation plan above. For each step:
+1. Make the necessary code changes
+2. Verify the changes compile/pass type checking
+3. Move to the next step
+
+Focus on implementing the plan. Do NOT:
+- Run the full QA sequence (that comes in the next stages)
+- Commit changes (that comes later)
+- Add tests (that's a separate task)
+
+Just implement the core functionality as described in the plan.
+"#);
+    
+    prompt
 }
 
 #[cfg(test)]

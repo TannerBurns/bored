@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
 use crate::db::{Database, RunStatus, Ticket};
+use crate::db::models::Task;
 use super::AgentKind;
 use super::spawner::CancelHandle;
 use super::orchestrator::{WorkflowOrchestrator, OrchestratorConfig};
@@ -25,6 +26,8 @@ pub struct RunnerConfig {
     pub window: Option<Window>,
     pub app_handle: Option<AppHandle>,
     pub ticket: Ticket,
+    /// The task being executed. If None, falls back to legacy ticket-based workflow.
+    pub task: Option<Task>,
     pub run_id: String,
     pub repo_path: PathBuf,
     pub agent_kind: AgentKind,
@@ -236,6 +239,7 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         app_handle: config.app_handle.clone(),
         parent_run_id: config.run_id.clone(),
         ticket: config.ticket.clone(),
+        task: config.task.clone(),
         repo_path: config.repo_path.clone(),
         agent_kind: config.agent_kind,
         api_url: config.api_url.clone(),

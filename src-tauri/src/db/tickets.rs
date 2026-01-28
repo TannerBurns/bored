@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType};
+use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType, CreateTask, TaskType};
 use crate::agents::AgentKind;
 
 impl Database {
@@ -251,7 +251,7 @@ impl Database {
     }
 
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
-        self.with_conn(|conn| {
+        let created_ticket = self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now();
             let labels_json = serde_json::to_string(&ticket.labels).unwrap_or_else(|_| "[]".to_string());
@@ -297,7 +297,30 @@ impl Database {
                 model: ticket.model.clone(),
                 branch_name: ticket.branch_name.clone(),
             })
-        })
+        })?;
+        
+        // Auto-create Task 1 from the ticket description
+        // This is the initial task that defines the work to be done
+        let task_title = if created_ticket.title.len() > 50 {
+            format!("{}...", &created_ticket.title[..47])
+        } else {
+            created_ticket.title.clone()
+        };
+        
+        if let Err(e) = self.create_task(&CreateTask {
+            ticket_id: created_ticket.id.clone(),
+            task_type: TaskType::Custom,
+            title: Some(task_title),
+            content: if created_ticket.description_md.is_empty() {
+                None
+            } else {
+                Some(created_ticket.description_md.clone())
+            },
+        }) {
+            tracing::warn!("Failed to create initial task for ticket {}: {}", created_ticket.id, e);
+        }
+        
+        Ok(created_ticket)
     }
 
     pub fn get_tickets(&self, board_id: &str, column_id: Option<&str>) -> Result<Vec<Ticket>, DbError> {
@@ -1301,5 +1324,87 @@ mod tests {
         // Verify it persists
         let fetched = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(fetched.branch_name, Some("feat/preset/my-branch".to_string()));
+    }
+
+    #[test]
+    fn create_ticket_auto_creates_initial_task() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "My Feature Request".to_string(),
+            description_md: "Implement this feature".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        // Verify Task 1 was automatically created
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].order_index, 0);
+        assert_eq!(tasks[0].title, Some("My Feature Request".to_string()));
+        assert_eq!(tasks[0].content, Some("Implement this feature".to_string()));
+    }
+
+    #[test]
+    fn create_ticket_truncates_long_title_for_task() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let long_title = "A".repeat(60); // 60 chars, should be truncated to 50
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: long_title.clone(),
+            description_md: "Description".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        // Title should be truncated with "..."
+        let task_title = tasks[0].title.as_ref().unwrap();
+        assert!(task_title.len() <= 50);
+        assert!(task_title.ends_with("..."));
+    }
+
+    #[test]
+    fn create_ticket_empty_description_creates_task_with_no_content() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Quick Task".to_string(),
+            description_md: "".to_string(), // Empty description
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].content, None); // No content since description was empty
     }
 }

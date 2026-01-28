@@ -9,3 +9,5 @@ export { TransitionErrorToast, validateTransition } from './TransitionGuard';
 export { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 export { FullscreenCommentModal } from './FullscreenCommentModal';
 export { CreateCommentModal } from './CreateCommentModal';
+export { TaskList } from './TaskList';
+export { FullscreenTaskModal } from './FullscreenTaskModal';

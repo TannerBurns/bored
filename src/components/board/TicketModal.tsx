@@ -9,6 +9,8 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 import { FullscreenCommentModal } from './FullscreenCommentModal';
 import { CreateCommentModal } from './CreateCommentModal';
+import { TaskList } from './TaskList';
+import { useBoardStore } from '../../stores/boardStore';
 import type { Project, AgentRun, Comment } from '../../types';
 import type {
   AgentLogEvent,
@@ -328,10 +330,9 @@ export function TicketModal({
 
     let isCancelled = false;
 
-    const pollComments = async () => {
+    const pollComments = () => {
       if (isCancelled) return;
       try {
-        const { useBoardStore } = await import('../../stores/boardStore');
         useBoardStore.getState().loadComments(ticket.id);
       } catch (error) {
         console.error('[TicketModal] Failed to poll comments:', error);
@@ -362,7 +363,6 @@ export function TicketModal({
           if (event.payload.ticketId === ticket.id) {
             // Reload comments from backend
             try {
-              const { useBoardStore } = await import('../../stores/boardStore');
               useBoardStore.getState().loadComments(ticket.id);
             } catch (error) {
               console.error('Failed to reload comments:', error);
@@ -399,7 +399,6 @@ export function TicketModal({
           if (event.payload.ticketId === ticket.id) {
             // Update the ticket in the store with the new branch name
             try {
-              const { useBoardStore } = await import('../../stores/boardStore');
               useBoardStore.getState().updateTicket(ticket.id, { branchName: event.payload.branchName });
               // Also update local edit state if in edit mode
               setEditBranchName(event.payload.branchName);
@@ -887,6 +886,9 @@ export function TicketModal({
               )}
             </div>
           )}
+
+          {/* Task Queue */}
+          <TaskList ticketId={ticket.id} />
 
           {/* Agent Status Section */}
           {(ticket.lockedByRunId || agentLogs.length > 0 || agentError) && (
