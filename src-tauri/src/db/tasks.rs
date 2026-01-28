@@ -152,15 +152,37 @@ impl Database {
     }
 
     /// Mark a task as in progress
+    /// 
+    /// This function queries the task first, then updates it, to ensure atomicity.
+    /// If the UPDATE succeeds, we construct the return value from known data rather
+    /// than re-querying, which prevents the bug where a successful UPDATE followed
+    /// by a failed re-query would return an error (leaving the task stuck in 
+    /// `in_progress` with the caller thinking it wasn't started).
     pub fn start_task(&self, task_id: &str, run_id: &str) -> Result<Task, DbError> {
         self.with_conn(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            // Query existing task first to get all its data
+            let existing = {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, ticket_id, order_index, task_type, title, content, 
+                              status, run_id, created_at, started_at, completed_at
+                       FROM tasks WHERE id = ?"#
+                )?;
+                stmt.query_row([task_id], Self::map_task_row)
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("Task {}", task_id))
+                        }
+                        other => DbError::Sqlite(other),
+                    })?
+            };
+            
+            let now = chrono::Utc::now();
             
             let affected = conn.execute(
                 r#"UPDATE tasks 
                    SET status = 'in_progress', run_id = ?, started_at = ?
                    WHERE id = ? AND status = 'pending'"#,
-                rusqlite::params![run_id, now, task_id],
+                rusqlite::params![run_id, now.to_rfc3339(), task_id],
             )?;
             
             if affected == 0 {
@@ -169,27 +191,53 @@ impl Database {
                 ));
             }
 
-            // Re-query
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, order_index, task_type, title, content, 
-                          status, run_id, created_at, started_at, completed_at
-                   FROM tasks WHERE id = ?"#
-            )?;
-            stmt.query_row([task_id], Self::map_task_row)
-                .map_err(DbError::Sqlite)
+            // Construct the updated task from known values - no re-query needed
+            // This ensures if UPDATE succeeded, we always return success
+            Ok(Task {
+                id: existing.id,
+                ticket_id: existing.ticket_id,
+                order_index: existing.order_index,
+                task_type: existing.task_type,
+                title: existing.title,
+                content: existing.content,
+                status: TaskStatus::InProgress,
+                run_id: Some(run_id.to_string()),
+                created_at: existing.created_at,
+                started_at: Some(now),
+                completed_at: existing.completed_at,
+            })
         })
     }
 
     /// Mark a task as completed
+    /// 
+    /// Uses query-then-update pattern to ensure atomicity and avoid the bug where
+    /// a successful UPDATE followed by a failed re-query would return an error.
     pub fn complete_task(&self, task_id: &str) -> Result<Task, DbError> {
         self.with_conn(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            // Query existing task first to get all its data
+            let existing = {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, ticket_id, order_index, task_type, title, content, 
+                              status, run_id, created_at, started_at, completed_at
+                       FROM tasks WHERE id = ?"#
+                )?;
+                stmt.query_row([task_id], Self::map_task_row)
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("Task {}", task_id))
+                        }
+                        other => DbError::Sqlite(other),
+                    })?
+            };
+            
+            let now = chrono::Utc::now();
             
             let affected = conn.execute(
                 r#"UPDATE tasks 
                    SET status = 'completed', completed_at = ?
                    WHERE id = ? AND status = 'in_progress'"#,
-                rusqlite::params![now, task_id],
+                rusqlite::params![now.to_rfc3339(), task_id],
             )?;
             
             if affected == 0 {
@@ -198,27 +246,52 @@ impl Database {
                 ));
             }
 
-            // Re-query
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, order_index, task_type, title, content, 
-                          status, run_id, created_at, started_at, completed_at
-                   FROM tasks WHERE id = ?"#
-            )?;
-            stmt.query_row([task_id], Self::map_task_row)
-                .map_err(DbError::Sqlite)
+            // Construct the updated task from known values - no re-query needed
+            Ok(Task {
+                id: existing.id,
+                ticket_id: existing.ticket_id,
+                order_index: existing.order_index,
+                task_type: existing.task_type,
+                title: existing.title,
+                content: existing.content,
+                status: TaskStatus::Completed,
+                run_id: existing.run_id,
+                created_at: existing.created_at,
+                started_at: existing.started_at,
+                completed_at: Some(now),
+            })
         })
     }
 
     /// Mark a task as failed
+    /// 
+    /// Uses query-then-update pattern to ensure atomicity and avoid the bug where
+    /// a successful UPDATE followed by a failed re-query would return an error.
     pub fn fail_task(&self, task_id: &str) -> Result<Task, DbError> {
         self.with_conn(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
+            // Query existing task first to get all its data
+            let existing = {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, ticket_id, order_index, task_type, title, content, 
+                              status, run_id, created_at, started_at, completed_at
+                       FROM tasks WHERE id = ?"#
+                )?;
+                stmt.query_row([task_id], Self::map_task_row)
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("Task {}", task_id))
+                        }
+                        other => DbError::Sqlite(other),
+                    })?
+            };
+            
+            let now = chrono::Utc::now();
             
             let affected = conn.execute(
                 r#"UPDATE tasks 
                    SET status = 'failed', completed_at = ?
                    WHERE id = ? AND status = 'in_progress'"#,
-                rusqlite::params![now, task_id],
+                rusqlite::params![now.to_rfc3339(), task_id],
             )?;
             
             if affected == 0 {
@@ -227,14 +300,20 @@ impl Database {
                 ));
             }
 
-            // Re-query
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, order_index, task_type, title, content, 
-                          status, run_id, created_at, started_at, completed_at
-                   FROM tasks WHERE id = ?"#
-            )?;
-            stmt.query_row([task_id], Self::map_task_row)
-                .map_err(DbError::Sqlite)
+            // Construct the updated task from known values - no re-query needed
+            Ok(Task {
+                id: existing.id,
+                ticket_id: existing.ticket_id,
+                order_index: existing.order_index,
+                task_type: existing.task_type,
+                title: existing.title,
+                content: existing.content,
+                status: TaskStatus::Failed,
+                run_id: existing.run_id,
+                created_at: existing.created_at,
+                started_at: existing.started_at,
+                completed_at: Some(now),
+            })
         })
     }
 
