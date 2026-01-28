@@ -38,6 +38,8 @@ pub struct RunnerConfig {
     pub worktree_branch: Option<String>,
     /// Whether the branch was already created (e.g., via worktree creation).
     pub branch_already_created: bool,
+    /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
+    pub is_temp_branch: bool,
     pub timeout_secs: u64,
 }
 
@@ -248,6 +250,7 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         cancel_handles: config.cancel_handles.clone(),
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,
+        is_temp_branch: config.is_temp_branch,
     });
     
     orchestrator.execute().await

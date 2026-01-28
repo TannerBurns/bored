@@ -436,10 +436,14 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }));
       return task;
     }
-    // Demo mode
+    // Demo mode - only spread fields that are actually being updated (not undefined)
     const existing = get().tasks.find((t) => t.id === taskId);
     if (!existing) throw new Error('Task not found');
-    const updated = { ...existing, title, content };
+    const updated = {
+      ...existing,
+      ...(title !== undefined && { title }),
+      ...(content !== undefined && { content }),
+    };
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? updated : t)),
     }));

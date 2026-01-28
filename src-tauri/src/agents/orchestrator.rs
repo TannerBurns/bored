@@ -37,6 +37,8 @@ pub struct OrchestratorConfig {
     /// Whether the branch was already created (e.g., via worktree creation).
     /// If false but worktree_branch is Some, orchestrator will create the branch.
     pub branch_already_created: bool,
+    /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
+    pub is_temp_branch: bool,
 }
 
 /// The stages in a multi-stage workflow
@@ -88,6 +90,8 @@ pub struct WorkflowOrchestrator {
     /// Whether the branch was already created (e.g., via worktree creation).
     /// If false but worktree_branch is Some, orchestrator will create the branch.
     branch_already_created: bool,
+    /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
+    is_temp_branch: bool,
 }
 
 impl WorkflowOrchestrator {
@@ -108,6 +112,7 @@ impl WorkflowOrchestrator {
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,
             branch_already_created: config.branch_already_created,
+            is_temp_branch: config.is_temp_branch,
         }
     }
     
@@ -182,29 +187,95 @@ impl WorkflowOrchestrator {
         // Handle branch creation based on whether we already have a branch name
         // and whether it was already created (e.g., via worktree)
         if let Some(ref branch_name) = self.worktree_branch {
-            // We have a branch name already
-            tracing::info!("Using pre-determined branch name: {}", branch_name);
-            
-            // Store branch name on ticket if not already set
-            if self.ticket.branch_name.is_none() {
-                if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, branch_name) {
-                    tracing::warn!("Failed to store branch name on ticket: {}", e);
-                } else {
-                    tracing::info!("Stored branch name '{}' on ticket {}", branch_name, self.ticket.id);
-                }
-            }
-            
-            // If branch wasn't already created (e.g., worktree creation failed),
-            // we need to create it now
-            if !self.branch_already_created {
-                tracing::info!("Branch '{}' not yet created, creating now...", branch_name);
+            if self.is_temp_branch {
+                // Temp branch exists but needs to be renamed to an AI-generated name
+                tracing::info!("Temp branch '{}' exists, generating AI name and renaming...", branch_name);
                 
                 if self.is_cancelled() {
                     return Err("Workflow cancelled".to_string());
                 }
                 
-                let branch_prompt = format!(
-                    r#"Create a new git branch for this task.
+                let branch_gen_result = self.run_stage("branch-gen", &generate_branch_name_generation_prompt(&self.ticket)).await?;
+                
+                // Try to parse the generated branch name
+                let generated_branch = branch_gen_result.captured_stdout
+                    .as_ref()
+                    .and_then(|output| {
+                        let text_content = extract_text_from_stream_json(output)
+                            .unwrap_or_else(|| output.clone());
+                        tracing::debug!("Branch-gen output (extracted): {}", text_content);
+                        parse_branch_name_from_output(&text_content)
+                    });
+                
+                // Use generated name or fall back to deterministic
+                let new_branch_name = if let Some(ref name) = generated_branch {
+                    tracing::info!("Agent generated branch name: {}", name);
+                    name.clone()
+                } else {
+                    let fallback = super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
+                    tracing::warn!("Could not parse generated branch name, using fallback: {}", fallback);
+                    fallback
+                };
+                
+                // Store the NEW branch name on ticket
+                if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &new_branch_name) {
+                    tracing::warn!("Failed to store branch name on ticket: {}", e);
+                } else {
+                    tracing::info!("Stored branch name '{}' on ticket {}", new_branch_name, self.ticket.id);
+                    let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
+                        "ticketId": self.ticket.id,
+                        "branchName": new_branch_name,
+                    }));
+                }
+                
+                // Rename the temp branch to the new name
+                if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                }
+                
+                let rename_prompt = format!(
+                    r#"Rename the current git branch to a better name.
+
+## Task
+Rename the current branch from `{}` to `{}`
+
+## Instructions
+1. You should already be on the branch `{}`
+2. Rename the current branch: `git branch -m {}`
+3. Push the renamed branch to origin: `git push -u origin {}`
+4. Delete the old branch from origin (if it was pushed): `git push origin --delete {}` (ignore errors if it doesn't exist remotely)
+
+Do NOT start implementing any code changes. Just rename the branch.
+"#,
+                    branch_name, new_branch_name,
+                    branch_name, new_branch_name, new_branch_name, branch_name
+                );
+                
+                let _rename_result = self.run_stage("branch", &rename_prompt).await?;
+            } else {
+                // We have a permanent branch name already
+                tracing::info!("Using pre-determined branch name: {}", branch_name);
+                
+                // Store branch name on ticket if not already set
+                if self.ticket.branch_name.is_none() {
+                    if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, branch_name) {
+                        tracing::warn!("Failed to store branch name on ticket: {}", e);
+                    } else {
+                        tracing::info!("Stored branch name '{}' on ticket {}", branch_name, self.ticket.id);
+                    }
+                }
+                
+                // If branch wasn't already created (e.g., worktree creation failed),
+                // we need to create it now
+                if !self.branch_already_created {
+                    tracing::info!("Branch '{}' not yet created, creating now...", branch_name);
+                    
+                    if self.is_cancelled() {
+                        return Err("Workflow cancelled".to_string());
+                    }
+                    
+                    let branch_prompt = format!(
+                        r#"Create a new git branch for this task.
 
 ## Task
 Create and switch to a new branch: `{}`
@@ -218,14 +289,17 @@ Create and switch to a new branch: `{}`
 
 Do NOT start implementing any code changes. Just create the branch.
 "#,
-                    branch_name
-                );
-                
-                let _branch_result = self.run_stage("branch", &branch_prompt).await?;
+                        branch_name
+                    );
+                    
+                    let _branch_result = self.run_stage("branch", &branch_prompt).await?;
+                }
             }
         } else {
             // No branch name yet - generate and create a branch
-            // First, ask agent to generate a meaningful branch name
+            // (This path is kept for backwards compatibility but shouldn't normally be hit)
+            tracing::info!("No branch name provided, generating and creating new branch...");
+            
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
