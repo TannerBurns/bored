@@ -70,8 +70,8 @@ pub enum RunOutcome {
 pub type LogCallback = Box<dyn Fn(LogLine) + Send + Sync>;
 
 /// Extract text content from Claude's stream-json format.
-/// The stream-json format has one JSON object per line, with the assistant's
-/// text responses in the "result" message type.
+/// The stream-json format has one JSON object per line with structure:
+/// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     let mut text_parts = Vec::new();
     
@@ -83,21 +83,37 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
         
         // Try to parse as JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-            // Claude stream-json format has different message types
-            // We're looking for "result" messages that contain the final text
             if let Some(msg_type) = json.get("type").and_then(|t| t.as_str()) {
                 match msg_type {
+                    "stream_event" => {
+                        // Claude stream-json format wraps events in stream_event
+                        // Text deltas are at: .event.delta.text
+                        if let Some(event) = json.get("event") {
+                            if let Some(event_type) = event.get("type").and_then(|t| t.as_str()) {
+                                if event_type == "content_block_delta" {
+                                    if let Some(text) = event.get("delta")
+                                        .and_then(|d| d.get("text"))
+                                        .and_then(|t| t.as_str())
+                                    {
+                                        text_parts.push(text.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
                     "result" => {
-                        // The "result" message contains the final output
+                        // Final result message contains the complete text
                         if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
                             text_parts.push(result.to_string());
                         }
                     }
                     "assistant" => {
-                        // Sometimes the text is in an "assistant" message
-                        if let Some(text) = json.get("message").and_then(|m| m.get("content"))
+                        // Assistant message with content array
+                        if let Some(text) = json.get("message")
+                            .and_then(|m| m.get("content"))
                             .and_then(|c| c.as_array())
-                            .and_then(|arr| arr.iter().find(|v| v.get("type").and_then(|t| t.as_str()) == Some("text")))
+                            .and_then(|arr| arr.iter()
+                                .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("text")))
                             .and_then(|v| v.get("text"))
                             .and_then(|t| t.as_str())
                         {
@@ -105,8 +121,11 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                         }
                     }
                     "content_block_delta" => {
-                        // Streaming text deltas
-                        if let Some(delta) = json.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                        // Legacy/direct content_block_delta (without stream_event wrapper)
+                        if let Some(delta) = json.get("delta")
+                            .and_then(|d| d.get("text"))
+                            .and_then(|t| t.as_str())
+                        {
                             text_parts.push(delta.to_string());
                         }
                     }
@@ -183,5 +202,77 @@ mod tests {
             serde_json::to_string(&LogStream::Stderr).unwrap(),
             "\"stderr\""
         );
+    }
+
+    #[test]
+    fn extract_text_from_stream_event_format() {
+        // Actual Claude stream-json format with stream_event wrapper
+        let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello "}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world!"}}}
+"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("Hello world!".to_string()));
+    }
+
+    #[test]
+    fn extract_text_from_stream_event_with_plan() {
+        // Simulates extracting a plan from Claude's output
+        // Note: In JSON, \n represents a newline; when parsed, it becomes an actual newline
+        let stream_output = "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"## Plan\\n\\n\"}}}\n\
+{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"1. First step\\n\"}}}\n\
+{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"2. Second step\\n\"}}}\n";
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("## Plan\n\n1. First step\n2. Second step\n".to_string()));
+    }
+
+    #[test]
+    fn extract_text_ignores_non_text_events() {
+        // Stream with tool use events that should be ignored
+        let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The plan"}}}
+{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+{"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}
+"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("The plan".to_string()));
+    }
+
+    #[test]
+    fn extract_text_from_result_message() {
+        // Result message format
+        let stream_output = r#"{"type":"result","result":"Final plan text"}"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("Final plan text".to_string()));
+    }
+
+    #[test]
+    fn extract_text_from_assistant_message() {
+        // Assistant message format
+        let stream_output = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Assistant response"}]}}"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("Assistant response".to_string()));
+    }
+
+    #[test]
+    fn extract_text_returns_none_for_empty() {
+        let result = extract_text_from_stream_json("");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn extract_text_returns_none_for_no_text_content() {
+        let stream_output = r#"{"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn extract_text_handles_mixed_content() {
+        // Mix of stream events and other message types
+        let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Part 1"}}}
+{"type":"result","result":" Part 2"}
+"#;
+        let result = extract_text_from_stream_json(stream_output);
+        assert_eq!(result, Some("Part 1 Part 2".to_string()));
     }
 }

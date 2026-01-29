@@ -413,6 +413,11 @@ Do NOT start implementing any code changes. Just create the branch.
             String::new()
         };
         
+        // Post the extracted plan as a comment for visibility
+        if !plan.is_empty() {
+            self.add_plan_comment(&plan);
+        }
+        
         // Stage 2: Implement
         if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
@@ -475,6 +480,36 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to add workflow summary comment: {}", e);
         } else {
             tracing::info!("Added workflow summary comment for ticket {}", self.ticket.id);
+            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
+                "ticketId": self.ticket.id,
+                "comment": comment_text,
+            }));
+        }
+    }
+    
+    /// Add a comment with the extracted plan for visibility and debugging
+    fn add_plan_comment(&self, plan: &str) {
+        let comment_text = format!(
+            "## Implementation Plan\n\n{}\n\n---\n*This plan was extracted from the planning stage and will guide the implementation.*",
+            plan.trim()
+        );
+        let create_comment = CreateComment {
+            ticket_id: self.ticket.id.clone(),
+            author_type: AuthorType::Agent,
+            body_md: comment_text.clone(),
+            metadata: Some(serde_json::json!({
+                "type": "plan",
+                "parent_run_id": self.parent_run_id,
+            })),
+        };
+        if let Err(e) = self.db.create_comment(&create_comment) {
+            tracing::warn!("Failed to add plan comment: {}", e);
+        } else {
+            tracing::info!(
+                "Added plan comment for ticket {} ({} chars)", 
+                self.ticket.id,
+                plan.len()
+            );
             let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
                 "ticketId": self.ticket.id,
                 "comment": comment_text,
