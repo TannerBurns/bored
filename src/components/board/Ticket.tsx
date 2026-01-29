@@ -24,13 +24,21 @@ export function Ticket({ ticket, onClick }: TicketProps) {
     transition,
   };
 
+  // Handle click only if not dragging to prevent opening modal during drag
+  const handleClick = () => {
+    // Don't trigger onClick if we're dragging
+    if (!isDragging && onClick) {
+      onClick();
+    }
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      onClick={onClick}
+      onClick={handleClick}
       className={cn(
         'bg-board-card p-3 rounded-lg cursor-pointer border-l-4 border border-board-border border-l-4',
         'hover:bg-board-card-hover hover:shadow-md transition-all duration-150',
