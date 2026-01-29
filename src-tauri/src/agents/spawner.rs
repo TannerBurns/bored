@@ -7,6 +7,31 @@ use std::time::{Duration, Instant};
 
 use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome};
 
+/// Maximum number of retries for transient errors
+const MAX_TRANSIENT_RETRIES: u32 = 3;
+
+/// Initial backoff delay in milliseconds
+const INITIAL_BACKOFF_MS: u64 = 2000;
+
+/// Known transient error patterns that should trigger a retry
+const TRANSIENT_ERROR_PATTERNS: &[&str] = &[
+    "Connection stalled",
+    "connection reset",
+    "connection timed out",
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "503",
+    "502",
+    "504",
+    "service unavailable",
+    "temporarily unavailable",
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "socket hang up",
+];
+
 /// Errors that can occur during agent execution
 #[derive(Debug, thiserror::Error)]
 pub enum SpawnError {
@@ -76,17 +101,19 @@ impl AgentProcess {
         timeout: Option<Duration>,
         on_log: Option<Arc<LogCallback>>,
     ) -> Result<(Option<i32>, RunOutcome), SpawnError> {
-        let (exit_code, outcome, _) = self.wait_with_capture(timeout, on_log, false)?;
+        let (exit_code, outcome, _, _) = self.wait_with_capture(timeout, on_log, false)?;
         Ok((exit_code, outcome))
     }
 
     /// Wait for the process to complete, streaming output and optionally capturing stdout
+    /// Returns (exit_code, outcome, captured_stdout, captured_stderr)
+    #[allow(clippy::type_complexity)]
     pub fn wait_with_capture(
         mut self,
         timeout: Option<Duration>,
         on_log: Option<Arc<LogCallback>>,
         capture_stdout: bool,
-    ) -> Result<(Option<i32>, RunOutcome, Option<String>), SpawnError> {
+    ) -> Result<(Option<i32>, RunOutcome, Option<String>, Option<String>), SpawnError> {
         let stdout = self.child.stdout.take();
         let stderr = self.child.stderr.take();
         let cancelled = self.cancelled.clone();
@@ -96,9 +123,10 @@ impl AgentProcess {
             thread::spawn(move || read_stream_with_capture(out, LogStream::Stdout, on_log_stdout, capture_stdout))
         });
 
+        // Always capture stderr for transient error detection
         let on_log_stderr = on_log;
         let stderr_handle = stderr.map(|err| {
-            thread::spawn(move || read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, false))
+            thread::spawn(move || read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, true))
         });
 
         let deadline = timeout.map(|t| Instant::now() + t);
@@ -137,9 +165,11 @@ impl AgentProcess {
                     } else {
                         None
                     };
-                    if let Some(h) = stderr_handle {
-                        let _ = h.join();
-                    }
+                    let captured_stderr = if let Some(h) = stderr_handle {
+                        h.join().ok().flatten()
+                    } else {
+                        None
+                    };
 
                     let exit_code = status.code();
                     let outcome = if exit_code == Some(0) {
@@ -148,7 +178,7 @@ impl AgentProcess {
                         RunOutcome::Error
                     };
 
-                    return Ok((exit_code, outcome, captured_stdout));
+                    return Ok((exit_code, outcome, captured_stdout, captured_stderr));
                 }
                 Ok(None) => {
                     thread::sleep(Duration::from_millis(100));
@@ -290,7 +320,7 @@ pub fn run_agent_with_cancel_callback(
     let duration_secs = start_time.elapsed().as_secs_f64();
 
     match result {
-        Ok((exit_code, outcome, captured_stdout)) => Ok(AgentRunResult {
+        Ok((exit_code, outcome, captured_stdout, _captured_stderr)) => Ok(AgentRunResult {
             run_id: config.run_id,
             exit_code,
             status: outcome,
@@ -318,7 +348,8 @@ pub fn run_agent_with_cancel_callback(
     }
 }
 
-/// Run an agent with the given configuration, capturing stdout for multi-stage workflows
+/// Run an agent with the given configuration, capturing stdout for multi-stage workflows.
+/// Automatically retries on transient network errors with exponential backoff.
 pub fn run_agent_with_capture(
     config: AgentRunConfig,
     on_log: Option<Arc<LogCallback>>,
@@ -341,49 +372,103 @@ pub fn run_agent_with_capture(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let process = AgentProcess::spawn(
-        &command,
-        &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-        &config.repo_path,
-        &env_refs,
-    )?;
-
-    if let Some(callback) = on_spawn {
-        callback(process.cancel_handle());
-    }
-
     let timeout = config.timeout_secs.map(Duration::from_secs);
-    let result = process.wait_with_capture(timeout, on_log, true);
+    let mut attempt = 0;
+    let mut on_spawn = on_spawn;
 
-    let duration_secs = start_time.elapsed().as_secs_f64();
+    loop {
+        attempt += 1;
+        
+        if attempt > 1 {
+            let backoff_ms = INITIAL_BACKOFF_MS * 2u64.pow(attempt - 2);
+            tracing::info!(
+                "Retry attempt {} for run {} after {}ms backoff",
+                attempt, config.run_id, backoff_ms
+            );
+            thread::sleep(Duration::from_millis(backoff_ms));
+        }
 
-    match result {
-        Ok((exit_code, outcome, captured_stdout)) => Ok(AgentRunResult {
-            run_id: config.run_id,
-            exit_code,
-            status: outcome,
-            summary: None,
-            duration_secs,
-            captured_stdout,
-        }),
-        Err(SpawnError::Timeout(secs)) => Ok(AgentRunResult {
-            run_id: config.run_id,
-            exit_code: None,
-            status: RunOutcome::Timeout,
-            summary: Some(format!("Process timed out after {} seconds", secs)),
-            duration_secs,
-            captured_stdout: None,
-        }),
-        Err(SpawnError::Cancelled) => Ok(AgentRunResult {
-            run_id: config.run_id,
-            exit_code: None,
-            status: RunOutcome::Cancelled,
-            summary: Some("Process was cancelled".to_string()),
-            duration_secs,
-            captured_stdout: None,
-        }),
-        Err(e) => Err(e),
+        let process = AgentProcess::spawn(
+            &command,
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &config.repo_path,
+            &env_refs,
+        )?;
+
+        // Provide cancel handle on first attempt only
+        if let Some(callback) = on_spawn.take() {
+            callback(process.cancel_handle());
+        }
+
+        let result = process.wait_with_capture(timeout, on_log.clone(), true);
+
+        match result {
+            Ok((exit_code, outcome, captured_stdout, captured_stderr)) => {
+                // Check if this is a transient error that should be retried
+                if outcome == RunOutcome::Error && attempt < MAX_TRANSIENT_RETRIES {
+                    if let Some(ref stderr) = captured_stderr {
+                        if is_transient_error(stderr) {
+                            tracing::warn!(
+                                "Transient error detected on attempt {} for run {}: {}",
+                                attempt, config.run_id, 
+                                stderr.chars().take(100).collect::<String>()
+                            );
+                            continue; // Retry
+                        }
+                    }
+                }
+
+                let duration_secs = start_time.elapsed().as_secs_f64();
+                
+                if attempt > 1 && outcome == RunOutcome::Success {
+                    tracing::info!(
+                        "Run {} succeeded on attempt {} after transient errors",
+                        config.run_id, attempt
+                    );
+                }
+
+                return Ok(AgentRunResult {
+                    run_id: config.run_id,
+                    exit_code,
+                    status: outcome,
+                    summary: None,
+                    duration_secs,
+                    captured_stdout,
+                });
+            }
+            Err(SpawnError::Timeout(secs)) => {
+                let duration_secs = start_time.elapsed().as_secs_f64();
+                return Ok(AgentRunResult {
+                    run_id: config.run_id,
+                    exit_code: None,
+                    status: RunOutcome::Timeout,
+                    summary: Some(format!("Process timed out after {} seconds", secs)),
+                    duration_secs,
+                    captured_stdout: None,
+                });
+            }
+            Err(SpawnError::Cancelled) => {
+                let duration_secs = start_time.elapsed().as_secs_f64();
+                return Ok(AgentRunResult {
+                    run_id: config.run_id,
+                    exit_code: None,
+                    status: RunOutcome::Cancelled,
+                    summary: Some("Process was cancelled".to_string()),
+                    duration_secs,
+                    captured_stdout: None,
+                });
+            }
+            Err(e) => return Err(e),
+        }
     }
+}
+
+/// Check if an error message indicates a transient error that should be retried
+pub fn is_transient_error(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    TRANSIENT_ERROR_PATTERNS
+        .iter()
+        .any(|pattern| lower.contains(&pattern.to_lowercase()))
 }
 
 /// Build environment variables for the agent process
@@ -527,5 +612,71 @@ mod tests {
         };
         let env_vars = build_env_vars(&config);
         assert_eq!(env_vars.len(), 5);
+    }
+
+    #[test]
+    fn is_transient_error_detects_connection_stalled() {
+        assert!(is_transient_error("C: Connection stalled"));
+        assert!(is_transient_error("Error: connection stalled during request"));
+    }
+
+    #[test]
+    fn is_transient_error_detects_connection_reset() {
+        assert!(is_transient_error("connection reset by peer"));
+        assert!(is_transient_error("ECONNRESET"));
+    }
+
+    #[test]
+    fn is_transient_error_detects_rate_limit() {
+        assert!(is_transient_error("rate limit exceeded"));
+        assert!(is_transient_error("rate_limit_error"));
+        assert!(is_transient_error("too many requests"));
+    }
+
+    #[test]
+    fn is_transient_error_detects_http_errors() {
+        assert!(is_transient_error("HTTP 502 Bad Gateway"));
+        assert!(is_transient_error("503 Service Unavailable"));
+        assert!(is_transient_error("504 Gateway Timeout"));
+    }
+
+    #[test]
+    fn is_transient_error_detects_network_errors() {
+        assert!(is_transient_error("ETIMEDOUT"));
+        assert!(is_transient_error("ENOTFOUND"));
+        assert!(is_transient_error("socket hang up"));
+        assert!(is_transient_error("connection timed out"));
+    }
+
+    #[test]
+    fn is_transient_error_case_insensitive() {
+        assert!(is_transient_error("CONNECTION STALLED"));
+        assert!(is_transient_error("Rate Limit"));
+        assert!(is_transient_error("Service Unavailable"));
+    }
+
+    #[test]
+    fn is_transient_error_returns_false_for_other_errors() {
+        assert!(!is_transient_error("File not found"));
+        assert!(!is_transient_error("Permission denied"));
+        assert!(!is_transient_error("Syntax error in code"));
+        assert!(!is_transient_error("Invalid argument"));
+    }
+
+    #[test]
+    fn is_transient_error_empty_string() {
+        assert!(!is_transient_error(""));
+    }
+
+    #[test]
+    fn max_retries_constant_is_reasonable() {
+        assert!(MAX_TRANSIENT_RETRIES >= 2);
+        assert!(MAX_TRANSIENT_RETRIES <= 5);
+    }
+
+    #[test]
+    fn initial_backoff_is_reasonable() {
+        assert!(INITIAL_BACKOFF_MS >= 1000);
+        assert!(INITIAL_BACKOFF_MS <= 5000);
     }
 }
