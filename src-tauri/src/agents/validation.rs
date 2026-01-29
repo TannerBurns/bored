@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use serde::{Deserialize, Serialize};
+
 use super::AgentKind;
 use super::cursor;
 use super::claude;

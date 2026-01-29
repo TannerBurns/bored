@@ -13,6 +13,7 @@ use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_fr
 use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
+use super::plan_validation::{validate_plan_for_clarification, generate_clarification_message, PlanValidationConfig};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
@@ -432,9 +433,58 @@ Do NOT start implementing any code changes. Just create the branch.
             String::new()
         };
         
-        // Post the extracted plan as a comment for visibility
         if !plan.is_empty() {
             self.add_plan_comment(&plan);
+            
+            tracing::info!("Running plan clarification validation for ticket {}", self.ticket.id);
+            
+            let validation_config = PlanValidationConfig {
+                db: self.db.clone(),
+                parent_run_id: self.parent_run_id.clone(),
+                ticket_id: self.ticket.id.clone(),
+                repo_path: self.repo_path.clone(),
+                api_url: self.api_url.clone(),
+                api_token: self.api_token.clone(),
+                model: self.ticket.model.clone(),
+            };
+            
+            let validation_result = validate_plan_for_clarification(&validation_config, &plan).await;
+            
+            match validation_result {
+                Ok(result) if result.needs_clarification => {
+                    tracing::info!(
+                        "Plan requires clarification for ticket {}: {}",
+                        self.ticket.id,
+                        result.reason
+                    );
+                    
+                    let clarification_message = generate_clarification_message(&validation_config, &plan)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("Failed to generate clarification message: {}", e);
+                            format!("Clarification needed: {}", result.reason)
+                        });
+                    
+                    self.add_clarification_comment(&clarification_message);
+                    self.move_ticket_to_column("Blocked");
+                    
+                    return Err(format!("Plan requires user clarification: {}", result.reason));
+                }
+                Ok(result) => {
+                    tracing::info!(
+                        "Plan validation passed for ticket {}: {}",
+                        self.ticket.id,
+                        result.reason
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Plan validation failed for ticket {}, proceeding anyway: {}",
+                        self.ticket.id,
+                        e
+                    );
+                }
+            }
         }
         
         // Stage 2: Implement
@@ -536,7 +586,36 @@ Do NOT start implementing any code changes. Just create the branch.
         }
     }
     
-    /// Add a comment to the ticket with the branch information from agent output
+    /// Add a clarification request comment when the plan needs user input
+    fn add_clarification_comment(&self, message: &str) {
+        let comment_text = format!(
+            "## Clarification Needed\n\n{}\n\n---\n*Please update the ticket description with the requested information and move this ticket back to Ready to continue.*",
+            message.trim()
+        );
+        let create_comment = CreateComment {
+            ticket_id: self.ticket.id.clone(),
+            author_type: AuthorType::Agent,
+            body_md: comment_text.clone(),
+            metadata: Some(serde_json::json!({
+                "type": "clarification",
+                "parent_run_id": self.parent_run_id,
+            })),
+        };
+        if let Err(e) = self.db.create_comment(&create_comment) {
+            tracing::warn!("Failed to add clarification comment: {}", e);
+        } else {
+            tracing::info!(
+                "Added clarification comment for ticket {} ({} chars)", 
+                self.ticket.id,
+                message.len()
+            );
+            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
+                "ticketId": self.ticket.id,
+                "comment": comment_text,
+            }));
+        }
+    }
+    
     /// Move the ticket to a column by name (best effort - logs warning if column not found)
     fn move_ticket_to_column(&self, column_name: &str) {
         tracing::info!("Attempting to move ticket {} to column '{}' on board {}", 
