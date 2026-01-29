@@ -132,8 +132,27 @@ impl WorkflowOrchestrator {
     }
     
     /// Check if the workflow has been cancelled
+    /// 
+    /// This checks both the orchestrator's own cancelled flag AND the cancel handle
+    /// registered in the shared map. The latter is important for detecting cancellations
+    /// that happened between stages (after one stage finished but before the next started).
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        // Check our own flag first (set when a stage returns Cancelled)
+        if self.cancelled.load(Ordering::Relaxed) {
+            return true;
+        }
+        
+        // Also check the cancel handle in the shared map
+        // This catches cancellations that happened between stages
+        if let Ok(handles) = self.cancel_handles.lock() {
+            if let Some(handle) = handles.get(&self.parent_run_id) {
+                if handle.is_cancelled() {
+                    return true;
+                }
+            }
+        }
+        
+        false
     }
     
     /// Update project hooks with run configuration
@@ -688,6 +707,19 @@ Do NOT start implementing any code changes. Just create the branch.
         let on_spawn: super::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
             tracing::info!("Sub-run {} spawned for parent {}", sub_run_id_for_spawn, parent_run_id);
             let mut handles = cancel_handles.lock().expect("cancel handles mutex poisoned");
+            
+            // Check if the previous handle for parent run was cancelled (cancellation between stages)
+            // If so, immediately cancel the new handle too to propagate the cancellation
+            if let Some(prev_handle) = handles.get(&parent_run_id) {
+                if prev_handle.is_cancelled() {
+                    tracing::info!(
+                        "Previous handle for parent {} was cancelled, propagating to new sub-run {}",
+                        parent_run_id, sub_run_id_for_spawn
+                    );
+                    cancel_handle.cancel();
+                }
+            }
+            
             // Register under both the sub-run ID and the parent run ID
             handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
             handles.insert(parent_run_id.clone(), cancel_handle);

@@ -443,10 +443,17 @@ impl Worker {
                 );
                 
                 // Mark task as completed or failed based on result
+                // Note: For Aborted (cancelled) runs, the task was already reset to pending
+                // by cancel_agent_run, so we don't update it here
                 if let Some(ref t) = task {
                     let task_result = match r.status {
                         RunStatus::Finished => self.db.complete_task(&t.id),
-                        RunStatus::Error | RunStatus::Aborted => self.db.fail_task(&t.id),
+                        RunStatus::Error => self.db.fail_task(&t.id),
+                        RunStatus::Aborted => {
+                            // Task already reset to pending by cancel handler
+                            tracing::info!("Skipping task update for aborted run - task already reset");
+                            Ok(t.clone())
+                        }
                         _ => Ok(t.clone()),
                     };
                     if let Err(e) = task_result {
@@ -455,12 +462,20 @@ impl Worker {
                 }
             }
             Err(e) => {
-                tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
+                let error_str = e.to_string();
+                let was_cancelled = error_str.contains("cancelled") || error_str.contains("Cancelled");
                 
-                // Mark task as failed
-                if let Some(ref t) = task {
-                    if let Err(fail_err) = self.db.fail_task(&t.id) {
-                        tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                if was_cancelled {
+                    tracing::info!("Worker {} run {} was cancelled", self.id, run.id);
+                    // Task already reset to pending by cancel handler, don't mark as failed
+                } else {
+                    tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
+                    
+                    // Mark task as failed (only for real failures, not cancellations)
+                    if let Some(ref t) = task {
+                        if let Err(fail_err) = self.db.fail_task(&t.id) {
+                            tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                        }
                     }
                 }
             }

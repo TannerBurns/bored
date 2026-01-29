@@ -153,6 +153,7 @@ pub async fn update_ticket(
         workflow_type: req.workflow_type,
         model: req.model,
         branch_name: req.branch_name,
+        column_id: req.column_id,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {

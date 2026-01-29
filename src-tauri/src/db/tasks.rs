@@ -375,6 +375,55 @@ impl Database {
         })
     }
 
+    /// Reset any in-progress task associated with a run back to pending
+    /// 
+    /// This is used when a run is cancelled to ensure the task can be picked up again.
+    /// Returns the number of tasks reset.
+    pub fn reset_tasks_for_run(&self, run_id: &str) -> Result<u32, DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                r#"UPDATE tasks 
+                   SET status = 'pending', run_id = NULL, started_at = NULL, completed_at = NULL
+                   WHERE run_id = ? AND status = 'in_progress'"#,
+                rusqlite::params![run_id],
+            )?;
+            
+            if affected > 0 {
+                tracing::info!("Reset {} in-progress task(s) for cancelled run {}", affected, run_id);
+            }
+            
+            Ok(affected as u32)
+        })
+    }
+
+    /// Cleanup orphaned in-progress tasks whose runs have terminated
+    /// 
+    /// This finds tasks with status='in_progress' where the associated run
+    /// has a terminal status (aborted, error, finished) and resets them to pending.
+    /// This handles cases where cancellation happened before the fix was deployed
+    /// or where the app crashed during a run.
+    pub fn cleanup_orphaned_in_progress_tasks(&self) -> Result<u32, DbError> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                r#"UPDATE tasks 
+                   SET status = 'pending', run_id = NULL, started_at = NULL, completed_at = NULL
+                   WHERE status = 'in_progress' 
+                   AND run_id IS NOT NULL
+                   AND run_id IN (
+                       SELECT id FROM agent_runs 
+                       WHERE status IN ('aborted', 'error', 'finished')
+                   )"#,
+                [],
+            )?;
+            
+            if affected > 0 {
+                tracing::info!("Cleaned up {} orphaned in-progress task(s)", affected);
+            }
+            
+            Ok(affected as u32)
+        })
+    }
+
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
@@ -952,5 +1001,168 @@ mod tests {
     fn task_status_parse_invalid() {
         assert_eq!(TaskStatus::parse("invalid"), None);
         assert_eq!(TaskStatus::parse(""), None);
+    }
+
+    #[test]
+    fn reset_tasks_for_run_resets_in_progress_task() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start the task
+        let run_id = "run-123";
+        db.start_task(&task.id, run_id).unwrap();
+        
+        // Verify it's in progress
+        let in_progress = db.get_task(&task.id).unwrap();
+        assert_eq!(in_progress.status, TaskStatus::InProgress);
+        assert_eq!(in_progress.run_id.as_deref(), Some(run_id));
+        
+        // Reset tasks for this run
+        let count = db.reset_tasks_for_run(run_id).unwrap();
+        assert_eq!(count, 1);
+        
+        // Verify the task is now pending
+        let reset = db.get_task(&task.id).unwrap();
+        assert_eq!(reset.status, TaskStatus::Pending);
+        assert!(reset.run_id.is_none());
+        assert!(reset.started_at.is_none());
+    }
+
+    #[test]
+    fn reset_tasks_for_run_ignores_other_runs() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start the task with one run
+        db.start_task(&task.id, "run-123").unwrap();
+        
+        // Try to reset with a different run
+        let count = db.reset_tasks_for_run("run-456").unwrap();
+        assert_eq!(count, 0);
+        
+        // Task should still be in progress
+        let still_in_progress = db.get_task(&task.id).unwrap();
+        assert_eq!(still_in_progress.status, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn reset_tasks_for_run_ignores_non_in_progress_tasks() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start and fail the task
+        let run_id = "run-123";
+        db.start_task(&task.id, run_id).unwrap();
+        db.fail_task(&task.id).unwrap();
+        
+        // Try to reset - should not affect failed task
+        let count = db.reset_tasks_for_run(run_id).unwrap();
+        assert_eq!(count, 0);
+        
+        // Task should still be failed
+        let still_failed = db.get_task(&task.id).unwrap();
+        assert_eq!(still_failed.status, TaskStatus::Failed);
+    }
+
+    #[test]
+    fn cleanup_orphaned_in_progress_tasks_resets_when_run_aborted() {
+        use crate::db::models::{AgentType, CreateRun, RunStatus};
+        
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        // Create a task
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Create a run and start the task
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: AgentType::Claude,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
+        }).unwrap();
+        
+        db.start_task(&task.id, &run.id).unwrap();
+        
+        // Verify task is in progress
+        let in_progress = db.get_task(&task.id).unwrap();
+        assert_eq!(in_progress.status, TaskStatus::InProgress);
+        
+        // Abort the run (simulating cancellation without task reset)
+        db.update_run_status(&run.id, RunStatus::Aborted, None, Some("Cancelled")).unwrap();
+        
+        // Now run cleanup - should reset the orphaned task
+        let count = db.cleanup_orphaned_in_progress_tasks().unwrap();
+        assert_eq!(count, 1);
+        
+        // Task should now be pending
+        let reset = db.get_task(&task.id).unwrap();
+        assert_eq!(reset.status, TaskStatus::Pending);
+        assert!(reset.run_id.is_none());
+    }
+
+    #[test]
+    fn cleanup_orphaned_in_progress_tasks_ignores_running_runs() {
+        use crate::db::models::{AgentType, CreateRun, RunStatus};
+        
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        // Create a task
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Create a run and start the task
+        let run = db.create_run(&CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: AgentType::Claude,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
+        }).unwrap();
+        
+        db.start_task(&task.id, &run.id).unwrap();
+        
+        // Set run to running (not terminated)
+        db.update_run_status(&run.id, RunStatus::Running, None, None).unwrap();
+        
+        // Cleanup should not affect this task since run is still active
+        let count = db.cleanup_orphaned_in_progress_tasks().unwrap();
+        assert_eq!(count, 0);
+        
+        // Task should still be in progress
+        let still_in_progress = db.get_task(&task.id).unwrap();
+        assert_eq!(still_in_progress.status, TaskStatus::InProgress);
     }
 }

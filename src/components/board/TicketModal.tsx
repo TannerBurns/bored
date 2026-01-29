@@ -547,12 +547,8 @@ export function TicketModal({
         agentPref: editAgentPref,
         model: editModel || undefined, // Empty string means use default
         branchName: editBranchName || undefined, // Empty string means no branch set
+        columnId: editColumnId, // Column change handled by updateTicket
       });
-      
-      // Move ticket to new column if changed
-      if (editColumnId !== ticket.columnId) {
-        await useBoardStore.getState().moveTicket(ticket.id, editColumnId);
-      }
       
       setIsEditing(false);
     } finally {

@@ -90,6 +90,18 @@ fn main() {
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
 
+            // Cleanup orphaned tasks from interrupted runs
+            // This handles cases where the app crashed or was killed while a run was in progress
+            match database.cleanup_orphaned_in_progress_tasks() {
+                Ok(count) if count > 0 => {
+                    tracing::info!("Startup cleanup: reset {} orphaned in-progress task(s)", count);
+                }
+                Err(e) => {
+                    tracing::warn!("Startup cleanup failed: {}", e);
+                }
+                _ => {}
+            }
+
             app.manage(database.clone());
             app.manage(RunningAgents::new());
 

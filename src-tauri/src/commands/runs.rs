@@ -619,20 +619,29 @@ pub async fn start_agent_run(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Multi-stage workflow failed for run {}: {}", run_id_for_task, e);
-                    if let Err(db_err) = db_clone.update_run_status(
-                        &run_id_for_task,
-                        RunStatus::Error,
-                        None,
-                        Some(&format!("Multi-stage workflow failed: {}", e)),
-                    ) {
-                        tracing::error!("Failed to update run status to Error: {}", db_err);
-                    }
+                    // Check if this was a cancellation vs a real failure
+                    let was_cancelled = e.contains("cancelled") || e.contains("Cancelled");
                     
-                    // Mark task as failed
-                    if let Some(ref t) = task {
-                        if let Err(fail_err) = db_clone.fail_task(&t.id) {
-                            tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                    if was_cancelled {
+                        tracing::info!("Multi-stage workflow was cancelled for run {}", run_id_for_task);
+                        // Don't update run status - cancel_agent_run already set it to Aborted
+                        // Don't mark task as failed - cancel_agent_run already reset it to pending
+                    } else {
+                        tracing::error!("Multi-stage workflow failed for run {}: {}", run_id_for_task, e);
+                        if let Err(db_err) = db_clone.update_run_status(
+                            &run_id_for_task,
+                            RunStatus::Error,
+                            None,
+                            Some(&format!("Multi-stage workflow failed: {}", e)),
+                        ) {
+                            tracing::error!("Failed to update run status to Error: {}", db_err);
+                        }
+                        
+                        // Mark task as failed (only for real failures, not cancellations)
+                        if let Some(ref t) = task {
+                            if let Err(fail_err) = db_clone.fail_task(&t.id) {
+                                tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                            }
                         }
                     }
                     
@@ -678,18 +687,54 @@ pub async fn cancel_agent_run(
     tracing::info!("Cancelling agent run: {}", run_id);
 
     // Try to cancel via handle
-    if let Some(handle) = running_agents
-        .handles
-        .lock()
-        .expect("running agents mutex poisoned")
-        .get(&run_id)
-    {
-        handle.cancel();
+    let handle_found = {
+        let handles = running_agents
+            .handles
+            .lock()
+            .expect("running agents mutex poisoned");
+        
+        if let Some(handle) = handles.get(&run_id) {
+            let was_already_cancelled = handle.is_cancelled();
+            handle.cancel();
+            tracing::info!(
+                "Cancel handle found for run {}, cancelled (was_already_cancelled: {})",
+                run_id, was_already_cancelled
+            );
+            true
+        } else {
+            // Log available handles for debugging
+            let available_handles: Vec<_> = handles.keys().collect();
+            tracing::warn!(
+                "No cancel handle found for run {}. Available handles: {:?}",
+                run_id, available_handles
+            );
+            false
+        }
+    };
+    
+    if !handle_found {
+        tracing::warn!(
+            "Run {} may have already finished or not started yet. \
+            Updating DB status anyway.",
+            run_id
+        );
     }
 
     // Update the status in the database
     db.update_run_status(&run_id, RunStatus::Aborted, None, Some("Cancelled by user"))
         .map_err(|e| e.to_string())?;
+    
+    // Reset any in-progress task back to pending so it can be retried
+    match db.reset_tasks_for_run(&run_id) {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!("Reset {} task(s) to pending for cancelled run {}", count, run_id);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to reset tasks for cancelled run {}: {}", run_id, e);
+        }
+    }
     
     // Also unlock any ticket that was locked by this run
     // We need to find the ticket first
