@@ -303,9 +303,20 @@ fn extract_ssh_error_message(stderr: &str) -> String {
     stderr.lines().next().unwrap_or("SSH authentication failed").to_string()
 }
 
+/// Check if stderr indicates a worktree branch conflict.
+/// 
+/// Git uses different error messages across versions:
+/// - "is already checked out at" (older versions)
+/// - "is already used by worktree at" (newer versions)
+fn is_worktree_conflict_error(stderr: &str) -> bool {
+    stderr.contains("already checked out") || 
+    stderr.contains("already exists") ||
+    stderr.contains("already used by worktree")
+}
+
 /// Extract the worktree path from a git "already checked out" error.
 fn extract_worktree_path_from_error(stderr: &str) -> Option<String> {
-    // Look for the pattern: already checked out at 'path'
+    // Pattern 1: "already checked out at 'path'" (older git)
     if let Some(start) = stderr.find("checked out at '") {
         let after_prefix = &stderr[start + "checked out at '".len()..];
         if let Some(end) = after_prefix.find('\'') {
@@ -313,13 +324,23 @@ fn extract_worktree_path_from_error(stderr: &str) -> Option<String> {
         }
     }
     
-    // Alternative pattern without quotes
-    if let Some(start) = stderr.find("checked out at ") {
-        let after_prefix = &stderr[start + "checked out at ".len()..];
-        // Take until end of line or end of string
-        let path = after_prefix.lines().next().unwrap_or(after_prefix);
-        if !path.is_empty() {
-            return Some(path.trim().to_string());
+    // Pattern 2: "already used by worktree at 'path'" (newer git)
+    if let Some(start) = stderr.find("used by worktree at '") {
+        let after_prefix = &stderr[start + "used by worktree at '".len()..];
+        if let Some(end) = after_prefix.find('\'') {
+            return Some(after_prefix[..end].to_string());
+        }
+    }
+    
+    // Pattern 3: without quotes (fallback)
+    for pattern in ["checked out at ", "used by worktree at "] {
+        if let Some(start) = stderr.find(pattern) {
+            let after_prefix = &stderr[start + pattern.len()..];
+            // Take until end of line or end of string
+            let path = after_prefix.lines().next().unwrap_or(after_prefix);
+            if !path.is_empty() {
+                return Some(path.trim().trim_matches('\'').to_string());
+            }
         }
     }
     
@@ -362,7 +383,7 @@ fn get_worktree_repo_path(worktree_path: &str) -> Option<PathBuf> {
 }
 
 /// Attempt to force-remove a stale worktree in our temp directory.
-fn force_remove_stale_worktree(_repo_path: &Path, worktree_path: &str) -> Result<bool, WorktreeError> {
+fn force_remove_stale_worktree(repo_path: &Path, worktree_path: &str) -> Result<bool, WorktreeError> {
     if !is_our_worktree(worktree_path) {
         tracing::debug!(
             "Worktree {} is not in our directory, not auto-removing",
@@ -373,13 +394,16 @@ fn force_remove_stale_worktree(_repo_path: &Path, worktree_path: &str) -> Result
     
     let worktree_dir = Path::new(worktree_path);
     
-    // If the directory doesn't exist, there's nothing to remove
-    // The caller should prune worktree references
+    // If the directory doesn't exist, the OS may have cleaned up the temp dir
+    // but git still has a stale reference. Prune the references.
     if !worktree_dir.exists() {
         tracing::info!(
-            "Worktree directory {} doesn't exist, nothing to remove",
-            worktree_path
+            "Worktree directory {} doesn't exist, pruning stale references from repo {}",
+            worktree_path,
+            repo_path.display()
         );
+        // Prune stale worktree references from the repo we're working with
+        let _ = prune_stale_worktrees(repo_path);
         return Ok(true);
     }
     
@@ -642,7 +666,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
         let stderr = String::from_utf8_lossy(&output.stderr);
         
         // If branch already exists in another worktree, try pruning stale references and retry
-        if stderr.contains("already checked out") || stderr.contains("already exists") {
+        if is_worktree_conflict_error(&stderr) {
             tracing::info!(
                 "Branch {} is already checked out elsewhere, pruning stale worktrees and retrying",
                 config.branch_name
@@ -678,7 +702,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
             // Still failing - try auto-cleanup if it's our worktree
             let prune_retry_stderr = String::from_utf8_lossy(&prune_retry_output.stderr);
             
-            if prune_retry_stderr.contains("already checked out") || prune_retry_stderr.contains("already exists") {
+            if is_worktree_conflict_error(&prune_retry_stderr) {
                 let worktree_location = extract_worktree_path_from_error(&prune_retry_stderr)
                     .unwrap_or_else(|| "unknown location".to_string());
                 
@@ -1029,7 +1053,7 @@ pub fn create_worktree_with_existing_branch(
             let stderr = String::from_utf8_lossy(&output.stderr);
             
             // If branch is already checked out elsewhere, try pruning stale references and retry
-            if stderr.contains("already checked out") || stderr.contains("already exists") {
+            if is_worktree_conflict_error(&stderr) {
                 tracing::info!(
                     "Branch {} is already checked out elsewhere, pruning stale worktrees and retrying",
                     branch_name
@@ -1052,7 +1076,7 @@ pub fn create_worktree_with_existing_branch(
                     let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
                     
                     // If still failing with "already checked out" or "already exists", try to auto-remove if it's our worktree
-                    if retry_stderr.contains("already checked out") || retry_stderr.contains("already exists") {
+                    if is_worktree_conflict_error(&retry_stderr) {
                         let worktree_location = extract_worktree_path_from_error(&retry_stderr)
                             .unwrap_or_else(|| "unknown location".to_string());
                         
@@ -1580,5 +1604,36 @@ mod tests {
         };
         
         assert_eq!(error.diagnostic_type(), DiagnosticType::GitError);
+    }
+    
+    #[test]
+    fn test_is_worktree_conflict_error_old_format() {
+        // Older git versions use "already checked out"
+        assert!(is_worktree_conflict_error("fatal: 'branch' is already checked out at '/path'"));
+    }
+    
+    #[test]
+    fn test_is_worktree_conflict_error_new_format() {
+        // Newer git versions use "already used by worktree"
+        assert!(is_worktree_conflict_error("fatal: 'fix/abc123' is already used by worktree at '/private/var/folders/...'"));
+    }
+    
+    #[test]
+    fn test_is_worktree_conflict_error_already_exists() {
+        assert!(is_worktree_conflict_error("fatal: branch already exists"));
+    }
+    
+    #[test]
+    fn test_is_worktree_conflict_error_no_match() {
+        assert!(!is_worktree_conflict_error("fatal: some other error"));
+        assert!(!is_worktree_conflict_error("fatal: Permission denied"));
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_new_git_format() {
+        // Newer git format: "already used by worktree at 'path'"
+        let stderr = "fatal: 'fix/cff1ae76/remove-empty-categories-summary' is already used by worktree at '/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/agent-kanban/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98'";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/agent-kanban/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98".to_string()));
     }
 }
