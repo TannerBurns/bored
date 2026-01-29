@@ -22,7 +22,6 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
 
   return (
     <div
-      ref={setNodeRef}
       className={cn(
         'flex flex-col bg-board-column rounded-xl w-72 min-w-72 max-h-full border border-board-border shadow-sm',
         isOver && 'ring-2 ring-board-accent'
@@ -46,6 +45,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
       </div>
       
       <div
+        ref={setNodeRef}
         className="flex-1 p-2 space-y-2 overflow-y-auto"
       >
         <SortableContext items={tickets.map(t => t.id)} strategy={verticalListSortingStrategy}>
