@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus};
-use super::{AgentKind, AgentRunConfig, extract_text_from_stream_json};
+use super::{AgentKind, AgentRunConfig, extract_text_from_stream_json, extract_agent_text};
 use super::spawner;
 
 /// Result of plan clarification validation
@@ -40,6 +40,8 @@ pub struct PlanValidationConfig {
     pub api_url: String,
     pub api_token: String,
     pub model: Option<String>,
+    /// The agent type to use for validation (Claude or Cursor)
+    pub agent_kind: AgentKind,
 }
 
 /// Error type for plan validation operations
@@ -157,9 +159,14 @@ pub async fn validate_plan_for_clarification(
         plan.len()
     );
     
+    let agent_type = match config.agent_kind {
+        AgentKind::Cursor => AgentType::Cursor,
+        AgentKind::Claude => AgentType::Claude,
+    };
+    
     let run = config.db.create_run(&CreateRun {
         ticket_id: config.ticket_id.clone(),
-        agent_type: AgentType::Claude,
+        agent_type,
         repo_path: config.repo_path.to_string_lossy().to_string(),
         parent_run_id: Some(config.parent_run_id.clone()),
         stage: Some("plan-validation".to_string()),
@@ -172,7 +179,7 @@ pub async fn validate_plan_for_clarification(
     let prompt = build_plan_validation_prompt(plan);
     
     let agent_config = AgentRunConfig {
-        kind: AgentKind::Claude,
+        kind: config.agent_kind,
         ticket_id: config.ticket_id.clone(),
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
@@ -241,9 +248,14 @@ pub async fn generate_clarification_message(
         plan.len()
     );
     
+    let agent_type = match config.agent_kind {
+        AgentKind::Cursor => AgentType::Cursor,
+        AgentKind::Claude => AgentType::Claude,
+    };
+    
     let run = config.db.create_run(&CreateRun {
         ticket_id: config.ticket_id.clone(),
-        agent_type: AgentType::Claude,
+        agent_type,
         repo_path: config.repo_path.to_string_lossy().to_string(),
         parent_run_id: Some(config.parent_run_id.clone()),
         stage: Some("clarification-gen".to_string()),
@@ -256,7 +268,7 @@ pub async fn generate_clarification_message(
     let prompt = build_clarification_message_prompt(plan);
     
     let agent_config = AgentRunConfig {
-        kind: AgentKind::Claude,
+        kind: config.agent_kind,
         ticket_id: config.ticket_id.clone(),
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
@@ -280,7 +292,7 @@ pub async fn generate_clarification_message(
             
             let message = agent_result.captured_stdout
                 .as_ref()
-                .and_then(|output| extract_text_from_stream_json(output))
+                .map(|output| extract_agent_text(output))
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
             

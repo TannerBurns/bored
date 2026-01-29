@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
 use super::worktree::{DiagnosticType, WorktreeError};
 use super::spawner;
-use super::{AgentKind, AgentRunConfig, extract_text_from_stream_json};
+use super::{AgentKind, AgentRunConfig, extract_agent_text};
 
 /// Context for diagnostic analysis
 #[derive(Debug, Clone)]
@@ -127,12 +127,13 @@ pub fn classify_worktree_error(error: &WorktreeError) -> DiagnosticContext {
 
 /// Run a diagnostic agent to analyze an error and write a helpful comment.
 ///
-/// This spawns a lightweight Claude agent that:
+/// This spawns an agent (using the configured agent type) that:
 /// 1. Analyzes the error context
 /// 2. Produces troubleshooting guidance as output
 /// 3. Posts the output as a comment on the ticket
 ///
 /// The agent runs against the main repo (not a worktree) since worktree creation failed.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_diagnostic_agent(
     db: Arc<Database>,
     _app_handle: Option<AppHandle>,
@@ -141,6 +142,7 @@ pub async fn run_diagnostic_agent(
     api_url: &str,
     api_token: &str,
     model: Option<String>,
+    agent_kind: AgentKind,
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let ticket_id_owned = ticket_id.to_string();
@@ -153,9 +155,14 @@ pub async fn run_diagnostic_agent(
     );
     
     // Create a diagnostic run in the database
+    let db_agent_type = match agent_kind {
+        AgentKind::Cursor => AgentType::Cursor,
+        AgentKind::Claude => AgentType::Claude,
+    };
+    
     let run = db.create_run(&CreateRun {
         ticket_id: ticket_id.to_string(),
-        agent_type: AgentType::Claude, // Always use Claude for diagnostics
+        agent_type: db_agent_type,
         repo_path: context.repo_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: Some("diagnostic".to_string()),
@@ -171,7 +178,7 @@ pub async fn run_diagnostic_agent(
     
     // Configure and run the agent using the ticket's model preference
     let agent_config = AgentRunConfig {
-        kind: AgentKind::Claude,
+        kind: agent_kind,
         ticket_id: ticket_id.to_string(),
         run_id: run_id.clone(),
         repo_path: context.repo_path.clone(),
@@ -199,7 +206,8 @@ pub async fn run_diagnostic_agent(
             // Try to extract text from the agent's output
             let extracted_text = agent_result.captured_stdout
                 .as_ref()
-                .and_then(|output| extract_text_from_stream_json(output));
+                .map(|output| extract_agent_text(output))
+                .filter(|s| !s.is_empty());
             
             if let Err(e) = db.update_run_status(
                 &run.id,

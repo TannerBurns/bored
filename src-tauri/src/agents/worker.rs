@@ -578,6 +578,7 @@ impl Worker {
         let api_url = self.config.api_url.clone();
         let api_token = self.config.api_token.clone();
         let context_clone = context.clone();
+        let agent_kind = self.config.agent_type;
         
         // Try to spawn diagnostic agent (fire-and-forget in the background)
         let worker_id = self.id.clone();
@@ -592,6 +593,7 @@ impl Worker {
                 &api_url,
                 &api_token,
                 ticket_model,
+                agent_kind,
             ).await {
                 Ok(()) => {
                     tracing::info!(
