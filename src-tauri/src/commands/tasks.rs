@@ -82,7 +82,14 @@ pub fn create_task(
         .map_err(|e| e.to_string())?;
     
     // Move ticket back to Ready if it was in Done/Review
-    move_to_ready_if_completed(&db, &ticket_id)?;
+    // This is a best-effort operation - if it fails, we still return success
+    // since the primary operation (task creation) succeeded
+    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id) {
+        tracing::warn!(
+            "Failed to move ticket {} back to Ready after creating task {}: {}",
+            ticket_id, task.id, e
+        );
+    }
     
     Ok(task)
 }
@@ -114,7 +121,14 @@ pub fn add_preset_task(
         .map_err(|e| e.to_string())?;
     
     // Move ticket back to Ready if it was in Done/Review
-    move_to_ready_if_completed(&db, &ticket_id)?;
+    // This is a best-effort operation - if it fails, we still return success
+    // since the primary operation (task creation) succeeded
+    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id) {
+        tracing::warn!(
+            "Failed to move ticket {} back to Ready after adding preset task {}: {}",
+            ticket_id, task.id, e
+        );
+    }
     
     Ok(task)
 }
@@ -176,6 +190,30 @@ pub fn update_task(
             run_id: None,
         })
         .map_err(|e| e.to_string())
+}
+
+/// Reset a failed or completed task back to pending
+/// 
+/// This allows the task to be picked up by a worker again.
+#[tauri::command]
+pub fn reset_task(
+    db: State<'_, Arc<Database>>,
+    task_id: String,
+) -> Result<Task, String> {
+    let task = db.reset_task(&task_id)
+        .map_err(|e| e.to_string())?;
+    
+    // Move ticket back to Ready if it was in Done/Review
+    // This is a best-effort operation - if it fails, we still return success
+    // since the primary operation (task reset) succeeded
+    if let Err(e) = move_to_ready_if_completed(&db, &task.ticket_id) {
+        tracing::warn!(
+            "Failed to move ticket {} back to Ready after resetting task {}: {}",
+            task.ticket_id, task_id, e
+        );
+    }
+    
+    Ok(task)
 }
 
 /// Get all available preset task types

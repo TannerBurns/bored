@@ -46,6 +46,7 @@ interface BoardState {
   addPresetTask: (ticketId: string, presetType: string) => Promise<Task>;
   deleteTask: (taskId: string) => Promise<void>;
   updateTask: (taskId: string, title?: string, content?: string) => Promise<Task>;
+  resetTask: (taskId: string) => Promise<Task>;
   getTaskCounts: (ticketId: string) => Promise<TaskCounts>;
   getPresetTypes: () => Promise<PresetTaskInfo[]>;
 }
@@ -294,6 +295,14 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   updateTask: async (taskId: string, title?: string, content?: string) => {
     const task = await invoke<Task>('update_task', { taskId, title, content });
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === taskId ? task : t)),
+    }));
+    return task;
+  },
+
+  resetTask: async (taskId: string) => {
+    const task = await invoke<Task>('reset_task', { taskId });
     set((state) => ({
       tasks: state.tasks.map((t) => (t.id === taskId ? task : t)),
     }));

@@ -25,18 +25,12 @@ pub fn can_transition(
 }
 
 fn check_user_transition(
-    from: TicketState,
+    _from: TicketState,
     _to: TicketState,
-    is_locked: bool,
+    _is_locked: bool,
 ) -> TransitionPermission {
-    use TicketState::*;
-
-    // Only restriction: locked tickets in InProgress require unlock first
-    if from == InProgress && is_locked {
-        return TransitionPermission::RequiresUnlock;
-    }
-
-    // All other transitions are allowed
+    // All user-initiated transitions are allowed - no restrictions
+    // Users can move tickets freely between any columns
     TransitionPermission::Allowed
 }
 
@@ -88,16 +82,16 @@ mod tests {
     }
 
     #[test]
-    fn test_in_progress_requires_unlock_when_locked() {
-        // When locked, InProgress transitions require unlock
-        assert_eq!(can_transition(InProgress, Ready, true, false), TransitionPermission::RequiresUnlock);
-        assert_eq!(can_transition(InProgress, Blocked, true, false), TransitionPermission::RequiresUnlock);
-        assert_eq!(can_transition(InProgress, Done, true, false), TransitionPermission::RequiresUnlock);
+    fn test_in_progress_allowed_even_when_locked() {
+        // All InProgress transitions are allowed, even when locked (no restrictions for users)
+        assert_eq!(can_transition(InProgress, Ready, true, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(InProgress, Blocked, true, false), TransitionPermission::Allowed);
+        assert_eq!(can_transition(InProgress, Done, true, false), TransitionPermission::Allowed);
     }
 
     #[test]
     fn test_in_progress_allowed_when_not_locked() {
-        // When not locked, InProgress transitions are allowed
+        // InProgress transitions are allowed when not locked
         assert_eq!(can_transition(InProgress, Ready, false, false), TransitionPermission::Allowed);
         assert_eq!(can_transition(InProgress, Blocked, false, false), TransitionPermission::Allowed);
         assert_eq!(can_transition(InProgress, Done, false, false), TransitionPermission::Allowed);

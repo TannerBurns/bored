@@ -173,6 +173,11 @@ impl CancelHandle {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
+    
+    /// Check if this handle has been cancelled
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
 }
 
 /// Read a stream line by line, calling the callback for each line
@@ -449,6 +454,37 @@ mod tests {
         assert!(!cancelled.load(Ordering::Relaxed));
         handle.cancel();
         assert!(cancelled.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn cancel_handle_is_cancelled_reflects_state() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let handle = CancelHandle {
+            cancelled: cancelled.clone(),
+        };
+
+        assert!(!handle.is_cancelled());
+        handle.cancel();
+        assert!(handle.is_cancelled());
+    }
+    
+    #[test]
+    fn cancel_handle_clone_shares_state() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let handle1 = CancelHandle {
+            cancelled: cancelled.clone(),
+        };
+        let handle2 = handle1.clone();
+
+        assert!(!handle1.is_cancelled());
+        assert!(!handle2.is_cancelled());
+        
+        // Cancel via handle1
+        handle1.cancel();
+        
+        // Both handles should reflect the cancellation
+        assert!(handle1.is_cancelled());
+        assert!(handle2.is_cancelled());
     }
 
     #[test]

@@ -31,7 +31,7 @@ interface TaskListProps {
 }
 
 export function TaskList({ ticketId }: TaskListProps) {
-  const { tasks, loadTasks, createTask, addPresetTask, deleteTask, updateTask } = useBoardStore();
+  const { tasks, loadTasks, createTask, addPresetTask, deleteTask, updateTask, resetTask } = useBoardStore();
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskContent, setNewTaskContent] = useState('');
@@ -92,6 +92,15 @@ export function TaskList({ ticketId }: TaskListProps) {
       await deleteTask(taskId);
     } catch (err) {
       console.error('Failed to delete task:', err);
+    }
+  };
+
+  const handleResetTask = async (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await resetTask(taskId);
+    } catch (err) {
+      console.error('Failed to reset task:', err);
     }
   };
 
@@ -265,6 +274,28 @@ export function TaskList({ ticketId }: TaskListProps) {
                     >
                       {STATUS_LABELS[task.status]}
                     </span>
+                    {(task.status === 'failed' || task.status === 'completed') && (
+                      <button
+                        onClick={(e) => handleResetTask(task.id, e)}
+                        className="p-1 text-board-text-muted hover:text-board-accent transition-colors"
+                        title="Reset task to pending"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                          <path d="M3 3v5h5" />
+                        </svg>
+                      </button>
+                    )}
                     {task.status === 'pending' && (
                       <button
                         onClick={(e) => handleDeleteTask(task.id, e)}
@@ -311,6 +342,10 @@ export function TaskList({ ticketId }: TaskListProps) {
           isOpen={!!selectedTask}
           onClose={() => setSelectedTask(null)}
           onSave={handleUpdateTask}
+          onReset={async () => {
+            await resetTask(selectedTask.id);
+            setSelectedTask(null);
+          }}
         />
       )}
 

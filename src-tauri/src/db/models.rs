@@ -392,6 +392,7 @@ pub struct UpdateTicket {
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
     pub branch_name: Option<String>,
+    pub column_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

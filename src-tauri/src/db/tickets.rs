@@ -67,13 +67,15 @@ impl Database {
                 Some(b) => Some(b.as_str()),
                 None => existing.branch_name.as_deref(), // Keep existing
             };
+            // Handle column_id: None means keep existing, Some(id) means set
+            let column_id = updates.column_id.as_ref().unwrap_or(&existing.column_id);
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
 
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, updated_at = ?
+                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, column_id = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -85,6 +87,7 @@ impl Database {
                     workflow_type.as_str(),
                     model,
                     branch_name,
+                    column_id,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -204,6 +207,55 @@ impl Database {
             
             if affected == 0 {
                 return Err(DbError::NotFound("Lock not found or expired".to_string()));
+            }
+            Ok(())
+        })
+    }
+    
+    /// Update the run_id that owns a ticket lock.
+    /// Used when a temporary run_id is replaced with the actual run ID after creation.
+    /// Only updates if the lock is currently held by old_run_id.
+    pub fn update_ticket_lock_owner(
+        &self,
+        ticket_id: &str,
+        old_run_id: &str,
+        new_run_id: &str,
+        new_expires_at: Option<DateTime<Utc>>,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now();
+            let affected = if let Some(expires) = new_expires_at {
+                conn.execute(
+                    r#"UPDATE tickets 
+                       SET locked_by_run_id = ?, lock_expires_at = ?, updated_at = ?
+                       WHERE id = ? AND locked_by_run_id = ?"#,
+                    rusqlite::params![
+                        new_run_id,
+                        expires.to_rfc3339(),
+                        now.to_rfc3339(),
+                        ticket_id,
+                        old_run_id,
+                    ],
+                )?
+            } else {
+                conn.execute(
+                    r#"UPDATE tickets 
+                       SET locked_by_run_id = ?, updated_at = ?
+                       WHERE id = ? AND locked_by_run_id = ?"#,
+                    rusqlite::params![
+                        new_run_id,
+                        now.to_rfc3339(),
+                        ticket_id,
+                        old_run_id,
+                    ],
+                )?
+            };
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!(
+                    "Ticket lock not found or not owned by run {}",
+                    old_run_id
+                )));
             }
             Ok(())
         })
@@ -686,6 +738,7 @@ mod tests {
             workflow_type: None,
             model: None,
             branch_name: None,
+            column_id: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -698,6 +751,7 @@ mod tests {
         let db = create_test_db();
         let result = db.update_ticket("nonexistent", &UpdateTicket {
             title: Some("New".to_string()),
+            column_id: None,
             description_md: None,
             priority: None,
             labels: None,
@@ -748,6 +802,7 @@ mod tests {
             workflow_type: None,
             model: None,
             branch_name: None,
+            column_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, None);
@@ -789,6 +844,7 @@ mod tests {
             workflow_type: None,
             model: None,
             branch_name: None,
+            column_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, Some(project.id));
@@ -1055,6 +1111,69 @@ mod tests {
         
         let still_locked = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(still_locked.locked_by_run_id, Some("run-correct".to_string()));
+    }
+    
+    #[test]
+    fn update_ticket_lock_owner_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "temp-run-id", expires).unwrap();
+        
+        // Update lock owner to new run ID
+        let new_expires = chrono::Utc::now() + chrono::Duration::minutes(60);
+        db.update_ticket_lock_owner(&ticket.id, "temp-run-id", "actual-run-id", Some(new_expires)).unwrap();
+        
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated.locked_by_run_id, Some("actual-run-id".to_string()));
+    }
+    
+    #[test]
+    fn update_ticket_lock_owner_wrong_owner_fails() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, "run-1", expires).unwrap();
+        
+        // Try to update from wrong owner - should fail
+        let result = db.update_ticket_lock_owner(&ticket.id, "wrong-run-id", "new-run-id", None);
+        assert!(result.is_err());
+        
+        // Original lock should still be in place
+        let still_locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(still_locked.locked_by_run_id, Some("run-1".to_string()));
     }
 
     // Tests for atomic reservation

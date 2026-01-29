@@ -132,8 +132,27 @@ impl WorkflowOrchestrator {
     }
     
     /// Check if the workflow has been cancelled
+    /// 
+    /// This checks both the orchestrator's own cancelled flag AND the cancel handle
+    /// registered in the shared map. The latter is important for detecting cancellations
+    /// that happened between stages (after one stage finished but before the next started).
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
+        // Check our own flag first (set when a stage returns Cancelled)
+        if self.cancelled.load(Ordering::Relaxed) {
+            return true;
+        }
+        
+        // Also check the cancel handle in the shared map
+        // This catches cancellations that happened between stages
+        if let Ok(handles) = self.cancel_handles.lock() {
+            if let Some(handle) = handles.get(&self.parent_run_id) {
+                if handle.is_cancelled() {
+                    return true;
+                }
+            }
+        }
+        
+        false
     }
     
     /// Update project hooks with run configuration
@@ -394,10 +413,29 @@ Do NOT start implementing any code changes. Just create the branch.
         
         let plan = if !plan_prompt.is_empty() {
             let plan_result = self.run_stage("plan", &plan_prompt).await?;
-            plan_result.captured_stdout.unwrap_or_default()
+            // Extract only the text content from stream-json output.
+            // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
+            // which can be 100K+ tokens. We only need the final plan text.
+            let raw_output = plan_result.captured_stdout.unwrap_or_default();
+            let extracted = extract_text_from_stream_json(&raw_output)
+                .unwrap_or_else(|| raw_output.clone());
+            
+            tracing::info!(
+                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+                raw_output.len(),
+                extracted.len(),
+                if raw_output.is_empty() { 0 } else { 100 - (extracted.len() * 100 / raw_output.len()) }
+            );
+            
+            extracted
         } else {
             String::new()
         };
+        
+        // Post the extracted plan as a comment for visibility
+        if !plan.is_empty() {
+            self.add_plan_comment(&plan);
+        }
         
         // Stage 2: Implement
         if self.is_cancelled() {
@@ -461,6 +499,36 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to add workflow summary comment: {}", e);
         } else {
             tracing::info!("Added workflow summary comment for ticket {}", self.ticket.id);
+            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
+                "ticketId": self.ticket.id,
+                "comment": comment_text,
+            }));
+        }
+    }
+    
+    /// Add a comment with the extracted plan for visibility and debugging
+    fn add_plan_comment(&self, plan: &str) {
+        let comment_text = format!(
+            "## Implementation Plan\n\n{}\n\n---\n*This plan was extracted from the planning stage and will guide the implementation.*",
+            plan.trim()
+        );
+        let create_comment = CreateComment {
+            ticket_id: self.ticket.id.clone(),
+            author_type: AuthorType::Agent,
+            body_md: comment_text.clone(),
+            metadata: Some(serde_json::json!({
+                "type": "plan",
+                "parent_run_id": self.parent_run_id,
+            })),
+        };
+        if let Err(e) = self.db.create_comment(&create_comment) {
+            tracing::warn!("Failed to add plan comment: {}", e);
+        } else {
+            tracing::info!(
+                "Added plan comment for ticket {} ({} chars)", 
+                self.ticket.id,
+                plan.len()
+            );
             let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
                 "ticketId": self.ticket.id,
                 "comment": comment_text,
@@ -639,6 +707,19 @@ Do NOT start implementing any code changes. Just create the branch.
         let on_spawn: super::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
             tracing::info!("Sub-run {} spawned for parent {}", sub_run_id_for_spawn, parent_run_id);
             let mut handles = cancel_handles.lock().expect("cancel handles mutex poisoned");
+            
+            // Check if the previous handle for parent run was cancelled (cancellation between stages)
+            // If so, immediately cancel the new handle too to propagate the cancellation
+            if let Some(prev_handle) = handles.get(&parent_run_id) {
+                if prev_handle.is_cancelled() {
+                    tracing::info!(
+                        "Previous handle for parent {} was cancelled, propagating to new sub-run {}",
+                        parent_run_id, sub_run_id_for_spawn
+                    );
+                    cancel_handle.cancel();
+                }
+            }
+            
             // Register under both the sub-run ID and the parent run ID
             handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
             handles.insert(parent_run_id.clone(), cancel_handle);

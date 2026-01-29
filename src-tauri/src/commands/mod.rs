@@ -15,6 +15,7 @@ pub use runs::{start_agent_run, get_agent_runs, get_recent_runs, get_agent_run, 
 pub use tasks::{
     get_tasks, get_task, create_task, add_preset_task, delete_task,
     get_next_pending_task, has_pending_tasks, get_task_counts, update_task, get_preset_types,
+    reset_task,
 };
 pub use tickets::*;
 pub use workers::{

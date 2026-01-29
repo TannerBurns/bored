@@ -9,12 +9,13 @@ use std::time::Duration;
 use tokio::time::sleep;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use super::AgentKind;
 use super::runner::{self, RunnerConfig};
 use super::worktree;
-use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket};
+use super::diagnostic;
+use crate::db::{Database, AgentType, AuthorType, CreateRun, CreateComment, RunStatus, Ticket};
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -209,6 +210,9 @@ impl Worker {
                         "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
                         self.id, ticket.id, e
                     );
+                    
+                    // Handle worktree failure with diagnostics
+                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e).await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
                 }
@@ -248,6 +252,9 @@ impl Worker {
                         "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
                         self.id, ticket.id, e
                     );
+                    
+                    // Handle worktree failure with diagnostics
+                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e).await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
                 }
@@ -277,13 +284,17 @@ impl Worker {
             }
         };
 
-        // Re-lock with actual run ID
-        if let Err(e) = self.db.lock_ticket(&ticket.id, &run.id, lock_expires) {
+        // Transfer lock ownership from temporary run_id to actual run ID
+        if let Err(e) = self.db.update_ticket_lock_owner(&ticket.id, &run_id, &run.id, Some(lock_expires)) {
+            tracing::error!(
+                "Worker {} failed to transfer lock from {} to {}: {}",
+                self.id, run_id, run.id, e
+            );
             let _ = self.db.update_run_status(
                 &run.id,
                 RunStatus::Error,
                 None,
-                Some("Failed to re-lock ticket with actual run ID"),
+                Some("Failed to transfer ticket lock to actual run ID"),
             );
             let _ = self.db.unlock_ticket(&ticket.id);
             let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
@@ -432,10 +443,17 @@ impl Worker {
                 );
                 
                 // Mark task as completed or failed based on result
+                // Note: For Aborted (cancelled) runs, the task was already reset to pending
+                // by cancel_agent_run, so we don't update it here
                 if let Some(ref t) = task {
                     let task_result = match r.status {
                         RunStatus::Finished => self.db.complete_task(&t.id),
-                        RunStatus::Error | RunStatus::Aborted => self.db.fail_task(&t.id),
+                        RunStatus::Error => self.db.fail_task(&t.id),
+                        RunStatus::Aborted => {
+                            // Task already reset to pending by cancel handler
+                            tracing::info!("Skipping task update for aborted run - task already reset");
+                            Ok(t.clone())
+                        }
                         _ => Ok(t.clone()),
                     };
                     if let Err(e) = task_result {
@@ -444,12 +462,20 @@ impl Worker {
                 }
             }
             Err(e) => {
-                tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
+                let error_str = e.to_string();
+                let was_cancelled = error_str.contains("cancelled") || error_str.contains("Cancelled");
                 
-                // Mark task as failed
-                if let Some(ref t) = task {
-                    if let Err(fail_err) = self.db.fail_task(&t.id) {
-                        tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                if was_cancelled {
+                    tracing::info!("Worker {} run {} was cancelled", self.id, run.id);
+                    // Task already reset to pending by cancel handler, don't mark as failed
+                } else {
+                    tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
+                    
+                    // Mark task as failed (only for real failures, not cancellations)
+                    if let Some(ref t) = task {
+                        if let Err(fail_err) = self.db.fail_task(&t.id) {
+                            tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
+                        }
                     }
                 }
             }
@@ -515,6 +541,127 @@ impl Worker {
                 }
             }
         })
+    }
+    
+    /// Handle worktree creation failure by spawning a diagnostic agent and moving ticket to Blocked.
+    ///
+    /// This provides the user with helpful troubleshooting guidance and moves the ticket
+    /// to Blocked so they know intervention is needed.
+    async fn handle_worktree_failure(
+        &self,
+        ticket: &Ticket,
+        repo_path: &std::path::Path,
+        error: &worktree::WorktreeError,
+    ) {
+        tracing::info!(
+            "Worker {} handling worktree failure for ticket {}: {:?}",
+            self.id, ticket.id, error.diagnostic_type()
+        );
+        
+        // Build diagnostic context from the error
+        let mut context = diagnostic::classify_worktree_error(error);
+        context.repo_path = repo_path.to_path_buf();
+        context.additional_context = Some(format!(
+            "Branch: {}, Ticket: {}",
+            ticket.branch_name.as_deref().unwrap_or("(new)"),
+            ticket.title
+        ));
+        
+        // Move ticket to Blocked column
+        self.move_ticket_to_blocked(ticket);
+        
+        // First, try to spawn a diagnostic agent
+        let db_clone = self.db.clone();
+        let app_handle = self.config.app_handle.clone();
+        let ticket_id = ticket.id.clone();
+        let ticket_model = ticket.model.clone();
+        let api_url = self.config.api_url.clone();
+        let api_token = self.config.api_token.clone();
+        let context_clone = context.clone();
+        
+        // Try to spawn diagnostic agent (fire-and-forget in the background)
+        let worker_id = self.id.clone();
+        tokio::spawn(async move {
+            tracing::info!("Worker {} spawning diagnostic agent for ticket {}", worker_id, ticket_id);
+            
+            match diagnostic::run_diagnostic_agent(
+                db_clone.clone(),
+                app_handle,
+                &ticket_id,
+                context_clone.clone(),
+                &api_url,
+                &api_token,
+                ticket_model,
+            ).await {
+                Ok(()) => {
+                    tracing::info!(
+                        "Worker {} diagnostic agent completed for ticket {}",
+                        worker_id, ticket_id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Worker {} diagnostic agent failed for ticket {}: {}. Adding fallback comment.",
+                        worker_id, ticket_id, e
+                    );
+                    
+                    // Fall back to a static comment with basic troubleshooting steps
+                    let fallback_comment = diagnostic::create_fallback_diagnostic_comment(&context_clone);
+                    
+                    if let Err(comment_err) = db_clone.create_comment(&CreateComment {
+                        ticket_id: ticket_id.clone(),
+                        author_type: AuthorType::System,
+                        body_md: fallback_comment,
+                        metadata: None,
+                    }) {
+                        tracing::error!(
+                            "Worker {} failed to create fallback diagnostic comment for ticket {}: {}",
+                            worker_id, ticket_id, comment_err
+                        );
+                    }
+                }
+            }
+        });
+    }
+    
+    /// Move a ticket to the Blocked column
+    fn move_ticket_to_blocked(&self, ticket: &Ticket) {
+        match self.db.find_column_by_name(&ticket.board_id, "Blocked") {
+            Ok(Some(column)) => {
+                if let Err(e) = self.db.move_ticket(&ticket.id, &column.id) {
+                    tracing::error!(
+                        "Worker {} failed to move ticket {} to Blocked: {}",
+                        self.id, ticket.id, e
+                    );
+                } else {
+                    tracing::info!(
+                        "Worker {} moved ticket {} to Blocked column",
+                        self.id, ticket.id
+                    );
+                    
+                    // Emit event if we have an app handle
+                    if let Some(ref app_handle) = self.config.app_handle {
+                        let _ = app_handle.emit_all("ticket-moved", serde_json::json!({
+                            "ticketId": ticket.id,
+                            "columnName": "Blocked",
+                            "columnId": column.id,
+                        }));
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    "Worker {} could not find Blocked column for board {}",
+                    self.id, ticket.board_id
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Worker {} error finding Blocked column: {}",
+                    self.id, e
+                );
+            }
+        }
     }
 }
 
