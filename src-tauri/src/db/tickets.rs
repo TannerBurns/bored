@@ -301,6 +301,8 @@ impl Database {
             let agent_type_str = agent_type.as_str();
             
             // Subquery finds next ticket; outer WHERE double-checks lock status for atomicity
+            // NOTE: Epics are excluded (is_epic = 0) because workers should process child tickets,
+            // not the epic container itself. The epic orchestrates its children through lifecycle hooks.
             let affected = tx.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?1, lock_expires_at = ?2, updated_at = ?3
@@ -308,6 +310,7 @@ impl Database {
                        SELECT t.id FROM tickets t
                        JOIN columns c ON t.column_id = c.id
                        WHERE c.name = 'Ready'
+                         AND t.is_epic = 0
                          AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
                          AND (?4 IS NULL OR t.project_id = ?4)
                          AND (
@@ -1812,6 +1815,86 @@ mod tests {
         
         let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
         assert!(claude_result.is_some());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_skips_epic_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create an epic ticket in Ready - should NOT be picked up
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Epic Ticket".to_string(),
+            description_md: "This is an epic".to_string(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,  // This makes it an epic
+            epic_id: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Worker should NOT pick up the epic
+        let result = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        assert!(result.is_none(), "Epic ticket should not be picked up by workers");
+    }
+    
+    #[test]
+    fn reserve_next_ticket_picks_child_ticket_not_epic() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create an epic ticket in Ready
+        let epic = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Epic Ticket".to_string(),
+            description_md: "This is an epic".to_string(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+        }).unwrap();
+        
+        // Create a child ticket in Ready - this SHOULD be picked up
+        let child = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Child Ticket".to_string(),
+            description_md: "Child of epic".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Worker should pick up the child, not the epic
+        let result = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        assert!(result.is_some(), "Child ticket should be picked up");
+        assert_eq!(result.unwrap().id, child.id, "Should pick up child ticket, not epic");
     }
 
     #[test]
