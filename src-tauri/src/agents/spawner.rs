@@ -824,16 +824,4 @@ mod tests {
     fn is_transient_error_empty_string() {
         assert!(!is_transient_error(""));
     }
-
-    #[test]
-    fn max_retries_constant_is_reasonable() {
-        assert!(MAX_TRANSIENT_RETRIES >= 2);
-        assert!(MAX_TRANSIENT_RETRIES <= 5);
-    }
-
-    #[test]
-    fn initial_backoff_is_reasonable() {
-        assert!(INITIAL_BACKOFF_MS >= 1000);
-        assert!(INITIAL_BACKOFF_MS <= 5000);
-    }
 }

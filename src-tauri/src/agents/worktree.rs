@@ -1636,4 +1636,28 @@ mod tests {
         let result = extract_worktree_path_from_error(stderr);
         assert_eq!(result, Some("/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/agent-kanban/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98".to_string()));
     }
+    
+    #[test]
+    fn test_extract_worktree_path_new_git_format_without_quotes() {
+        // Fallback pattern 3: "used by worktree at" without quotes
+        let stderr = "fatal: branch is already used by worktree at /var/folders/test/worktree";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/var/folders/test/worktree".to_string()));
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_old_format_without_quotes() {
+        // Fallback pattern 3: "checked out at" without quotes
+        let stderr = "fatal: branch is already checked out at /tmp/worktree-dir";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/tmp/worktree-dir".to_string()));
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_new_git_format_with_quotes() {
+        // Pattern 2: "used by worktree at 'path'" with quotes
+        let stderr = "fatal: branch is already used by worktree at '/path/with/quote'";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/path/with/quote".to_string()));
+    }
 }
