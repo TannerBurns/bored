@@ -70,6 +70,13 @@ pub enum RunOutcome {
 /// Callback for receiving log output
 pub type LogCallback = Box<dyn Fn(LogLine) + Send + Sync>;
 
+/// Extract text from agent output, handling both Claude stream-json and plain text.
+/// Tries stream-json parsing first, falls back to raw output.
+pub fn extract_agent_text(output: &str) -> String {
+    extract_text_from_stream_json(output)
+        .unwrap_or_else(|| output.to_string())
+}
+
 /// Extract text content from Claude's stream-json format.
 /// The stream-json format has one JSON object per line with structure:
 /// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
@@ -258,6 +265,28 @@ mod tests {
     fn extract_text_returns_none_for_empty() {
         let result = extract_text_from_stream_json("");
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn extract_agent_text_from_stream_json() {
+        // Claude stream-json format should be parsed
+        let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello world"}}}"#;
+        let result = extract_agent_text(stream_output);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn extract_agent_text_from_plain_text() {
+        // Plain text (e.g., Cursor output) should be returned as-is
+        let plain_output = "This is plain text output from the agent.";
+        let result = extract_agent_text(plain_output);
+        assert_eq!(result, plain_output);
+    }
+
+    #[test]
+    fn extract_agent_text_empty_returns_empty() {
+        let result = extract_agent_text("");
+        assert_eq!(result, "");
     }
 
     #[test]

@@ -446,6 +446,7 @@ Do NOT start implementing any code changes. Just create the branch.
                 api_url: self.api_url.clone(),
                 api_token: self.api_token.clone(),
                 model: self.ticket.model.clone(),
+                agent_kind: self.agent_kind,
             };
             
             let validation_result = validate_plan_for_clarification(&validation_config, &plan).await;
