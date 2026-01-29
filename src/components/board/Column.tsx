@@ -22,6 +22,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
 
   return (
     <div
+      ref={setNodeRef}
       className={cn(
         'flex flex-col bg-board-column rounded-xl w-72 min-w-72 max-h-full border border-board-border shadow-sm',
         isOver && 'ring-2 ring-board-accent'
@@ -45,8 +46,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
       </div>
       
       <div
-        ref={setNodeRef}
-        className="flex-1 p-2 space-y-2 overflow-y-auto"
+        className="flex-1 p-2 space-y-2 overflow-y-auto min-h-[120px]"
       >
         <SortableContext items={tickets.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tickets.map((ticket) => (
@@ -59,7 +59,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
         </SortableContext>
         
         {tickets.length === 0 && (
-          <div className="text-center text-board-text-muted text-sm py-4">
+          <div className="text-center text-board-text-muted text-sm py-8">
             No tickets
           </div>
         )}
