@@ -122,6 +122,12 @@ pub async fn update_ticket(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Updating ticket: {}", ticket_id);
+    
+    // Get the ticket before updating to check for column changes and epic status
+    let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+    let old_column_id = ticket.column_id.clone();
+    let is_column_changing = updates.column_id.as_ref().map(|new_col| new_col != &old_column_id).unwrap_or(false);
+    
     // Convert to UpdateTicket, explicitly setting epic fields to None to prevent
     // clients from modifying epic relationships through this command.
     // Use dedicated epic commands (add_ticket_to_epic, remove_ticket_from_epic,
@@ -136,14 +142,35 @@ pub async fn update_ticket(
         workflow_type: updates.workflow_type,
         model: updates.model,
         branch_name: updates.branch_name,
-        column_id: updates.column_id,
+        column_id: updates.column_id.clone(),
         is_epic: None,
         epic_id: None,
         order_in_epic: None,
     };
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    
+    // Epic lifecycle: if an epic is moved to Ready via update, advance its first child
+    if is_column_changing && ticket.is_epic {
+        if let Some(new_column_id) = updates.column_id {
+            // Get the target column name
+            let columns = db.get_columns(&ticket.board_id).map_err(|e| e.to_string())?;
+            let target_column = columns.iter().find(|c| c.id == new_column_id);
+            let target_column_name = target_column.map(|c| c.name.as_str()).unwrap_or("");
+            
+            if target_column_name.eq_ignore_ascii_case("Ready") {
+                // Refresh ticket after update
+                let updated_ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+                if let Err(e) = crate::lifecycle::epic::on_epic_moved_to_ready(&db, &updated_ticket) {
+                    tracing::warn!("Failed to advance epic children on update: {}", e);
+                    // Don't fail the update, just log the warning
+                }
+            }
+        }
+    }
+    
+    Ok(())
 }
 
 #[tauri::command]
