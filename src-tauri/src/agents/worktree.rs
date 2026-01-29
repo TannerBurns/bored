@@ -492,6 +492,9 @@ pub struct WorktreeConfig {
     pub run_id: String,
     /// Base directory for worktrees (defaults to system temp)
     pub base_dir: Option<PathBuf>,
+    /// Optional branch to base the new branch on (for epic chain branching)
+    /// If specified, the new branch will be created from this branch instead of HEAD
+    pub base_branch: Option<String>,
 }
 
 /// Result of creating a worktree
@@ -653,12 +656,25 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
     
     // Create the worktree with a new branch
     // Use -B to force create/reset the branch if it exists
+    // If base_branch is specified, create the new branch from that branch (for epic chain branching)
+    let mut args = vec![
+        "worktree".to_string(),
+        "add".to_string(),
+        "-B".to_string(),
+        config.branch_name.clone(),
+        worktree_path.to_string_lossy().to_string(),
+    ];
+    
+    if let Some(ref base_branch) = config.base_branch {
+        args.push(base_branch.clone());
+        tracing::info!(
+            "Creating branch {} from base branch {} (epic chain branching)",
+            config.branch_name, base_branch
+        );
+    }
+    
     let output = git_command()
-        .args([
-            "worktree", "add",
-            "-B", &config.branch_name,
-            worktree_path.to_string_lossy().as_ref(),
-        ])
+        .args(&args)
         .current_dir(&repo_root)
         .output()?;
     
@@ -676,11 +692,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
             let _ = prune_stale_worktrees(&repo_root);
             
             let prune_retry_output = git_command()
-                .args([
-                    "worktree", "add",
-                    "-B", &config.branch_name,
-                    worktree_path.to_string_lossy().as_ref(),
-                ])
+                .args(&args)
                 .current_dir(&repo_root)
                 .output()?;
             
@@ -716,11 +728,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                     if let Ok(true) = force_remove_stale_worktree(&repo_root, &worktree_location) {
                         // Successfully removed, retry one more time
                         let final_retry = git_command()
-                            .args([
-                                "worktree", "add",
-                                "-B", &config.branch_name,
-                                worktree_path.to_string_lossy().as_ref(),
-                            ])
+                            .args(&args)
                             .current_dir(&repo_root)
                             .output()?;
                         

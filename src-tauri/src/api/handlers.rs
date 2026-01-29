@@ -114,6 +114,8 @@ pub async fn create_ticket(
         workflow_type: req.workflow_type.unwrap_or_default(),
         model: req.model,
         branch_name: req.branch_name,
+        is_epic: false,
+        epic_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -154,6 +156,9 @@ pub async fn update_ticket(
         model: req.model,
         branch_name: req.branch_name,
         column_id: req.column_id,
+        is_epic: None,
+        epic_id: None,
+        order_in_epic: None,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {

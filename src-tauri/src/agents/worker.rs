@@ -16,6 +16,7 @@ use super::runner::{self, RunnerConfig};
 use super::worktree;
 use super::diagnostic;
 use crate::db::{Database, AgentType, AuthorType, CreateRun, CreateComment, RunStatus, Ticket};
+use crate::lifecycle::epic::on_child_blocked;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -226,9 +227,48 @@ impl Worker {
                 &run_id[..8.min(run_id.len())]
             );
             
+            // For epic child tickets, check if previous sibling has a branch
+            // to implement chain branching (each child branches from previous child)
+            let base_branch = if ticket.epic_id.is_some() {
+                match self.db.get_previous_epic_sibling(&ticket.id) {
+                    Ok(Some(prev_sibling)) => {
+                        if let Some(ref branch) = prev_sibling.branch_name {
+                            tracing::info!(
+                                "Worker {} using chain branching: basing {} on previous sibling's branch {}",
+                                self.id, ticket.id, branch
+                            );
+                            Some(branch.clone())
+                        } else {
+                            tracing::info!(
+                                "Worker {} previous sibling {} has no branch yet, using default branch",
+                                self.id, prev_sibling.id
+                            );
+                            None
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::info!(
+                            "Worker {} ticket {} is first child in epic, using default branch",
+                            self.id, ticket.id
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Worker {} failed to get previous sibling for {}: {}, using default branch",
+                            self.id, ticket.id, e
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            
             tracing::info!(
-                "Worker {} ticket {} has no branch yet, creating worktree with temp branch: {}",
-                self.id, ticket.id, temp_branch
+                "Worker {} ticket {} has no branch yet, creating worktree with temp branch: {}{}",
+                self.id, ticket.id, temp_branch,
+                base_branch.as_ref().map_or(String::new(), |b| format!(" (based on {})", b))
             );
             
             match worktree::create_worktree(&worktree::WorktreeConfig {
@@ -236,6 +276,7 @@ impl Worker {
                 branch_name: temp_branch.clone(),
                 run_id: run_id.clone(),
                 base_dir: None,
+                base_branch,
             }) {
                 Ok(mut info) => {
                     tracing::info!(
@@ -648,6 +689,16 @@ impl Worker {
                             "columnName": "Blocked",
                             "columnId": column.id,
                         }));
+                    }
+                    
+                    // Epic lifecycle: if this ticket is a child, block the parent epic
+                    if ticket.epic_id.is_some() {
+                        if let Err(e) = on_child_blocked(&self.db, ticket) {
+                            tracing::warn!(
+                                "Worker {} failed to block parent epic for ticket {}: {}",
+                                self.id, ticket.id, e
+                            );
+                        }
                     }
                 }
             }

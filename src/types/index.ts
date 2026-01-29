@@ -73,6 +73,12 @@ export interface Ticket {
   model?: string;
   /** The git branch name for this ticket (agent-generated) */
   branchName?: string;
+  /** Whether this ticket is an epic (contains child tickets) */
+  isEpic?: boolean;
+  /** The parent epic ID (if this ticket is a child of an epic) */
+  epicId?: string;
+  /** The order of this ticket within its parent epic */
+  orderInEpic?: number;
 }
 
 export type ReadinessCheck =
@@ -152,6 +158,10 @@ export interface CreateTicketInput {
   model?: string;
   /** Optional pre-defined branch name (if not provided, will be AI-generated on first run) */
   branchName?: string;
+  /** Whether to create this ticket as an epic */
+  isEpic?: boolean;
+  /** The parent epic ID (when creating a child ticket) */
+  epicId?: string;
 }
 
 // Worker types
@@ -227,4 +237,24 @@ export interface PresetTaskInfo {
   typeName: string;
   displayName: string;
   description: string;
+}
+
+// Epic types
+
+/** Progress information for an epic's children */
+export interface EpicProgress {
+  /** Total number of child tickets */
+  total: number;
+  /** Children in Backlog */
+  backlog: number;
+  /** Children in Ready */
+  ready: number;
+  /** Children in In Progress */
+  inProgress: number;
+  /** Children in Blocked */
+  blocked: number;
+  /** Children in Review */
+  review: number;
+  /** Children in Done */
+  done: number;
 }

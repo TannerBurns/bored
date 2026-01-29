@@ -15,7 +15,7 @@ import { useBoardSync } from './hooks/useBoardSync';
 import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { logger } from './lib/logger';
-import type { Ticket, Project, Board as BoardType, AgentRun } from './types';
+import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput } from './types';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -193,15 +193,7 @@ function App() {
 
   const handleTicketClick = (ticket: Ticket) => openTicketModal(ticket);
 
-  const handleCreateTicket = async (input: {
-    title: string;
-    descriptionMd: string;
-    priority: 'low' | 'medium' | 'high' | 'urgent';
-    labels: string[];
-    columnId: string;
-    projectId?: string;
-    agentPref?: 'cursor' | 'claude' | 'any';
-  }) => {
+  const handleCreateTicket = async (input: CreateTicketInput) => {
     // Use store for persistence, let errors propagate
     const ticket = await storeCreateTicket(input);
     setTickets((prev) => [...prev, ticket]);
@@ -581,10 +573,11 @@ function App() {
         />
       )}
 
-      {isCreateModalOpen && (
+      {isCreateModalOpen && currentBoard && (
         <CreateTicketModal
           columns={columns}
           defaultColumnId={columns[0]?.id}
+          boardId={currentBoard.id}
           onClose={closeCreateModal}
           onCreate={handleCreateTicket}
         />

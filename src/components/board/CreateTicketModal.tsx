@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
 import { cn } from '../../lib/utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getProjects } from '../../lib/tauri';
@@ -8,6 +9,7 @@ import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 interface CreateTicketModalProps {
   columns: Column[];
   defaultColumnId?: string;
+  boardId: string;
   onClose: () => void;
   onCreate: (input: CreateTicketInput) => Promise<Ticket>;
 }
@@ -15,6 +17,7 @@ interface CreateTicketModalProps {
 export function CreateTicketModal({
   columns,
   defaultColumnId,
+  boardId,
   onClose,
   onCreate,
 }: CreateTicketModalProps) {
@@ -34,6 +37,12 @@ export function CreateTicketModal({
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
+  
+  // Epic state
+  const [isEpic, setIsEpic] = useState(false);
+  const [epicId, setEpicId] = useState('');
+  const [epics, setEpics] = useState<Ticket[]>([]);
+  const [epicsLoading, setEpicsLoading] = useState(true);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -49,6 +58,23 @@ export function CreateTicketModal({
     };
     loadProjects();
   }, []);
+
+  // Load epics for parent selection
+  useEffect(() => {
+    const loadEpics = async () => {
+      try {
+        setEpicsLoading(true);
+        const tickets = await invoke<Ticket[]>('get_tickets', { boardId });
+        const epicTickets = tickets.filter(t => t.isEpic);
+        setEpics(epicTickets);
+      } catch (e) {
+        console.error('Failed to load epics:', e);
+      } finally {
+        setEpicsLoading(false);
+      }
+    };
+    loadEpics();
+  }, [boardId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +109,8 @@ export function CreateTicketModal({
         workflowType: 'multi_stage',
         model: model || undefined,
         branchName: branchName.trim() || undefined,
+        isEpic,
+        epicId: epicId || undefined,
       });
       
       onClose();
@@ -365,6 +393,74 @@ export function CreateTicketModal({
               <p className="mt-1 text-xs text-board-text-muted">
                 Leave empty for AI-generated branch name on first run
               </p>
+            </div>
+
+            {/* Epic Options */}
+            <div className="border-t border-board-border pt-4 mt-4">
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isEpic}
+                    onChange={(e) => {
+                      setIsEpic(e.target.checked);
+                      if (e.target.checked) setEpicId('');
+                    }}
+                    className="w-4 h-4 rounded border-board-border bg-board-surface-raised text-purple-500 focus:ring-purple-500"
+                  />
+                  <span className="text-sm font-medium text-board-text-secondary flex items-center gap-1.5">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-purple-400"
+                    >
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                    Create as Epic
+                  </span>
+                </label>
+              </div>
+              
+              {isEpic && (
+                <p className="mt-2 text-xs text-board-text-muted">
+                  This ticket will be an Epic that can contain child tickets processed sequentially.
+                </p>
+              )}
+              
+              {!isEpic && epics.length > 0 && (
+                <div className="mt-3">
+                  <label
+                    htmlFor="epicId"
+                    className="block text-sm font-medium text-board-text-secondary mb-1.5"
+                  >
+                    Parent Epic (optional)
+                  </label>
+                  <select
+                    id="epicId"
+                    value={epicId}
+                    onChange={(e) => setEpicId(e.target.value)}
+                    disabled={epicsLoading}
+                    className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-purple-500 border border-board-border disabled:opacity-50"
+                  >
+                    <option value="">No parent epic</option>
+                    {epics.map((epic) => (
+                      <option key={epic.id} value={epic.id}>
+                        {epic.title}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-board-text-muted">
+                    Add this ticket as a child of an existing Epic
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

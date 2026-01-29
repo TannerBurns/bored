@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -75,13 +75,18 @@ CREATE TABLE IF NOT EXISTS tickets (
     agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
     workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
     model TEXT,
-    branch_name TEXT
+    branch_name TEXT,
+    -- Epic support: is_epic marks this ticket as an epic, epic_id references parent epic
+    is_epic INTEGER NOT NULL DEFAULT 0,
+    epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+    order_in_epic INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
@@ -240,6 +245,18 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
+"#;
+
+/// Migration SQL for schema version 9
+/// Adds epic support: is_epic, epic_id, order_in_epic columns
+pub const MIGRATION_V9: &str = r#"
+-- Add epic columns to tickets
+ALTER TABLE tickets ADD COLUMN is_epic INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tickets ADD COLUMN epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL;
+ALTER TABLE tickets ADD COLUMN order_in_epic INTEGER;
+
+-- Index for efficient epic children queries
+CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
 "#;
 
 /// Default columns for a new board

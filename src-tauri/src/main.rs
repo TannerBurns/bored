@@ -182,6 +182,12 @@ fn main() {
             commands::get_comments,
             commands::add_comment,
             commands::update_comment,
+            // Epic management
+            commands::get_epic_children,
+            commands::get_epic_progress,
+            commands::add_ticket_to_epic,
+            commands::remove_ticket_from_epic,
+            commands::reorder_epic_children,
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
             commands::runs::get_recent_runs,

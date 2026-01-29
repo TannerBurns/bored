@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType, WorkflowType};
+use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType, WorkflowType, EpicProgress};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,11 @@ pub struct CreateTicketInput {
     pub model: Option<String>,
     /// Optional pre-defined branch name (if not provided, will be AI-generated on first run)
     pub branch_name: Option<String>,
+    /// Whether to create this ticket as an epic
+    #[serde(default)]
+    pub is_epic: bool,
+    /// The parent epic ID (when creating a child ticket)
+    pub epic_id: Option<String>,
 }
 
 #[tauri::command]
@@ -36,7 +41,7 @@ pub async fn create_ticket(
     ticket: CreateTicketInput,
     db: State<'_, Arc<Database>>,
 ) -> Result<Ticket, String> {
-    tracing::info!("Creating ticket: {}", ticket.title);
+    tracing::info!("Creating ticket: {} (epic: {})", ticket.title, ticket.is_epic);
     let create = CreateTicket {
         board_id: ticket.board_id,
         column_id: ticket.column_id,
@@ -49,6 +54,8 @@ pub async fn create_ticket(
         workflow_type: ticket.workflow_type.unwrap_or_default(),
         model: ticket.model,
         branch_name: ticket.branch_name,
+        is_epic: ticket.is_epic,
+        epic_id: ticket.epic_id,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }
@@ -123,4 +130,53 @@ pub async fn update_comment(
 ) -> Result<Comment, String> {
     tracing::info!("Updating comment: {}", comment_id);
     db.update_comment(&comment_id, &body).map_err(|e| e.to_string())
+}
+
+// ===== Epic Commands =====
+
+#[tauri::command]
+pub async fn get_epic_children(
+    epic_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<Ticket>, String> {
+    tracing::info!("Getting children for epic: {}", epic_id);
+    db.get_epic_children(&epic_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_epic_progress(
+    epic_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<EpicProgress, String> {
+    tracing::info!("Getting progress for epic: {}", epic_id);
+    db.get_epic_progress(&epic_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_ticket_to_epic(
+    epic_id: String,
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Adding ticket {} to epic {}", ticket_id, epic_id);
+    db.add_ticket_to_epic(&epic_id, &ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_ticket_from_epic(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Removing ticket {} from epic", ticket_id);
+    db.remove_ticket_from_epic(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn reorder_epic_children(
+    epic_id: String,
+    child_ids: Vec<String>,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Reordering children for epic {}: {:?}", epic_id, child_ids);
+    db.reorder_epic_children(&epic_id, &child_ids).map_err(|e| e.to_string())
 }

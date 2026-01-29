@@ -274,6 +274,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -310,6 +312,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -347,6 +351,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let created = db.create_run(&CreateRun {
@@ -392,6 +398,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -440,6 +448,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
