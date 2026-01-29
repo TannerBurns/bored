@@ -317,6 +317,64 @@ impl Database {
         })
     }
 
+    /// Reset a failed or completed task back to pending
+    /// 
+    /// Clears run_id, started_at, and completed_at to allow the task to be picked up again.
+    pub fn reset_task(&self, task_id: &str) -> Result<Task, DbError> {
+        self.with_conn(|conn| {
+            // Query existing task first to get all its data
+            let existing = {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, ticket_id, order_index, task_type, title, content, 
+                              status, run_id, created_at, started_at, completed_at
+                       FROM tasks WHERE id = ?"#
+                )?;
+                stmt.query_row([task_id], Self::map_task_row)
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("Task {}", task_id))
+                        }
+                        other => DbError::Sqlite(other),
+                    })?
+            };
+            
+            // Only allow resetting failed or completed tasks
+            if existing.status != TaskStatus::Failed && existing.status != TaskStatus::Completed {
+                return Err(DbError::Validation(
+                    format!("Task {} is not failed or completed (status: {:?})", task_id, existing.status)
+                ));
+            }
+            
+            let affected = conn.execute(
+                r#"UPDATE tasks 
+                   SET status = 'pending', run_id = NULL, started_at = NULL, completed_at = NULL
+                   WHERE id = ? AND (status = 'failed' OR status = 'completed')"#,
+                rusqlite::params![task_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::Validation(
+                    format!("Task {} could not be reset", task_id)
+                ));
+            }
+
+            // Construct the reset task from known values
+            Ok(Task {
+                id: existing.id,
+                ticket_id: existing.ticket_id,
+                order_index: existing.order_index,
+                task_type: existing.task_type,
+                title: existing.title,
+                content: existing.content,
+                status: TaskStatus::Pending,
+                run_id: None,
+                created_at: existing.created_at,
+                started_at: None,
+                completed_at: None,
+            })
+        })
+    }
+
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
@@ -576,6 +634,107 @@ mod tests {
         let failed = db.fail_task(&task.id).unwrap();
         assert_eq!(failed.status, TaskStatus::Failed);
         assert!(failed.completed_at.is_some());
+    }
+
+    #[test]
+    fn reset_failed_task() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start and fail the task
+        db.start_task(&task.id, "run-123").unwrap();
+        let failed = db.fail_task(&task.id).unwrap();
+        assert_eq!(failed.status, TaskStatus::Failed);
+        assert!(failed.run_id.is_some());
+        assert!(failed.started_at.is_some());
+        assert!(failed.completed_at.is_some());
+        
+        // Reset the task
+        let reset = db.reset_task(&task.id).unwrap();
+        assert_eq!(reset.status, TaskStatus::Pending);
+        assert!(reset.run_id.is_none());
+        assert!(reset.started_at.is_none());
+        assert!(reset.completed_at.is_none());
+        
+        // Task should now be eligible for get_next_pending_task
+        // First complete the auto-created task so our reset task is next
+        let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
+        let auto_task = &tasks[0];
+        db.start_task(&auto_task.id, "run-0").unwrap();
+        db.complete_task(&auto_task.id).unwrap();
+        
+        let next = db.get_next_pending_task(&ticket_id).unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().id, task.id);
+    }
+
+    #[test]
+    fn reset_completed_task() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start and complete the task
+        db.start_task(&task.id, "run-123").unwrap();
+        let completed = db.complete_task(&task.id).unwrap();
+        assert_eq!(completed.status, TaskStatus::Completed);
+        
+        // Reset the task
+        let reset = db.reset_task(&task.id).unwrap();
+        assert_eq!(reset.status, TaskStatus::Pending);
+        assert!(reset.run_id.is_none());
+        assert!(reset.started_at.is_none());
+        assert!(reset.completed_at.is_none());
+    }
+
+    #[test]
+    fn reset_pending_task_fails() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Trying to reset a pending task should fail
+        let result = db.reset_task(&task.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn reset_in_progress_task_fails() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+        
+        let task = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Task".to_string()),
+            content: None,
+        }).unwrap();
+        
+        // Start the task
+        db.start_task(&task.id, "run-123").unwrap();
+        
+        // Trying to reset an in-progress task should fail
+        let result = db.reset_task(&task.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
     }
 
     #[test]

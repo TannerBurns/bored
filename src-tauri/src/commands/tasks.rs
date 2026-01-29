@@ -178,6 +178,23 @@ pub fn update_task(
         .map_err(|e| e.to_string())
 }
 
+/// Reset a failed or completed task back to pending
+/// 
+/// This allows the task to be picked up by a worker again.
+#[tauri::command]
+pub fn reset_task(
+    db: State<'_, Arc<Database>>,
+    task_id: String,
+) -> Result<Task, String> {
+    let task = db.reset_task(&task_id)
+        .map_err(|e| e.to_string())?;
+    
+    // Move ticket back to Ready if it was in Done/Review
+    move_to_ready_if_completed(&db, &task.ticket_id)?;
+    
+    Ok(task)
+}
+
 /// Get all available preset task types
 #[tauri::command]
 pub fn get_preset_types() -> Vec<PresetTaskInfo> {

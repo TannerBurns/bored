@@ -230,6 +230,7 @@ fn main() {
             commands::tasks::get_task_counts,
             commands::tasks::update_task,
             commands::tasks::get_preset_types,
+            commands::tasks::reset_task,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

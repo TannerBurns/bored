@@ -8,6 +8,7 @@ interface FullscreenTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (title: string, content: string) => Promise<void>;
+  onReset?: () => Promise<void>;
 }
 
 const TASK_TYPE_LABELS: Record<Task['taskType'], string> = {
@@ -30,11 +31,13 @@ export function FullscreenTaskModal({
   isOpen,
   onClose,
   onSave,
+  onReset,
 }: FullscreenTaskModalProps) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title || '');
   const [editContent, setEditContent] = useState(task.content || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +110,19 @@ export function FullscreenTaskModal({
 
   // Can only edit pending tasks
   const canEdit = task.status === 'pending';
+  // Can reset failed or completed tasks
+  const canReset = (task.status === 'failed' || task.status === 'completed') && onReset;
+
+  const handleReset = async () => {
+    if (!onReset) return;
+    setIsResetting(true);
+    try {
+      await onReset();
+      onClose();
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -279,29 +295,58 @@ export function FullscreenTaskModal({
               <span>
                 Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Click Edit to modify
               </span>
+            ) : canReset ? (
+              <span>
+                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Task {task.status === 'failed' ? 'failed' : 'completed'}, click Reset to retry
+              </span>
             ) : (
               <span>
                 Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Task is {STATUS_LABELS[task.status].toLowerCase()}
               </span>
             )}
           </div>
-          {isEditMode && (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {isEditMode && (
+              <>
+                <button
+                  onClick={handleCancel}
+                  className="px-4 py-2 text-board-text-muted text-sm hover:text-board-text transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
+                >
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </>
+            )}
+            {canReset && !isEditMode && (
               <button
-                onClick={handleCancel}
-                className="px-4 py-2 text-board-text-muted text-sm hover:text-board-text transition-colors"
+                onClick={handleReset}
+                disabled={isResetting}
+                className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors flex items-center gap-2"
               >
-                Cancel
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+                {isResetting ? 'Resetting...' : 'Reset to Pending'}
               </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
-              >
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
