@@ -1029,7 +1029,7 @@ pub fn create_worktree_with_existing_branch(
             let stderr = String::from_utf8_lossy(&output.stderr);
             
             // If branch is already checked out elsewhere, try pruning stale references and retry
-            if stderr.contains("already checked out") {
+            if stderr.contains("already checked out") || stderr.contains("already exists") {
                 tracing::info!(
                     "Branch {} is already checked out elsewhere, pruning stale worktrees and retrying",
                     branch_name
@@ -1051,8 +1051,8 @@ pub fn create_worktree_with_existing_branch(
                 if !retry_output.status.success() {
                     let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
                     
-                    // If still failing with "already checked out", try to auto-remove if it's our worktree
-                    if retry_stderr.contains("already checked out") {
+                    // If still failing with "already checked out" or "already exists", try to auto-remove if it's our worktree
+                    if retry_stderr.contains("already checked out") || retry_stderr.contains("already exists") {
                         let worktree_location = extract_worktree_path_from_error(&retry_stderr)
                             .unwrap_or_else(|| "unknown location".to_string());
                         
