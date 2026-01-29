@@ -13,8 +13,13 @@ const GIT_COMMAND_TIMEOUT_SECS: u64 = 60;
 /// Error type for worktree operations
 #[derive(Debug, thiserror::Error)]
 pub enum WorktreeError {
-    #[error("Git command failed: {0}")]
-    GitError(String),
+    #[error("Git command failed: {message}")]
+    GitError {
+        message: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        operation: String,
+    },
     
     #[error("Failed to execute git: {0}")]
     ExecutionError(#[from] std::io::Error),
@@ -55,6 +60,7 @@ impl WorktreeError {
     /// Get the stderr output if available
     pub fn stderr(&self) -> Option<&str> {
         match self {
+            WorktreeError::GitError { stderr, .. } => Some(stderr.as_str()),
             WorktreeError::SshAuthFailed { stderr, .. } => Some(stderr.as_str()),
             WorktreeError::NetworkError { stderr, .. } => Some(stderr.as_str()),
             _ => None,
@@ -64,6 +70,7 @@ impl WorktreeError {
     /// Get the exit code if available
     pub fn exit_code(&self) -> Option<i32> {
         match self {
+            WorktreeError::GitError { exit_code, .. } => *exit_code,
             WorktreeError::SshAuthFailed { exit_code, .. } => *exit_code,
             WorktreeError::NetworkError { exit_code, .. } => *exit_code,
             _ => None,
@@ -73,6 +80,7 @@ impl WorktreeError {
     /// Get the operation that failed
     pub fn operation(&self) -> Option<&str> {
         match self {
+            WorktreeError::GitError { operation, .. } => Some(operation.as_str()),
             WorktreeError::SshAuthFailed { operation, .. } => Some(operation.as_str()),
             WorktreeError::NetworkError { operation, .. } => Some(operation.as_str()),
             WorktreeError::Timeout { operation, .. } => Some(operation.as_str()),
@@ -87,10 +95,12 @@ impl WorktreeError {
             WorktreeError::NetworkError { .. } => DiagnosticType::NetworkError,
             WorktreeError::Timeout { .. } => DiagnosticType::Timeout,
             WorktreeError::ExecutionError(_) => DiagnosticType::Permission,
-            WorktreeError::GitError(msg) => {
-                if msg.contains("Permission denied") {
+            WorktreeError::GitError { message, stderr, .. } => {
+                // Check both message and stderr for context
+                let combined = format!("{} {}", message, stderr);
+                if combined.contains("Permission denied") {
                     DiagnosticType::Permission
-                } else if msg.contains("Could not resolve host") || msg.contains("Network is unreachable") {
+                } else if combined.contains("Could not resolve host") || combined.contains("Network is unreachable") {
                     DiagnosticType::NetworkError
                 } else {
                     DiagnosticType::GitError
@@ -293,6 +303,160 @@ fn extract_ssh_error_message(stderr: &str) -> String {
     stderr.lines().next().unwrap_or("SSH authentication failed").to_string()
 }
 
+/// Extract the worktree path from a git "already checked out" error.
+fn extract_worktree_path_from_error(stderr: &str) -> Option<String> {
+    // Look for the pattern: already checked out at 'path'
+    if let Some(start) = stderr.find("checked out at '") {
+        let after_prefix = &stderr[start + "checked out at '".len()..];
+        if let Some(end) = after_prefix.find('\'') {
+            return Some(after_prefix[..end].to_string());
+        }
+    }
+    
+    // Alternative pattern without quotes
+    if let Some(start) = stderr.find("checked out at ") {
+        let after_prefix = &stderr[start + "checked out at ".len()..];
+        // Take until end of line or end of string
+        let path = after_prefix.lines().next().unwrap_or(after_prefix);
+        if !path.is_empty() {
+            return Some(path.trim().to_string());
+        }
+    }
+    
+    None
+}
+
+/// Check if a worktree path is in our temp directory (safe to auto-cleanup).
+fn is_our_worktree(worktree_path: &str) -> bool {
+    let our_base = get_default_worktree_base();
+    let our_base_str = our_base.to_string_lossy();
+    
+    // Check if the path is under our worktrees directory
+    // Also handle /private/var vs /var symlink on macOS
+    worktree_path.contains("agent-kanban/worktrees/") ||
+    worktree_path.starts_with(&*our_base_str) ||
+    worktree_path.replace("/private/var", "/var").starts_with(&*our_base_str.replace("/private/var", "/var"))
+}
+
+/// Extract the repository path from a worktree's .git file.
+fn get_worktree_repo_path(worktree_path: &str) -> Option<PathBuf> {
+    let git_file = Path::new(worktree_path).join(".git");
+    
+    if !git_file.exists() || !git_file.is_file() {
+        return None;
+    }
+    
+    // Read the .git file content: "gitdir: /path/to/repo/.git/worktrees/uuid"
+    let content = std::fs::read_to_string(&git_file).ok()?;
+    let gitdir = content.strip_prefix("gitdir: ")?.trim();
+    
+    // Extract repo path from /path/to/repo/.git/worktrees/uuid
+    // We need /path/to/repo
+    let gitdir_path = Path::new(gitdir);
+    
+    // Go up from .git/worktrees/uuid to .git to repo
+    let git_dir = gitdir_path.parent()?.parent()?; // .git
+    let repo_path = git_dir.parent()?; // repo root
+    
+    Some(repo_path.to_path_buf())
+}
+
+/// Attempt to force-remove a stale worktree in our temp directory.
+fn force_remove_stale_worktree(_repo_path: &Path, worktree_path: &str) -> Result<bool, WorktreeError> {
+    if !is_our_worktree(worktree_path) {
+        tracing::debug!(
+            "Worktree {} is not in our directory, not auto-removing",
+            worktree_path
+        );
+        return Ok(false);
+    }
+    
+    let worktree_dir = Path::new(worktree_path);
+    
+    // If the directory doesn't exist, there's nothing to remove
+    // The caller should prune worktree references
+    if !worktree_dir.exists() {
+        tracing::info!(
+            "Worktree directory {} doesn't exist, nothing to remove",
+            worktree_path
+        );
+        return Ok(true);
+    }
+    
+    // Find the actual repo this worktree belongs to by reading its .git file
+    let actual_repo = match get_worktree_repo_path(worktree_path) {
+        Some(repo) => {
+            tracing::info!(
+                "Worktree {} belongs to repo at {}",
+                worktree_path,
+                repo.display()
+            );
+            repo
+        }
+        None => {
+            tracing::warn!(
+                "Could not determine repo for worktree {}, trying manual cleanup",
+                worktree_path
+            );
+            // Try to just delete the directory if we can't find the repo
+            if let Err(e) = std::fs::remove_dir_all(worktree_dir) {
+                tracing::warn!("Failed to manually remove worktree directory: {}", e);
+                return Ok(false);
+            }
+            tracing::info!("Manually removed worktree directory at {}", worktree_path);
+            return Ok(true);
+        }
+    };
+    
+    tracing::info!(
+        "Attempting to force-remove stale worktree at {} from repo {}",
+        worktree_path,
+        actual_repo.display()
+    );
+    
+    // First try normal removal from the correct repo
+    let output = git_command()
+        .args(["worktree", "remove", worktree_path])
+        .current_dir(&actual_repo)
+        .output()?;
+    
+    if output.status.success() {
+        tracing::info!("Successfully removed stale worktree at {}", worktree_path);
+        return Ok(true);
+    }
+    
+    // If normal removal failed, try force removal
+    let force_output = git_command()
+        .args(["worktree", "remove", "--force", worktree_path])
+        .current_dir(&actual_repo)
+        .output()?;
+    
+    if force_output.status.success() {
+        tracing::info!("Force-removed stale worktree at {}", worktree_path);
+        return Ok(true);
+    }
+    
+    let stderr = String::from_utf8_lossy(&force_output.stderr);
+    tracing::warn!(
+        "Failed to remove stale worktree at {}: {}",
+        worktree_path,
+        stderr.trim()
+    );
+    
+    // Last resort: try to delete the directory manually
+    if let Err(e) = std::fs::remove_dir_all(worktree_dir) {
+        tracing::warn!("Failed to manually remove worktree directory: {}", e);
+        return Ok(false);
+    }
+    
+    tracing::info!("Manually removed worktree directory at {}", worktree_path);
+    
+    // Prune the worktree references from the actual repo
+    let _ = prune_stale_worktrees(&actual_repo);
+    
+    Ok(true)
+}
+
 /// Configuration for creating a worktree
 #[derive(Debug, Clone)]
 pub struct WorktreeConfig {
@@ -350,13 +514,37 @@ pub fn get_repo_root(path: &Path) -> Result<PathBuf, WorktreeError> {
     
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(WorktreeError::GitError(format!(
-            "Failed to get repo root: {}", stderr.trim()
-        )));
+        return Err(WorktreeError::GitError {
+            message: "Failed to get repo root".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: output.status.code(),
+            operation: "git rev-parse --show-toplevel".to_string(),
+        });
     }
     
     let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(PathBuf::from(root))
+}
+
+/// Prune stale worktree references from the repository.
+/// 
+/// This cleans up worktree entries where the directory no longer exists,
+/// which can happen if temp directories are cleaned up externally.
+pub fn prune_stale_worktrees(repo_path: &Path) -> Result<(), WorktreeError> {
+    let output = git_command()
+        .args(["worktree", "prune"])
+        .current_dir(repo_path)
+        .output()?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!("Failed to prune worktrees: {}", stderr.trim());
+        // Non-fatal - we can continue even if prune fails
+    } else {
+        tracing::debug!("Pruned stale worktree references");
+    }
+    
+    Ok(())
 }
 
 /// Create a new git worktree for an agent run
@@ -371,6 +559,10 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
     
     // Get the actual repo root (in case repo_path is a subdirectory)
     let repo_root = get_repo_root(&config.repo_path)?;
+    
+    // Prune stale worktree references before creating a new one
+    // This cleans up entries where the directory was deleted externally
+    let _ = prune_stale_worktrees(&repo_root);
     
     // Determine worktree path
     let base_dir = config.base_dir.clone().unwrap_or_else(get_default_worktree_base);
@@ -449,43 +641,137 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         
-        // If branch already exists in another worktree, try with a unique suffix
+        // If branch already exists in another worktree, try pruning stale references and retry
         if stderr.contains("already checked out") || stderr.contains("already exists") {
-            let unique_branch = format!("{}-{}", config.branch_name, &config.run_id[..8.min(config.run_id.len())]);
+            tracing::info!(
+                "Branch {} is already checked out elsewhere, pruning stale worktrees and retrying",
+                config.branch_name
+            );
             
-            let retry_output = git_command()
+            // Prune stale worktree references and retry with the original branch name
+            let _ = prune_stale_worktrees(&repo_root);
+            
+            let prune_retry_output = git_command()
                 .args([
                     "worktree", "add",
-                    "-b", &unique_branch,
+                    "-B", &config.branch_name,
                     worktree_path.to_string_lossy().as_ref(),
                 ])
                 .current_dir(&repo_root)
                 .output()?;
             
-            if !retry_output.status.success() {
-                let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
-                return Err(WorktreeError::GitError(format!(
-                    "Failed to create worktree: {}", retry_stderr.trim()
-                )));
+            if prune_retry_output.status.success() {
+                tracing::info!(
+                    "Created worktree at {} on branch {} after pruning stale references",
+                    worktree_path.display(),
+                    config.branch_name
+                );
+                
+                return Ok(WorktreeInfo {
+                    path: worktree_path,
+                    branch_name: config.branch_name.clone(),
+                    repo_path: repo_root,
+                    is_temp_branch: false,
+                });
             }
             
-            tracing::info!(
-                "Created worktree at {} with unique branch {} (original branch was in use)",
-                worktree_path.display(),
-                unique_branch
-            );
+            // Still failing - try auto-cleanup if it's our worktree
+            let prune_retry_stderr = String::from_utf8_lossy(&prune_retry_output.stderr);
             
-            return Ok(WorktreeInfo {
-                path: worktree_path,
-                branch_name: unique_branch,
-                repo_path: repo_root,
-                is_temp_branch: false,
+            if prune_retry_stderr.contains("already checked out") || prune_retry_stderr.contains("already exists") {
+                let worktree_location = extract_worktree_path_from_error(&prune_retry_stderr)
+                    .unwrap_or_else(|| "unknown location".to_string());
+                
+                // If this is a worktree we created, try to force-remove it
+                if is_our_worktree(&worktree_location) {
+                    tracing::info!(
+                        "Conflicting worktree at {} is ours, attempting auto-cleanup",
+                        worktree_location
+                    );
+                    
+                    if let Ok(true) = force_remove_stale_worktree(&repo_root, &worktree_location) {
+                        // Successfully removed, retry one more time
+                        let final_retry = git_command()
+                            .args([
+                                "worktree", "add",
+                                "-B", &config.branch_name,
+                                worktree_path.to_string_lossy().as_ref(),
+                            ])
+                            .current_dir(&repo_root)
+                            .output()?;
+                        
+                        if final_retry.status.success() {
+                            tracing::info!(
+                                "Successfully created worktree after auto-cleanup at {}",
+                                worktree_path.display()
+                            );
+                            
+                            return Ok(WorktreeInfo {
+                                path: worktree_path,
+                                branch_name: config.branch_name.clone(),
+                                repo_path: repo_root,
+                                is_temp_branch: false,
+                            });
+                        } else {
+                            let final_stderr = String::from_utf8_lossy(&final_retry.stderr);
+                            return Err(WorktreeError::GitError {
+                                message: "Failed to create worktree after auto-cleanup".to_string(),
+                                stderr: final_stderr.trim().to_string(),
+                                exit_code: final_retry.status.code(),
+                                operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
+                            });
+                        }
+                    } else {
+                        // Couldn't auto-remove, require user intervention
+                        return Err(WorktreeError::GitError {
+                            message: format!(
+                                "Branch '{}' is already checked out in another worktree at {}. \
+                                Auto-cleanup failed. Please manually remove it with: \
+                                git worktree remove --force '{}'",
+                                config.branch_name, worktree_location, worktree_location
+                            ),
+                            stderr: prune_retry_stderr.trim().to_string(),
+                            exit_code: prune_retry_output.status.code(),
+                            operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
+                        });
+                    }
+                } else {
+                    // Not our worktree, require user intervention
+                    tracing::error!(
+                        "Branch {} is checked out in an external worktree at {}. User intervention required.",
+                        config.branch_name,
+                        worktree_location
+                    );
+                    
+                    return Err(WorktreeError::GitError {
+                        message: format!(
+                            "Branch '{}' is already checked out in another worktree at {}. \
+                            This worktree was not created by Agent Kanban and may contain work in progress. \
+                            Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
+                            (2) use 'git worktree prune' if the directory no longer exists.",
+                            config.branch_name, worktree_location, worktree_location
+                        ),
+                        stderr: prune_retry_stderr.trim().to_string(),
+                        exit_code: prune_retry_output.status.code(),
+                        operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
+                    });
+                }
+            }
+            
+            return Err(WorktreeError::GitError {
+                message: "Failed to create worktree after prune".to_string(),
+                stderr: prune_retry_stderr.trim().to_string(),
+                exit_code: prune_retry_output.status.code(),
+                operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
             });
         }
         
-        return Err(WorktreeError::GitError(format!(
-            "Failed to create worktree: {}", stderr.trim()
-        )));
+        return Err(WorktreeError::GitError {
+            message: "Failed to create worktree".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: output.status.code(),
+            operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
+        });
     }
     
     tracing::info!(
@@ -565,9 +851,12 @@ pub fn list_worktrees(repo_path: &Path) -> Result<Vec<PathBuf>, WorktreeError> {
     
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(WorktreeError::GitError(format!(
-            "Failed to list worktrees: {}", stderr.trim()
-        )));
+        return Err(WorktreeError::GitError {
+            message: "Failed to list worktrees".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: output.status.code(),
+            operation: "git worktree list --porcelain".to_string(),
+        });
     }
     
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -655,6 +944,10 @@ pub fn create_worktree_with_existing_branch(
     // Get the actual repo root
     let repo_root = get_repo_root(repo_path)?;
     
+    // Prune stale worktree references before creating a new one
+    // This cleans up entries where the directory was deleted externally (e.g., temp cleanup)
+    let _ = prune_stale_worktrees(&repo_root);
+    
     // Determine worktree path
     let base = base_dir.unwrap_or_else(get_default_worktree_base);
     let worktree_path = base.join(run_id);
@@ -723,7 +1016,6 @@ pub fn create_worktree_with_existing_branch(
     
     if branch_exists_locally {
         // Branch exists - create worktree pointing to it
-        // First check if it's already checked out in another worktree
         let output = git_command()
             .args([
                 "worktree", "add",
@@ -736,40 +1028,120 @@ pub fn create_worktree_with_existing_branch(
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             
-            // If branch is already checked out elsewhere, we need to detach and checkout
-            if stderr.contains("already checked out") {
-                // Create worktree in detached state first, then checkout the branch
-                let output = git_command()
+            // If branch is already checked out elsewhere, try pruning stale references and retry
+            if stderr.contains("already checked out") || stderr.contains("already exists") {
+                tracing::info!(
+                    "Branch {} is already checked out elsewhere, pruning stale worktrees and retrying",
+                    branch_name
+                );
+                
+                // Prune stale worktree references (directories that no longer exist)
+                let _ = prune_stale_worktrees(&repo_root);
+                
+                // Retry the worktree creation
+                let retry_output = git_command()
                     .args([
                         "worktree", "add",
-                        "--detach",
                         worktree_path.to_string_lossy().as_ref(),
                         branch_name,
                     ])
                     .current_dir(&repo_root)
                     .output()?;
                 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(WorktreeError::GitError(format!(
-                        "Failed to create worktree: {}", stderr.trim()
-                    )));
+                if !retry_output.status.success() {
+                    let retry_stderr = String::from_utf8_lossy(&retry_output.stderr);
+                    
+                    // If still failing with "already checked out" or "already exists", try to auto-remove if it's our worktree
+                    if retry_stderr.contains("already checked out") || retry_stderr.contains("already exists") {
+                        let worktree_location = extract_worktree_path_from_error(&retry_stderr)
+                            .unwrap_or_else(|| "unknown location".to_string());
+                        
+                        // If this is a worktree we created, try to force-remove it
+                        if is_our_worktree(&worktree_location) {
+                            tracing::info!(
+                                "Conflicting worktree at {} is ours, attempting auto-cleanup",
+                                worktree_location
+                            );
+                            
+                            if let Ok(true) = force_remove_stale_worktree(&repo_root, &worktree_location) {
+                                // Successfully removed, retry one more time
+                                let final_retry = git_command()
+                                    .args([
+                                        "worktree", "add",
+                                        worktree_path.to_string_lossy().as_ref(),
+                                        branch_name,
+                                    ])
+                                    .current_dir(&repo_root)
+                                    .output()?;
+                                
+                                if final_retry.status.success() {
+                                    tracing::info!(
+                                        "Successfully created worktree after auto-cleanup at {}",
+                                        worktree_path.display()
+                                    );
+                                    // Continue to success path below
+                                } else {
+                                    let final_stderr = String::from_utf8_lossy(&final_retry.stderr);
+                                    return Err(WorktreeError::GitError {
+                                        message: "Failed to create worktree after auto-cleanup".to_string(),
+                                        stderr: final_stderr.trim().to_string(),
+                                        exit_code: final_retry.status.code(),
+                                        operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                                    });
+                                }
+                            } else {
+                                // Couldn't auto-remove, require user intervention
+                                return Err(WorktreeError::GitError {
+                                    message: format!(
+                                        "Branch '{}' is already checked out in another worktree at {}. \
+                                        Auto-cleanup failed. Please manually remove it with: \
+                                        git worktree remove --force '{}'",
+                                        branch_name, worktree_location, worktree_location
+                                    ),
+                                    stderr: retry_stderr.trim().to_string(),
+                                    exit_code: retry_output.status.code(),
+                                    operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                                });
+                            }
+                        } else {
+                            // Not our worktree, require user intervention
+                            tracing::error!(
+                                "Branch {} is checked out in an external worktree at {}. User intervention required.",
+                                branch_name,
+                                worktree_location
+                            );
+                            
+                            return Err(WorktreeError::GitError {
+                                message: format!(
+                                    "Branch '{}' is already checked out in another worktree at {}. \
+                                    This worktree was not created by Agent Kanban and may contain work in progress. \
+                                    Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
+                                    (2) use 'git worktree prune' if the directory no longer exists.",
+                                    branch_name, worktree_location, worktree_location
+                                ),
+                                stderr: retry_stderr.trim().to_string(),
+                                exit_code: retry_output.status.code(),
+                                operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                            });
+                        }
+                    } else {
+                        // Different error after retry
+                        return Err(WorktreeError::GitError {
+                            message: "Failed to create worktree after prune".to_string(),
+                            stderr: retry_stderr.trim().to_string(),
+                            exit_code: retry_output.status.code(),
+                            operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                        });
+                    }
                 }
-                
-                // Force checkout the branch in the worktree
-                let checkout_output = git_command()
-                    .args(["checkout", "-B", branch_name])
-                    .current_dir(&worktree_path)
-                    .output()?;
-                
-                if !checkout_output.status.success() {
-                    let stderr = String::from_utf8_lossy(&checkout_output.stderr);
-                    tracing::warn!("Failed to checkout branch in worktree: {}", stderr.trim());
-                }
+                // Retry succeeded - continue
             } else {
-                return Err(WorktreeError::GitError(format!(
-                    "Failed to create worktree: {}", stderr.trim()
-                )));
+                return Err(WorktreeError::GitError {
+                    message: "Failed to create worktree".to_string(),
+                    stderr: stderr.trim().to_string(),
+                    exit_code: output.status.code(),
+                    operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                });
             }
         }
     } else {
@@ -878,9 +1250,12 @@ pub fn create_worktree_with_existing_branch(
             
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(WorktreeError::GitError(format!(
-                    "Failed to create worktree from remote branch: {}", stderr.trim()
-                )));
+                return Err(WorktreeError::GitError {
+                    message: "Failed to create worktree from remote branch".to_string(),
+                    stderr: stderr.trim().to_string(),
+                    exit_code: output.status.code(),
+                    operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
+                });
             }
         } else {
             // Branch doesn't exist anywhere - create it fresh
@@ -895,9 +1270,12 @@ pub fn create_worktree_with_existing_branch(
             
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(WorktreeError::GitError(format!(
-                    "Failed to create worktree with new branch: {}", stderr.trim()
-                )));
+                return Err(WorktreeError::GitError {
+                    message: "Failed to create worktree with new branch".to_string(),
+                    stderr: stderr.trim().to_string(),
+                    exit_code: output.status.code(),
+                    operation: format!("git worktree add -b {} {}", branch_name, worktree_path.display()),
+                });
             }
         }
     }
@@ -1039,5 +1417,168 @@ mod tests {
         assert_eq!(error.diagnostic_type(), DiagnosticType::NetworkError);
         assert_eq!(error.operation(), Some("git fetch"));
         assert!(error.stderr().is_some());
+    }
+    
+    #[test]
+    fn test_git_error_diagnostic_type() {
+        let error = WorktreeError::GitError {
+            message: "Failed to create worktree".to_string(),
+            stderr: "fatal: 'branch' is already checked out at '/tmp/worktree'".to_string(),
+            exit_code: Some(128),
+            operation: "git worktree add".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::GitError);
+        assert_eq!(error.operation(), Some("git worktree add"));
+        assert_eq!(error.stderr(), Some("fatal: 'branch' is already checked out at '/tmp/worktree'"));
+        assert_eq!(error.exit_code(), Some(128));
+    }
+    
+    #[test]
+    fn test_prune_stale_worktrees_in_git_repo() {
+        // Create a temp git repo
+        let temp_dir = std::env::temp_dir().join(format!("prune_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Initialize git repo
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        // Make an initial commit so we have a valid repo
+        std::fs::write(temp_dir.join("README.md"), "test").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&temp_dir)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@test.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@test.com")
+            .output()
+            .ok();
+        
+        // prune_stale_worktrees should succeed (no-op if nothing to prune)
+        let result = prune_stale_worktrees(&temp_dir);
+        assert!(result.is_ok());
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_with_quotes() {
+        let stderr = "fatal: 'feature/test' is already checked out at '/tmp/agent-kanban/worktrees/abc123'";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/tmp/agent-kanban/worktrees/abc123".to_string()));
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_without_quotes() {
+        let stderr = "fatal: branch is already checked out at /var/folders/89/test/worktree";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, Some("/var/folders/89/test/worktree".to_string()));
+    }
+    
+    #[test]
+    fn test_extract_worktree_path_no_match() {
+        let stderr = "fatal: some other error occurred";
+        let result = extract_worktree_path_from_error(stderr);
+        assert_eq!(result, None);
+    }
+    
+    #[test]
+    fn test_is_our_worktree_with_agent_kanban_path() {
+        // Should detect paths in our temp directory
+        assert!(is_our_worktree("/tmp/agent-kanban/worktrees/abc123"));
+        assert!(is_our_worktree("/private/var/folders/89/xmt0wws/T/agent-kanban/worktrees/62e286f9"));
+    }
+    
+    #[test]
+    fn test_is_our_worktree_with_external_path() {
+        // Should not match external paths
+        assert!(!is_our_worktree("/home/user/my-project/.git/worktrees/feature"));
+        assert!(!is_our_worktree("/Users/dev/code/worktree"));
+    }
+    
+    #[test]
+    fn test_get_worktree_repo_path_with_valid_gitdir() {
+        // Create a temp worktree-like structure
+        let temp_dir = std::env::temp_dir().join(format!("worktree_repo_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // Create a fake .git file
+        let git_file = temp_dir.join(".git");
+        std::fs::write(&git_file, "gitdir: /Users/test/my-repo/.git/worktrees/abc123\n").unwrap();
+        
+        let result = get_worktree_repo_path(temp_dir.to_string_lossy().as_ref());
+        assert_eq!(result, Some(PathBuf::from("/Users/test/my-repo")));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_get_worktree_repo_path_with_no_git_file() {
+        let temp_dir = std::env::temp_dir().join(format!("worktree_repo_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        // No .git file
+        let result = get_worktree_repo_path(temp_dir.to_string_lossy().as_ref());
+        assert_eq!(result, None);
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_git_error_permission_denied_in_stderr() {
+        let error = WorktreeError::GitError {
+            message: "Failed".to_string(),
+            stderr: "error: Permission denied while writing".to_string(),
+            exit_code: Some(1),
+            operation: "git checkout".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::Permission);
+    }
+    
+    #[test]
+    fn test_git_error_network_error_in_stderr() {
+        let error = WorktreeError::GitError {
+            message: "Failed to fetch".to_string(),
+            stderr: "fatal: Could not resolve host: github.com".to_string(),
+            exit_code: Some(128),
+            operation: "git fetch".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::NetworkError);
+    }
+    
+    #[test]
+    fn test_git_error_network_unreachable_in_message() {
+        let error = WorktreeError::GitError {
+            message: "Network is unreachable".to_string(),
+            stderr: "".to_string(),
+            exit_code: Some(128),
+            operation: "git push".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::NetworkError);
+    }
+    
+    #[test]
+    fn test_git_error_generic_falls_through() {
+        let error = WorktreeError::GitError {
+            message: "Something went wrong".to_string(),
+            stderr: "fatal: unexpected error".to_string(),
+            exit_code: Some(1),
+            operation: "git status".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::GitError);
     }
 }

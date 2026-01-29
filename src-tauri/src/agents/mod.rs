@@ -4,6 +4,7 @@ pub mod claude;
 pub mod prompt;
 pub mod worker;
 pub mod validation;
+pub mod plan_validation;
 pub mod orchestrator;
 pub mod worktree;
 pub mod runner;

@@ -534,4 +534,35 @@ mod tests {
         assert_eq!(context.error_type, DiagnosticType::NetworkError);
         assert_ne!(context.error_type, DiagnosticType::SshAuth);
     }
+    
+    #[test]
+    fn test_classify_git_error_extracts_details() {
+        let error = WorktreeError::GitError {
+            message: "Failed to create worktree".to_string(),
+            stderr: "fatal: worktree 'path' is locked".to_string(),
+            exit_code: Some(128),
+            operation: "git worktree add /tmp/worktree branch".to_string(),
+        };
+        
+        let context = classify_worktree_error(&error);
+        assert_eq!(context.error_type, DiagnosticType::GitError);
+        assert_eq!(context.operation, "git worktree add /tmp/worktree branch");
+        assert_eq!(context.stderr, "fatal: worktree 'path' is locked");
+        assert_eq!(context.exit_code, Some(128));
+    }
+    
+    #[test]
+    fn test_classify_git_error_with_permission_denied() {
+        let error = WorktreeError::GitError {
+            message: "Failed to create directory".to_string(),
+            stderr: "error: Permission denied while creating /tmp/worktree".to_string(),
+            exit_code: Some(1),
+            operation: "git worktree add".to_string(),
+        };
+        
+        let context = classify_worktree_error(&error);
+        assert_eq!(context.error_type, DiagnosticType::Permission);
+        assert_eq!(context.stderr, "error: Permission denied while creating /tmp/worktree");
+        assert_eq!(context.exit_code, Some(1));
+    }
 }
