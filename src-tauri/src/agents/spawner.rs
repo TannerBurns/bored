@@ -372,7 +372,9 @@ pub fn run_agent_with_capture(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let timeout = config.timeout_secs.map(Duration::from_secs);
+    // Calculate a global deadline to ensure total execution time respects the timeout contract.
+    // This prevents retry attempts from each getting a fresh timeout window.
+    let global_deadline = config.timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
     let mut attempt = 0;
     let mut on_spawn = on_spawn;
 
@@ -388,6 +390,38 @@ pub fn run_agent_with_capture(
             thread::sleep(Duration::from_millis(backoff_ms));
         }
 
+        // Calculate remaining time against the global deadline
+        let remaining_timeout = global_deadline.map(|deadline| {
+            let now = Instant::now();
+            if now >= deadline {
+                Duration::ZERO
+            } else {
+                deadline - now
+            }
+        });
+
+        // If we've exhausted our time budget, return a timeout result
+        if let Some(remaining) = remaining_timeout {
+            if remaining.is_zero() {
+                let duration_secs = start_time.elapsed().as_secs_f64();
+                tracing::warn!(
+                    "Global timeout exceeded before attempt {} for run {}",
+                    attempt, config.run_id
+                );
+                return Ok(AgentRunResult {
+                    run_id: config.run_id,
+                    exit_code: None,
+                    status: RunOutcome::Timeout,
+                    summary: Some(format!(
+                        "Process timed out after {} seconds (global deadline exceeded)",
+                        config.timeout_secs.unwrap_or(0)
+                    )),
+                    duration_secs,
+                    captured_stdout: None,
+                });
+            }
+        }
+
         let process = AgentProcess::spawn(
             &command,
             &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -400,7 +434,7 @@ pub fn run_agent_with_capture(
             callback(process.cancel_handle());
         }
 
-        let result = process.wait_with_capture(timeout, on_log.clone(), true);
+        let result = process.wait_with_capture(remaining_timeout, on_log.clone(), true);
 
         match result {
             Ok((exit_code, outcome, captured_stdout, captured_stderr)) => {
