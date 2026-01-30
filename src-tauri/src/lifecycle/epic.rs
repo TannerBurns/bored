@@ -17,11 +17,6 @@ pub enum EpicAdvancement {
     NoAction,
 }
 
-/// Check if a ticket is an epic
-pub fn is_epic(ticket: &Ticket) -> bool {
-    ticket.is_epic
-}
-
 /// Handle epic advancement when moved to Ready.
 /// 
 /// When an epic is moved to Ready, move its first pending child to Ready.
@@ -147,33 +142,6 @@ pub fn on_child_blocked(
     }
 
     Ok(())
-}
-
-/// Handle epic being unblocked (moved from Blocked back to Ready).
-/// 
-/// When an epic is unblocked, check if the previously blocked child is still blocked.
-/// If so, try to unblock or resume processing.
-pub fn on_epic_unblocked(
-    db: &Arc<Database>,
-    epic: &Ticket,
-) -> Result<EpicAdvancement, DbError> {
-    if !epic.is_epic {
-        return Ok(EpicAdvancement::NoAction);
-    }
-
-    // Check if there's a blocked child
-    if db.has_blocked_child(&epic.id)? {
-        // Epic has blocked children, add a comment about manual intervention needed
-        db.create_comment(&CreateComment {
-            ticket_id: epic.id.clone(),
-            author_type: AuthorType::System,
-            body_md: "Epic unblocked manually. Note: Some child tickets are still blocked and may need attention.".to_string(),
-            metadata: None,
-        })?;
-    }
-
-    // Try to advance the next pending child if any
-    on_epic_moved_to_ready(db, epic)
 }
 
 #[cfg(test)]

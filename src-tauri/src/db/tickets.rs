@@ -755,21 +755,6 @@ impl Database {
         })
     }
 
-    /// Check if any child of an epic is blocked
-    pub fn has_blocked_child(&self, epic_id: &str) -> Result<bool, DbError> {
-        self.with_conn(|conn| {
-            let blocked: i32 = conn.query_row(
-                r#"SELECT COUNT(*) FROM tickets t
-                   JOIN columns c ON t.column_id = c.id
-                   WHERE t.epic_id = ? AND c.name = 'Blocked'"#,
-                [epic_id],
-                |row| row.get(0),
-            )?;
-            
-            Ok(blocked > 0)
-        })
-    }
-
     /// Get the previous sibling of a child ticket in an epic (for chain branching)
     /// Returns the ticket that is one position before this ticket in the epic's order
     pub fn get_previous_epic_sibling(&self, ticket_id: &str) -> Result<Option<Ticket>, DbError> {
@@ -2117,5 +2102,405 @@ mod tests {
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].content, None); // No content since description was empty
+    }
+
+    // ===== Epic DB Operation Tests =====
+
+    fn create_epic_ticket(db: &Database, board_id: &str, column_id: &str, title: &str) -> Ticket {
+        db.create_ticket(&CreateTicket {
+            board_id: board_id.to_string(),
+            column_id: column_id.to_string(),
+            title: title.to_string(),
+            description_md: "Epic".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+        }).unwrap()
+    }
+
+    fn create_child_ticket(db: &Database, board_id: &str, column_id: &str, epic_id: &str, title: &str) -> Ticket {
+        db.create_ticket(&CreateTicket {
+            board_id: board_id.to_string(),
+            column_id: column_id.to_string(),
+            title: title.to_string(),
+            description_md: "Child".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic_id.to_string()),
+        }).unwrap()
+    }
+
+    #[test]
+    fn get_epic_children_returns_ordered_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // Create children - order_in_epic is assigned automatically
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        let child3 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 3");
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].id, child1.id);
+        assert_eq!(children[1].id, child2.id);
+        assert_eq!(children[2].id, child3.id);
+        
+        // Verify order_in_epic values
+        assert_eq!(children[0].order_in_epic, Some(0));
+        assert_eq!(children[1].order_in_epic, Some(1));
+        assert_eq!(children[2].order_in_epic, Some(2));
+    }
+
+    #[test]
+    fn get_epic_children_returns_empty_for_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn get_next_pending_child_returns_first_in_backlog() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // First child in Ready (not pending), second in Backlog
+        let _child1 = create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let next = db.get_next_pending_child(&epic.id).unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().id, child2.id);
+    }
+
+    #[test]
+    fn get_next_pending_child_returns_none_when_no_backlog() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // All children done or in progress
+        let _child1 = create_child_ticket(&db, &board.id, &done.id, &epic.id, "Child 1");
+        let _child2 = create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Child 2");
+        
+        let next = db.get_next_pending_child(&epic.id).unwrap();
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn get_epic_progress_counts_columns_correctly() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        let blocked = columns.iter().find(|c| c.name == "Blocked").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // Create children in various columns
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog 1");
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog 2");
+        create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Ready 1");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done 1");
+        create_child_ticket(&db, &board.id, &blocked.id, &epic.id, "Blocked 1");
+        
+        let progress = db.get_epic_progress(&epic.id).unwrap();
+        
+        assert_eq!(progress.total, 5);
+        assert_eq!(progress.backlog, 2);
+        assert_eq!(progress.ready, 1);
+        assert_eq!(progress.done, 1);
+        assert_eq!(progress.blocked, 1);
+        assert_eq!(progress.in_progress, 0);
+        assert_eq!(progress.review, 0);
+    }
+
+    #[test]
+    fn get_epic_progress_returns_zeros_for_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let progress = db.get_epic_progress(&epic.id).unwrap();
+        
+        assert_eq!(progress.total, 0);
+        assert_eq!(progress.backlog, 0);
+        assert_eq!(progress.done, 0);
+    }
+
+    #[test]
+    fn add_ticket_to_epic_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // Create a standalone ticket (not a child)
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Standalone".to_string(),
+            description_md: "Not a child yet".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        assert!(ticket.epic_id.is_none());
+        
+        // Add to epic
+        db.add_ticket_to_epic(&epic.id, &ticket.id).unwrap();
+        
+        // Verify
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated.epic_id, Some(epic.id.clone()));
+        assert_eq!(updated.order_in_epic, Some(0));
+    }
+
+    #[test]
+    fn add_ticket_to_epic_fails_if_not_epic() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        // Create a non-epic ticket
+        let not_epic = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Not Epic".to_string(),
+            description_md: "Regular ticket".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let result = db.add_ticket_to_epic(&not_epic.id, &ticket.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn remove_ticket_from_epic_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child");
+        
+        assert!(child.epic_id.is_some());
+        
+        db.remove_ticket_from_epic(&child.id).unwrap();
+        
+        let updated = db.get_ticket(&child.id).unwrap();
+        assert!(updated.epic_id.is_none());
+        assert!(updated.order_in_epic.is_none());
+    }
+
+    #[test]
+    fn reorder_epic_children_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        let child3 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 3");
+        
+        // Reorder: 3, 1, 2
+        db.reorder_epic_children(&epic.id, &[child3.id.clone(), child1.id.clone(), child2.id.clone()]).unwrap();
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        assert_eq!(children[0].id, child3.id);
+        assert_eq!(children[1].id, child1.id);
+        assert_eq!(children[2].id, child2.id);
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_none_for_first_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let _child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let prev = db.get_previous_epic_sibling(&child1.id).unwrap();
+        assert!(prev.is_none());
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_previous_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let prev = db.get_previous_epic_sibling(&child2.id).unwrap();
+        assert!(prev.is_some());
+        assert_eq!(prev.unwrap().id, child1.id);
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_none_for_non_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        // Create a standalone ticket (not a child of any epic)
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Standalone".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let prev = db.get_previous_epic_sibling(&ticket.id).unwrap();
+        assert!(prev.is_none());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_true_when_all_done() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child 1");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child 2");
+        
+        assert!(db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_false_when_some_not_done() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child");
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog Child");
+        
+        assert!(!db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_false_when_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // No children = false (need at least one child to be "all done")
+        assert!(!db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn create_ticket_with_epic_id_sets_order() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        assert_eq!(child1.order_in_epic, Some(0));
+        assert_eq!(child2.order_in_epic, Some(1));
     }
 }
