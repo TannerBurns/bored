@@ -9,6 +9,7 @@ pub mod orchestrator;
 pub mod worktree;
 pub mod runner;
 pub mod diagnostic;
+pub mod planner;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

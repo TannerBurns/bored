@@ -7,6 +7,7 @@ mod runs;
 mod events;
 mod comments;
 pub mod tasks;
+mod scratchpads;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -214,6 +215,49 @@ impl Database {
                 );
                 let _ = conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL",
+                    [],
+                );
+            }
+            
+            if current_version < 10 && current_version > 0 {
+                tracing::info!("Applying migration v10: scratchpads table and epic dependencies");
+                // Create scratchpads table first (tickets references it)
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS scratchpads (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        name TEXT NOT NULL,
+                        user_input TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+                        exploration_log TEXT,
+                        plan_markdown TEXT,
+                        plan_json TEXT,
+                        settings_json TEXT NOT NULL DEFAULT '{}',
+                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                    "#
+                )?;
+                
+                // Add new columns to tickets
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL",
+                    [],
+                );
+                let _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL",
+                    [],
+                );
+                let _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL",
                     [],
                 );
             }

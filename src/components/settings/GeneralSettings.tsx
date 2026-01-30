@@ -39,8 +39,25 @@ const agentOptions = [
   { value: 'claude', label: 'Claude', description: 'Prefer Claude Code agent' },
 ] as const;
 
+const plannerModelOptions = [
+  { value: 'default', label: 'Default', description: 'Use default model' },
+  { value: 'opus', label: 'Opus', description: 'Most capable, higher cost' },
+  { value: 'sonnet', label: 'Sonnet', description: 'Balanced capability and speed' },
+] as const;
+
 export function GeneralSettings() {
-  const { theme, setTheme, defaultAgentPref, setDefaultAgentPref } = useSettingsStore();
+  const { 
+    theme, 
+    setTheme, 
+    defaultAgentPref, 
+    setDefaultAgentPref,
+    plannerAutoApprove,
+    setPlannerAutoApprove,
+    plannerModel,
+    setPlannerModel,
+    plannerMaxExplorations,
+    setPlannerMaxExplorations,
+  } = useSettingsStore();
 
   return (
     <div className="space-y-6">
@@ -93,6 +110,88 @@ export function GeneralSettings() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Planner Settings Section */}
+      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+        <div>
+          <h3 className="font-medium text-board-text">Planner Agent Settings</h3>
+          <p className="text-sm text-board-text-muted mt-0.5">
+            Configure how the AI planner explores codebases and generates work plans.
+          </p>
+        </div>
+
+        {/* Auto-approve toggle */}
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-sm font-medium text-board-text">Auto-approve Plans</span>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              Automatically approve generated plans without manual review
+            </p>
+          </div>
+          <button
+            onClick={() => setPlannerAutoApprove(!plannerAutoApprove)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-board-accent focus:ring-offset-2 ${
+              plannerAutoApprove ? 'bg-board-accent' : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                plannerAutoApprove ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Max explorations */}
+        <div>
+          <label className="block text-sm font-medium text-board-text mb-2">
+            Max Exploration Queries
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={plannerMaxExplorations}
+            onChange={(e) => setPlannerMaxExplorations(parseInt(e.target.value) || 10)}
+            className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+          />
+          <p className="text-xs text-board-text-muted mt-1">
+            Maximum number of codebase exploration queries before generating a plan (1-50)
+          </p>
+        </div>
+
+        {/* Planner model preference */}
+        <div>
+          <label className="block text-sm font-medium text-board-text mb-2">
+            Planner Model
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            {plannerModelOptions.map((option) => {
+              const isSelected = plannerModel === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setPlannerModel(option.value)}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all ${
+                    isSelected
+                      ? 'border-board-accent bg-board-accent-subtle'
+                      : 'border-board-border hover:border-board-text-muted bg-board-surface-raised hover:bg-board-card-hover'
+                  }`}
+                >
+                  <span className={`text-sm font-medium ${
+                    isSelected ? 'text-board-accent' : 'text-board-text'
+                  }`}>
+                    {option.label}
+                  </span>
+                  <span className="text-xs text-board-text-muted">
+                    {option.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

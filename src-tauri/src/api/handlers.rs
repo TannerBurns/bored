@@ -116,6 +116,8 @@ pub async fn create_ticket(
         branch_name: req.branch_name,
         is_epic: false,
         epic_id: None,
+        depends_on_epic_id: None,
+        scratchpad_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -159,6 +161,8 @@ pub async fn update_ticket(
         is_epic: None,
         epic_id: None,
         order_in_epic: None,
+        depends_on_epic_id: None,
+        scratchpad_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {

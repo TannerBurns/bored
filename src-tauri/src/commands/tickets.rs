@@ -79,6 +79,8 @@ pub async fn create_ticket(
         branch_name: ticket.branch_name,
         is_epic: ticket.is_epic,
         epic_id: ticket.epic_id,
+        depends_on_epic_id: None,
+        scratchpad_id: None,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }
@@ -146,6 +148,8 @@ pub async fn update_ticket(
         is_epic: None,
         epic_id: None,
         order_in_epic: None,
+        depends_on_epic_id: None,
+        scratchpad_id: None,
     };
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())

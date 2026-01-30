@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -79,7 +79,11 @@ CREATE TABLE IF NOT EXISTS tickets (
     -- Epic support: is_epic marks this ticket as an epic, epic_id references parent epic
     is_epic INTEGER NOT NULL DEFAULT 0,
     epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
-    order_in_epic INTEGER
+    order_in_epic INTEGER,
+    -- Cross-epic dependency: which epic must complete before this epic can start
+    depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+    -- Link back to scratchpad that created this ticket
+    scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -87,6 +91,27 @@ CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL;
+
+-- Scratchpads table (for planner agent)
+CREATE TABLE IF NOT EXISTS scratchpads (
+    id TEXT PRIMARY KEY NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+    exploration_log TEXT,
+    plan_markdown TEXT,
+    plan_json TEXT,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
@@ -257,6 +282,40 @@ ALTER TABLE tickets ADD COLUMN order_in_epic INTEGER;
 
 -- Index for efficient epic children queries
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+"#;
+
+/// Migration SQL for schema version 10
+/// Adds scratchpads table and epic dependency columns
+pub const MIGRATION_V10: &str = r#"
+-- Add depends_on_epic_id column to tickets for cross-epic dependencies
+ALTER TABLE tickets ADD COLUMN depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL;
+
+-- Add scratchpad_id column to tickets to link back to generating scratchpad
+ALTER TABLE tickets ADD COLUMN scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL;
+
+-- Create scratchpads table
+CREATE TABLE IF NOT EXISTS scratchpads (
+    id TEXT PRIMARY KEY NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+    exploration_log TEXT,
+    plan_markdown TEXT,
+    plan_json TEXT,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Indexes for scratchpads
+CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+
+-- Indexes for new ticket columns
+CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL;
 "#;
 
 /// Default columns for a new board

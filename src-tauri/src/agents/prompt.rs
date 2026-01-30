@@ -767,6 +767,8 @@ mod tests {
             is_epic: false,
             epic_id: None,
             order_in_epic: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }
     }
 

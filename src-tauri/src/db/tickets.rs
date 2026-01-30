@@ -11,7 +11,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                    FROM tickets WHERE id = ?"#
             )?;
             
@@ -33,7 +33,7 @@ impl Database {
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
                               lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                              is_epic, epic_id, order_in_epic
+                              is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                        FROM tickets WHERE id = ?"#
                 )?;
                 stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -82,6 +82,18 @@ impl Database {
             };
             // Handle order_in_epic: None means keep existing, Some(value) means set
             let order_in_epic = updates.order_in_epic.or(existing.order_in_epic);
+            // Handle depends_on_epic_id: None means keep existing, Some("") means clear, Some(id) means set
+            let depends_on_epic_id = match &updates.depends_on_epic_id {
+                Some(id) if id.is_empty() => None,
+                Some(id) => Some(id.as_str()),
+                None => existing.depends_on_epic_id.as_deref(),
+            };
+            // Handle scratchpad_id: None means keep existing, Some("") means clear, Some(id) means set
+            let scratchpad_id = match &updates.scratchpad_id {
+                Some(id) if id.is_empty() => None,
+                Some(id) => Some(id.as_str()),
+                None => existing.scratchpad_id.as_deref(),
+            };
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
 
@@ -89,7 +101,8 @@ impl Database {
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
                        project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
-                       column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, updated_at = ?
+                       column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
+                       depends_on_epic_id = ?, scratchpad_id = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -105,6 +118,8 @@ impl Database {
                     is_epic,
                     epic_id,
                     order_in_epic,
+                    depends_on_epic_id,
+                    scratchpad_id,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -115,7 +130,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                    FROM tickets WHERE id = ?"#
             )?;
             stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -341,7 +356,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
                 [run_id],
@@ -378,8 +393,8 @@ impl Database {
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
                     created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name,
-                    is_epic, epic_id, order_in_epic)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -398,6 +413,8 @@ impl Database {
                     ticket.is_epic,
                     ticket.epic_id,
                     order_in_epic,
+                    ticket.depends_on_epic_id,
+                    ticket.scratchpad_id,
                 ],
             )?;
 
@@ -421,6 +438,8 @@ impl Database {
                 is_epic: ticket.is_epic,
                 epic_id: ticket.epic_id.clone(),
                 order_in_epic,
+                depends_on_epic_id: ticket.depends_on_epic_id.clone(),
+                scratchpad_id: ticket.scratchpad_id.clone(),
             })
         })?;
         
@@ -473,14 +492,14 @@ impl Database {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
             };
@@ -542,6 +561,8 @@ impl Database {
         let is_epic: bool = row.get::<_, i32>(16).unwrap_or(0) != 0;
         let epic_id: Option<String> = row.get(17)?;
         let order_in_epic: Option<i32> = row.get(18)?;
+        let depends_on_epic_id: Option<String> = row.get(19)?;
+        let scratchpad_id: Option<String> = row.get(20)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -563,6 +584,8 @@ impl Database {
             is_epic,
             epic_id,
             order_in_epic,
+            depends_on_epic_id,
+            scratchpad_id,
         })
     }
 
@@ -591,7 +614,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                    FROM tickets WHERE epic_id = ?
                    ORDER BY order_in_epic ASC, created_at ASC"#
             )?;
@@ -608,7 +631,7 @@ impl Database {
                 r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority, 
                           t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id, 
                           t.lock_expires_at, t.project_id, t.agent_pref, t.workflow_type, t.model, t.branch_name,
-                          t.is_epic, t.epic_id, t.order_in_epic
+                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.scratchpad_id
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.epic_id = ? AND c.name = 'Backlog'
@@ -732,6 +755,22 @@ impl Database {
         })
     }
 
+    /// Get all epics that depend on the given epic (via depends_on_epic_id)
+    pub fn get_epics_depending_on(&self, epic_id: &str) -> Result<Vec<Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
+                   FROM tickets WHERE depends_on_epic_id = ? AND is_epic = 1"#
+            )?;
+            
+            let rows = stmt.query_map([epic_id], Self::map_ticket_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
     /// Check if all children of an epic are in Done column
     pub fn are_all_epic_children_done(&self, epic_id: &str) -> Result<bool, DbError> {
         self.with_conn(|conn| {
@@ -752,6 +791,41 @@ impl Database {
             )?;
             
             Ok(total > 0 && not_done == 0)
+        })
+    }
+
+    /// Get the last child ticket with a branch name from the dependency epic.
+    /// Used for cross-epic branching: when an epic depends on another, its first
+    /// child should branch from the last child of the dependency epic.
+    pub fn get_dependency_base_branch(&self, epic_id: &str) -> Result<Option<String>, DbError> {
+        self.with_conn(|conn| {
+            // First get the dependency epic id
+            let depends_on: Option<String> = conn.query_row(
+                "SELECT depends_on_epic_id FROM tickets WHERE id = ?",
+                [epic_id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Epic {}", epic_id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            let Some(dependency_id) = depends_on else {
+                return Ok(None); // No dependency
+            };
+            
+            // Get the last child of the dependency epic that has a branch_name
+            // Order by order_in_epic DESC to get the last child first
+            let branch: Option<String> = conn.query_row(
+                r#"SELECT t.branch_name FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ? AND t.branch_name IS NOT NULL AND c.name = 'Done'
+                   ORDER BY t.order_in_epic DESC
+                   LIMIT 1"#,
+                [&dependency_id],
+                |row| row.get(0),
+            ).ok();
+            
+            Ok(branch)
         })
     }
 
@@ -780,7 +854,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority,
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
                    FROM tickets WHERE epic_id = ? AND order_in_epic = ?"#
             )?;
             
@@ -823,6 +897,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         (board.id, ready_column.id.clone(), ticket)
@@ -848,6 +924,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(ticket.title, "Test Ticket");
@@ -877,6 +955,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let tickets = db.get_tickets(&board.id, None).unwrap();
@@ -903,6 +983,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         db.move_ticket(&ticket.id, &columns[1].id).unwrap();
@@ -939,6 +1021,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
@@ -967,6 +1051,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let fetched = db.get_ticket(&created.id).unwrap();
@@ -1002,6 +1088,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -1018,6 +1106,8 @@ mod tests {
             is_epic: None,
             epic_id: None,
             order_in_epic: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -1042,6 +1132,8 @@ mod tests {
             is_epic: None,
             epic_id: None,
             order_in_epic: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
@@ -1072,6 +1164,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(ticket.project_id, Some(project.id.clone()));
@@ -1090,6 +1184,8 @@ mod tests {
             is_epic: None,
             epic_id: None,
             order_in_epic: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, None);
@@ -1121,6 +1217,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -1137,6 +1235,8 @@ mod tests {
             is_epic: None,
             epic_id: None,
             order_in_epic: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, Some(project.id));
@@ -1163,6 +1263,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         db.delete_ticket(&ticket.id).unwrap();
@@ -1198,6 +1300,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1234,6 +1338,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let initial_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1266,6 +1372,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1295,6 +1403,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1331,6 +1441,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         // Lock with an already-expired timestamp
@@ -1374,6 +1486,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1409,6 +1523,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1441,6 +1557,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1474,6 +1592,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1526,6 +1646,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1588,6 +1710,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1630,6 +1754,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1665,6 +1791,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         // Create urgent ticket second
@@ -1682,6 +1810,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1714,6 +1844,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1749,6 +1881,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1788,6 +1922,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1824,6 +1960,8 @@ mod tests {
             branch_name: None,
             is_epic: true,  // This makes it an epic
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1855,6 +1993,8 @@ mod tests {
             branch_name: None,
             is_epic: true,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         // Create a child ticket in Ready - this SHOULD be picked up
@@ -1872,6 +2012,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1902,6 +2044,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert!(ticket.branch_name.is_none());
@@ -1939,6 +2083,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let before = ticket.updated_at;
@@ -1972,6 +2118,8 @@ mod tests {
             branch_name: Some("feat/preset/my-branch".to_string()),
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert_eq!(ticket.branch_name, Some("feat/preset/my-branch".to_string()));
@@ -2001,6 +2149,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         // Verify Task 1 was automatically created
@@ -2032,6 +2182,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2065,6 +2217,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2097,6 +2251,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2121,6 +2277,8 @@ mod tests {
             branch_name: None,
             is_epic: true,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap()
     }
 
@@ -2139,6 +2297,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: Some(epic_id.to_string()),
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap()
     }
 
@@ -2289,6 +2449,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         assert!(ticket.epic_id.is_none());
@@ -2324,6 +2486,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let ticket = db.create_ticket(&CreateTicket {
@@ -2340,6 +2504,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let result = db.add_ticket_to_epic(&not_epic.id, &ticket.id);
@@ -2439,6 +2605,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
         
         let prev = db.get_previous_epic_sibling(&ticket.id).unwrap();

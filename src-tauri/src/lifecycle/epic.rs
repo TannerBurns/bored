@@ -1,6 +1,7 @@
 //! Epic lifecycle orchestration
 //!
 //! Handles automatic advancement of epic children and epic state management.
+//! Also handles cross-epic dependencies (depends_on_epic_id).
 
 use std::sync::Arc;
 use crate::db::{Database, DbError, Ticket, AuthorType, CreateComment};
@@ -13,19 +14,64 @@ pub enum EpicAdvancement {
     ChildAdvanced { child_id: String },
     /// All children complete, epic moved to Done
     EpicComplete,
+    /// Dependent epics were moved to Ready after this epic completed
+    DependentsAdvanced { epic_ids: Vec<String> },
+    /// Epic cannot start because dependency is not complete
+    BlockedByDependency { dependency_id: String },
     /// No action needed
     NoAction,
 }
 
 /// Handle epic advancement when moved to Ready.
 /// 
-/// When an epic is moved to Ready, move its first pending child to Ready.
+/// When an epic is moved to Ready:
+/// 1. Check if this epic has a dependency (depends_on_epic_id)
+/// 2. If dependency exists and is not Done, block this epic
+/// 3. Otherwise, move its first pending child to Ready
 pub fn on_epic_moved_to_ready(
     db: &Arc<Database>,
     epic: &Ticket,
 ) -> Result<EpicAdvancement, DbError> {
     if !epic.is_epic {
         return Ok(EpicAdvancement::NoAction);
+    }
+
+    // Check if this epic has a dependency
+    if let Some(ref dependency_id) = epic.depends_on_epic_id {
+        // Check if the dependency epic is in Done
+        let dependency = db.get_ticket(dependency_id)?;
+        let dep_column = db.get_columns(&dependency.board_id)?
+            .into_iter()
+            .find(|c| c.id == dependency.column_id);
+        
+        if let Some(col) = dep_column {
+            if col.name != "Done" {
+                // Dependency not complete - move epic to Backlog
+                if let Some(backlog) = db.find_column_by_name(&epic.board_id, "Backlog")? {
+                    db.move_ticket(&epic.id, &backlog.id)?;
+                    
+                    // Add system comment
+                    db.create_comment(&CreateComment {
+                        ticket_id: epic.id.clone(),
+                        author_type: AuthorType::System,
+                        body_md: format!(
+                            "Epic blocked: depends on \"{}\" which is not yet complete. Moved back to Backlog.",
+                            dependency.title
+                        ),
+                        metadata: None,
+                    })?;
+                    
+                    tracing::info!(
+                        "Epic {} blocked by dependency {}, moved to Backlog",
+                        epic.id, dependency_id
+                    );
+                    
+                    return Ok(EpicAdvancement::BlockedByDependency { 
+                        dependency_id: dependency_id.clone() 
+                    });
+                }
+            }
+        }
     }
 
     // Get the next pending child (first child in Backlog)
@@ -75,6 +121,13 @@ pub fn on_child_completed(
             })?;
             
             tracing::info!("Epic {} completed - all children done", epic.id);
+            
+            // Check for dependent epics that can now be moved to Ready
+            let advanced = advance_dependent_epics(db, &epic)?;
+            if !advanced.is_empty() {
+                return Ok(EpicAdvancement::DependentsAdvanced { epic_ids: advanced });
+            }
+            
             return Ok(EpicAdvancement::EpicComplete);
         }
     } else {
@@ -94,6 +147,56 @@ pub fn on_child_completed(
     }
 
     Ok(EpicAdvancement::NoAction)
+}
+
+/// When an epic completes, check for other epics that depend on it
+/// and move them to Ready if they're in Backlog.
+pub fn advance_dependent_epics(
+    db: &Arc<Database>,
+    completed_epic: &Ticket,
+) -> Result<Vec<String>, DbError> {
+    let mut advanced = Vec::new();
+    
+    // Find all epics that depend on this one
+    let dependents = db.get_epics_depending_on(&completed_epic.id)?;
+    
+    for dependent in dependents {
+        // Check if it's in Backlog
+        let columns = db.get_columns(&dependent.board_id)?;
+        let current_column = columns.iter().find(|c| c.id == dependent.column_id);
+        
+        if let Some(col) = current_column {
+            if col.name == "Backlog" {
+                // Move to Ready
+                if let Some(ready_column) = db.find_column_by_name(&dependent.board_id, "Ready")? {
+                    db.move_ticket(&dependent.id, &ready_column.id)?;
+                    
+                    // Add system comment
+                    db.create_comment(&CreateComment {
+                        ticket_id: dependent.id.clone(),
+                        author_type: AuthorType::System,
+                        body_md: format!(
+                            "Dependency \"{}\" completed. Epic moved to Ready.",
+                            completed_epic.title
+                        ),
+                        metadata: None,
+                    })?;
+                    
+                    tracing::info!(
+                        "Epic {} moved to Ready after dependency {} completed",
+                        dependent.id, completed_epic.id
+                    );
+                    
+                    advanced.push(dependent.id.clone());
+                    
+                    // Also trigger on_epic_moved_to_ready to advance its first child
+                    let _ = on_epic_moved_to_ready(db, &dependent);
+                }
+            }
+        }
+    }
+    
+    Ok(advanced)
 }
 
 /// Handle child ticket blocked.
@@ -168,6 +271,8 @@ mod tests {
             branch_name: None,
             is_epic: true,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap()
     }
 
@@ -186,6 +291,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: Some(epic_id.to_string()),
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap()
     }
 

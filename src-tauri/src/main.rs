@@ -252,6 +252,19 @@ fn main() {
             commands::tasks::update_task,
             commands::tasks::get_preset_types,
             commands::tasks::reset_task,
+            // Scratchpad / Planner commands
+            commands::scratchpads::create_scratchpad,
+            commands::scratchpads::get_scratchpads,
+            commands::scratchpads::get_scratchpad,
+            commands::scratchpads::update_scratchpad,
+            commands::scratchpads::delete_scratchpad,
+            commands::scratchpads::set_scratchpad_status,
+            commands::scratchpads::append_exploration,
+            commands::scratchpads::set_scratchpad_plan,
+            commands::scratchpads::approve_plan,
+            commands::scratchpads::get_scratchpad_tickets,
+            commands::scratchpads::start_planner,
+            commands::scratchpads::execute_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

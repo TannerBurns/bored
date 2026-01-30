@@ -169,6 +169,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
 
         // Create a run and lock the ticket with an expired time
@@ -216,6 +218,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
 
         // Create a run and lock the ticket with a future expiration
@@ -261,6 +265,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
 
         // Create a run with running status
@@ -345,6 +351,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
 
         let ticket2 = db.create_ticket(&CreateTicket {
@@ -361,6 +369,8 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            scratchpad_id: None,
         }).unwrap();
 
         let run1 = db.create_run(&CreateRun {

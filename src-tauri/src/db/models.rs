@@ -177,6 +177,10 @@ pub struct Ticket {
     pub epic_id: Option<String>,
     /// The order of this ticket within its parent epic
     pub order_in_epic: Option<i32>,
+    /// Cross-epic dependency: which epic must complete before this epic can start
+    pub depends_on_epic_id: Option<String>,
+    /// Link back to scratchpad that created this ticket
+    pub scratchpad_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -367,6 +371,10 @@ pub struct CreateTicket {
     pub is_epic: bool,
     /// The parent epic ID (when creating a child ticket)
     pub epic_id: Option<String>,
+    /// Cross-epic dependency: which epic must complete before this epic can start
+    pub depends_on_epic_id: Option<String>,
+    /// Link back to scratchpad that created this ticket
+    pub scratchpad_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,6 +419,10 @@ pub struct UpdateTicket {
     pub epic_id: Option<String>,
     /// Set the order within the parent epic
     pub order_in_epic: Option<i32>,
+    /// Set or clear the depends_on_epic_id
+    pub depends_on_epic_id: Option<String>,
+    /// Set or clear the scratchpad_id
+    pub scratchpad_id: Option<String>,
 }
 
 /// Progress information for an epic's children
@@ -572,6 +584,146 @@ pub struct UpdateTask {
     pub content: Option<String>,
     pub status: Option<TaskStatus>,
     pub run_id: Option<String>,
+}
+
+// ===== Scratchpad / Planner System =====
+
+/// Status of a scratchpad in the planning workflow
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ScratchpadStatus {
+    /// Initial state - user has created but not started exploration
+    #[default]
+    Draft,
+    /// Agent is exploring the codebase
+    Exploring,
+    /// Agent is generating the plan
+    Planning,
+    /// Plan generated, waiting for user approval
+    AwaitingApproval,
+    /// User has approved the plan
+    Approved,
+    /// Plan is being executed (creating epics/tickets)
+    Executing,
+    /// All epics/tickets created successfully
+    Completed,
+    /// An error occurred
+    Failed,
+}
+
+impl ScratchpadStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScratchpadStatus::Draft => "draft",
+            ScratchpadStatus::Exploring => "exploring",
+            ScratchpadStatus::Planning => "planning",
+            ScratchpadStatus::AwaitingApproval => "awaiting_approval",
+            ScratchpadStatus::Approved => "approved",
+            ScratchpadStatus::Executing => "executing",
+            ScratchpadStatus::Completed => "completed",
+            ScratchpadStatus::Failed => "failed",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "draft" => Some(ScratchpadStatus::Draft),
+            "exploring" => Some(ScratchpadStatus::Exploring),
+            "planning" => Some(ScratchpadStatus::Planning),
+            "awaiting_approval" => Some(ScratchpadStatus::AwaitingApproval),
+            "approved" => Some(ScratchpadStatus::Approved),
+            "executing" => Some(ScratchpadStatus::Executing),
+            "completed" => Some(ScratchpadStatus::Completed),
+            "failed" => Some(ScratchpadStatus::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// A single exploration query and its result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exploration {
+    pub query: String,
+    pub response: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// A scratchpad for the planner agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scratchpad {
+    pub id: String,
+    pub board_id: String,
+    pub name: String,
+    pub user_input: String,
+    pub status: ScratchpadStatus,
+    /// Log of exploration queries and responses
+    pub exploration_log: Vec<Exploration>,
+    /// Generated plan in markdown format (for display)
+    pub plan_markdown: Option<String>,
+    /// Parsed plan structure (for execution)
+    pub plan_json: Option<serde_json::Value>,
+    /// Settings for this scratchpad (auto_approve, model preferences, etc.)
+    pub settings: serde_json::Value,
+    /// The project to use for exploration and ticket creation
+    pub project_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Create a new scratchpad
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateScratchpad {
+    pub board_id: String,
+    pub name: String,
+    pub user_input: String,
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub settings: serde_json::Value,
+}
+
+/// Update a scratchpad
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateScratchpad {
+    pub name: Option<String>,
+    pub user_input: Option<String>,
+    pub status: Option<ScratchpadStatus>,
+    pub exploration_log: Option<Vec<Exploration>>,
+    pub plan_markdown: Option<String>,
+    pub plan_json: Option<serde_json::Value>,
+    pub settings: Option<serde_json::Value>,
+    pub project_id: Option<String>,
+}
+
+/// An epic in a generated plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEpic {
+    pub title: String,
+    pub description: String,
+    /// Title of epic this depends on (null for first epic)
+    pub depends_on: Option<String>,
+    pub tickets: Vec<PlanTicket>,
+}
+
+/// A ticket in a generated plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTicket {
+    pub title: String,
+    pub description: String,
+    pub acceptance_criteria: Option<Vec<String>>,
+}
+
+/// A generated project plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPlan {
+    pub overview: String,
+    pub epics: Vec<PlanEpic>,
 }
 
 #[cfg(test)]

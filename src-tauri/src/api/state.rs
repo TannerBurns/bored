@@ -53,6 +53,36 @@ pub enum LiveEvent {
     TicketUnlocked {
         ticket_id: String,
     },
+    // Scratchpad / Planner events
+    ScratchpadCreated {
+        scratchpad_id: String,
+        board_id: String,
+    },
+    ScratchpadUpdated {
+        scratchpad_id: String,
+    },
+    ScratchpadDeleted {
+        scratchpad_id: String,
+        board_id: String,
+    },
+    ExplorationProgress {
+        scratchpad_id: String,
+        query: String,
+        status: String,
+    },
+    PlanGenerated {
+        scratchpad_id: String,
+    },
+    PlanApproved {
+        scratchpad_id: String,
+    },
+    PlanExecutionStarted {
+        scratchpad_id: String,
+    },
+    PlanExecutionCompleted {
+        scratchpad_id: String,
+        epic_ids: Vec<String>,
+    },
 }
 
 /// Shared application state for the API server

@@ -79,6 +79,10 @@ export interface Ticket {
   epicId?: string;
   /** The order of this ticket within its parent epic */
   orderInEpic?: number;
+  /** Cross-epic dependency: which epic must complete before this epic can start */
+  dependsOnEpicId?: string;
+  /** Link back to scratchpad that created this ticket */
+  scratchpadId?: string;
 }
 
 export type ReadinessCheck =
@@ -257,4 +261,79 @@ export interface EpicProgress {
   review: number;
   /** Children in Done */
   done: number;
+}
+
+// ===== Scratchpad / Planner Types =====
+
+export type ScratchpadStatus = 
+  | 'draft'
+  | 'exploring'
+  | 'planning'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'executing'
+  | 'completed'
+  | 'failed';
+
+/** A single exploration query and its result */
+export interface Exploration {
+  query: string;
+  response: string;
+  timestamp: Date;
+}
+
+/** A scratchpad for the planner agent */
+export interface Scratchpad {
+  id: string;
+  boardId: string;
+  name: string;
+  userInput: string;
+  status: ScratchpadStatus;
+  /** Log of exploration queries and responses */
+  explorationLog: Exploration[];
+  /** Generated plan in markdown format (for display) */
+  planMarkdown?: string;
+  /** Parsed plan structure (for execution) */
+  planJson?: ProjectPlan;
+  /** Settings for this scratchpad (auto_approve, model preferences, etc.) */
+  settings: Record<string, unknown>;
+  /** The project to use for exploration and ticket creation */
+  projectId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateScratchpadInput {
+  boardId: string;
+  name: string;
+  userInput: string;
+  projectId?: string;
+}
+
+export interface UpdateScratchpadInput {
+  name?: string;
+  userInput?: string;
+  projectId?: string;
+}
+
+/** An epic in a generated plan */
+export interface PlanEpic {
+  title: string;
+  description: string;
+  /** Title of epic this depends on (null for first epic) */
+  dependsOn?: string;
+  tickets: PlanTicket[];
+}
+
+/** A ticket in a generated plan */
+export interface PlanTicket {
+  title: string;
+  description: string;
+  acceptanceCriteria?: string[];
+}
+
+/** A generated project plan */
+export interface ProjectPlan {
+  overview: string;
+  epics: PlanEpic[];
 }
