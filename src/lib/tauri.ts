@@ -80,6 +80,21 @@ export async function browseForDirectory(): Promise<string | null> {
   return invoke('browse_for_directory');
 }
 
+export async function checkGitStatus(path: string): Promise<boolean> {
+  return invoke('check_git_status', { path });
+}
+
+export async function initGitRepo(path: string): Promise<void> {
+  return invoke('init_git_repo', { path });
+}
+
+export async function createProjectFolder(
+  parentPath: string,
+  name: string
+): Promise<string> {
+  return invoke('create_project_folder', { parentPath, name });
+}
+
 export async function getBoards(): Promise<Board[]> {
   return invoke('get_boards');
 }

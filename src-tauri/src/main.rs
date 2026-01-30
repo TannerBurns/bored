@@ -205,6 +205,9 @@ fn main() {
             commands::check_ticket_readiness,
             commands::update_project_hooks,
             commands::browse_for_directory,
+            commands::check_git_status,
+            commands::init_git_repo,
+            commands::create_project_folder,
             // Cursor integration
             commands::get_cursor_status,
             commands::install_cursor_hooks_global,
