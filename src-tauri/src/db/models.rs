@@ -170,6 +170,13 @@ pub struct Ticket {
     pub model: Option<String>,
     /// The git branch name for this ticket (agent-generated)
     pub branch_name: Option<String>,
+    /// Whether this ticket is an epic (contains child tickets)
+    #[serde(default)]
+    pub is_epic: bool,
+    /// The parent epic ID (if this ticket is a child of an epic)
+    pub epic_id: Option<String>,
+    /// The order of this ticket within its parent epic
+    pub order_in_epic: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -355,6 +362,11 @@ pub struct CreateTicket {
     pub model: Option<String>,
     /// Optional pre-defined branch name (if not provided, will be AI-generated on first run)
     pub branch_name: Option<String>,
+    /// Whether to create this ticket as an epic
+    #[serde(default)]
+    pub is_epic: bool,
+    /// The parent epic ID (when creating a child ticket)
+    pub epic_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,6 +405,32 @@ pub struct UpdateTicket {
     pub model: Option<String>,
     pub branch_name: Option<String>,
     pub column_id: Option<String>,
+    /// Set is_epic status
+    pub is_epic: Option<bool>,
+    /// Set or clear the parent epic ID
+    pub epic_id: Option<String>,
+    /// Set the order within the parent epic
+    pub order_in_epic: Option<i32>,
+}
+
+/// Progress information for an epic's children
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicProgress {
+    /// Total number of child tickets
+    pub total: i32,
+    /// Children in Backlog
+    pub backlog: i32,
+    /// Children in Ready
+    pub ready: i32,
+    /// Children in In Progress
+    pub in_progress: i32,
+    /// Children in Blocked
+    pub blocked: i32,
+    /// Children in Review
+    pub review: i32,
+    /// Children in Done
+    pub done: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

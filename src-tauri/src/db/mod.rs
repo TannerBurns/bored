@@ -197,6 +197,27 @@ impl Database {
                 tracing::info!("Created {} initial tasks for existing tickets", task_count);
             }
             
+            if current_version < 9 && current_version > 0 {
+                tracing::info!("Applying migration v9: epic support columns");
+                // Add columns one at a time to handle potential errors gracefully
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN is_epic INTEGER NOT NULL DEFAULT 0",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN order_in_epic INTEGER",
+                    [],
+                );
+                let _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL",
+                    [],
+                );
+            }
+            
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

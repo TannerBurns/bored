@@ -764,6 +764,9 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            order_in_epic: None,
         }
     }
 

@@ -156,6 +156,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         workflowType: input.workflowType,
         model: input.model,
         branchName: input.branchName,
+        isEpic: input.isEpic,
+        epicId: input.epicId,
       },
     });
     set((state) => ({

@@ -379,6 +379,7 @@ pub async fn start_agent_run(
                 branch_name: branch_to_use.clone(),
                 run_id: run_id.clone(),
                 base_dir: None,
+                base_branch: None,
             }) {
                 Ok(info) => {
                     tracing::info!(

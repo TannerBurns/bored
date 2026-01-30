@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, Window};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
 use crate::db::models::{Task, TaskType};
+use crate::lifecycle::epic::{on_child_completed, on_child_blocked};
 use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
 use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt, generate_task_plan_prompt, generate_task_implement_prompt, generate_task_prompt};
 use super::spawner::{run_agent_with_capture, CancelHandle};
@@ -639,6 +640,26 @@ Do NOT start implementing any code changes. Just create the branch.
                         tracing::warn!("Failed to emit ticket-moved event: {}", e);
                     } else {
                         tracing::info!("Emitted ticket-moved event for ticket {}", self.ticket.id);
+                    }
+                    
+                    // Epic lifecycle hooks: when a child ticket moves to Done or Blocked,
+                    // trigger epic advancement or blocking
+                    if self.ticket.epic_id.is_some() {
+                        match column_name {
+                            "Done" => {
+                                // Child completed - try to advance epic
+                                if let Err(e) = on_child_completed(&self.db, &self.ticket) {
+                                    tracing::warn!("Epic advancement failed: {}", e);
+                                }
+                            }
+                            "Blocked" => {
+                                // Child blocked - block parent epic
+                                if let Err(e) = on_child_blocked(&self.db, &self.ticket) {
+                                    tracing::warn!("Epic blocking failed: {}", e);
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }

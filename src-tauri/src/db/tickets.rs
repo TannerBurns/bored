@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use rusqlite::OptionalExtension;
 use crate::db::{Database, DbError, parse_datetime};
 use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType, CreateTask, TaskType};
 use crate::agents::AgentKind;
@@ -9,7 +10,8 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic
                    FROM tickets WHERE id = ?"#
             )?;
             
@@ -30,7 +32,8 @@ impl Database {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
-                              lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                              lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                              is_epic, epic_id, order_in_epic
                        FROM tickets WHERE id = ?"#
                 )?;
                 stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -69,13 +72,24 @@ impl Database {
             };
             // Handle column_id: None means keep existing, Some(id) means set
             let column_id = updates.column_id.as_ref().unwrap_or(&existing.column_id);
+            // Handle is_epic: None means keep existing, Some(value) means set
+            let is_epic = updates.is_epic.unwrap_or(existing.is_epic);
+            // Handle epic_id: None means keep existing, Some("") means clear, Some(id) means set
+            let epic_id = match &updates.epic_id {
+                Some(id) if id.is_empty() => None,
+                Some(id) => Some(id.as_str()),
+                None => existing.epic_id.as_deref(),
+            };
+            // Handle order_in_epic: None means keep existing, Some(value) means set
+            let order_in_epic = updates.order_in_epic.or(existing.order_in_epic);
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
 
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, column_id = ?, updated_at = ?
+                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
+                       column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -88,6 +102,9 @@ impl Database {
                     model,
                     branch_name,
                     column_id,
+                    is_epic,
+                    epic_id,
+                    order_in_epic,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -97,7 +114,8 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic
                    FROM tickets WHERE id = ?"#
             )?;
             stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -283,6 +301,8 @@ impl Database {
             let agent_type_str = agent_type.as_str();
             
             // Subquery finds next ticket; outer WHERE double-checks lock status for atomicity
+            // NOTE: Epics are excluded (is_epic = 0) because workers should process child tickets,
+            // not the epic container itself. The epic orchestrates its children through lifecycle hooks.
             let affected = tx.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?1, lock_expires_at = ?2, updated_at = ?3
@@ -290,6 +310,7 @@ impl Database {
                        SELECT t.id FROM tickets t
                        JOIN columns c ON t.column_id = c.id
                        WHERE c.name = 'Ready'
+                         AND t.is_epic = 0
                          AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
                          AND (?4 IS NULL OR t.project_id = ?4)
                          AND (
@@ -319,7 +340,8 @@ impl Database {
             let ticket = tx.query_row(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
                 [run_id],
@@ -332,6 +354,21 @@ impl Database {
     }
 
     pub fn create_ticket(&self, ticket: &CreateTicket) -> Result<Ticket, DbError> {
+        // If this is a child of an epic, calculate the order_in_epic
+        let order_in_epic = if let Some(ref epic_id) = ticket.epic_id {
+            // Get the current max order for children of this epic
+            self.with_conn(|conn| {
+                let max_order: Option<i32> = conn.query_row(
+                    "SELECT MAX(order_in_epic) FROM tickets WHERE epic_id = ?",
+                    [epic_id],
+                    |row| row.get(0),
+                ).unwrap_or(None);
+                Ok::<_, DbError>(Some(max_order.unwrap_or(-1) + 1))
+            })?
+        } else {
+            None
+        };
+
         let created_ticket = self.with_conn(|conn| {
             let ticket_id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now();
@@ -340,8 +377,9 @@ impl Database {
             conn.execute(
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
-                    created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name,
+                    is_epic, epic_id, order_in_epic)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -357,6 +395,9 @@ impl Database {
                     ticket.workflow_type.as_str(),
                     ticket.model,
                     ticket.branch_name,
+                    ticket.is_epic,
+                    ticket.epic_id,
+                    order_in_epic,
                 ],
             )?;
 
@@ -377,6 +418,9 @@ impl Database {
                 workflow_type: ticket.workflow_type.clone(),
                 model: ticket.model.clone(),
                 branch_name: ticket.branch_name.clone(),
+                is_epic: ticket.is_epic,
+                epic_id: ticket.epic_id.clone(),
+                order_in_epic,
             })
         })?;
         
@@ -428,13 +472,15 @@ impl Database {
                 Some(_) => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                            is_epic, epic_id, order_in_epic
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name
+                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                            is_epic, epic_id, order_in_epic
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
             };
@@ -491,6 +537,11 @@ impl Database {
         
         let model: Option<String> = row.get(14)?;
         let branch_name: Option<String> = row.get(15)?;
+        
+        // Epic fields (columns 16, 17, 18)
+        let is_epic: bool = row.get::<_, i32>(16).unwrap_or(0) != 0;
+        let epic_id: Option<String> = row.get(17)?;
+        let order_in_epic: Option<i32> = row.get(18)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -509,6 +560,9 @@ impl Database {
             workflow_type,
             model,
             branch_name,
+            is_epic,
+            epic_id,
+            order_in_epic,
         })
     }
 
@@ -525,6 +579,214 @@ impl Database {
                 return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
             }
             Ok(())
+        })
+    }
+
+    // ===== Epic Operations =====
+
+    /// Get all children of an epic, ordered by order_in_epic
+    pub fn get_epic_children(&self, epic_id: &str) -> Result<Vec<Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic
+                   FROM tickets WHERE epic_id = ?
+                   ORDER BY order_in_epic ASC, created_at ASC"#
+            )?;
+            
+            let rows = stmt.query_map([epic_id], Self::map_ticket_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
+    /// Get the next pending child ticket for an epic (first child in Backlog)
+    pub fn get_next_pending_child(&self, epic_id: &str) -> Result<Option<Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority, 
+                          t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id, 
+                          t.lock_expires_at, t.project_id, t.agent_pref, t.workflow_type, t.model, t.branch_name,
+                          t.is_epic, t.epic_id, t.order_in_epic
+                   FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ? AND c.name = 'Backlog'
+                   ORDER BY t.order_in_epic ASC, t.created_at ASC
+                   LIMIT 1"#
+            )?;
+            
+            stmt.query_row([epic_id], Self::map_ticket_row)
+                .optional()
+                .map_err(DbError::from)
+        })
+    }
+
+    /// Get progress stats for an epic's children
+    pub fn get_epic_progress(&self, epic_id: &str) -> Result<crate::db::models::EpicProgress, DbError> {
+        use crate::db::models::EpicProgress;
+        
+        self.with_conn(|conn| {
+            let mut progress = EpicProgress::default();
+            
+            let mut stmt = conn.prepare(
+                r#"SELECT c.name, COUNT(*) as cnt
+                   FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ?
+                   GROUP BY c.name"#
+            )?;
+            
+            let rows = stmt.query_map([epic_id], |row| {
+                let name: String = row.get(0)?;
+                let count: i32 = row.get(1)?;
+                Ok((name, count))
+            })?;
+            
+            for row in rows {
+                let (name, count) = row?;
+                progress.total += count;
+                match name.as_str() {
+                    "Backlog" => progress.backlog = count,
+                    "Ready" => progress.ready = count,
+                    "In Progress" => progress.in_progress = count,
+                    "Blocked" => progress.blocked = count,
+                    "Review" => progress.review = count,
+                    "Done" => progress.done = count,
+                    _ => {} // Unknown column
+                }
+            }
+            
+            Ok(progress)
+        })
+    }
+
+    /// Add an existing ticket to an epic as a child
+    pub fn add_ticket_to_epic(&self, epic_id: &str, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            // Verify epic exists and is actually an epic
+            let is_epic: bool = conn.query_row(
+                "SELECT is_epic FROM tickets WHERE id = ?",
+                [epic_id],
+                |row| row.get::<_, i32>(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Epic {} not found", epic_id)),
+                other => DbError::Sqlite(other),
+            })? != 0;
+            
+            if !is_epic {
+                return Err(DbError::Validation(format!("Ticket {} is not an epic", epic_id)));
+            }
+            
+            // Get current max order
+            let max_order: Option<i32> = conn.query_row(
+                "SELECT MAX(order_in_epic) FROM tickets WHERE epic_id = ?",
+                [epic_id],
+                |row| row.get(0),
+            ).unwrap_or(None);
+            
+            let order = max_order.unwrap_or(-1) + 1;
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            let affected = conn.execute(
+                "UPDATE tickets SET epic_id = ?, order_in_epic = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![epic_id, order, now, ticket_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
+            }
+            
+            Ok(())
+        })
+    }
+
+    /// Remove a ticket from its parent epic
+    pub fn remove_ticket_from_epic(&self, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            conn.execute(
+                "UPDATE tickets SET epic_id = NULL, order_in_epic = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![now, ticket_id],
+            )?;
+            
+            Ok(())
+        })
+    }
+
+    /// Reorder children within an epic
+    /// child_ids should be the list of ticket IDs in the desired order
+    pub fn reorder_epic_children(&self, epic_id: &str, child_ids: &[String]) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            for (index, ticket_id) in child_ids.iter().enumerate() {
+                conn.execute(
+                    "UPDATE tickets SET order_in_epic = ?, updated_at = ? WHERE id = ? AND epic_id = ?",
+                    rusqlite::params![index as i32, now, ticket_id, epic_id],
+                )?;
+            }
+            
+            Ok(())
+        })
+    }
+
+    /// Check if all children of an epic are in Done column
+    pub fn are_all_epic_children_done(&self, epic_id: &str) -> Result<bool, DbError> {
+        self.with_conn(|conn| {
+            // Count children not in Done
+            let not_done: i32 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ? AND c.name != 'Done'"#,
+                [epic_id],
+                |row| row.get(0),
+            )?;
+            
+            // Also check there's at least one child
+            let total: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM tickets WHERE epic_id = ?",
+                [epic_id],
+                |row| row.get(0),
+            )?;
+            
+            Ok(total > 0 && not_done == 0)
+        })
+    }
+
+    /// Get the previous sibling of a child ticket in an epic (for chain branching)
+    /// Returns the ticket that is one position before this ticket in the epic's order
+    pub fn get_previous_epic_sibling(&self, ticket_id: &str) -> Result<Option<Ticket>, DbError> {
+        self.with_conn(|conn| {
+            // First, get this ticket's epic_id and order_in_epic
+            let ticket_info: Option<(String, i32)> = conn.query_row(
+                "SELECT epic_id, order_in_epic FROM tickets WHERE id = ? AND epic_id IS NOT NULL",
+                [ticket_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).optional()?;
+            
+            let (epic_id, order) = match ticket_info {
+                Some((eid, ord)) => (eid, ord),
+                None => return Ok(None), // Not a child of an epic
+            };
+            
+            if order == 0 {
+                return Ok(None); // First child, no previous sibling
+            }
+            
+            // Get the previous sibling (order_in_epic = order - 1)
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority,
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic
+                   FROM tickets WHERE epic_id = ? AND order_in_epic = ?"#
+            )?;
+            
+            stmt.query_row(rusqlite::params![epic_id, order - 1], Self::map_ticket_row)
+                .optional()
+                .map_err(DbError::from)
         })
     }
 }
@@ -559,6 +821,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         (board.id, ready_column.id.clone(), ticket)
@@ -582,6 +846,8 @@ mod tests {
             workflow_type: WorkflowType::MultiStage,
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         assert_eq!(ticket.title, "Test Ticket");
@@ -609,6 +875,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let tickets = db.get_tickets(&board.id, None).unwrap();
@@ -633,6 +901,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         db.move_ticket(&ticket.id, &columns[1].id).unwrap();
@@ -667,6 +937,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
@@ -693,6 +965,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let fetched = db.get_ticket(&created.id).unwrap();
@@ -726,6 +1000,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -739,6 +1015,9 @@ mod tests {
             model: None,
             branch_name: None,
             column_id: None,
+            is_epic: None,
+            epic_id: None,
+            order_in_epic: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -760,6 +1039,9 @@ mod tests {
             workflow_type: None,
             model: None,
             branch_name: None,
+            is_epic: None,
+            epic_id: None,
+            order_in_epic: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
@@ -788,6 +1070,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         assert_eq!(ticket.project_id, Some(project.id.clone()));
@@ -803,6 +1087,9 @@ mod tests {
             model: None,
             branch_name: None,
             column_id: None,
+            is_epic: None,
+            epic_id: None,
+            order_in_epic: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, None);
@@ -832,6 +1119,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -845,6 +1134,9 @@ mod tests {
             model: None,
             branch_name: None,
             column_id: None,
+            is_epic: None,
+            epic_id: None,
+            order_in_epic: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, Some(project.id));
@@ -869,6 +1161,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         db.delete_ticket(&ticket.id).unwrap();
@@ -902,6 +1196,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -936,6 +1232,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let initial_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -966,6 +1264,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -993,6 +1293,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1027,6 +1329,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         // Lock with an already-expired timestamp
@@ -1068,6 +1372,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1101,6 +1407,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1131,6 +1439,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1162,6 +1472,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1212,6 +1524,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1272,6 +1586,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1312,6 +1628,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1345,6 +1663,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         // Create urgent ticket second
@@ -1360,6 +1680,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1390,6 +1712,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1423,6 +1747,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1460,6 +1786,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1472,6 +1800,86 @@ mod tests {
         
         let claude_result = db.reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires).unwrap();
         assert!(claude_result.is_some());
+    }
+    
+    #[test]
+    fn reserve_next_ticket_skips_epic_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create an epic ticket in Ready - should NOT be picked up
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Epic Ticket".to_string(),
+            description_md: "This is an epic".to_string(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,  // This makes it an epic
+            epic_id: None,
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Worker should NOT pick up the epic
+        let result = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        assert!(result.is_none(), "Epic ticket should not be picked up by workers");
+    }
+    
+    #[test]
+    fn reserve_next_ticket_picks_child_ticket_not_epic() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create an epic ticket in Ready
+        let epic = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Epic Ticket".to_string(),
+            description_md: "This is an epic".to_string(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+        }).unwrap();
+        
+        // Create a child ticket in Ready - this SHOULD be picked up
+        let child = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Child Ticket".to_string(),
+            description_md: "Child of epic".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+        }).unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        
+        // Worker should pick up the child, not the epic
+        let result = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        assert!(result.is_some(), "Child ticket should be picked up");
+        assert_eq!(result.unwrap().id, child.id, "Should pick up child ticket, not epic");
     }
 
     #[test]
@@ -1492,6 +1900,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         assert!(ticket.branch_name.is_none());
@@ -1527,6 +1937,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let before = ticket.updated_at;
@@ -1558,6 +1970,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: Some("feat/preset/my-branch".to_string()),
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         assert_eq!(ticket.branch_name, Some("feat/preset/my-branch".to_string()));
@@ -1585,6 +1999,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         // Verify Task 1 was automatically created
@@ -1614,6 +2030,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -1645,6 +2063,8 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -1675,10 +2095,412 @@ mod tests {
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
+            is_epic: false,
+            epic_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].content, None); // No content since description was empty
+    }
+
+    // ===== Epic DB Operation Tests =====
+
+    fn create_epic_ticket(db: &Database, board_id: &str, column_id: &str, title: &str) -> Ticket {
+        db.create_ticket(&CreateTicket {
+            board_id: board_id.to_string(),
+            column_id: column_id.to_string(),
+            title: title.to_string(),
+            description_md: "Epic".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+        }).unwrap()
+    }
+
+    fn create_child_ticket(db: &Database, board_id: &str, column_id: &str, epic_id: &str, title: &str) -> Ticket {
+        db.create_ticket(&CreateTicket {
+            board_id: board_id.to_string(),
+            column_id: column_id.to_string(),
+            title: title.to_string(),
+            description_md: "Child".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic_id.to_string()),
+        }).unwrap()
+    }
+
+    #[test]
+    fn get_epic_children_returns_ordered_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // Create children - order_in_epic is assigned automatically
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        let child3 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 3");
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0].id, child1.id);
+        assert_eq!(children[1].id, child2.id);
+        assert_eq!(children[2].id, child3.id);
+        
+        // Verify order_in_epic values
+        assert_eq!(children[0].order_in_epic, Some(0));
+        assert_eq!(children[1].order_in_epic, Some(1));
+        assert_eq!(children[2].order_in_epic, Some(2));
+    }
+
+    #[test]
+    fn get_epic_children_returns_empty_for_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn get_next_pending_child_returns_first_in_backlog() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // First child in Ready (not pending), second in Backlog
+        let _child1 = create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let next = db.get_next_pending_child(&epic.id).unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().id, child2.id);
+    }
+
+    #[test]
+    fn get_next_pending_child_returns_none_when_no_backlog() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // All children done or in progress
+        let _child1 = create_child_ticket(&db, &board.id, &done.id, &epic.id, "Child 1");
+        let _child2 = create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Child 2");
+        
+        let next = db.get_next_pending_child(&epic.id).unwrap();
+        assert!(next.is_none());
+    }
+
+    #[test]
+    fn get_epic_progress_counts_columns_correctly() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        let blocked = columns.iter().find(|c| c.name == "Blocked").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &ready.id, "Epic");
+        
+        // Create children in various columns
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog 1");
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog 2");
+        create_child_ticket(&db, &board.id, &ready.id, &epic.id, "Ready 1");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done 1");
+        create_child_ticket(&db, &board.id, &blocked.id, &epic.id, "Blocked 1");
+        
+        let progress = db.get_epic_progress(&epic.id).unwrap();
+        
+        assert_eq!(progress.total, 5);
+        assert_eq!(progress.backlog, 2);
+        assert_eq!(progress.ready, 1);
+        assert_eq!(progress.done, 1);
+        assert_eq!(progress.blocked, 1);
+        assert_eq!(progress.in_progress, 0);
+        assert_eq!(progress.review, 0);
+    }
+
+    #[test]
+    fn get_epic_progress_returns_zeros_for_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let progress = db.get_epic_progress(&epic.id).unwrap();
+        
+        assert_eq!(progress.total, 0);
+        assert_eq!(progress.backlog, 0);
+        assert_eq!(progress.done, 0);
+    }
+
+    #[test]
+    fn add_ticket_to_epic_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // Create a standalone ticket (not a child)
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Standalone".to_string(),
+            description_md: "Not a child yet".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        assert!(ticket.epic_id.is_none());
+        
+        // Add to epic
+        db.add_ticket_to_epic(&epic.id, &ticket.id).unwrap();
+        
+        // Verify
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated.epic_id, Some(epic.id.clone()));
+        assert_eq!(updated.order_in_epic, Some(0));
+    }
+
+    #[test]
+    fn add_ticket_to_epic_fails_if_not_epic() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        // Create a non-epic ticket
+        let not_epic = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Not Epic".to_string(),
+            description_md: "Regular ticket".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let result = db.add_ticket_to_epic(&not_epic.id, &ticket.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn remove_ticket_from_epic_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child");
+        
+        assert!(child.epic_id.is_some());
+        
+        db.remove_ticket_from_epic(&child.id).unwrap();
+        
+        let updated = db.get_ticket(&child.id).unwrap();
+        assert!(updated.epic_id.is_none());
+        assert!(updated.order_in_epic.is_none());
+    }
+
+    #[test]
+    fn reorder_epic_children_success() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        let child3 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 3");
+        
+        // Reorder: 3, 1, 2
+        db.reorder_epic_children(&epic.id, &[child3.id.clone(), child1.id.clone(), child2.id.clone()]).unwrap();
+        
+        let children = db.get_epic_children(&epic.id).unwrap();
+        assert_eq!(children[0].id, child3.id);
+        assert_eq!(children[1].id, child1.id);
+        assert_eq!(children[2].id, child2.id);
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_none_for_first_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let _child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let prev = db.get_previous_epic_sibling(&child1.id).unwrap();
+        assert!(prev.is_none());
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_previous_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        let prev = db.get_previous_epic_sibling(&child2.id).unwrap();
+        assert!(prev.is_some());
+        assert_eq!(prev.unwrap().id, child1.id);
+    }
+
+    #[test]
+    fn get_previous_epic_sibling_returns_none_for_non_child() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        // Create a standalone ticket (not a child of any epic)
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Standalone".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+        }).unwrap();
+        
+        let prev = db.get_previous_epic_sibling(&ticket.id).unwrap();
+        assert!(prev.is_none());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_true_when_all_done() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child 1");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child 2");
+        
+        assert!(db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_false_when_some_not_done() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        create_child_ticket(&db, &board.id, &done.id, &epic.id, "Done Child");
+        create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Backlog Child");
+        
+        assert!(!db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn are_all_epic_children_done_false_when_no_children() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        // No children = false (need at least one child to be "all done")
+        assert!(!db.are_all_epic_children_done(&epic.id).unwrap());
+    }
+
+    #[test]
+    fn create_ticket_with_epic_id_sets_order() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        
+        let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+        
+        let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+        let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+        
+        assert_eq!(child1.order_in_epic, Some(0));
+        assert_eq!(child2.order_in_epic, Some(1));
     }
 }

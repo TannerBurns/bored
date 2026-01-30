@@ -12,7 +12,7 @@ import { FullscreenCommentModal } from './FullscreenCommentModal';
 import { CreateCommentModal } from './CreateCommentModal';
 import { TaskList } from './TaskList';
 import { useBoardStore } from '../../stores/boardStore';
-import type { Project, AgentRun, Comment } from '../../types';
+import type { Project, AgentRun, Comment, Ticket as TicketType, EpicProgress } from '../../types';
 import type {
   AgentLogEvent,
   AgentCompleteEvent,
@@ -76,6 +76,15 @@ export function TicketModal({
   
   // Create comment modal state
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
+  
+  // Epic state
+  const [epicChildren, setEpicChildren] = useState<TicketType[]>([]);
+  const [epicProgress, setEpicProgress] = useState<EpicProgress | null>(null);
+  const [parentEpic, setParentEpic] = useState<TicketType | null>(null);
+  const [loadingEpic, setLoadingEpic] = useState(false);
+  const [availableTickets, setAvailableTickets] = useState<TicketType[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string>('');
+  const [isAddingChild, setIsAddingChild] = useState(false);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   
@@ -124,6 +133,58 @@ export function TicketModal({
     };
     loadProjects();
   }, []);
+
+  // Load epic-related data
+  useEffect(() => {
+    const loadEpicData = async () => {
+      setLoadingEpic(true);
+      try {
+        if (ticket.isEpic) {
+          // This is an epic - load children, progress, and available tickets
+          const [children, progress, allTickets] = await Promise.all([
+            invoke<TicketType[]>('get_epic_children', { epicId: ticket.id }),
+            invoke<EpicProgress>('get_epic_progress', { epicId: ticket.id }),
+            invoke<TicketType[]>('get_tickets', { boardId: ticket.boardId }),
+          ]);
+          setEpicChildren(children);
+          setEpicProgress(progress);
+          setParentEpic(null);
+          
+          // Filter available tickets: not an epic, not already a child, not this ticket
+          const available = allTickets.filter(t => 
+            !t.isEpic && 
+            !t.epicId && 
+            t.id !== ticket.id
+          );
+          setAvailableTickets(available);
+        } else if (ticket.epicId) {
+          // This is a child - load parent epic
+          try {
+            // Get all tickets for the board and find the parent
+            const tickets = await invoke<TicketType[]>('get_tickets', { boardId: ticket.boardId });
+            const parent = tickets.find(t => t.id === ticket.epicId);
+            setParentEpic(parent || null);
+          } catch (e) {
+            logger.error('Failed to load parent epic:', e);
+          }
+          setEpicChildren([]);
+          setEpicProgress(null);
+          setAvailableTickets([]);
+        } else {
+          // Not epic-related
+          setEpicChildren([]);
+          setEpicProgress(null);
+          setParentEpic(null);
+          setAvailableTickets([]);
+        }
+      } catch (e) {
+        logger.error('Failed to load epic data:', e);
+      } finally {
+        setLoadingEpic(false);
+      }
+    };
+    loadEpicData();
+  }, [ticket.id, ticket.isEpic, ticket.epicId, ticket.boardId]);
 
   // Load past agent runs for this ticket
   // Also reload when lockedByRunId changes (a new run started or finished)
@@ -567,6 +628,75 @@ export function TicketModal({
     }
   };
 
+  const handleAddChild = async () => {
+    if (!selectedChildId) return;
+    setIsAddingChild(true);
+    try {
+      await invoke('add_ticket_to_epic', { epicId: ticket.id, ticketId: selectedChildId });
+      // Refresh epic data
+      const [children, progress] = await Promise.all([
+        invoke<TicketType[]>('get_epic_children', { epicId: ticket.id }),
+        invoke<EpicProgress>('get_epic_progress', { epicId: ticket.id }),
+      ]);
+      setEpicChildren(children);
+      setEpicProgress(progress);
+      // Remove from available tickets
+      setAvailableTickets(prev => prev.filter(t => t.id !== selectedChildId));
+      setSelectedChildId('');
+    } catch (e) {
+      logger.error('Failed to add child to epic:', e);
+    } finally {
+      setIsAddingChild(false);
+    }
+  };
+
+  const handleRemoveChild = async (childId: string) => {
+    try {
+      await invoke('remove_ticket_from_epic', { ticketId: childId });
+      // Refresh epic data
+      const [children, progress, allTickets] = await Promise.all([
+        invoke<TicketType[]>('get_epic_children', { epicId: ticket.id }),
+        invoke<EpicProgress>('get_epic_progress', { epicId: ticket.id }),
+        invoke<TicketType[]>('get_tickets', { boardId: ticket.boardId }),
+      ]);
+      setEpicChildren(children);
+      setEpicProgress(progress);
+      // Refresh available tickets
+      const available = allTickets.filter(t => 
+        !t.isEpic && 
+        !t.epicId && 
+        t.id !== ticket.id
+      );
+      setAvailableTickets(available);
+    } catch (e) {
+      logger.error('Failed to remove child from epic:', e);
+    }
+  };
+
+  const handleMoveChild = async (childIndex: number, direction: 'up' | 'down') => {
+    if (direction === 'up' && childIndex === 0) return;
+    if (direction === 'down' && childIndex === epicChildren.length - 1) return;
+    
+    const newChildren = [...epicChildren];
+    const targetIndex = direction === 'up' ? childIndex - 1 : childIndex + 1;
+    
+    // Swap the children
+    [newChildren[childIndex], newChildren[targetIndex]] = [newChildren[targetIndex], newChildren[childIndex]];
+    
+    // Optimistically update UI
+    setEpicChildren(newChildren);
+    
+    try {
+      // Persist the new order
+      const childIds = newChildren.map(c => c.id);
+      await invoke('reorder_epic_children', { epicId: ticket.id, childIds });
+    } catch (e) {
+      logger.error('Failed to reorder children:', e);
+      // Revert on error
+      setEpicChildren(epicChildren);
+    }
+  };
+
   const resetEditState = () => {
     setEditTitle(ticket.title);
     setEditDescription(ticket.descriptionMd);
@@ -903,8 +1033,208 @@ export function TicketModal({
             </div>
           )}
 
-          {/* Task Queue */}
-          <TaskList ticketId={ticket.id} />
+          {/* Epic Info */}
+          {(ticket.isEpic || ticket.epicId) && (
+            <div>
+              <h3 className="text-sm font-medium text-board-text-muted mb-2 flex items-center gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-purple-400"
+                >
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                {ticket.isEpic ? 'Epic Children' : 'Parent Epic'}
+              </h3>
+              
+              {loadingEpic ? (
+                <div className="text-sm text-board-text-muted">Loading...</div>
+              ) : ticket.isEpic ? (
+                <div className="bg-board-surface rounded-lg p-3">
+                  {epicProgress && epicProgress.total > 0 ? (
+                    <>
+                      {/* Progress bar */}
+                      <div className="mb-3">
+                        <div className="flex justify-between text-xs text-board-text-muted mb-1">
+                          <span>{epicProgress.done} of {epicProgress.total} done</span>
+                          <span>{Math.round((epicProgress.done / epicProgress.total) * 100)}%</span>
+                        </div>
+                        <div className="h-2 bg-board-surface-raised rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-status-success rounded-full transition-all"
+                            style={{ width: `${(epicProgress.done / epicProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Status breakdown */}
+                      <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+                        {epicProgress.backlog > 0 && (
+                          <div className="text-center p-1.5 bg-board-surface-raised rounded">
+                            <div className="font-medium text-board-text">{epicProgress.backlog}</div>
+                            <div className="text-board-text-muted">Backlog</div>
+                          </div>
+                        )}
+                        {epicProgress.ready > 0 && (
+                          <div className="text-center p-1.5 bg-board-surface-raised rounded">
+                            <div className="font-medium text-board-text">{epicProgress.ready}</div>
+                            <div className="text-board-text-muted">Ready</div>
+                          </div>
+                        )}
+                        {epicProgress.inProgress > 0 && (
+                          <div className="text-center p-1.5 bg-status-warning/10 rounded border border-status-warning/30">
+                            <div className="font-medium text-status-warning">{epicProgress.inProgress}</div>
+                            <div className="text-board-text-muted">In Progress</div>
+                          </div>
+                        )}
+                        {epicProgress.blocked > 0 && (
+                          <div className="text-center p-1.5 bg-status-error/10 rounded border border-status-error/30">
+                            <div className="font-medium text-status-error">{epicProgress.blocked}</div>
+                            <div className="text-board-text-muted">Blocked</div>
+                          </div>
+                        )}
+                        {epicProgress.review > 0 && (
+                          <div className="text-center p-1.5 bg-board-surface-raised rounded">
+                            <div className="font-medium text-board-text">{epicProgress.review}</div>
+                            <div className="text-board-text-muted">Review</div>
+                          </div>
+                        )}
+                        {epicProgress.done > 0 && (
+                          <div className="text-center p-1.5 bg-status-success/10 rounded border border-status-success/30">
+                            <div className="font-medium text-status-success">{epicProgress.done}</div>
+                            <div className="text-board-text-muted">Done</div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Children list */}
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {epicChildren.map((child, index) => (
+                          <div 
+                            key={child.id}
+                            className="flex items-center gap-2 text-sm p-2 bg-board-surface-raised rounded group"
+                          >
+                            {/* Reorder buttons */}
+                            <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => handleMoveChild(index, 'up')}
+                                disabled={index === 0}
+                                className="p-0.5 text-board-text-muted hover:text-board-text disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Move up"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="18 15 12 9 6 15" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleMoveChild(index, 'down')}
+                                disabled={index === epicChildren.length - 1}
+                                className="p-0.5 text-board-text-muted hover:text-board-text disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Move down"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                              </button>
+                            </div>
+                            <span className="text-board-text-muted w-5 text-center">{index + 1}</span>
+                            <span className="flex-1 truncate text-board-text-secondary">{child.title}</span>
+                            <span className={cn(
+                              'text-xs px-1.5 py-0.5 rounded',
+                              child.lockedByRunId ? 'bg-status-warning/20 text-status-warning' :
+                              columns.find(c => c.id === child.columnId)?.name === 'Done' ? 'bg-status-success/20 text-status-success' :
+                              columns.find(c => c.id === child.columnId)?.name === 'Blocked' ? 'bg-status-error/20 text-status-error' :
+                              'bg-board-surface text-board-text-muted'
+                            )}>
+                              {columns.find(c => c.id === child.columnId)?.name || 'Unknown'}
+                            </span>
+                            <button
+                              onClick={() => handleRemoveChild(child.id)}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-board-text-muted hover:text-status-error transition-all"
+                              title="Remove from epic"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18" />
+                                <line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                  
+                  {/* Add child section */}
+                  {availableTickets.length > 0 && (
+                    <div className={cn("flex gap-2 items-center", epicProgress && epicProgress.total > 0 && "mt-3 pt-3 border-t border-board-border")}>
+                      <select
+                        value={selectedChildId}
+                        onChange={(e) => setSelectedChildId(e.target.value)}
+                        className="flex-1 px-2 py-1.5 text-sm bg-board-surface-raised rounded border border-board-border text-board-text focus:outline-none focus:ring-1 focus:ring-purple-500"
+                      >
+                        <option value="">Select ticket to add...</option>
+                        {availableTickets.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.title}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleAddChild}
+                        disabled={!selectedChildId || isAddingChild}
+                        className="px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isAddingChild ? 'Adding...' : 'Add'}
+                      </button>
+                    </div>
+                  )}
+                  
+                  {!epicProgress?.total && availableTickets.length === 0 && (
+                    <p className="text-sm text-board-text-muted">No children yet. Create tickets in the Backlog or Ready column to add them to this epic.</p>
+                  )}
+                </div>
+              ) : parentEpic ? (
+                <div className="bg-board-surface rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded font-medium">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                      Epic
+                    </span>
+                    <span className="text-sm text-board-text-secondary">{parentEpic.title}</span>
+                  </div>
+                  <div className="text-xs text-board-text-muted mt-1">
+                    Order in epic: {(ticket.orderInEpic ?? 0) + 1}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-board-surface rounded-lg p-3">
+                  <p className="text-sm text-board-text-muted">Parent epic not found</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Task Queue - hide for epics since children ARE the tasks */}
+          {!ticket.isEpic && <TaskList ticketId={ticket.id} />}
 
           {/* Agent Status Section */}
           {(ticket.lockedByRunId || agentLogs.length > 0 || agentError) && (
