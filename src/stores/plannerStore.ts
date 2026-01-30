@@ -77,9 +77,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     try {
       const scratchpad = await invoke<Scratchpad>('create_scratchpad', {
         boardId: input.boardId,
+        projectId: input.projectId,
         name: input.name,
         userInput: input.userInput,
-        projectId: input.projectId,
+        agentPref: input.agentPref,
+        model: input.model,
       });
       
       const { scratchpads } = get();
@@ -104,7 +106,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         id,
         name: updates.name,
         userInput: updates.userInput,
-        projectId: updates.projectId,
+        agentPref: updates.agentPref,
+        model: updates.model,
       });
       
       const { scratchpads, currentScratchpad } = get();

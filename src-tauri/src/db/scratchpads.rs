@@ -12,16 +12,18 @@ impl Database {
             
             conn.execute(
                 r#"INSERT INTO scratchpads 
-                   (id, board_id, name, user_input, status, settings_json, project_id, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, board_id, project_id, name, user_input, status, agent_pref, model, settings_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     id,
                     input.board_id,
+                    input.project_id,
                     input.name,
                     input.user_input,
                     ScratchpadStatus::Draft.as_str(),
+                    input.agent_pref,
+                    input.model,
                     settings_json,
-                    input.project_id,
                     now.to_rfc3339(),
                     now.to_rfc3339(),
                 ],
@@ -30,14 +32,16 @@ impl Database {
             Ok(Scratchpad {
                 id,
                 board_id: input.board_id.clone(),
+                project_id: input.project_id.clone(),
                 name: input.name.clone(),
                 user_input: input.user_input.clone(),
                 status: ScratchpadStatus::Draft,
+                agent_pref: input.agent_pref.clone(),
+                model: input.model.clone(),
                 exploration_log: vec![],
                 plan_markdown: None,
                 plan_json: None,
                 settings: input.settings.clone(),
-                project_id: input.project_id.clone(),
                 created_at: now,
                 updated_at: now,
             })
@@ -47,8 +51,8 @@ impl Database {
     pub fn get_scratchpad(&self, id: &str) -> Result<Scratchpad, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, name, user_input, status, exploration_log, 
-                          plan_markdown, plan_json, settings_json, project_id, created_at, updated_at
+                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
             
@@ -65,8 +69,8 @@ impl Database {
     pub fn get_scratchpads(&self, board_id: &str) -> Result<Vec<Scratchpad>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, name, user_input, status, exploration_log, 
-                          plan_markdown, plan_json, settings_json, project_id, created_at, updated_at
+                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE board_id = ?
                    ORDER BY created_at DESC"#
             )?;
@@ -81,8 +85,8 @@ impl Database {
             // First get existing
             let existing = {
                 let mut stmt = conn.prepare(
-                    r#"SELECT id, board_id, name, user_input, status, exploration_log, 
-                              plan_markdown, plan_json, settings_json, project_id, created_at, updated_at
+                    r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                              exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                        FROM scratchpads WHERE id = ?"#
                 )?;
                 stmt.query_row([id], Self::map_scratchpad_row)
@@ -98,17 +102,12 @@ impl Database {
             let name = updates.name.as_ref().unwrap_or(&existing.name);
             let user_input = updates.user_input.as_ref().unwrap_or(&existing.user_input);
             let status = updates.status.as_ref().unwrap_or(&existing.status);
+            let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
+            let model = updates.model.as_ref().or(existing.model.as_ref());
             let exploration_log = updates.exploration_log.as_ref().unwrap_or(&existing.exploration_log);
             let plan_markdown = updates.plan_markdown.as_ref().or(existing.plan_markdown.as_ref());
             let plan_json = updates.plan_json.as_ref().or(existing.plan_json.as_ref());
             let settings = updates.settings.as_ref().unwrap_or(&existing.settings);
-            
-            // Handle project_id: None means keep existing, Some("") means clear, Some(id) means set
-            let project_id = match &updates.project_id {
-                Some(pid) if pid.is_empty() => None,
-                Some(pid) => Some(pid.as_str()),
-                None => existing.project_id.as_deref(),
-            };
 
             let exploration_json = serde_json::to_string(exploration_log).unwrap_or_else(|_| "[]".to_string());
             let settings_json = serde_json::to_string(settings).unwrap_or_else(|_| "{}".to_string());
@@ -116,18 +115,19 @@ impl Database {
 
             conn.execute(
                 r#"UPDATE scratchpads 
-                   SET name = ?, user_input = ?, status = ?, exploration_log = ?,
-                       plan_markdown = ?, plan_json = ?, settings_json = ?, project_id = ?, updated_at = ?
+                   SET name = ?, user_input = ?, status = ?, agent_pref = ?, model = ?,
+                       exploration_log = ?, plan_markdown = ?, plan_json = ?, settings_json = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     name,
                     user_input,
                     status.as_str(),
+                    agent_pref,
+                    model,
                     exploration_json,
                     plan_markdown,
                     plan_json_str,
                     settings_json,
-                    project_id,
                     now.to_rfc3339(),
                     id,
                 ],
@@ -135,8 +135,8 @@ impl Database {
 
             // Re-query to return updated
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, name, user_input, status, exploration_log, 
-                          plan_markdown, plan_json, settings_json, project_id, created_at, updated_at
+                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
             stmt.query_row([id], Self::map_scratchpad_row)
@@ -241,33 +241,37 @@ impl Database {
     }
 
     fn map_scratchpad_row(row: &rusqlite::Row) -> rusqlite::Result<Scratchpad> {
-        let status_str: String = row.get(4)?;
+        // Column order: id, board_id, project_id, name, user_input, status, agent_pref, model,
+        //               exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+        let status_str: String = row.get(5)?;
         let status = ScratchpadStatus::parse(&status_str).unwrap_or_default();
         
-        let exploration_log_str: Option<String> = row.get(5)?;
+        let exploration_log_str: Option<String> = row.get(8)?;
         let exploration_log: Vec<Exploration> = exploration_log_str
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         
-        let plan_json_str: Option<String> = row.get(7)?;
+        let plan_json_str: Option<String> = row.get(10)?;
         let plan_json = plan_json_str.and_then(|s| serde_json::from_str(&s).ok());
         
-        let settings_str: String = row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "{}".to_string());
+        let settings_str: String = row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "{}".to_string());
         let settings = serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
 
         Ok(Scratchpad {
             id: row.get(0)?,
             board_id: row.get(1)?,
-            name: row.get(2)?,
-            user_input: row.get(3)?,
+            project_id: row.get(2)?,
+            name: row.get(3)?,
+            user_input: row.get(4)?,
             status,
+            agent_pref: row.get(6)?,
+            model: row.get(7)?,
             exploration_log,
-            plan_markdown: row.get(6)?,
+            plan_markdown: row.get(9)?,
             plan_json,
             settings,
-            project_id: row.get(9)?,
-            created_at: parse_datetime(row.get(10)?),
-            updated_at: parse_datetime(row.get(11)?),
+            created_at: parse_datetime(row.get(12)?),
+            updated_at: parse_datetime(row.get(13)?),
         })
     }
 
@@ -331,46 +335,72 @@ mod tests {
         Database::open_in_memory().unwrap()
     }
 
+    fn temp_dir_path() -> String {
+        std::env::temp_dir().to_string_lossy().to_string()
+    }
+
+    fn create_test_project(db: &Database) -> crate::db::models::Project {
+        use crate::db::models::CreateProject;
+        db.create_project(&CreateProject {
+            name: "Test Project".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: false,
+        }).unwrap()
+    }
+
     #[test]
     fn create_and_get_scratchpad() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Feature Plan".to_string(),
             user_input: "I want to add a new authentication system".to_string(),
-            project_id: None,
+            agent_pref: Some("claude".to_string()),
+            model: Some("opus".to_string()),
             settings: serde_json::json!({}),
         }).unwrap();
         
         assert_eq!(scratchpad.name, "Feature Plan");
+        assert_eq!(scratchpad.project_id, project.id);
+        assert_eq!(scratchpad.agent_pref, Some("claude".to_string()));
+        assert_eq!(scratchpad.model, Some("opus".to_string()));
         assert_eq!(scratchpad.status, ScratchpadStatus::Draft);
         assert!(scratchpad.exploration_log.is_empty());
         
         let fetched = db.get_scratchpad(&scratchpad.id).unwrap();
         assert_eq!(fetched.id, scratchpad.id);
         assert_eq!(fetched.user_input, "I want to add a new authentication system");
+        assert_eq!(fetched.project_id, project.id);
     }
 
     #[test]
     fn get_scratchpads_for_board() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan 1".to_string(),
             user_input: "Input 1".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
         db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan 2".to_string(),
             user_input: "Input 2".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
@@ -382,12 +412,15 @@ mod tests {
     fn update_scratchpad() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Original".to_string(),
             user_input: "Original input".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
@@ -395,28 +428,34 @@ mod tests {
             name: Some("Updated".to_string()),
             user_input: None,
             status: Some(ScratchpadStatus::Exploring),
+            agent_pref: Some("cursor".to_string()),
+            model: Some("sonnet".to_string()),
             exploration_log: None,
             plan_markdown: None,
             plan_json: None,
             settings: None,
-            project_id: None,
         }).unwrap();
         
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.user_input, "Original input");
         assert_eq!(updated.status, ScratchpadStatus::Exploring);
+        assert_eq!(updated.agent_pref, Some("cursor".to_string()));
+        assert_eq!(updated.model, Some("sonnet".to_string()));
     }
 
     #[test]
     fn append_exploration() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
@@ -437,12 +476,15 @@ mod tests {
     fn set_scratchpad_status() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
@@ -458,12 +500,15 @@ mod tests {
     fn set_scratchpad_plan() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         
@@ -484,12 +529,15 @@ mod tests {
     fn delete_scratchpad() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
-            project_id: None,
+            agent_pref: None,
+            model: None,
             settings: serde_json::json!({}),
         }).unwrap();
         

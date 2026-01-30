@@ -286,34 +286,44 @@ export interface Exploration {
 export interface Scratchpad {
   id: string;
   boardId: string;
+  /** The project this scratchpad is scoped to (required) */
+  projectId: string;
   name: string;
   userInput: string;
   status: ScratchpadStatus;
+  /** Preferred agent type for executing the plan */
+  agentPref?: 'cursor' | 'claude' | 'any';
+  /** Preferred model for the agent */
+  model?: string;
   /** Log of exploration queries and responses */
   explorationLog: Exploration[];
   /** Generated plan in markdown format (for display) */
   planMarkdown?: string;
   /** Parsed plan structure (for execution) */
   planJson?: ProjectPlan;
-  /** Settings for this scratchpad (auto_approve, model preferences, etc.) */
+  /** Settings for this scratchpad (auto_approve, etc.) */
   settings: Record<string, unknown>;
-  /** The project to use for exploration and ticket creation */
-  projectId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface CreateScratchpadInput {
   boardId: string;
+  /** The project this scratchpad is scoped to (required) */
+  projectId: string;
   name: string;
   userInput: string;
-  projectId?: string;
+  /** Preferred agent type */
+  agentPref?: 'cursor' | 'claude' | 'any';
+  /** Preferred model */
+  model?: string;
 }
 
 export interface UpdateScratchpadInput {
   name?: string;
   userInput?: string;
-  projectId?: string;
+  agentPref?: 'cursor' | 'claude' | 'any';
+  model?: string;
 }
 
 /** An epic in a generated plan */

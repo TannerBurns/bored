@@ -6,10 +6,13 @@ import { usePlannerStore } from '../../stores/plannerStore';
 
 interface CreateScratchpadModalProps {
   boardId: string;
-  projectId?: string;
+  /** Required - the project this scratchpad is scoped to */
+  projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+type AgentPref = 'cursor' | 'claude' | 'any';
 
 export function CreateScratchpadModal({
   boardId,
@@ -20,6 +23,8 @@ export function CreateScratchpadModal({
   const { createScratchpad, isLoading } = usePlannerStore();
   const [name, setName] = useState('');
   const [userInput, setUserInput] = useState('');
+  const [agentPref, setAgentPref] = useState<AgentPref>('any');
+  const [model, setModel] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,13 +44,17 @@ export function CreateScratchpadModal({
     try {
       await createScratchpad({
         boardId,
+        projectId,
         name: name.trim(),
         userInput: userInput.trim(),
-        projectId,
+        agentPref: agentPref !== 'any' ? agentPref : undefined,
+        model: model.trim() || undefined,
       });
       
       setName('');
       setUserInput('');
+      setAgentPref('any');
+      setModel('');
       onOpenChange(false);
     } catch (err) {
       setError(String(err));
@@ -80,6 +89,36 @@ export function CreateScratchpadModal({
                      focus:ring-2 focus:ring-blue-500 focus:border-blue-500
                      min-h-[200px] resize-y"
           />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Agent Preference
+            </label>
+            <select
+              value={agentPref}
+              onChange={(e) => setAgentPref(e.target.value as AgentPref)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
+                       bg-white dark:bg-gray-800 text-gray-900 dark:text-white
+                       focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="any">Any Agent</option>
+              <option value="cursor">Cursor</option>
+              <option value="claude">Claude Code</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Model (optional)
+            </label>
+            <Input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="e.g., opus, sonnet"
+            />
+          </div>
         </div>
 
         {error && (

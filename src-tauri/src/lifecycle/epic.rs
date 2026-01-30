@@ -44,32 +44,43 @@ pub fn on_epic_moved_to_ready(
             .into_iter()
             .find(|c| c.id == dependency.column_id);
         
-        if let Some(col) = dep_column {
-            if col.name != "Done" {
-                // Dependency not complete - move epic to Backlog
-                if let Some(backlog) = db.find_column_by_name(&epic.board_id, "Backlog")? {
-                    db.move_ticket(&epic.id, &backlog.id)?;
-                    
-                    // Add system comment
-                    db.create_comment(&CreateComment {
-                        ticket_id: epic.id.clone(),
-                        author_type: AuthorType::System,
-                        body_md: format!(
-                            "Epic blocked: depends on \"{}\" which is not yet complete. Moved back to Backlog.",
-                            dependency.title
-                        ),
-                        metadata: None,
-                    })?;
-                    
-                    tracing::info!(
-                        "Epic {} blocked by dependency {}, moved to Backlog",
-                        epic.id, dependency_id
-                    );
-                    
-                    return Ok(EpicAdvancement::BlockedByDependency { 
-                        dependency_id: dependency_id.clone() 
-                    });
-                }
+        // Determine if dependency is complete
+        // If column lookup fails, treat as incomplete (fail-safe: block the epic)
+        let dependency_complete = match dep_column {
+            Some(ref col) => col.name == "Done",
+            None => {
+                tracing::warn!(
+                    "Epic {}: could not find column {} for dependency {}, treating as incomplete",
+                    epic.id, dependency.column_id, dependency_id
+                );
+                false
+            }
+        };
+        
+        if !dependency_complete {
+            // Dependency not complete - move epic to Backlog
+            if let Some(backlog) = db.find_column_by_name(&epic.board_id, "Backlog")? {
+                db.move_ticket(&epic.id, &backlog.id)?;
+                
+                // Add system comment
+                db.create_comment(&CreateComment {
+                    ticket_id: epic.id.clone(),
+                    author_type: AuthorType::System,
+                    body_md: format!(
+                        "Epic blocked: depends on \"{}\" which is not yet complete. Moved back to Backlog.",
+                        dependency.title
+                    ),
+                    metadata: None,
+                })?;
+                
+                tracing::info!(
+                    "Epic {} blocked by dependency {}, moved to Backlog",
+                    epic.id, dependency_id
+                );
+                
+                return Ok(EpicAdvancement::BlockedByDependency { 
+                    dependency_id: dependency_id.clone() 
+                });
             }
         }
     }

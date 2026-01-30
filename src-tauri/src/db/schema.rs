@@ -98,19 +98,22 @@ CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHER
 CREATE TABLE IF NOT EXISTS scratchpads (
     id TEXT PRIMARY KEY NOT NULL,
     board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     user_input TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+    model TEXT,
     exploration_log TEXT,
     plan_markdown TEXT,
     plan_json TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
-    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
 CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
 
 -- Comments table
@@ -297,20 +300,23 @@ ALTER TABLE tickets ADD COLUMN scratchpad_id TEXT REFERENCES scratchpads(id) ON 
 CREATE TABLE IF NOT EXISTS scratchpads (
     id TEXT PRIMARY KEY NOT NULL,
     board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     user_input TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+    model TEXT,
     exploration_log TEXT,
     plan_markdown TEXT,
     plan_json TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
-    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Indexes for scratchpads
 CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
 CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
 
 -- Indexes for new ticket columns

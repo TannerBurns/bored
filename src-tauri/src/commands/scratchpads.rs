@@ -8,18 +8,22 @@ use crate::agents::planner::{PlannerAgent, PlannerConfig};
 #[tauri::command]
 pub async fn create_scratchpad(
     board_id: String,
+    project_id: String,
     name: String,
     user_input: String,
-    project_id: Option<String>,
+    agent_pref: Option<String>,
+    model: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Scratchpad, String> {
-    tracing::info!("Creating scratchpad '{}' for board {}", name, board_id);
+    tracing::info!("Creating scratchpad '{}' for board {} project {}", name, board_id, project_id);
     
     db.create_scratchpad(&CreateScratchpad {
         board_id,
+        project_id,
         name,
         user_input,
-        project_id,
+        agent_pref,
+        model,
         settings: serde_json::json!({}),
     }).map_err(|e| e.to_string())
 }
@@ -45,7 +49,8 @@ pub async fn update_scratchpad(
     id: String,
     name: Option<String>,
     user_input: Option<String>,
-    project_id: Option<String>,
+    agent_pref: Option<String>,
+    model: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Scratchpad, String> {
     tracing::info!("Updating scratchpad {}", id);
@@ -54,11 +59,12 @@ pub async fn update_scratchpad(
         name,
         user_input,
         status: None,
+        agent_pref,
+        model,
         exploration_log: None,
         plan_markdown: None,
         plan_json: None,
         settings: None,
-        project_id,
     }).map_err(|e| e.to_string())
 }
 

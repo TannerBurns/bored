@@ -655,19 +655,23 @@ pub struct Exploration {
 pub struct Scratchpad {
     pub id: String,
     pub board_id: String,
+    /// The project this scratchpad is scoped to (required)
+    pub project_id: String,
     pub name: String,
     pub user_input: String,
     pub status: ScratchpadStatus,
+    /// Preferred agent type for executing the plan
+    pub agent_pref: Option<String>,
+    /// Preferred model for the agent
+    pub model: Option<String>,
     /// Log of exploration queries and responses
     pub exploration_log: Vec<Exploration>,
     /// Generated plan in markdown format (for display)
     pub plan_markdown: Option<String>,
     /// Parsed plan structure (for execution)
     pub plan_json: Option<serde_json::Value>,
-    /// Settings for this scratchpad (auto_approve, model preferences, etc.)
+    /// Settings for this scratchpad (auto_approve, etc.)
     pub settings: serde_json::Value,
-    /// The project to use for exploration and ticket creation
-    pub project_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -677,9 +681,14 @@ pub struct Scratchpad {
 #[serde(rename_all = "camelCase")]
 pub struct CreateScratchpad {
     pub board_id: String,
+    /// The project this scratchpad is scoped to (required)
+    pub project_id: String,
     pub name: String,
     pub user_input: String,
-    pub project_id: Option<String>,
+    /// Preferred agent type (cursor, claude, any)
+    pub agent_pref: Option<String>,
+    /// Preferred model
+    pub model: Option<String>,
     #[serde(default)]
     pub settings: serde_json::Value,
 }
@@ -691,11 +700,12 @@ pub struct UpdateScratchpad {
     pub name: Option<String>,
     pub user_input: Option<String>,
     pub status: Option<ScratchpadStatus>,
+    pub agent_pref: Option<String>,
+    pub model: Option<String>,
     pub exploration_log: Option<Vec<Exploration>>,
     pub plan_markdown: Option<String>,
     pub plan_json: Option<serde_json::Value>,
     pub settings: Option<serde_json::Value>,
-    pub project_id: Option<String>,
 }
 
 /// An epic in a generated plan
