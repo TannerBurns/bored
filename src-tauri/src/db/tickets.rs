@@ -94,15 +94,26 @@ impl Database {
                 Some(id) => Some(id.as_str()),
                 None => existing.scratchpad_id.as_deref(),
             };
+            // Handle depends_on_epic_ids: empty Vec means keep existing, non-empty means set
+            let depends_on_epic_ids = if updates.depends_on_epic_ids.is_empty() {
+                existing.depends_on_epic_ids.clone()
+            } else {
+                updates.depends_on_epic_ids.clone()
+            };
 
             let labels_json = serde_json::to_string(labels).unwrap_or_else(|_| "[]".to_string());
+            let depends_on_epic_ids_json = if depends_on_epic_ids.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&depends_on_epic_ids).unwrap_or_else(|_| "[]".to_string()))
+            };
 
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
                        project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
                        column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
-                       depends_on_epic_id = ?, scratchpad_id = ?, updated_at = ?
+                       depends_on_epic_id = ?, depends_on_epic_ids_json = ?, scratchpad_id = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -119,6 +130,7 @@ impl Database {
                     epic_id,
                     order_in_epic,
                     depends_on_epic_id,
+                    depends_on_epic_ids_json,
                     scratchpad_id,
                     now.to_rfc3339(),
                     ticket_id,
