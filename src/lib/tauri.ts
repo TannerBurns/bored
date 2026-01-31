@@ -315,3 +315,13 @@ export async function checkCommandsInstalled(
 export async function checkUserCommandsInstalled(agentType: string): Promise<boolean> {
   return invoke('check_user_commands_installed', { agentType });
 }
+
+// Factory reset - clears all data from the database
+export async function factoryReset(): Promise<void> {
+  return invoke('factory_reset');
+}
+
+// Repair scratchpads table - fixes CHECK constraint issue
+export async function repairScratchpadsTable(): Promise<string> {
+  return invoke('repair_scratchpads_table');
+}

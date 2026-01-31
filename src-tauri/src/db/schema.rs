@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 13;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -55,6 +55,31 @@ CREATE TABLE IF NOT EXISTS columns (
 
 CREATE INDEX IF NOT EXISTS idx_columns_board ON columns(board_id);
 
+-- Scratchpads table (for planner agent)
+-- Note: Must be created before tickets table since tickets references scratchpads(id)
+CREATE TABLE IF NOT EXISTS scratchpads (
+    id TEXT PRIMARY KEY NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+    model TEXT,
+    exploration_log TEXT,
+    plan_markdown TEXT,
+    plan_json TEXT,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+
 -- Tickets table
 -- Note: locked_by_run_id intentionally omits FK constraint to avoid circular
 -- dependency with agent_runs table. Referential integrity is maintained at
@@ -79,7 +104,13 @@ CREATE TABLE IF NOT EXISTS tickets (
     -- Epic support: is_epic marks this ticket as an epic, epic_id references parent epic
     is_epic INTEGER NOT NULL DEFAULT 0,
     epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
-    order_in_epic INTEGER
+    order_in_epic INTEGER,
+    -- Cross-epic dependency: which epic must complete before this epic can start (primary dependency)
+    depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+    -- All epic dependencies as JSON array of IDs (for display purposes)
+    depends_on_epic_ids_json TEXT,
+    -- Link back to scratchpad that created this ticket
+    scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -87,6 +118,8 @@ CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL;
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
@@ -257,6 +290,50 @@ ALTER TABLE tickets ADD COLUMN order_in_epic INTEGER;
 
 -- Index for efficient epic children queries
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+"#;
+
+/// Migration SQL for schema version 10
+/// Adds scratchpads table and epic dependency columns
+pub const MIGRATION_V10: &str = r#"
+-- Add depends_on_epic_id column to tickets for cross-epic dependencies
+ALTER TABLE tickets ADD COLUMN depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL;
+
+-- Add scratchpad_id column to tickets to link back to generating scratchpad
+ALTER TABLE tickets ADD COLUMN scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL;
+
+-- Create scratchpads table
+CREATE TABLE IF NOT EXISTS scratchpads (
+    id TEXT PRIMARY KEY NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+    model TEXT,
+    exploration_log TEXT,
+    plan_markdown TEXT,
+    plan_json TEXT,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Indexes for scratchpads
+CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+
+-- Indexes for new ticket columns
+CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL;
+"#;
+
+/// Migration SQL for schema version 13
+/// Adds depends_on_epic_ids_json column for storing multiple dependencies
+pub const MIGRATION_V13: &str = r#"
+-- Add depends_on_epic_ids_json column to store all epic dependencies as JSON array
+ALTER TABLE tickets ADD COLUMN depends_on_epic_ids_json TEXT;
 "#;
 
 /// Default columns for a new board

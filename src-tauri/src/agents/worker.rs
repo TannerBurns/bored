@@ -247,11 +247,39 @@ impl Worker {
                         }
                     }
                     Ok(None) => {
-                        tracing::info!(
-                            "Worker {} ticket {} is first child in epic, using default branch",
-                            self.id, ticket.id
-                        );
-                        None
+                        // First child in epic - check for cross-epic dependency branching
+                        // If the parent epic depends on another epic, branch from that epic's last child
+                        if let Some(ref epic_id) = ticket.epic_id {
+                            match self.db.get_dependency_base_branch(epic_id) {
+                                Ok(Some(ref branch)) => {
+                                    tracing::info!(
+                                        "Worker {} using cross-epic branching: basing {} on dependency epic's last child branch {}",
+                                        self.id, ticket.id, branch
+                                    );
+                                    Some(branch.clone())
+                                }
+                                Ok(None) => {
+                                    tracing::info!(
+                                        "Worker {} ticket {} is first child in epic with no dependency, using default branch",
+                                        self.id, ticket.id
+                                    );
+                                    None
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Worker {} failed to get dependency base branch for epic {}: {}, using default branch",
+                                        self.id, epic_id, e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            tracing::info!(
+                                "Worker {} ticket {} is first child in epic, using default branch",
+                                self.id, ticket.id
+                            );
+                            None
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -772,9 +800,11 @@ impl WorkerManager {
             }
         }
 
+        // Abort all handles instead of awaiting them - this ensures idle workers
+        // that are sleeping during poll intervals are terminated immediately
         let handles: Vec<_> = self.handles.lock().expect("handles mutex poisoned").drain(..).collect();
         for handle in handles {
-            let _ = handle.await;
+            handle.abort();
         }
 
         self.workers.lock().expect("workers mutex poisoned").clear();

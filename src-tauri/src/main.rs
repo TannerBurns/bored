@@ -1,10 +1,35 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Manager, WindowBuilder, WindowUrl};
 
 use agent_kanban::{api, commands, db, logging};
 use agent_kanban::commands::runs::RunningAgents;
+
+/// Check if a URL is allowed for navigation within the app
+fn is_allowed_url(url: &url::Url) -> bool {
+    // Allow the dev server
+    if url.host_str() == Some("localhost") || url.host_str() == Some("127.0.0.1") {
+        if let Some(port) = url.port() {
+            // Allow Vite dev server port
+            if port == 1420 {
+                return true;
+            }
+        }
+    }
+    
+    // Allow tauri custom protocol (production builds)
+    if url.scheme() == "tauri" {
+        return true;
+    }
+    
+    // Allow about:blank and similar
+    if url.scheme() == "about" {
+        return true;
+    }
+    
+    false
+}
 
 fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
@@ -129,7 +154,7 @@ fn main() {
             };
             
             let api_config = api::ApiConfig {
-                token: api_token,
+                token: api_token.clone(),
                 ..Default::default()
             };
             
@@ -137,15 +162,28 @@ fn main() {
             std::fs::write(&port_path, api_config.port.to_string())
                 .expect("Failed to write API port");
 
+            // Create shared API URL and token for Tauri commands
+            let api_url = format!("http://127.0.0.1:{}", api_config.port);
+            
             // Make config available via environment for child processes
             std::env::set_var("AGENT_KANBAN_API_TOKEN", &api_config.token);
             std::env::set_var("AGENT_KANBAN_API_PORT", api_config.port.to_string());
-            std::env::set_var("AGENT_KANBAN_API_URL", format!("http://127.0.0.1:{}", api_config.port));
+            std::env::set_var("AGENT_KANBAN_API_URL", &api_url);
 
-            // Start API server
+            // Create shared event channel for SSE broadcasting
+            let event_tx = api::create_event_channel();
+            
+            // Manage shared state for commands that need API/event access
+            app.manage(event_tx.clone());
+            app.manage(api_url);
+            app.manage(api_token);
+
+            // Start API server with shared event channel
             let db_for_api = database.clone();
+            let event_tx_for_api = event_tx;
+            let api_config_clone = api_config.clone();
             tauri::async_runtime::spawn(async move {
-                match api::start_server(db_for_api, api_config).await {
+                match api::start_server_with_event_tx(db_for_api, api_config_clone, event_tx_for_api).await {
                     Ok(handle) => {
                         tracing::info!("API server started at {}", handle.addr);
                         // Keep handle alive - server runs until app exits
@@ -164,6 +202,30 @@ fn main() {
                 api::start_spool_processor(db_for_spool, spool_dir).await;
             });
 
+            // Create the main window with navigation guard
+            let window_url = if cfg!(debug_assertions) {
+                WindowUrl::External("http://localhost:1420".parse().unwrap())
+            } else {
+                WindowUrl::App("index.html".into())
+            };
+            
+            let _main_window = WindowBuilder::new(app, "main", window_url)
+                .title("Bored")
+                .inner_size(1200.0, 800.0)
+                .resizable(true)
+                .on_navigation(|url| {
+                    let allowed = is_allowed_url(&url);
+                    if !allowed {
+                        tracing::warn!(
+                            "Blocked navigation to external URL: {} - use system browser instead",
+                            url
+                        );
+                    }
+                    allowed
+                })
+                .build()
+                .expect("Failed to create main window");
+
             tracing::info!("Agent Kanban initialized successfully");
 
             Ok(())
@@ -174,6 +236,8 @@ fn main() {
             commands::create_board,
             commands::update_board,
             commands::delete_board,
+            commands::factory_reset,
+            commands::repair_scratchpads_table,
             commands::get_tickets,
             commands::create_ticket,
             commands::move_ticket,
@@ -252,6 +316,23 @@ fn main() {
             commands::tasks::update_task,
             commands::tasks::get_preset_types,
             commands::tasks::reset_task,
+            // Scratchpad / Planner commands
+            commands::scratchpads::create_scratchpad,
+            commands::scratchpads::get_scratchpads,
+            commands::scratchpads::get_all_scratchpads,
+            commands::scratchpads::get_scratchpad,
+            commands::scratchpads::update_scratchpad,
+            commands::scratchpads::delete_scratchpad,
+            commands::scratchpads::delete_scratchpad_with_tickets,
+            commands::scratchpads::set_scratchpad_status,
+            commands::scratchpads::append_exploration,
+            commands::scratchpads::set_scratchpad_plan,
+            commands::scratchpads::approve_plan,
+            commands::scratchpads::get_scratchpad_tickets,
+            commands::scratchpads::start_planner,
+            commands::scratchpads::execute_plan,
+            commands::scratchpads::start_scratchpad_work,
+            commands::scratchpads::get_scratchpad_progress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

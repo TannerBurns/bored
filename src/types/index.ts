@@ -79,6 +79,10 @@ export interface Ticket {
   epicId?: string;
   /** The order of this ticket within its parent epic */
   orderInEpic?: number;
+  /** Cross-epic dependency: which epic must complete before this epic can start */
+  dependsOnEpicId?: string;
+  /** Link back to scratchpad that created this ticket */
+  scratchpadId?: string;
 }
 
 export type ReadinessCheck =
@@ -257,4 +261,135 @@ export interface EpicProgress {
   review: number;
   /** Children in Done */
   done: number;
+}
+
+// ===== Scratchpad / Planner Types =====
+
+export type ScratchpadStatus = 
+  | 'draft'
+  | 'exploring'
+  | 'planning'
+  | 'awaiting_approval'
+  | 'approved'
+  | 'executing'
+  | 'executed'  // Epics/tickets created, ready to start work
+  | 'working'   // Work in progress
+  | 'completed'
+  | 'failed';
+
+/** Status of a single ticket within an epic */
+export interface ScratchpadTicketStatus {
+  id: string;
+  title: string;
+  column: string;
+}
+
+/** Status of a single epic within a scratchpad */
+export interface ScratchpadEpicStatus {
+  id: string;
+  title: string;
+  column: string;
+  /** The epics this one depends on (empty = independent/root epic) */
+  dependsOnIds: string[];
+  /** Titles of the dependency epics (for display, in same order as dependsOnIds) */
+  dependsOnTitles: string[];
+  /** Child tickets in this epic */
+  tickets: ScratchpadTicketStatus[];
+}
+
+/** Progress stats for a scratchpad's epics */
+export interface ScratchpadProgress {
+  /** Number of epics */
+  total: number;
+  /** Epics in Done column */
+  done: number;
+  /** Epics in Ready/In Progress/Review */
+  inProgress: number;
+  /** Epics in Blocked column */
+  blocked: number;
+  /** Total number of all tickets (epics + child tickets) */
+  totalTickets: number;
+  /** List of epics with their status */
+  epics: ScratchpadEpicStatus[];
+}
+
+/** A single exploration query and its result */
+export interface Exploration {
+  query: string;
+  response: string;
+  timestamp: Date;
+}
+
+/** A scratchpad for the planner agent */
+export interface Scratchpad {
+  id: string;
+  /** The board this scratchpad belongs to (for organization) */
+  boardId: string;
+  /** The board where tickets will be created (defaults to boardId if not set) */
+  targetBoardId?: string;
+  /** The project this scratchpad is scoped to (required) */
+  projectId: string;
+  name: string;
+  userInput: string;
+  status: ScratchpadStatus;
+  /** Preferred agent type for executing the plan */
+  agentPref?: 'cursor' | 'claude' | 'any';
+  /** Preferred model for the agent */
+  model?: string;
+  /** Log of exploration queries and responses */
+  explorationLog: Exploration[];
+  /** Generated plan in markdown format (for display) */
+  planMarkdown?: string;
+  /** Parsed plan structure (for execution) */
+  planJson?: ProjectPlan;
+  /** Settings for this scratchpad (auto_approve, etc.) */
+  settings: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateScratchpadInput {
+  boardId: string;
+  /** The board where tickets will be created (defaults to boardId if not set) */
+  targetBoardId?: string;
+  /** The project this scratchpad is scoped to (required) */
+  projectId: string;
+  name: string;
+  userInput: string;
+  /** Preferred agent type */
+  agentPref?: 'cursor' | 'claude' | 'any';
+  /** Preferred model */
+  model?: string;
+}
+
+export interface UpdateScratchpadInput {
+  name?: string;
+  userInput?: string;
+  agentPref?: 'cursor' | 'claude' | 'any';
+  model?: string;
+}
+
+/** An epic in a generated plan */
+export interface PlanEpic {
+  title: string;
+  description: string;
+  /** 
+   * Titles of epics this depends on (empty array = root epic, no dependencies)
+   * Supports both old format (string | null) and new format (string[]) for backward compatibility
+   */
+  dependsOn: string[] | string | null;
+  tickets: PlanTicket[];
+}
+
+/** A ticket in a generated plan */
+export interface PlanTicket {
+  title: string;
+  description: string;
+  acceptanceCriteria?: string[];
+}
+
+/** A generated project plan */
+export interface ProjectPlan {
+  overview: string;
+  epics: PlanEpic[];
 }

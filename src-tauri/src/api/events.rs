@@ -105,6 +105,15 @@ fn event_matches_filter(
             LiveEvent::EventReceived { .. } => "event_received",
             LiveEvent::TicketLocked { .. } => "ticket_locked",
             LiveEvent::TicketUnlocked { .. } => "ticket_unlocked",
+            LiveEvent::ScratchpadCreated { .. } => "scratchpad_created",
+            LiveEvent::ScratchpadUpdated { .. } => "scratchpad_updated",
+            LiveEvent::ScratchpadDeleted { .. } => "scratchpad_deleted",
+            LiveEvent::ExplorationProgress { .. } => "exploration_progress",
+            LiveEvent::PlanGenerated { .. } => "plan_generated",
+            LiveEvent::PlanApproved { .. } => "plan_approved",
+            LiveEvent::PlanExecutionStarted { .. } => "plan_execution_started",
+            LiveEvent::PlanExecutionCompleted { .. } => "plan_execution_completed",
+            LiveEvent::PlannerLogEntry { .. } => "planner_log_entry",
         };
 
         if !types.iter().any(|t| t == event_type) {

@@ -10,14 +10,20 @@ pub mod types;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 use crate::db::Database;
 
 pub use auth::generate_token;
 pub use cleanup::{start_cleanup_service, CleanupConfig};
-pub use state::AppState;
+pub use state::{AppState, LiveEvent};
 pub use error::{ApiError, AppError, ApiResult};
 pub use spool::{start_spool_processor, get_default_spool_dir};
+
+/// Create a new event broadcaster channel
+pub fn create_event_channel() -> broadcast::Sender<LiveEvent> {
+    let (tx, _) = broadcast::channel(256);
+    tx
+}
 
 /// API server configuration
 #[derive(Debug, Clone)]
@@ -55,6 +61,25 @@ pub async fn start_server(
     config: ApiConfig,
 ) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
     let state = AppState::new(db.clone(), config.token.clone());
+    start_server_with_state(db, config, state).await
+}
+
+/// Start the API server with an externally provided event channel
+pub async fn start_server_with_event_tx(
+    db: Arc<Database>,
+    config: ApiConfig,
+    event_tx: broadcast::Sender<LiveEvent>,
+) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
+    let state = AppState::with_event_tx(db.clone(), config.token.clone(), event_tx);
+    start_server_with_state(db, config, state).await
+}
+
+/// Start the API server with a pre-configured AppState
+async fn start_server_with_state(
+    db: Arc<Database>,
+    config: ApiConfig,
+    state: AppState,
+) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
     let router = routes::create_router(state);
 
     let addr = SocketAddr::from((config.host, config.port));

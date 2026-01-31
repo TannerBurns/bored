@@ -3,6 +3,7 @@ pub mod claude;
 pub mod cursor;
 pub mod projects;
 pub mod runs;
+pub mod scratchpads;
 pub mod tasks;
 pub mod tickets;
 pub mod workers;
@@ -12,6 +13,11 @@ pub use claude::*;
 pub use cursor::*;
 pub use projects::*;
 pub use runs::{start_agent_run, get_agent_runs, get_recent_runs, get_agent_run, get_run_events, cancel_agent_run};
+pub use scratchpads::{
+    create_scratchpad, get_scratchpads, get_scratchpad, update_scratchpad, delete_scratchpad,
+    set_scratchpad_status, append_exploration, set_scratchpad_plan, approve_plan,
+    get_scratchpad_tickets, start_planner, execute_plan,
+};
 pub use tasks::{
     get_tasks, get_task, create_task, add_preset_task, delete_task,
     get_next_pending_task, has_pending_tasks, get_task_counts, update_task, get_preset_types,

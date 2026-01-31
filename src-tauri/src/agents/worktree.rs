@@ -54,6 +54,12 @@ pub enum WorktreeError {
         timeout_secs: u64,
         operation: String,
     },
+    
+    #[error("Repository has no commits yet (unborn branch)")]
+    UnbornBranch {
+        message: String,
+        stderr: String,
+    },
 }
 
 impl WorktreeError {
@@ -63,6 +69,7 @@ impl WorktreeError {
             WorktreeError::GitError { stderr, .. } => Some(stderr.as_str()),
             WorktreeError::SshAuthFailed { stderr, .. } => Some(stderr.as_str()),
             WorktreeError::NetworkError { stderr, .. } => Some(stderr.as_str()),
+            WorktreeError::UnbornBranch { stderr, .. } => Some(stderr.as_str()),
             _ => None,
         }
     }
@@ -84,6 +91,7 @@ impl WorktreeError {
             WorktreeError::SshAuthFailed { operation, .. } => Some(operation.as_str()),
             WorktreeError::NetworkError { operation, .. } => Some(operation.as_str()),
             WorktreeError::Timeout { operation, .. } => Some(operation.as_str()),
+            WorktreeError::UnbornBranch { .. } => Some("git worktree add"),
             _ => None,
         }
     }
@@ -95,6 +103,7 @@ impl WorktreeError {
             WorktreeError::NetworkError { .. } => DiagnosticType::NetworkError,
             WorktreeError::Timeout { .. } => DiagnosticType::Timeout,
             WorktreeError::ExecutionError(_) => DiagnosticType::Permission,
+            WorktreeError::UnbornBranch { .. } => DiagnosticType::UnbornBranch,
             WorktreeError::GitError { message, stderr, .. } => {
                 // Check both message and stderr for context
                 let combined = format!("{} {}", message, stderr);
@@ -102,6 +111,8 @@ impl WorktreeError {
                     DiagnosticType::Permission
                 } else if combined.contains("Could not resolve host") || combined.contains("Network is unreachable") {
                     DiagnosticType::NetworkError
+                } else if is_unborn_branch_error(&combined) {
+                    DiagnosticType::UnbornBranch
                 } else {
                     DiagnosticType::GitError
                 }
@@ -119,6 +130,7 @@ pub enum DiagnosticType {
     Permission,
     NetworkError,
     GitError,
+    UnbornBranch,
     Unknown,
 }
 
@@ -130,6 +142,7 @@ impl DiagnosticType {
             DiagnosticType::Permission => "permission",
             DiagnosticType::NetworkError => "network_error",
             DiagnosticType::GitError => "git_error",
+            DiagnosticType::UnbornBranch => "unborn_branch",
             DiagnosticType::Unknown => "unknown",
         }
     }
@@ -301,6 +314,112 @@ fn extract_ssh_error_message(stderr: &str) -> String {
     
     // Default: return first line of stderr
     stderr.lines().next().unwrap_or("SSH authentication failed").to_string()
+}
+
+/// Check if an error indicates the repository has no commits (unborn branch).
+/// 
+/// This happens when trying to create a worktree in a brand new repository
+/// that hasn't had its first commit yet.
+fn is_unborn_branch_error(stderr: &str) -> bool {
+    // "invalid reference: main" or "invalid reference: HEAD"
+    // "not a valid object name: 'main'"
+    // These occur when trying to create a branch from a non-existent ref
+    let patterns = [
+        "invalid reference:",
+        "not a valid object name",
+        "does not have any commits yet",
+        "bad revision",
+        "unknown revision",
+    ];
+    
+    patterns.iter().any(|pattern| stderr.contains(pattern))
+}
+
+/// Check if a repository has any commits (i.e., HEAD points to a valid commit).
+/// 
+/// Returns `true` if the repo has at least one commit, `false` if the branch is unborn.
+pub fn repo_has_commits(repo_path: &Path) -> bool {
+    let output = git_command()
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output();
+    
+    match output {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
+}
+
+/// Create an initial commit in a repository that has no commits.
+/// 
+/// This creates an empty commit (or a commit with a README if the repo is empty)
+/// so that worktree operations can succeed.
+pub fn create_initial_commit(repo_path: &Path) -> Result<(), WorktreeError> {
+    tracing::info!("Creating initial commit in repo at {}", repo_path.display());
+    
+    // Check if there are any files to add
+    let status_output = git_command()
+        .args(["status", "--porcelain"])
+        .current_dir(repo_path)
+        .output()?;
+    
+    let has_files = !String::from_utf8_lossy(&status_output.stdout).trim().is_empty();
+    
+    if has_files {
+        // Add all existing files
+        let add_output = git_command()
+            .args(["add", "-A"])
+            .current_dir(repo_path)
+            .output()?;
+        
+        if !add_output.status.success() {
+            let stderr = String::from_utf8_lossy(&add_output.stderr);
+            tracing::warn!("git add -A failed (non-fatal): {}", stderr.trim());
+        }
+    } else {
+        // Create a minimal README if repo is completely empty
+        let readme_path = repo_path.join("README.md");
+        if !readme_path.exists() {
+            if let Err(e) = std::fs::write(&readme_path, "# Project\n\nInitial README\n") {
+                tracing::warn!("Failed to create README.md (non-fatal): {}", e);
+            } else {
+                // Add the README
+                let _ = git_command()
+                    .args(["add", "README.md"])
+                    .current_dir(repo_path)
+                    .output();
+            }
+        }
+    }
+    
+    // Create the initial commit
+    // Configure git user if not set (needed for commit)
+    let _ = git_command()
+        .args(["config", "user.email", "agent@agent-kanban.local"])
+        .current_dir(repo_path)
+        .output();
+    let _ = git_command()
+        .args(["config", "user.name", "Agent Kanban"])
+        .current_dir(repo_path)
+        .output();
+    
+    let commit_output = git_command()
+        .args(["commit", "--allow-empty", "-m", "Initial commit"])
+        .current_dir(repo_path)
+        .output()?;
+    
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: "Failed to create initial commit".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: commit_output.status.code(),
+            operation: "git commit --allow-empty -m 'Initial commit'".to_string(),
+        });
+    }
+    
+    tracing::info!("Successfully created initial commit in repo at {}", repo_path.display());
+    Ok(())
 }
 
 /// Check if stderr indicates a worktree branch conflict.
@@ -586,6 +705,16 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
     
     // Get the actual repo root (in case repo_path is a subdirectory)
     let repo_root = get_repo_root(&config.repo_path)?;
+    
+    // Check if repo has any commits - if not, create an initial commit
+    // This is necessary because git worktree requires a valid HEAD
+    if !repo_has_commits(&repo_root) {
+        tracing::info!(
+            "Repository at {} has no commits (unborn branch), creating initial commit",
+            repo_root.display()
+        );
+        create_initial_commit(&repo_root)?;
+    }
     
     // Prune stale worktree references before creating a new one
     // This cleans up entries where the directory was deleted externally
@@ -975,6 +1104,16 @@ pub fn create_worktree_with_existing_branch(
     
     // Get the actual repo root
     let repo_root = get_repo_root(repo_path)?;
+    
+    // Check if repo has any commits - if not, create an initial commit
+    // This is necessary because git worktree requires a valid HEAD
+    if !repo_has_commits(&repo_root) {
+        tracing::info!(
+            "Repository at {} has no commits (unborn branch), creating initial commit",
+            repo_root.display()
+        );
+        create_initial_commit(&repo_root)?;
+    }
     
     // Prune stale worktree references before creating a new one
     // This cleans up entries where the directory was deleted externally (e.g., temp cleanup)
@@ -1667,5 +1806,163 @@ mod tests {
         let stderr = "fatal: branch is already used by worktree at '/path/with/quote'";
         let result = extract_worktree_path_from_error(stderr);
         assert_eq!(result, Some("/path/with/quote".to_string()));
+    }
+    
+    #[test]
+    fn test_is_unborn_branch_error_invalid_reference() {
+        assert!(is_unborn_branch_error("fatal: invalid reference: main"));
+        assert!(is_unborn_branch_error("fatal: invalid reference: HEAD"));
+    }
+    
+    #[test]
+    fn test_is_unborn_branch_error_not_valid_object_name() {
+        assert!(is_unborn_branch_error("fatal: not a valid object name: 'main'"));
+        assert!(is_unborn_branch_error("error: not a valid object name"));
+    }
+    
+    #[test]
+    fn test_is_unborn_branch_error_no_commits() {
+        assert!(is_unborn_branch_error("fatal: your current branch 'main' does not have any commits yet"));
+    }
+    
+    #[test]
+    fn test_is_unborn_branch_error_bad_revision() {
+        assert!(is_unborn_branch_error("fatal: bad revision 'HEAD'"));
+        assert!(is_unborn_branch_error("fatal: unknown revision or path not in the working tree"));
+    }
+    
+    #[test]
+    fn test_is_unborn_branch_error_not_other_errors() {
+        assert!(!is_unborn_branch_error("fatal: Permission denied"));
+        assert!(!is_unborn_branch_error("fatal: could not resolve host"));
+        assert!(!is_unborn_branch_error("error: pathspec 'file' did not match"));
+    }
+    
+    #[test]
+    fn test_unborn_branch_error_diagnostic_type() {
+        let error = WorktreeError::UnbornBranch {
+            message: "Repository has no commits".to_string(),
+            stderr: "fatal: invalid reference: main".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::UnbornBranch);
+        assert_eq!(error.stderr(), Some("fatal: invalid reference: main"));
+        assert_eq!(error.operation(), Some("git worktree add"));
+    }
+    
+    #[test]
+    fn test_git_error_unborn_branch_detection() {
+        // GitError should also be classified as UnbornBranch when stderr matches patterns
+        let error = WorktreeError::GitError {
+            message: "Failed to create worktree".to_string(),
+            stderr: "fatal: invalid reference: main".to_string(),
+            exit_code: Some(128),
+            operation: "git worktree add".to_string(),
+        };
+        
+        assert_eq!(error.diagnostic_type(), DiagnosticType::UnbornBranch);
+    }
+    
+    #[test]
+    fn test_repo_has_commits_on_new_repo() {
+        // Create a fresh git repo with no commits
+        let temp_dir = std::env::temp_dir().join(format!("repo_commits_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        // Should return false for repo with no commits
+        assert!(!repo_has_commits(&temp_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_repo_has_commits_after_commit() {
+        // Create a git repo and add a commit
+        let temp_dir = std::env::temp_dir().join(format!("repo_commits_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        std::fs::write(temp_dir.join("test.txt"), "test").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "test"])
+            .current_dir(&temp_dir)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@test.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@test.com")
+            .output()
+            .ok();
+        
+        // Should return true for repo with commits
+        assert!(repo_has_commits(&temp_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_create_initial_commit_on_empty_repo() {
+        // Create a fresh git repo with no files
+        let temp_dir = std::env::temp_dir().join(format!("init_commit_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        // Should not have commits initially
+        assert!(!repo_has_commits(&temp_dir));
+        
+        // Create initial commit
+        let result = create_initial_commit(&temp_dir);
+        assert!(result.is_ok(), "create_initial_commit failed: {:?}", result);
+        
+        // Should have commits now
+        assert!(repo_has_commits(&temp_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+    
+    #[test]
+    fn test_create_initial_commit_with_existing_files() {
+        // Create a git repo with uncommitted files
+        let temp_dir = std::env::temp_dir().join(format!("init_commit_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&temp_dir)
+            .output()
+            .ok();
+        
+        // Add some files
+        std::fs::write(temp_dir.join("app.js"), "console.log('hello');").unwrap();
+        std::fs::write(temp_dir.join("package.json"), "{}").unwrap();
+        
+        // Create initial commit (should include the files)
+        let result = create_initial_commit(&temp_dir);
+        assert!(result.is_ok());
+        
+        // Verify commit was created
+        assert!(repo_has_commits(&temp_dir));
+        
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

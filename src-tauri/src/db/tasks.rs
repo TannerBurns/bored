@@ -537,6 +537,9 @@ mod tests {
             branch_name: None,
             is_epic: false,
             epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            scratchpad_id: None,
         }).unwrap();
         ticket.id
     }
