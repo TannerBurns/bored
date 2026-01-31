@@ -55,6 +55,31 @@ CREATE TABLE IF NOT EXISTS columns (
 
 CREATE INDEX IF NOT EXISTS idx_columns_board ON columns(board_id);
 
+-- Scratchpads table (for planner agent)
+-- Note: Must be created before tickets table since tickets references scratchpads(id)
+CREATE TABLE IF NOT EXISTS scratchpads (
+    id TEXT PRIMARY KEY NOT NULL,
+    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    user_input TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+    model TEXT,
+    exploration_log TEXT,
+    plan_markdown TEXT,
+    plan_json TEXT,
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+
 -- Tickets table
 -- Note: locked_by_run_id intentionally omits FK constraint to avoid circular
 -- dependency with agent_runs table. Referential integrity is maintained at
@@ -95,30 +120,6 @@ CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL;
-
--- Scratchpads table (for planner agent)
-CREATE TABLE IF NOT EXISTS scratchpads (
-    id TEXT PRIMARY KEY NOT NULL,
-    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-    target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    user_input TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-    model TEXT,
-    exploration_log TEXT,
-    plan_markdown TEXT,
-    plan_json TEXT,
-    settings_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
