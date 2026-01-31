@@ -117,6 +117,7 @@ pub async fn create_ticket(
         is_epic: false,
         epic_id: None,
         depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
         scratchpad_id: None,
     })?;
 
@@ -162,6 +163,7 @@ pub async fn update_ticket(
         epic_id: None,
         order_in_epic: None,
         depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
         scratchpad_id: None,
     })?;
 

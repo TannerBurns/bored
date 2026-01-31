@@ -3,10 +3,22 @@ import { invoke } from '@tauri-apps/api/tauri';
 import type { Scratchpad, CreateScratchpadInput, UpdateScratchpadInput, Ticket } from '../types';
 import { logger } from '../lib/logger';
 
+/** A single log entry from the planner agent */
+export interface PlannerLogEntry {
+  id: string;
+  scratchpadId: string;
+  phase: 'exploration' | 'planning';
+  level: 'info' | 'output' | 'error';
+  message: string;
+  timestamp: string;
+}
+
 interface PlannerState {
   scratchpads: Scratchpad[];
   currentScratchpad: Scratchpad | null;
   scratchpadTickets: Ticket[];
+  /** Real-time log entries from agent output */
+  liveLogs: PlannerLogEntry[];
   isLoading: boolean;
   isExploring: boolean;
   isPlanning: boolean;
@@ -14,10 +26,11 @@ interface PlannerState {
 
   // Actions
   loadScratchpads: (boardId: string) => Promise<void>;
+  loadAllScratchpads: () => Promise<void>;
   getScratchpad: (id: string) => Promise<Scratchpad>;
   createScratchpad: (input: CreateScratchpadInput) => Promise<Scratchpad>;
   updateScratchpad: (id: string, updates: UpdateScratchpadInput) => Promise<Scratchpad>;
-  deleteScratchpad: (id: string) => Promise<void>;
+  deleteScratchpad: (id: string, deleteTickets?: boolean) => Promise<void>;
   selectScratchpad: (scratchpad: Scratchpad | null) => void;
   
   // Status management
@@ -33,6 +46,10 @@ interface PlannerState {
   // Get tickets created from scratchpad
   loadScratchpadTickets: (id: string) => Promise<void>;
   
+  // Live log management
+  addLogEntry: (entry: Omit<PlannerLogEntry, 'id'>) => void;
+  clearLogs: (scratchpadId?: string) => void;
+  
   // State setters
   setScratchpads: (scratchpads: Scratchpad[]) => void;
   setCurrentScratchpad: (scratchpad: Scratchpad | null) => void;
@@ -46,6 +63,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   scratchpads: [],
   currentScratchpad: null,
   scratchpadTickets: [],
+  liveLogs: [],
   isLoading: false,
   isExploring: false,
   isPlanning: false,
@@ -55,9 +73,50 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const scratchpads = await invoke<Scratchpad[]>('get_scratchpads', { boardId });
-      set({ scratchpads, isLoading: false });
+      const { currentScratchpad } = get();
+      
+      // Check if currentScratchpad is still in the loaded list
+      // If not (e.g., was deleted), clear it
+      const currentStillExists = currentScratchpad && 
+        scratchpads.some(s => s.id === currentScratchpad.id);
+      
+      if (currentScratchpad && !currentStillExists) {
+        set({ scratchpads, currentScratchpad: null, isLoading: false });
+      } else if (currentScratchpad && currentStillExists) {
+        // Update currentScratchpad with fresh data from the list
+        const updated = scratchpads.find(s => s.id === currentScratchpad.id);
+        set({ scratchpads, currentScratchpad: updated || null, isLoading: false });
+      } else {
+        set({ scratchpads, isLoading: false });
+      }
     } catch (error) {
       logger.error('Failed to load scratchpads', error);
+      set({ error: String(error), isLoading: false });
+    }
+  },
+
+  loadAllScratchpads: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const scratchpads = await invoke<Scratchpad[]>('get_all_scratchpads');
+      const { currentScratchpad } = get();
+      
+      // Check if currentScratchpad is still in the loaded list
+      // If not (e.g., was deleted), clear it
+      const currentStillExists = currentScratchpad && 
+        scratchpads.some(s => s.id === currentScratchpad.id);
+      
+      if (currentScratchpad && !currentStillExists) {
+        set({ scratchpads, currentScratchpad: null, isLoading: false });
+      } else if (currentScratchpad && currentStillExists) {
+        // Update currentScratchpad with fresh data from the list
+        const updated = scratchpads.find(s => s.id === currentScratchpad.id);
+        set({ scratchpads, currentScratchpad: updated || null, isLoading: false });
+      } else {
+        set({ scratchpads, isLoading: false });
+      }
+    } catch (error) {
+      logger.error('Failed to load all scratchpads', error);
       set({ error: String(error), isLoading: false });
     }
   },
@@ -76,12 +135,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const scratchpad = await invoke<Scratchpad>('create_scratchpad', {
-        boardId: input.boardId,
-        projectId: input.projectId,
-        name: input.name,
-        userInput: input.userInput,
-        agentPref: input.agentPref,
-        model: input.model,
+        input: {
+          boardId: input.boardId,
+          targetBoardId: input.targetBoardId,
+          projectId: input.projectId,
+          name: input.name,
+          userInput: input.userInput,
+          agentPref: input.agentPref,
+          model: input.model,
+        },
       });
       
       const { scratchpads } = get();
@@ -123,17 +185,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  deleteScratchpad: async (id: string) => {
+  deleteScratchpad: async (id: string, deleteTickets = false) => {
     try {
-      await invoke('delete_scratchpad', { id });
+      if (deleteTickets) {
+        const count = await invoke<number>('delete_scratchpad_with_tickets', { id });
+        logger.info('Deleted scratchpad with tickets', { id, ticketsDeleted: count });
+      } else {
+        await invoke('delete_scratchpad', { id });
+        logger.info('Deleted scratchpad', { id });
+      }
       
       const { scratchpads, currentScratchpad } = get();
       set({
         scratchpads: scratchpads.filter(s => s.id !== id),
         currentScratchpad: currentScratchpad?.id === id ? null : currentScratchpad,
       });
-      
-      logger.info('Deleted scratchpad', { id });
     } catch (error) {
       logger.error('Failed to delete scratchpad', error);
       throw error;
@@ -221,6 +287,27 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     } catch (error) {
       logger.error('Failed to load scratchpad tickets', error);
       throw error;
+    }
+  },
+
+  // Live log management
+  addLogEntry: (entry) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const newEntry: PlannerLogEntry = { ...entry, id };
+    
+    set((state) => ({
+      // Keep last 500 entries to avoid memory issues
+      liveLogs: [...state.liveLogs.slice(-499), newEntry],
+    }));
+  },
+  
+  clearLogs: (scratchpadId) => {
+    if (scratchpadId) {
+      set((state) => ({
+        liveLogs: state.liveLogs.filter((log) => log.scratchpadId !== scratchpadId),
+      }));
+    } else {
+      set({ liveLogs: [] });
     }
   },
 

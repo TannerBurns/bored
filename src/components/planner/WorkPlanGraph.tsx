@@ -5,6 +5,16 @@ interface WorkPlanGraphProps {
 }
 
 /**
+ * Normalize dependsOn to always be an array of strings.
+ * Handles old format (string | null) and new format (string[]).
+ */
+function normalizeDependencies(dependsOn: string[] | string | null | undefined): string[] {
+  if (!dependsOn) return [];
+  if (Array.isArray(dependsOn)) return dependsOn.filter(d => d && d.length > 0);
+  return [dependsOn];
+}
+
+/**
  * Visualizes the work plan as a dependency graph.
  * Shows epics and their dependencies in a visual flow.
  */
@@ -18,15 +28,23 @@ export function WorkPlanGraph({ plan }: WorkPlanGraphProps) {
   const epicLevels = new Map<string, number>();
   
   const getLevel = (epic: PlanEpic): number => {
-    if (!epic.dependsOn) return 0;
+    const deps = normalizeDependencies(epic.dependsOn);
+    if (deps.length === 0) return 0;
     
     const cached = epicLevels.get(epic.title);
     if (cached !== undefined) return cached;
     
-    const parent = epicMap.get(epic.dependsOn);
-    if (!parent) return 0;
+    // For multiple dependencies, level = max(level of all deps) + 1
+    let maxParentLevel = -1;
+    for (const depTitle of deps) {
+      const parent = epicMap.get(depTitle);
+      if (parent) {
+        const parentLevel = getLevel(parent);
+        maxParentLevel = Math.max(maxParentLevel, parentLevel);
+      }
+    }
     
-    const level = getLevel(parent) + 1;
+    const level = maxParentLevel + 1;
     epicLevels.set(epic.title, level);
     return level;
   };
@@ -129,6 +147,8 @@ export function WorkPlanGraph({ plan }: WorkPlanGraphProps) {
 }
 
 function EpicCard({ epic }: { epic: PlanEpic }) {
+  const deps = normalizeDependencies(epic.dependsOn);
+  
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -144,12 +164,14 @@ function EpicCard({ epic }: { epic: PlanEpic }) {
         {epic.description}
       </p>
       
-      {epic.dependsOn && (
-        <div className="mt-3 flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {deps.length > 0 && (
+        <div className="mt-3 flex items-start gap-1 text-xs text-orange-600 dark:text-orange-400">
+          <svg className="w-3 h-3 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          Depends on: {epic.dependsOn}
+          <span>
+            Depends on: {deps.length === 1 ? deps[0] : deps.join(', ')}
+          </span>
         </div>
       )}
       

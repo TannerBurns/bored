@@ -51,6 +51,7 @@ pub fn build_diagnostic_prompt(context: &DiagnosticContext) -> String {
         DiagnosticType::Permission => "Permission Denied",
         DiagnosticType::NetworkError => "Network Error",
         DiagnosticType::GitError => "Git Error",
+        DiagnosticType::UnbornBranch => "Unborn Branch (No Commits)",
         DiagnosticType::Unknown => "Unknown Error",
     };
     
@@ -379,6 +380,28 @@ Once connectivity is restored, move this ticket back to Ready to retry."#,
                 context.stderr.lines().next().unwrap_or("Network unreachable")
             )
         }
+        DiagnosticType::UnbornBranch => {
+            format!(
+                "## Repository Has No Commits Yet\n\n\
+The git worktree operation failed because your repository doesn't have any commits yet. \
+Git needs at least one commit before it can create worktrees and branches.\n\n\
+**Error:** {}\n\n\
+### How to Fix\n\n\
+Run these commands in your repository:\n\n\
+```bash\n\
+cd {}\n\n\
+# Stage any existing files, or create a placeholder\n\
+git add -A\n\n\
+# If there are no files to commit, create a simple one:\n\
+# echo \"# Project\" > README.md && git add README.md\n\n\
+# Create the initial commit\n\
+git commit -m \"Initial commit\"\n\
+```\n\n\
+After creating the initial commit, move this ticket back to Ready to retry.",
+                context.stderr.lines().next().unwrap_or("No commits in repository"),
+                context.repo_path.display()
+            )
+        }
         _ => {
             format!(
                 r#"## Git Operation Failed
@@ -572,5 +595,41 @@ mod tests {
         assert_eq!(context.error_type, DiagnosticType::Permission);
         assert_eq!(context.stderr, "error: Permission denied while creating /tmp/worktree");
         assert_eq!(context.exit_code, Some(1));
+    }
+    
+    #[test]
+    fn test_fallback_comment_unborn_branch() {
+        let context = DiagnosticContext {
+            repo_path: PathBuf::from("/Users/test/my-project"),
+            operation: "git worktree add".to_string(),
+            error_type: DiagnosticType::UnbornBranch,
+            stderr: "fatal: invalid reference: main".to_string(),
+            exit_code: Some(128),
+            additional_context: None,
+        };
+        
+        let comment = create_fallback_diagnostic_comment(&context);
+        assert!(comment.contains("No Commits Yet"));
+        assert!(comment.contains("Initial commit"));
+        assert!(comment.contains("/Users/test/my-project"));
+        // Should NOT contain SSH troubleshooting
+        assert!(!comment.contains("ssh-add"));
+    }
+    
+    #[test]
+    fn test_build_diagnostic_prompt_unborn_branch() {
+        let context = DiagnosticContext {
+            repo_path: PathBuf::from("/tmp/repo"),
+            operation: "git worktree add".to_string(),
+            error_type: DiagnosticType::UnbornBranch,
+            stderr: "fatal: invalid reference: main".to_string(),
+            exit_code: Some(128),
+            additional_context: None,
+        };
+        
+        let prompt = build_diagnostic_prompt(&context);
+        assert!(prompt.contains("Unborn Branch"));
+        assert!(prompt.contains("git worktree add"));
+        assert!(prompt.contains("invalid reference"));
     }
 }

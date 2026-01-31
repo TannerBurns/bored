@@ -83,6 +83,18 @@ pub enum LiveEvent {
         scratchpad_id: String,
         epic_ids: Vec<String>,
     },
+    /// Real-time log entry from planner agent output
+    PlannerLogEntry {
+        scratchpad_id: String,
+        /// Phase: "exploration" or "planning"
+        phase: String,
+        /// Log level: "info", "output", "error"
+        level: String,
+        /// The log message content
+        message: String,
+        /// Timestamp
+        timestamp: String,
+    },
 }
 
 /// Shared application state for the API server
@@ -96,6 +108,15 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: Arc<Database>, api_token: String) -> Self {
         let (event_tx, _) = broadcast::channel(256);
+        Self { db, api_token, event_tx }
+    }
+    
+    /// Create AppState with an externally provided event_tx
+    pub fn with_event_tx(
+        db: Arc<Database>,
+        api_token: String,
+        event_tx: broadcast::Sender<LiveEvent>,
+    ) -> Self {
         Self { db, api_token, event_tx }
     }
 

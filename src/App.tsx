@@ -9,13 +9,16 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal } from './components/common/ConfirmModal';
 import { WorkerPanel } from './components/workers';
 import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from './components/settings';
+import { ScratchpadList, ScratchpadDetail, CreateScratchpadModal } from './components/planner';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
+import { usePlannerStore } from './stores/plannerStore';
 import { useBoardSync } from './hooks/useBoardSync';
+import { usePlannerSync } from './hooks/usePlannerSync';
 import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { logger } from './lib/logger';
-import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput } from './types';
+import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, Scratchpad } from './types';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -45,6 +48,7 @@ function formatDuration(startedAt: Date, endedAt: Date): string {
 
 const navItems = [
   { id: 'boards', label: 'Boards' },
+  { id: 'planner', label: 'Planner' },
   { id: 'runs', label: 'Agents' },
   { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
@@ -59,6 +63,9 @@ function App() {
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
+  const [isCreateScratchpadModalOpen, setIsCreateScratchpadModalOpen] = useState(false);
+  const [selectedScratchpad, setSelectedScratchpad] = useState<Scratchpad | null>(null);
+  const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
 
   const { theme } = useSettingsStore();
   const {
@@ -99,6 +106,17 @@ function App() {
   }, [theme]);
 
   const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
+  const { 
+    loadAllScratchpads, 
+    selectScratchpad,
+    currentScratchpad,
+  } = usePlannerStore();
+
+  // Enable real-time planner updates via SSE
+  usePlannerSync(
+    apiConfig?.url || '',
+    apiConfig?.token || ''
+  );
 
   // Load data from backend
   useEffect(() => {
@@ -106,10 +124,11 @@ function App() {
       setIsLoading(true);
       
       try {
-        const apiConfig = await getApiConfig();
+        const config = await getApiConfig();
+        setApiConfig(config);
         api.configure({
-          baseUrl: apiConfig.url,
-          token: apiConfig.token,
+          baseUrl: config.url,
+          token: config.token,
         });
         
         const [projectsData, boardsData] = await Promise.all([
@@ -158,6 +177,43 @@ function App() {
     const interval = setInterval(loadRecentRuns, 5000);
     return () => clearInterval(interval);
   }, [activeNav]);
+
+  // Refresh projects when workers tab is active (picks up newly added projects)
+  useEffect(() => {
+    if (activeNav !== 'workers') return;
+    
+    const refreshProjects = async () => {
+      try {
+        const projectsData = await getProjects();
+        setProjects(projectsData);
+      } catch (error) {
+        logger.error('Failed to refresh projects:', error);
+      }
+    };
+    
+    refreshProjects();
+  }, [activeNav]);
+
+  // Load all scratchpads when planner tab is active
+  useEffect(() => {
+    if (activeNav !== 'planner') return;
+    
+    loadAllScratchpads();
+  }, [activeNav, loadAllScratchpads]);
+
+  // Clear selection when navigating away from planner tab
+  useEffect(() => {
+    if (activeNav !== 'planner') {
+      // Clear selection when leaving the planner tab
+      selectScratchpad(null);
+      setSelectedScratchpad(null);
+    }
+  }, [activeNav, selectScratchpad]);
+
+  // Sync selected scratchpad with store
+  useEffect(() => {
+    setSelectedScratchpad(currentScratchpad);
+  }, [currentScratchpad]);
 
   const {
     isTicketModalOpen,
@@ -312,8 +368,20 @@ function App() {
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <Header
-          title={activeNav === 'boards' && currentBoard ? currentBoard.name : 'Bored'}
-          subtitle={activeNav === 'boards' && currentBoard ? 'Manage your coding tasks and let AI agents do the work.' : undefined}
+          title={
+            activeNav === 'boards' && currentBoard 
+              ? currentBoard.name 
+              : activeNav === 'planner' 
+                ? 'AI Planner' 
+                : 'Bored'
+          }
+          subtitle={
+            activeNav === 'boards' && currentBoard 
+              ? 'Manage your coding tasks and let AI agents do the work.' 
+              : activeNav === 'planner'
+                ? 'Create work plans with AI-powered codebase exploration'
+                : undefined
+          }
           action={
             activeNav === 'boards' && boards.length > 0 ? (
               <button
@@ -383,6 +451,81 @@ function App() {
                 onTicketClick={handleTicketClick}
               />
             )}
+          </div>
+        )}
+
+        {activeNav === 'planner' && (
+          <div className="flex-1 overflow-hidden flex gap-4">
+            {/* Scratchpad List */}
+            <div className="w-80 bg-board-column rounded-xl border border-board-border overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-board-border flex items-center justify-between">
+                <h3 className="font-semibold text-board-text">Scratchpads</h3>
+                <button
+                  onClick={() => setIsCreateScratchpadModalOpen(true)}
+                  disabled={!currentBoard}
+                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={currentBoard ? 'Create new scratchpad' : 'Select a board first'}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <ScratchpadList
+                  onSelect={(scratchpad) => {
+                    selectScratchpad(scratchpad);
+                    setSelectedScratchpad(scratchpad);
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* Scratchpad Detail */}
+            <div className="flex-1 bg-board-column rounded-xl border border-board-border overflow-hidden">
+              {selectedScratchpad ? (
+                <ScratchpadDetail
+                  scratchpad={selectedScratchpad}
+                  onClose={() => {
+                    selectScratchpad(null);
+                    setSelectedScratchpad(null);
+                  }}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-board-text-muted">
+                  <div className="text-center">
+                    <svg
+                      className="w-12 h-12 mx-auto mb-3 opacity-50"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    <p>Select a scratchpad to view details</p>
+                    <p className="text-sm mt-1">or create a new one to start planning</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -613,6 +756,15 @@ function App() {
         onConfirm={confirmDeleteBoard}
         onCancel={cancelDeleteBoard}
       />
+
+      {currentBoard && (
+        <CreateScratchpadModal
+          open={isCreateScratchpadModalOpen}
+          onOpenChange={setIsCreateScratchpadModalOpen}
+          boardId={currentBoard.id}
+          projectId={currentBoard.defaultProjectId}
+        />
+      )}
     </div>
   );
 }

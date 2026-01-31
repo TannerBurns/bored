@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 
-use crate::agents::worktree::is_git_repo;
+use crate::agents::worktree::{is_git_repo, repo_has_commits, create_initial_commit};
 use crate::db::{CreateProject, Database, Project, ReadinessCheck, UpdateProject};
 
 #[tauri::command]
@@ -103,6 +103,8 @@ pub async fn check_git_status(path: String) -> Result<bool, String> {
 pub async fn init_git_repo(path: String) -> Result<(), String> {
     use std::process::Command;
 
+    let repo_path = Path::new(&path);
+
     let output = Command::new("git")
         .args(["init"])
         .current_dir(&path)
@@ -112,6 +114,13 @@ pub async fn init_git_repo(path: String) -> Result<(), String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Failed to initialize git repository: {}", stderr.trim()));
+    }
+
+    // Create an initial commit so the repository is ready for worktree operations.
+    // This prevents the "unborn branch" error when agents try to create worktrees.
+    if !repo_has_commits(repo_path) {
+        create_initial_commit(repo_path)
+            .map_err(|e| format!("Git repository initialized but failed to create initial commit: {}", e))?;
     }
 
     Ok(())
@@ -318,6 +327,9 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(temp_dir.join(".git").exists());
+        
+        // Verify that an initial commit was also created (prevents unborn branch issues)
+        assert!(repo_has_commits(&temp_dir), "init_git_repo should create an initial commit");
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

@@ -800,9 +800,11 @@ impl WorkerManager {
             }
         }
 
+        // Abort all handles instead of awaiting them - this ensures idle workers
+        // that are sleeping during poll intervals are terminated immediately
         let handles: Vec<_> = self.handles.lock().expect("handles mutex poisoned").drain(..).collect();
         for handle in handles {
-            let _ = handle.await;
+            handle.abort();
         }
 
         self.workers.lock().expect("workers mutex poisoned").clear();

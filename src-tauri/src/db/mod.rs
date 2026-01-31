@@ -227,18 +227,21 @@ impl Database {
                     CREATE TABLE IF NOT EXISTS scratchpads (
                         id TEXT PRIMARY KEY NOT NULL,
                         board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                         name TEXT NOT NULL,
                         user_input TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'completed', 'failed')),
+                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                        model TEXT,
                         exploration_log TEXT,
                         plan_markdown TEXT,
                         plan_json TEXT,
                         settings_json TEXT NOT NULL DEFAULT '{}',
-                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
                         created_at TEXT NOT NULL DEFAULT (datetime('now')),
                         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                     );
                     CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
                     CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
                     "#
                 )?;
@@ -260,6 +263,116 @@ impl Database {
                     "CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL",
                     [],
                 );
+            }
+            
+            if current_version < 11 && current_version > 0 {
+                tracing::info!("Applying migration v11: target_board_id for scratchpads, new status values");
+                // Add target_board_id column
+                let _ = conn.execute(
+                    "ALTER TABLE scratchpads ADD COLUMN target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL",
+                    [],
+                );
+                let _ = conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id)",
+                    [],
+                );
+            }
+            
+            if current_version < 12 && current_version > 0 {
+                tracing::info!("Applying migration v12: fix scratchpads status CHECK constraint");
+                // SQLite doesn't support ALTER TABLE to change CHECK constraints,
+                // so we need to recreate the table with the correct constraint
+                
+                // First check if target_board_id column exists (added in v11)
+                let has_target_board: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('scratchpads') WHERE name = 'target_board_id'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if has_target_board {
+                    // Table has target_board_id, use full column list
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE scratchpads_new (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                            name TEXT NOT NULL,
+                            user_input TEXT NOT NULL,
+                            status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                            agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                            model TEXT,
+                            exploration_log TEXT,
+                            plan_markdown TEXT,
+                            plan_json TEXT,
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO scratchpads_new (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                        SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+
+                        DROP TABLE scratchpads;
+                        ALTER TABLE scratchpads_new RENAME TO scratchpads;
+
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                        "#
+                    )?;
+                } else {
+                    // Table doesn't have target_board_id yet, add it during migration
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE scratchpads_new (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                            name TEXT NOT NULL,
+                            user_input TEXT NOT NULL,
+                            status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                            agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                            model TEXT,
+                            exploration_log TEXT,
+                            plan_markdown TEXT,
+                            plan_json TEXT,
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO scratchpads_new (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                        SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+
+                        DROP TABLE scratchpads;
+                        ALTER TABLE scratchpads_new RENAME TO scratchpads;
+
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                        "#
+                    )?;
+                }
+                
+                tracing::info!("Migration v12 completed successfully");
+            }
+            
+            if current_version < 13 && current_version > 0 {
+                tracing::info!("Applying migration v13: depends_on_epic_ids_json column");
+                // Add depends_on_epic_ids_json column to store all epic dependencies as JSON array
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN depends_on_epic_ids_json TEXT",
+                    [],
+                );
+                tracing::info!("Migration v13 completed successfully");
             }
             
             conn.execute(
@@ -432,6 +545,186 @@ impl Database {
                  WHERE id = ? AND locked_by_run_id = ?",
                 rusqlite::params![ticket_id, run_id],
             )?;
+            Ok(())
+        })
+    }
+
+    /// Repair the scratchpads table CHECK constraint.
+    /// This recreates the table with the correct constraint including 'executed' and 'working' status values.
+    pub fn repair_scratchpads_constraint(&self) -> Result<String, DbError> {
+        self.with_conn(|conn| {
+            tracing::warn!("Repairing scratchpads table CHECK constraint");
+            
+            // Check if the table exists
+            let table_exists: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scratchpads'",
+                    [],
+                    |row| row.get::<_, i32>(0),
+                )
+                .unwrap_or(0) > 0;
+            
+            if !table_exists {
+                return Ok("Scratchpads table does not exist, nothing to repair".to_string());
+            }
+            
+            // Get current row count
+            let row_count: i32 = conn
+                .query_row("SELECT COUNT(*) FROM scratchpads", [], |row| row.get(0))
+                .unwrap_or(0);
+            
+            // Check if target_board_id column exists
+            let has_target_board: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('scratchpads') WHERE name = 'target_board_id'",
+                    [],
+                    |row| row.get::<_, i32>(0),
+                )
+                .unwrap_or(0) > 0;
+            
+            tracing::info!("Scratchpads table has {} rows, target_board_id={}", row_count, has_target_board);
+            
+            // Recreate the table with the correct constraint
+            if has_target_board {
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE scratchpads_repaired (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        name TEXT NOT NULL,
+                        user_input TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                        model TEXT,
+                        exploration_log TEXT,
+                        plan_markdown TEXT,
+                        plan_json TEXT,
+                        settings_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    INSERT INTO scratchpads_repaired (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                    SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+
+                    DROP TABLE scratchpads;
+                    ALTER TABLE scratchpads_repaired RENAME TO scratchpads;
+
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                    "#
+                )?;
+            } else {
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE scratchpads_repaired (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        name TEXT NOT NULL,
+                        user_input TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                        model TEXT,
+                        exploration_log TEXT,
+                        plan_markdown TEXT,
+                        plan_json TEXT,
+                        settings_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    INSERT INTO scratchpads_repaired (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                    SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+
+                    DROP TABLE scratchpads;
+                    ALTER TABLE scratchpads_repaired RENAME TO scratchpads;
+
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                    "#
+                )?;
+            }
+            
+            tracing::info!("Scratchpads table repaired successfully");
+            Ok(format!("Repaired scratchpads table with {} rows", row_count))
+        })
+    }
+
+    /// Factory reset: delete all user data from the database.
+    /// This clears all boards, tickets, projects, runs, scratchpads, etc.
+    /// and also repairs the scratchpads table schema to ensure correct constraints.
+    pub fn factory_reset(&self) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            tracing::warn!("Factory reset: deleting all user data from database");
+            
+            // Delete in dependency order to respect foreign key constraints
+            // First: tables with no dependents or only CASCADE dependents
+            conn.execute("DELETE FROM agent_events", [])?;
+            conn.execute("DELETE FROM comments", [])?;
+            conn.execute("DELETE FROM tasks", [])?;
+            conn.execute("DELETE FROM agent_runs", [])?;
+            conn.execute("DELETE FROM repo_locks", [])?;
+            
+            // Tickets must be deleted before scratchpads (scratchpad_id FK)
+            // and before columns (column_id FK with RESTRICT)
+            conn.execute("DELETE FROM tickets", [])?;
+            
+            // Now scratchpads (depends on boards and projects)
+            conn.execute("DELETE FROM scratchpads", [])?;
+            
+            // Columns (depends on boards)
+            conn.execute("DELETE FROM columns", [])?;
+            
+            // Boards (depends on projects via default_project_id)
+            conn.execute("DELETE FROM boards", [])?;
+            
+            // Finally projects (root table)
+            conn.execute("DELETE FROM projects", [])?;
+            
+            tracing::info!("Factory reset: all user data deleted");
+            
+            // Now recreate the scratchpads table with the correct schema
+            // This ensures the CHECK constraint is correct
+            tracing::info!("Factory reset: recreating scratchpads table with correct schema");
+            
+            // Drop and recreate scratchpads table with correct constraint
+            conn.execute("DROP TABLE IF EXISTS scratchpads", [])?;
+            conn.execute_batch(
+                r#"
+                CREATE TABLE scratchpads (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                    target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    user_input TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+                    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                    model TEXT,
+                    exploration_log TEXT,
+                    plan_markdown TEXT,
+                    plan_json TEXT,
+                    settings_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
+                CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
+                CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
+                CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                "#
+            )?;
+            
+            tracing::info!("Factory reset complete: database ready for fresh start");
             Ok(())
         })
     }

@@ -1,4 +1,5 @@
 import { usePlannerStore } from '../../stores/plannerStore';
+import { useBoardStore } from '../../stores/boardStore';
 import type { Scratchpad } from '../../types';
 
 interface ScratchpadListProps {
@@ -12,6 +13,8 @@ const statusColors: Record<string, string> = {
   awaiting_approval: 'bg-yellow-500',
   approved: 'bg-green-500',
   executing: 'bg-orange-500 animate-pulse',
+  executed: 'bg-cyan-500',
+  working: 'bg-green-500 animate-pulse',
   completed: 'bg-green-600',
   failed: 'bg-red-500',
 };
@@ -23,12 +26,21 @@ const statusLabels: Record<string, string> = {
   awaiting_approval: 'Awaiting Approval',
   approved: 'Approved',
   executing: 'Executing',
+  executed: 'Ready',
+  working: 'Working',
   completed: 'Completed',
   failed: 'Failed',
 };
 
 export function ScratchpadList({ onSelect }: ScratchpadListProps) {
   const { scratchpads, currentScratchpad, isLoading } = usePlannerStore();
+  const { boards } = useBoardStore();
+  
+  // Helper to get board name by ID
+  const getBoardName = (boardId: string) => {
+    const board = boards.find(b => b.id === boardId);
+    return board?.name || 'Unknown Board';
+  };
 
   if (isLoading) {
     return (
@@ -65,6 +77,9 @@ export function ScratchpadList({ onSelect }: ScratchpadListProps) {
               </h4>
               <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
                 {scratchpad.userInput}
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Board: {getBoardName(scratchpad.boardId)}
               </p>
             </div>
             <span

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useBoardStore } from '../../stores/boardStore';
 import { logger } from '../../lib/logger';
-import { cleanupStaleRuns } from '../../lib/tauri';
+import { cleanupStaleRuns, factoryReset } from '../../lib/tauri';
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -72,6 +72,9 @@ export function DataSettings() {
     setIsResetting(true);
     
     try {
+      // First, clear the backend database
+      await factoryReset();
+      
       // Clear localStorage for settings
       localStorage.removeItem('agent-kanban-settings');
       

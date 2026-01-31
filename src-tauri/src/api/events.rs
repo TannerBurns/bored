@@ -113,6 +113,7 @@ fn event_matches_filter(
             LiveEvent::PlanApproved { .. } => "plan_approved",
             LiveEvent::PlanExecutionStarted { .. } => "plan_execution_started",
             LiveEvent::PlanExecutionCompleted { .. } => "plan_execution_completed",
+            LiveEvent::PlannerLogEntry { .. } => "planner_log_entry",
         };
 
         if !types.iter().any(|t| t == event_type) {

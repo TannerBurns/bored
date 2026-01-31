@@ -45,3 +45,19 @@ pub async fn delete_board(
     tracing::info!("Deleting board: {}", board_id);
     db.delete_board(&board_id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn factory_reset(
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::warn!("Factory reset requested");
+    db.factory_reset().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn repair_scratchpads_table(
+    db: State<'_, Arc<Database>>,
+) -> Result<String, String> {
+    tracing::warn!("Repairing scratchpads table CHECK constraint");
+    db.repair_scratchpads_constraint().map_err(|e| e.to_string())
+}

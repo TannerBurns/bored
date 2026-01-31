@@ -1,7 +1,7 @@
 //! Database operations for scratchpads (planner agent)
 
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Scratchpad, CreateScratchpad, UpdateScratchpad, ScratchpadStatus, Exploration};
+use crate::db::models::{Scratchpad, CreateScratchpad, UpdateScratchpad, ScratchpadStatus, Exploration, ScratchpadProgress, ScratchpadEpicStatus, ScratchpadTicketStatus};
 
 impl Database {
     pub fn create_scratchpad(&self, input: &CreateScratchpad) -> Result<Scratchpad, DbError> {
@@ -12,11 +12,12 @@ impl Database {
             
             conn.execute(
                 r#"INSERT INTO scratchpads 
-                   (id, board_id, project_id, name, user_input, status, agent_pref, model, settings_json, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, settings_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     id,
                     input.board_id,
+                    input.target_board_id,
                     input.project_id,
                     input.name,
                     input.user_input,
@@ -32,6 +33,7 @@ impl Database {
             Ok(Scratchpad {
                 id,
                 board_id: input.board_id.clone(),
+                target_board_id: input.target_board_id.clone(),
                 project_id: input.project_id.clone(),
                 name: input.name.clone(),
                 user_input: input.user_input.clone(),
@@ -51,7 +53,7 @@ impl Database {
     pub fn get_scratchpad(&self, id: &str) -> Result<Scratchpad, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
@@ -69,7 +71,7 @@ impl Database {
     pub fn get_scratchpads(&self, board_id: &str) -> Result<Vec<Scratchpad>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE board_id = ?
                    ORDER BY created_at DESC"#
@@ -80,12 +82,27 @@ impl Database {
         })
     }
 
+    /// Get all scratchpads across all boards
+    pub fn get_all_scratchpads(&self) -> Result<Vec<Scratchpad>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
+                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                   FROM scratchpads
+                   ORDER BY created_at DESC"#
+            )?;
+            
+            let rows = stmt.query_map([], Self::map_scratchpad_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
     pub fn update_scratchpad(&self, id: &str, updates: &UpdateScratchpad) -> Result<Scratchpad, DbError> {
         self.with_conn(|conn| {
             // First get existing
             let existing = {
                 let mut stmt = conn.prepare(
-                    r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                    r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                               exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                        FROM scratchpads WHERE id = ?"#
                 )?;
@@ -135,7 +152,7 @@ impl Database {
 
             // Re-query to return updated
             let mut stmt = conn.prepare(
-                r#"SELECT id, board_id, project_id, name, user_input, status, agent_pref, model,
+                r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
@@ -155,6 +172,51 @@ impl Database {
                 return Err(DbError::NotFound(format!("Scratchpad {}", id)));
             }
             Ok(())
+        })
+    }
+    
+    /// Delete a scratchpad and all tickets created from it (cascade delete)
+    /// Returns the number of tickets deleted
+    pub fn delete_scratchpad_with_tickets(&self, id: &str) -> Result<usize, DbError> {
+        self.with_conn(|conn| {
+            // First, get all ticket IDs associated with this scratchpad
+            let mut stmt = conn.prepare(
+                "SELECT id FROM tickets WHERE scratchpad_id = ?"
+            )?;
+            let ticket_ids: Vec<String> = stmt.query_map([id], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            
+            let ticket_count = ticket_ids.len();
+            
+            // Delete all related data for these tickets
+            for ticket_id in &ticket_ids {
+                // Delete comments
+                conn.execute("DELETE FROM comments WHERE ticket_id = ?", [ticket_id])?;
+                // Delete tasks
+                conn.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
+                // Delete events
+                conn.execute("DELETE FROM events WHERE ticket_id = ?", [ticket_id])?;
+                // Delete runs
+                conn.execute("DELETE FROM runs WHERE ticket_id = ?", [ticket_id])?;
+            }
+            
+            // Delete all tickets with this scratchpad_id
+            conn.execute(
+                "DELETE FROM tickets WHERE scratchpad_id = ?",
+                [id],
+            )?;
+            
+            // Delete the scratchpad itself
+            let affected = conn.execute(
+                "DELETE FROM scratchpads WHERE id = ?",
+                [id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Scratchpad {}", id)));
+            }
+            
+            Ok(ticket_count)
         })
     }
 
@@ -230,7 +292,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
                    FROM tickets WHERE scratchpad_id = ?
                    ORDER BY created_at ASC"#
             )?;
@@ -240,38 +302,200 @@ impl Database {
         })
     }
 
+    /// Get all epics created from a scratchpad
+    pub fn get_scratchpad_epics(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                   FROM tickets WHERE scratchpad_id = ? AND is_epic = 1
+                   ORDER BY created_at ASC"#
+            )?;
+            
+            let rows = stmt.query_map([scratchpad_id], Self::map_ticket_row_v10)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+    
+    /// Get root epics (no dependencies) for a scratchpad
+    pub fn get_scratchpad_root_epics(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                   FROM tickets 
+                   WHERE scratchpad_id = ? AND is_epic = 1 AND depends_on_epic_id IS NULL
+                   ORDER BY created_at ASC"#
+            )?;
+            
+            let rows = stmt.query_map([scratchpad_id], Self::map_ticket_row_v10)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+    
+    /// Check if all epics for a scratchpad are complete (in Done column)
+    pub fn are_all_scratchpad_epics_done(&self, scratchpad_id: &str) -> Result<bool, DbError> {
+        self.with_conn(|conn| {
+            // First check if there are any epics for this scratchpad
+            let epic_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM tickets WHERE scratchpad_id = ? AND is_epic = 1",
+                [scratchpad_id],
+                |row| row.get(0),
+            )?;
+            
+            if epic_count == 0 {
+                return Ok(false); // No epics means not complete
+            }
+            
+            // Check how many are in the Done column
+            let done_count: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.scratchpad_id = ? AND t.is_epic = 1 AND c.name = 'Done'"#,
+                [scratchpad_id],
+                |row| row.get(0),
+            )?;
+            
+            Ok(done_count == epic_count)
+        })
+    }
+    
+    /// Get progress stats for a scratchpad's epics
+    pub fn get_scratchpad_progress(&self, scratchpad_id: &str) -> Result<ScratchpadProgress, DbError> {
+        self.with_conn(|conn| {
+            // First, get all epics with their dependency info (using JSON array for multiple deps)
+            let mut epic_stmt = conn.prepare(
+                r#"SELECT t.id, t.title, c.name as column_name, t.depends_on_epic_ids_json
+                   FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.scratchpad_id = ? AND t.is_epic = 1
+                   ORDER BY t.created_at ASC"#
+            )?;
+            
+            let epic_rows = epic_stmt.query_map([scratchpad_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            
+            let epic_data: Vec<(String, String, String, Option<String>)> = epic_rows.collect::<Result<Vec<_>, _>>()?;
+            
+            // Build a map of epic id -> title for resolving dependency titles
+            let mut epic_title_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for (id, title, _, _) in &epic_data {
+                epic_title_map.insert(id.clone(), title.clone());
+            }
+            
+            // For each epic, get its child tickets
+            let mut ticket_stmt = conn.prepare(
+                r#"SELECT t.id, t.title, c.name as column_name
+                   FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ?
+                   ORDER BY t.order_in_epic ASC, t.created_at ASC"#
+            )?;
+            
+            let mut epics = Vec::new();
+            for (epic_id, epic_title, epic_column, depends_on_json) in epic_data {
+                let ticket_rows = ticket_stmt.query_map([&epic_id], |row| {
+                    Ok(ScratchpadTicketStatus {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        column: row.get(2)?,
+                    })
+                })?;
+                
+                let tickets: Vec<ScratchpadTicketStatus> = ticket_rows.collect::<Result<Vec<_>, _>>()?;
+                
+                // Parse dependency IDs from JSON
+                let depends_on_ids: Vec<String> = depends_on_json
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+                
+                // Resolve dependency titles
+                let depends_on_titles: Vec<String> = depends_on_ids
+                    .iter()
+                    .filter_map(|id| epic_title_map.get(id).cloned())
+                    .collect();
+                
+                epics.push(ScratchpadEpicStatus {
+                    id: epic_id,
+                    title: epic_title,
+                    column: epic_column,
+                    depends_on_ids,
+                    depends_on_titles,
+                    tickets,
+                });
+            }
+            
+            let total = epics.len();
+            let done = epics.iter().filter(|e| e.column == "Done").count();
+            let in_progress = epics.iter().filter(|e| {
+                matches!(e.column.as_str(), "Ready" | "In Progress" | "Review")
+            }).count();
+            let blocked = epics.iter().filter(|e| e.column == "Blocked").count();
+            
+            // Get total count of ALL tickets (epics + child tickets)
+            let total_tickets: usize = conn.query_row(
+                "SELECT COUNT(*) FROM tickets WHERE scratchpad_id = ?",
+                [scratchpad_id],
+                |row| row.get::<_, i64>(0),
+            )? as usize;
+            
+            Ok(ScratchpadProgress {
+                total,
+                done,
+                in_progress,
+                blocked,
+                total_tickets,
+                epics,
+            })
+        })
+    }
+
     fn map_scratchpad_row(row: &rusqlite::Row) -> rusqlite::Result<Scratchpad> {
         // Column order: id, board_id, project_id, name, user_input, status, agent_pref, model,
         //               exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
-        let status_str: String = row.get(5)?;
+        // Column order: 0-id, 1-board_id, 2-target_board_id, 3-project_id, 4-name, 5-user_input,
+        //               6-status, 7-agent_pref, 8-model, 9-exploration_log, 10-plan_markdown,
+        //               11-plan_json, 12-settings_json, 13-created_at, 14-updated_at
+        let status_str: String = row.get(6)?;
         let status = ScratchpadStatus::parse(&status_str).unwrap_or_default();
         
-        let exploration_log_str: Option<String> = row.get(8)?;
+        let exploration_log_str: Option<String> = row.get(9)?;
         let exploration_log: Vec<Exploration> = exploration_log_str
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         
-        let plan_json_str: Option<String> = row.get(10)?;
+        let plan_json_str: Option<String> = row.get(11)?;
         let plan_json = plan_json_str.and_then(|s| serde_json::from_str(&s).ok());
         
-        let settings_str: String = row.get::<_, Option<String>>(11)?.unwrap_or_else(|| "{}".to_string());
+        let settings_str: String = row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "{}".to_string());
         let settings = serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
 
         Ok(Scratchpad {
             id: row.get(0)?,
             board_id: row.get(1)?,
-            project_id: row.get(2)?,
-            name: row.get(3)?,
-            user_input: row.get(4)?,
+            target_board_id: row.get(2)?,
+            project_id: row.get(3)?,
+            name: row.get(4)?,
+            user_input: row.get(5)?,
             status,
-            agent_pref: row.get(6)?,
-            model: row.get(7)?,
+            agent_pref: row.get(7)?,
+            model: row.get(8)?,
             exploration_log,
-            plan_markdown: row.get(9)?,
+            plan_markdown: row.get(10)?,
             plan_json,
             settings,
-            created_at: parse_datetime(row.get(12)?),
-            updated_at: parse_datetime(row.get(13)?),
+            created_at: parse_datetime(row.get(13)?),
+            updated_at: parse_datetime(row.get(14)?),
         })
     }
 
@@ -299,7 +523,11 @@ impl Database {
         let epic_id: Option<String> = row.get(17)?;
         let order_in_epic: Option<i32> = row.get(18)?;
         let depends_on_epic_id: Option<String> = row.get(19)?;
-        let scratchpad_id: Option<String> = row.get(20)?;
+        let depends_on_epic_ids_json: Option<String> = row.get(20)?;
+        let depends_on_epic_ids: Vec<String> = depends_on_epic_ids_json
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let scratchpad_id: Option<String> = row.get(21)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -322,6 +550,7 @@ impl Database {
             epic_id,
             order_in_epic,
             depends_on_epic_id,
+            depends_on_epic_ids,
             scratchpad_id,
         })
     }
@@ -357,6 +586,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Feature Plan".to_string(),
             user_input: "I want to add a new authentication system".to_string(),
@@ -386,6 +616,7 @@ mod tests {
         
         db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan 1".to_string(),
             user_input: "Input 1".to_string(),
@@ -396,6 +627,7 @@ mod tests {
         
         db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan 2".to_string(),
             user_input: "Input 2".to_string(),
@@ -416,6 +648,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Original".to_string(),
             user_input: "Original input".to_string(),
@@ -451,6 +684,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
@@ -480,6 +714,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
@@ -504,6 +739,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),
@@ -533,6 +769,7 @@ mod tests {
         
         let scratchpad = db.create_scratchpad(&CreateScratchpad {
             board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
             name: "Plan".to_string(),
             user_input: "Input".to_string(),

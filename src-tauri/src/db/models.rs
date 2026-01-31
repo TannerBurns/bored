@@ -177,10 +177,21 @@ pub struct Ticket {
     pub epic_id: Option<String>,
     /// The order of this ticket within its parent epic
     pub order_in_epic: Option<i32>,
-    /// Cross-epic dependency: which epic must complete before this epic can start
+    /// Cross-epic dependency: which epic must complete before this epic can start (primary)
     pub depends_on_epic_id: Option<String>,
+    /// All epic dependencies as array of IDs (for display)
+    #[serde(default)]
+    pub depends_on_epic_ids: Vec<String>,
     /// Link back to scratchpad that created this ticket
     pub scratchpad_id: Option<String>,
+}
+
+impl Ticket {
+    /// Check if this epic is a consolidation epic (by title convention).
+    /// Consolidation epics are identified by titles starting with "Consolidate".
+    pub fn is_consolidation_epic(&self) -> bool {
+        self.is_epic && self.title.to_lowercase().starts_with("consolidate")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -371,8 +382,11 @@ pub struct CreateTicket {
     pub is_epic: bool,
     /// The parent epic ID (when creating a child ticket)
     pub epic_id: Option<String>,
-    /// Cross-epic dependency: which epic must complete before this epic can start
+    /// Cross-epic dependency: which epic must complete before this epic can start (primary)
     pub depends_on_epic_id: Option<String>,
+    /// All epic dependencies (for display in progress views)
+    #[serde(default)]
+    pub depends_on_epic_ids: Vec<String>,
     /// Link back to scratchpad that created this ticket
     pub scratchpad_id: Option<String>,
 }
@@ -400,7 +414,7 @@ pub struct CreateComment {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTicket {
     pub title: Option<String>,
@@ -421,6 +435,9 @@ pub struct UpdateTicket {
     pub order_in_epic: Option<i32>,
     /// Set or clear the depends_on_epic_id
     pub depends_on_epic_id: Option<String>,
+    /// Update all epic dependencies
+    #[serde(default)]
+    pub depends_on_epic_ids: Vec<String>,
     /// Set or clear the scratchpad_id
     pub scratchpad_id: Option<String>,
 }
@@ -605,7 +622,11 @@ pub enum ScratchpadStatus {
     Approved,
     /// Plan is being executed (creating epics/tickets)
     Executing,
-    /// All epics/tickets created successfully
+    /// Epics/tickets created, ready to start work
+    Executed,
+    /// Work has been started (epics moved to Ready, agents running)
+    Working,
+    /// All epics completed successfully
     Completed,
     /// An error occurred
     Failed,
@@ -620,6 +641,8 @@ impl ScratchpadStatus {
             ScratchpadStatus::AwaitingApproval => "awaiting_approval",
             ScratchpadStatus::Approved => "approved",
             ScratchpadStatus::Executing => "executing",
+            ScratchpadStatus::Executed => "executed",
+            ScratchpadStatus::Working => "working",
             ScratchpadStatus::Completed => "completed",
             ScratchpadStatus::Failed => "failed",
         }
@@ -633,6 +656,8 @@ impl ScratchpadStatus {
             "awaiting_approval" => Some(ScratchpadStatus::AwaitingApproval),
             "approved" => Some(ScratchpadStatus::Approved),
             "executing" => Some(ScratchpadStatus::Executing),
+            "executed" => Some(ScratchpadStatus::Executed),
+            "working" => Some(ScratchpadStatus::Working),
             "completed" => Some(ScratchpadStatus::Completed),
             "failed" => Some(ScratchpadStatus::Failed),
             _ => None,
@@ -654,7 +679,10 @@ pub struct Exploration {
 #[serde(rename_all = "camelCase")]
 pub struct Scratchpad {
     pub id: String,
+    /// The board this scratchpad belongs to (for organization/display)
     pub board_id: String,
+    /// The board where tickets will be created (defaults to board_id if not set)
+    pub target_board_id: Option<String>,
     /// The project this scratchpad is scoped to (required)
     pub project_id: String,
     pub name: String,
@@ -681,6 +709,8 @@ pub struct Scratchpad {
 #[serde(rename_all = "camelCase")]
 pub struct CreateScratchpad {
     pub board_id: String,
+    /// The board where tickets will be created (defaults to board_id if not set)
+    pub target_board_id: Option<String>,
     /// The project this scratchpad is scoped to (required)
     pub project_id: String,
     pub name: String,
@@ -714,9 +744,44 @@ pub struct UpdateScratchpad {
 pub struct PlanEpic {
     pub title: String,
     pub description: String,
-    /// Title of epic this depends on (null for first epic)
-    pub depends_on: Option<String>,
+    /// Titles of epics this depends on (empty = root epic, no dependencies)
+    #[serde(default, deserialize_with = "deserialize_depends_on")]
+    pub depends_on: Vec<String>,
     pub tickets: Vec<PlanTicket>,
+}
+
+/// Custom deserializer to handle both old format (null or string) and new format (array)
+fn deserialize_depends_on<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+    
+    // Use an untagged enum to handle string or array
+    // Order matters: try array first, then string
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrArray {
+        Multiple(Vec<String>),
+        Single(String),
+    }
+    
+    // Deserialize as Option<StringOrArray> to handle null
+    let value: Option<StringOrArray> = Option::deserialize(deserializer)?;
+    
+    match value {
+        None => Ok(Vec::new()),
+        Some(StringOrArray::Single(s)) => {
+            if s.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![s])
+            }
+        }
+        Some(StringOrArray::Multiple(v)) => {
+            Ok(v.into_iter().filter(|s| !s.is_empty()).collect())
+        }
+    }
 }
 
 /// A ticket in a generated plan
@@ -734,6 +799,48 @@ pub struct PlanTicket {
 pub struct ProjectPlan {
     pub overview: String,
     pub epics: Vec<PlanEpic>,
+}
+
+/// Status of a single ticket within an epic
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchpadTicketStatus {
+    pub id: String,
+    pub title: String,
+    pub column: String,
+}
+
+/// Status of a single epic within a scratchpad
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchpadEpicStatus {
+    pub id: String,
+    pub title: String,
+    pub column: String,
+    /// The epics this one depends on (empty = independent/root epic)
+    pub depends_on_ids: Vec<String>,
+    /// Titles of the dependency epics (for display, in same order as depends_on_ids)
+    pub depends_on_titles: Vec<String>,
+    /// Child tickets in this epic
+    pub tickets: Vec<ScratchpadTicketStatus>,
+}
+
+/// Progress stats for a scratchpad's epics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchpadProgress {
+    /// Number of epics
+    pub total: usize,
+    /// Epics in Done column
+    pub done: usize,
+    /// Epics in Ready/In Progress/Review
+    pub in_progress: usize,
+    /// Epics in Blocked column
+    pub blocked: usize,
+    /// Total number of all tickets (epics + child tickets)
+    pub total_tickets: usize,
+    /// List of epics with their status
+    pub epics: Vec<ScratchpadEpicStatus>,
 }
 
 #[cfg(test)]
@@ -953,6 +1060,67 @@ mod tests {
             let missing = ReadinessCheck::ProjectPathMissing { path: "/gone".to_string() };
             let json = serde_json::to_string(&missing).unwrap();
             assert!(json.contains("projectPathMissing"));
+        }
+    }
+
+    mod ticket_tests {
+        use super::*;
+
+        fn make_ticket(title: &str, is_epic: bool) -> Ticket {
+            Ticket {
+                id: "t1".to_string(),
+                board_id: "b1".to_string(),
+                column_id: "c1".to_string(),
+                title: title.to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                locked_by_run_id: None,
+                lock_expires_at: None,
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic,
+                epic_id: None,
+                order_in_epic: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                scratchpad_id: None,
+            }
+        }
+
+        #[test]
+        fn is_consolidation_epic_true_for_consolidate_title() {
+            let ticket = make_ticket("Consolidate Changes", true);
+            assert!(ticket.is_consolidation_epic());
+        }
+
+        #[test]
+        fn is_consolidation_epic_true_for_lowercase_consolidate() {
+            let ticket = make_ticket("consolidate all work", true);
+            assert!(ticket.is_consolidation_epic());
+        }
+
+        #[test]
+        fn is_consolidation_epic_false_for_non_epic() {
+            let ticket = make_ticket("Consolidate Changes", false);
+            assert!(!ticket.is_consolidation_epic());
+        }
+
+        #[test]
+        fn is_consolidation_epic_false_for_other_title() {
+            let ticket = make_ticket("User Profile Backend", true);
+            assert!(!ticket.is_consolidation_epic());
+        }
+
+        #[test]
+        fn is_consolidation_epic_false_for_consolidate_not_at_start() {
+            let ticket = make_ticket("Final Consolidate Step", true);
+            assert!(!ticket.is_consolidation_epic());
         }
     }
 }

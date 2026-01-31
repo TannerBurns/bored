@@ -472,6 +472,7 @@ mod tests {
             is_epic: false,
             epic_id: None,
             depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
             scratchpad_id: None,
         }).unwrap();
         
@@ -512,6 +513,7 @@ mod tests {
             is_epic: false,
             epic_id: None,
             depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
             scratchpad_id: None,
         }).unwrap();
         
@@ -544,6 +546,7 @@ mod tests {
             is_epic: false,
             epic_id: None,
             depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
             scratchpad_id: None,
         }).unwrap();
         

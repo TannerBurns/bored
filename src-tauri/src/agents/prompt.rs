@@ -768,6 +768,7 @@ mod tests {
             epic_id: None,
             order_in_epic: None,
             depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
             scratchpad_id: None,
         }
     }
