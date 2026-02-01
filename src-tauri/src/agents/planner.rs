@@ -126,11 +126,30 @@ impl PlannerAgent {
             scratchpad.status
         );
 
-        // Run exploration phase
-        let exploration_result = self.run_exploration(&scratchpad).await?;
-
-        // Generate plan using exploration context
-        self.generate_plan(&scratchpad, &exploration_result).await?;
+        // Run exploration and planning with error recovery
+        match self.run_explore_and_plan(&scratchpad).await {
+            Ok(exploration_result) => {
+                // Generate plan using exploration context
+                if let Err(e) = self.generate_plan(&scratchpad, &exploration_result).await {
+                    // Set status to failed so UI stops showing spinner
+                    tracing::error!("Plan generation failed, setting status to failed: {}", e);
+                    let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
+                    self.broadcast(LiveEvent::ScratchpadUpdated {
+                        scratchpad_id: scratchpad.id.clone(),
+                    });
+                    return Err(e);
+                }
+            }
+            Err(e) => {
+                // Set status to failed so UI stops showing spinner
+                tracing::error!("Exploration failed, setting status to failed: {}", e);
+                let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
+                self.broadcast(LiveEvent::ScratchpadUpdated {
+                    scratchpad_id: scratchpad.id.clone(),
+                });
+                return Err(e);
+            }
+        }
 
         // Check if auto-approve is enabled
         if self.config.auto_approve {
@@ -153,6 +172,11 @@ impl PlannerAgent {
             epic_ids: vec![],
             ticket_ids: vec![],
         })
+    }
+
+    /// Run the exploration phase, returning the exploration result
+    async fn run_explore_and_plan(&self, scratchpad: &Scratchpad) -> Result<String, PlannerError> {
+        self.run_exploration(scratchpad).await
     }
 
     /// Run an agent with the given prompt

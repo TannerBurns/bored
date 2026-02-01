@@ -15,7 +15,7 @@ interface ScratchpadDetailProps {
   onClose: () => void;
 }
 
-const statusMessages: Record<string, { title: string; subtitle: string }> = {
+const statusMessages: Record<string, { title: string; subtitle: string; variant?: 'info' | 'error' }> = {
   exploring: {
     title: 'Analyzing codebase...',
     subtitle: 'The agent is exploring your project to understand its structure',
@@ -32,20 +32,39 @@ const statusMessages: Record<string, { title: string; subtitle: string }> = {
     title: 'Work in progress...',
     subtitle: 'Agents are working on the epics. Track progress in the Progress tab.',
   },
+  failed: {
+    title: 'Exploration failed',
+    subtitle: 'The agent encountered an error. Check the logs for details and try again.',
+    variant: 'error',
+  },
 };
 
 function ProgressIndicator({ status }: { status: ScratchpadStatus }) {
   const message = statusMessages[status];
   if (!message) return null;
 
+  const isError = message.variant === 'error';
+
   return (
-    <div className="mx-4 mt-4 flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-      <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full flex-shrink-0" />
+    <div className={`mx-4 mt-4 flex items-center gap-3 p-4 rounded-lg border ${
+      isError 
+        ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' 
+        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+    }`}>
+      {isError ? (
+        <div className="h-5 w-5 flex-shrink-0 text-red-500">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+        </div>
+      ) : (
+        <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full flex-shrink-0" />
+      )}
       <div>
-        <p className="font-medium text-blue-700 dark:text-blue-300">
+        <p className={`font-medium ${isError ? 'text-red-700 dark:text-red-300' : 'text-blue-700 dark:text-blue-300'}`}>
           {message.title}
         </p>
-        <p className="text-sm text-blue-600 dark:text-blue-400">
+        <p className={`text-sm ${isError ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
           {message.subtitle}
         </p>
       </div>
@@ -204,6 +223,21 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     }
   };
 
+  const handleRetry = async () => {
+    // Reset status to draft so we can start again
+    try {
+      await setStatus(scratchpad.id, 'draft');
+      const updated = await getScratchpad(scratchpad.id);
+      setCurrentScratchpad(updated);
+      setError(null);
+      // Now start the planner again
+      await handleStartPlanner();
+    } catch (err) {
+      logger.error('Failed to retry', err);
+      setError(String(err));
+    }
+  };
+
   const handleDelete = async (deleteTickets = false) => {
     const ticketCount = progress?.totalTickets || 0;
     const message = deleteTickets && ticketCount > 0
@@ -225,6 +259,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   };
 
   const canStart = scratchpad.status === 'draft';
+  const canRetry = scratchpad.status === 'failed';
   const canApprove = scratchpad.status === 'awaiting_approval' && scratchpad.planMarkdown;
   const canExecute = scratchpad.status === 'approved' && scratchpad.planJson;
   const canStartWork = scratchpad.status === 'executed' 
@@ -235,10 +270,11 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   
   // Auto-switch to logs tab when processing starts
   useEffect(() => {
-    if (isProcessing && activeTab !== 'logs') {
+    if (isProcessing) {
       setActiveTab('logs');
     }
-  }, [isProcessing, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProcessing]);
 
   return (
     <div className="flex flex-col h-full">
@@ -260,6 +296,15 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
               disabled={isStarting}
             >
               {isStarting ? 'Starting...' : 'Start Exploring'}
+            </Button>
+          )}
+          {canRetry && (
+            <Button 
+              onClick={handleRetry} 
+              variant="primary"
+              disabled={isStarting}
+            >
+              {isStarting ? 'Retrying...' : 'Retry'}
             </Button>
           )}
           {canApprove && (
