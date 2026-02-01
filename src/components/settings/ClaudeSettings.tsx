@@ -224,12 +224,27 @@ export function ClaudeSettings() {
       
       await setClaudeApiSettings(settings);
       
-      // Update the store (pass values directly so empty strings update properly)
+      // Reload from backend to ensure store has the canonical values
+      // This eliminates any transient inconsistency between backend (null) and store ('')
+      const savedSettings = await getClaudeApiSettings();
+      
+      // Update local state with the backend's canonical values (normalized to empty string)
+      const normalizedAuthToken = savedSettings.authToken ?? '';
+      const normalizedApiKey = savedSettings.apiKey ?? '';
+      const normalizedBaseUrl = savedSettings.baseUrl ?? '';
+      const normalizedModelOverride = savedSettings.modelOverride ?? '';
+      
+      setApiAuthToken(normalizedAuthToken);
+      setApiKey(normalizedApiKey);
+      setApiBaseUrl(normalizedBaseUrl);
+      setApiModelOverride(normalizedModelOverride);
+      
+      // Update store with the same normalized values
       updateStoreSettings({
-        authToken: apiAuthToken,
-        apiKey: apiKey,
-        baseUrl: apiBaseUrl,
-        modelOverride: apiModelOverride,
+        authToken: normalizedAuthToken,
+        apiKey: normalizedApiKey,
+        baseUrl: normalizedBaseUrl,
+        modelOverride: normalizedModelOverride,
       });
       
       setSuccess('Claude API settings saved successfully!');
