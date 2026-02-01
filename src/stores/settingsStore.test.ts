@@ -117,13 +117,30 @@ describe('useSettingsStore', () => {
       });
       const state = useSettingsStore.getState();
       expect(state.claudeAuthToken).toBe('updated-token');
-      expect(state.claudeApiKey).toBe('');
+      expect(state.claudeApiKey).toBe('initial-key');
     });
 
-    it('handles undefined values as empty strings', () => {
+    it('preserves existing values when undefined is passed', () => {
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'existing-token',
+        apiKey: 'existing-key',
+      });
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'new-token',
+        apiKey: undefined,
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeAuthToken).toBe('new-token');
+      expect(state.claudeApiKey).toBe('existing-key');
+    });
+
+    it('can explicitly set a field to empty string', () => {
       useSettingsStore.getState().setClaudeApiSettings({
         authToken: 'token',
-        apiKey: undefined,
+        apiKey: 'key',
+      });
+      useSettingsStore.getState().setClaudeApiSettings({
+        apiKey: '',
       });
       const state = useSettingsStore.getState();
       expect(state.claudeAuthToken).toBe('token');

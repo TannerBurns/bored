@@ -59,12 +59,12 @@ export const useSettingsStore = create<SettingsState>()(
       setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
       setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
       setClaudeModelOverride: (claudeModelOverride) => set({ claudeModelOverride }),
-      setClaudeApiSettings: (settings) => set({
-        claudeAuthToken: settings.authToken ?? '',
-        claudeApiKey: settings.apiKey ?? '',
-        claudeBaseUrl: settings.baseUrl ?? '',
-        claudeModelOverride: settings.modelOverride ?? '',
-      }),
+      setClaudeApiSettings: (settings) => set(() => ({
+        ...(settings.authToken !== undefined && { claudeAuthToken: settings.authToken }),
+        ...(settings.apiKey !== undefined && { claudeApiKey: settings.apiKey }),
+        ...(settings.baseUrl !== undefined && { claudeBaseUrl: settings.baseUrl }),
+        ...(settings.modelOverride !== undefined && { claudeModelOverride: settings.modelOverride }),
+      })),
     }),
     {
       name: 'agent-kanban-settings',
