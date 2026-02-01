@@ -15,6 +15,26 @@ pub mod planner_prompts;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Claude API settings for overriding environment configuration when spawning agents
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeApiConfig {
+    pub auth_token: Option<String>,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub model_override: Option<String>,
+}
+
+impl From<crate::commands::claude::ClaudeApiSettings> for ClaudeApiConfig {
+    fn from(s: crate::commands::claude::ClaudeApiSettings) -> Self {
+        Self {
+            auth_token: s.auth_token,
+            api_key: s.api_key,
+            base_url: s.base_url,
+            model_override: s.model_override,
+        }
+    }
+}
+
 /// Agent type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -44,6 +64,8 @@ pub struct AgentRunConfig {
     pub api_url: String,
     pub api_token: String,
     pub model: Option<String>,
+    /// Claude-specific API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// Result of an agent run
@@ -171,6 +193,29 @@ pub enum LogStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_api_config_default() {
+        let config = ClaudeApiConfig::default();
+        assert!(config.auth_token.is_none());
+        assert!(config.api_key.is_none());
+        assert!(config.base_url.is_none());
+        assert!(config.model_override.is_none());
+    }
+
+    #[test]
+    fn claude_api_config_with_values() {
+        let config = ClaudeApiConfig {
+            auth_token: Some("auth123".to_string()),
+            api_key: Some("key456".to_string()),
+            base_url: Some("https://custom.api.com".to_string()),
+            model_override: Some("claude-opus-4-5".to_string()),
+        };
+        assert_eq!(config.auth_token.as_deref(), Some("auth123"));
+        assert_eq!(config.api_key.as_deref(), Some("key456"));
+        assert_eq!(config.base_url.as_deref(), Some("https://custom.api.com"));
+        assert_eq!(config.model_override.as_deref(), Some("claude-opus-4-5"));
+    }
 
     #[test]
     fn agent_kind_as_str() {

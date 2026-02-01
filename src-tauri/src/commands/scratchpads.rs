@@ -9,7 +9,8 @@ use tokio::sync::broadcast;
 use crate::api::state::LiveEvent;
 use crate::db::{Database, Scratchpad, CreateScratchpad, UpdateScratchpad, ScratchpadStatus, Exploration, ScratchpadProgress};
 use crate::agents::planner::{PlannerAgent, PlannerConfig};
-use crate::agents::AgentKind;
+use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::commands::claude::ClaudeApiSettingsState;
 use crate::lifecycle::epic::on_epic_moved_to_ready;
 
 /// Input for creating a scratchpad
@@ -198,6 +199,7 @@ pub async fn start_planner(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_url: State<'_, String>,
     api_token: State<'_, String>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<String, String> {
     tracing::info!("Starting planner for scratchpad {}", input.scratchpad_id);
     
@@ -221,6 +223,10 @@ pub async fn start_planner(
         }
     };
     
+    // Get Claude API config if using Claude agent
+    let claude_api_config = (agent_kind == AgentKind::Claude)
+        .then(|| ClaudeApiConfig::from(claude_api_state.get()));
+    
     let config = PlannerConfig {
         scratchpad_id: input.scratchpad_id.clone(),
         max_explorations: input.max_explorations.unwrap_or(10),
@@ -230,6 +236,7 @@ pub async fn start_planner(
         repo_path: PathBuf::from(&project.path),
         api_url: api_url.inner().clone(),
         api_token: api_token.inner().clone(),
+        claude_api_config,
     };
     
     let agent = PlannerAgent::with_events(
@@ -256,6 +263,7 @@ pub async fn execute_plan(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_url: State<'_, String>,
     api_token: State<'_, String>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<Vec<String>, String> {
     tracing::info!("Executing plan for scratchpad {}", scratchpad_id);
     
@@ -264,6 +272,9 @@ pub async fn execute_plan(
     let project = db.get_project(&scratchpad.project_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", scratchpad.project_id))?;
+    
+    // Get Claude API config (execute_plan doesn't run agents but we include for consistency)
+    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
     
     let config = PlannerConfig {
         scratchpad_id: scratchpad_id.clone(),
@@ -274,6 +285,7 @@ pub async fn execute_plan(
         repo_path: PathBuf::from(&project.path),
         api_url: api_url.inner().clone(),
         api_token: api_token.inner().clone(),
+        claude_api_config,
     };
     
     let agent = PlannerAgent::with_events(

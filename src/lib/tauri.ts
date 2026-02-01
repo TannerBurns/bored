@@ -276,6 +276,22 @@ export async function getClaudeHookScriptPath(): Promise<string | null> {
   return invoke('get_claude_hook_script_path');
 }
 
+// Claude API Settings
+export interface ClaudeApiSettings {
+  authToken: string | null;
+  apiKey: string | null;
+  baseUrl: string | null;
+  modelOverride: string | null;
+}
+
+export async function getClaudeApiSettings(): Promise<ClaudeApiSettings> {
+  return invoke('get_claude_api_settings');
+}
+
+export async function setClaudeApiSettings(settings: ClaudeApiSettings): Promise<void> {
+  return invoke('set_claude_api_settings', { settings });
+}
+
 // Worker validation and commands
 import type { ValidationResult } from '../types';
 

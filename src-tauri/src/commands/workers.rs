@@ -7,7 +7,8 @@ use tauri::State;
 
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::validation::{ValidationResult, validate_worker_environment};
-use crate::agents::{AgentKind, cursor, claude};
+use crate::agents::{AgentKind, ClaudeApiConfig, cursor, claude};
+use crate::commands::claude::ClaudeApiSettingsState;
 use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
@@ -47,6 +48,7 @@ pub async fn start_worker(
     agent_type: String,
     project_id: Option<String>,
     db: State<'_, Arc<Database>>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<StartWorkerResponse, String> {
     tracing::info!(
         "Starting worker: agent_type={}, project_id={:?}",
@@ -73,6 +75,9 @@ pub async fn start_worker(
     let hook_script_path = get_hook_script_path(&app);
     tracing::info!("Worker hook script path: {:?}", hook_script_path);
 
+    let claude_api_config = (agent_kind == AgentKind::Claude)
+        .then(|| ClaudeApiConfig::from(claude_api_state.get()));
+
     let config = WorkerConfig {
         agent_type: agent_kind,
         project_id,
@@ -80,6 +85,7 @@ pub async fn start_worker(
         api_token,
         hook_script_path,
         app_handle: Some(app.clone()),
+        claude_api_config,
         ..Default::default()
     };
 

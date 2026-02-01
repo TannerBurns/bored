@@ -391,6 +391,7 @@ mod tests {
             api_url: "http://localhost:7432".to_string(),
             api_token: "token".to_string(),
             model: None,
+            claude_api_config: None,
         }
     }
 

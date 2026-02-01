@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use tauri::{AppHandle, Manager};
 
-use super::AgentKind;
+use super::{AgentKind, ClaudeApiConfig};
 use super::runner::{self, RunnerConfig};
 use super::worktree;
 use super::diagnostic;
@@ -30,6 +30,8 @@ pub struct WorkerConfig {
     pub agent_timeout_secs: u64,
     pub hook_script_path: Option<String>,
     pub app_handle: Option<AppHandle>,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 impl Default for WorkerConfig {
@@ -45,6 +47,7 @@ impl Default for WorkerConfig {
             agent_timeout_secs: 3600, // 1 hour
             hook_script_path: None,
             app_handle: None,
+            claude_api_config: None,
         }
     }
 }
@@ -496,6 +499,7 @@ impl Worker {
             branch_already_created,
             is_temp_branch,
             timeout_secs: self.config.agent_timeout_secs,
+            claude_api_config: self.config.claude_api_config.clone(),
         };
 
         let result = runner::execute_agent_run(runner_config).await;
@@ -651,6 +655,7 @@ impl Worker {
         
         // Try to spawn diagnostic agent (fire-and-forget in the background)
         let worker_id = self.id.clone();
+        let claude_api_config = self.config.claude_api_config.clone();
         tokio::spawn(async move {
             tracing::info!("Worker {} spawning diagnostic agent for ticket {}", worker_id, ticket_id);
             
@@ -663,6 +668,7 @@ impl Worker {
                 &api_token,
                 ticket_model,
                 agent_kind,
+                claude_api_config,
             ).await {
                 Ok(()) => {
                     tracing::info!(
@@ -952,6 +958,7 @@ mod tests {
             agent_timeout_secs: 7200,
             hook_script_path: Some("/path/to/hook.js".to_string()),
             app_handle: None,
+            claude_api_config: None,
         };
 
         assert_eq!(config.poll_interval_secs, 30);

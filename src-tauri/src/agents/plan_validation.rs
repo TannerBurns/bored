@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::db::{Database, AgentType, CreateRun, RunStatus};
-use super::{AgentKind, AgentRunConfig, extract_text_from_stream_json, extract_agent_text};
+use super::{AgentKind, AgentRunConfig, ClaudeApiConfig, extract_text_from_stream_json, extract_agent_text};
 use super::spawner;
 
 /// Result of plan clarification validation
@@ -42,6 +42,8 @@ pub struct PlanValidationConfig {
     pub model: Option<String>,
     /// The agent type to use for validation (Claude or Cursor)
     pub agent_kind: AgentKind,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// Error type for plan validation operations
@@ -188,6 +190,7 @@ pub async fn validate_plan_for_clarification(
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
+        claude_api_config: config.claude_api_config.clone(),
     };
     
     let db = config.db.clone();
@@ -277,6 +280,7 @@ pub async fn generate_clarification_message(
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
+        claude_api_config: config.claude_api_config.clone(),
     };
     
     let db = config.db.clone();

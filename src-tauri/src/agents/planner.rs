@@ -20,7 +20,7 @@ use crate::db::PlanTicket;
 
 use super::planner_prompts;
 use super::spawner;
-use super::{extract_agent_text, AgentKind, AgentRunConfig};
+use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
 
 /// Configuration for the planner agent
 #[derive(Debug, Clone)]
@@ -33,6 +33,8 @@ pub struct PlannerConfig {
     pub repo_path: PathBuf,
     pub api_url: String,
     pub api_token: String,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// Extended config with event broadcasting
@@ -124,11 +126,30 @@ impl PlannerAgent {
             scratchpad.status
         );
 
-        // Run exploration phase
-        let exploration_result = self.run_exploration(&scratchpad).await?;
-
-        // Generate plan using exploration context
-        self.generate_plan(&scratchpad, &exploration_result).await?;
+        // Run exploration and planning with error recovery
+        match self.run_explore_and_plan(&scratchpad).await {
+            Ok(exploration_result) => {
+                // Generate plan using exploration context
+                if let Err(e) = self.generate_plan(&scratchpad, &exploration_result).await {
+                    // Set status to failed so UI stops showing spinner
+                    tracing::error!("Plan generation failed, setting status to failed: {}", e);
+                    let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
+                    self.broadcast(LiveEvent::ScratchpadUpdated {
+                        scratchpad_id: scratchpad.id.clone(),
+                    });
+                    return Err(e);
+                }
+            }
+            Err(e) => {
+                // Set status to failed so UI stops showing spinner
+                tracing::error!("Exploration failed, setting status to failed: {}", e);
+                let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
+                self.broadcast(LiveEvent::ScratchpadUpdated {
+                    scratchpad_id: scratchpad.id.clone(),
+                });
+                return Err(e);
+            }
+        }
 
         // Check if auto-approve is enabled
         if self.config.auto_approve {
@@ -153,6 +174,11 @@ impl PlannerAgent {
         })
     }
 
+    /// Run the exploration phase, returning the exploration result
+    async fn run_explore_and_plan(&self, scratchpad: &Scratchpad) -> Result<String, PlannerError> {
+        self.run_exploration(scratchpad).await
+    }
+
     /// Run an agent with the given prompt
     async fn run_agent(&self, prompt: &str, scratchpad: &Scratchpad, phase: &str) -> Result<String, PlannerError> {
         let config = AgentRunConfig {
@@ -165,6 +191,7 @@ impl PlannerAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
+            claude_api_config: self.config.claude_api_config.clone(),
         };
 
         tracing::info!(

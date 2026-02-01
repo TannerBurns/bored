@@ -11,9 +11,12 @@ import {
   installCommandsToProject,
   checkCommandsInstalled,
   checkUserCommandsInstalled,
+  getClaudeApiSettings,
+  setClaudeApiSettings,
 } from '../../lib/tauri';
-import type { ClaudeStatus } from '../../lib/tauri';
+import type { ClaudeStatus, ClaudeApiSettings } from '../../lib/tauri';
 import type { Project } from '../../types';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 export function ClaudeSettings() {
   const [status, setStatus] = useState<ClaudeStatus | null>(null);
@@ -36,6 +39,15 @@ export function ClaudeSettings() {
   const [installingCommands, setInstallingCommands] = useState(false);
   const [userCommandsInstalled, setUserCommandsInstalled] = useState(false);
   const [projectCommandStatus, setProjectCommandStatus] = useState<Record<string, boolean>>({});
+  
+  // Claude API settings state
+  const [apiAuthToken, setApiAuthToken] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [apiModelOverride, setApiModelOverride] = useState('');
+  const [savingApiSettings, setSavingApiSettings] = useState(false);
+  
+  const { setClaudeApiSettings: updateStoreSettings } = useSettingsStore();
 
   useEffect(() => {
     loadData();
@@ -44,31 +56,45 @@ export function ClaudeSettings() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [claudeStatus, projectList, commands] = await Promise.all([
+      const [claudeStatus, projectList, commands, apiSettings] = await Promise.all([
         getClaudeStatus(),
         getProjects(),
         getAvailableCommands(),
+        getClaudeApiSettings(),
       ]);
       setStatus(claudeStatus);
       setProjects(projectList);
       setAvailableCommands(commands);
       
-      // Check user-level commands installation
-      try {
-        const userInstalled = await checkUserCommandsInstalled('claude');
-        setUserCommandsInstalled(userInstalled);
-      } catch {
-        setUserCommandsInstalled(false);
-      }
+      // Load API settings
+      setApiAuthToken(apiSettings.authToken ?? '');
+      setApiKey(apiSettings.apiKey ?? '');
+      setApiBaseUrl(apiSettings.baseUrl ?? '');
+      setApiModelOverride(apiSettings.modelOverride ?? '');
       
-      // Check project-level command installation status
+      // Also update the store (use empty string for null values so cleared fields update properly)
+      updateStoreSettings({
+        authToken: apiSettings.authToken ?? '',
+        apiKey: apiSettings.apiKey ?? '',
+        baseUrl: apiSettings.baseUrl ?? '',
+        modelOverride: apiSettings.modelOverride ?? '',
+      });
+      
+      // Check user-level and project-level commands installation in parallel
+      const [userInstalled, ...projectResults] = await Promise.all([
+        checkUserCommandsInstalled('claude').catch(() => false),
+        ...projectList.map(project =>
+          checkCommandsInstalled('claude', project.path)
+            .then(installed => ({ id: project.id, installed }))
+            .catch(() => ({ id: project.id, installed: false }))
+        ),
+      ]);
+      
+      setUserCommandsInstalled(userInstalled as boolean);
+      
       const commandStatus: Record<string, boolean> = {};
-      for (const project of projectList) {
-        try {
-          commandStatus[project.id] = await checkCommandsInstalled('claude', project.path);
-        } catch {
-          commandStatus[project.id] = false;
-        }
+      for (const result of projectResults as { id: string; installed: boolean }[]) {
+        commandStatus[result.id] = result.installed;
       }
       setProjectCommandStatus(commandStatus);
       
@@ -183,6 +209,52 @@ export function ClaudeSettings() {
     }
   };
 
+  const handleSaveApiSettings = async () => {
+    setSavingApiSettings(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const settings: ClaudeApiSettings = {
+        authToken: apiAuthToken || null,
+        apiKey: apiKey || null,
+        baseUrl: apiBaseUrl || null,
+        modelOverride: apiModelOverride || null,
+      };
+      
+      await setClaudeApiSettings(settings);
+      
+      // Reload from backend to ensure store has the canonical values
+      // This eliminates any transient inconsistency between backend (null) and store ('')
+      const savedSettings = await getClaudeApiSettings();
+      
+      // Update local state with the backend's canonical values (normalized to empty string)
+      const normalizedAuthToken = savedSettings.authToken ?? '';
+      const normalizedApiKey = savedSettings.apiKey ?? '';
+      const normalizedBaseUrl = savedSettings.baseUrl ?? '';
+      const normalizedModelOverride = savedSettings.modelOverride ?? '';
+      
+      setApiAuthToken(normalizedAuthToken);
+      setApiKey(normalizedApiKey);
+      setApiBaseUrl(normalizedBaseUrl);
+      setApiModelOverride(normalizedModelOverride);
+      
+      // Update store with the same normalized values
+      updateStoreSettings({
+        authToken: normalizedAuthToken,
+        apiKey: normalizedApiKey,
+        baseUrl: normalizedBaseUrl,
+        modelOverride: normalizedModelOverride,
+      });
+      
+      setSuccess('Claude API settings saved successfully!');
+    } catch (e) {
+      setError(`Failed to save API settings: ${e}`);
+    } finally {
+      setSavingApiSettings(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-board-text-muted text-center py-8">Loading Claude status...</div>
@@ -235,6 +307,79 @@ export function ClaudeSettings() {
             <span className="text-board-text">{userCommandsInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
         </div>
+      </div>
+
+      {/* API Configuration Section */}
+      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+        <h3 className="font-medium text-board-text">API Configuration</h3>
+        <p className="text-sm text-board-text-muted">
+          Configure custom API credentials for Claude Code. Leave fields empty to use system defaults.
+        </p>
+        
+        <div className="grid gap-4">
+          <div>
+            <label className="block text-sm text-board-text-secondary mb-1.5">
+              Auth Token (ANTHROPIC_AUTH_TOKEN)
+            </label>
+            <input
+              type="password"
+              placeholder="OAuth token for Claude Code"
+              value={apiAuthToken}
+              onChange={(e) => setApiAuthToken(e.target.value)}
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-board-text-secondary mb-1.5">
+              API Key (ANTHROPIC_API_KEY)
+            </label>
+            <input
+              type="password"
+              placeholder="API key for direct API access"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-board-text-secondary mb-1.5">
+              Base URL (ANTHROPIC_BASE_URL)
+            </label>
+            <input
+              type="text"
+              placeholder="https://api.anthropic.com"
+              value={apiBaseUrl}
+              onChange={(e) => setApiBaseUrl(e.target.value)}
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm text-board-text-secondary mb-1.5">
+              Model Override
+            </label>
+            <input
+              type="text"
+              placeholder="e.g., claude-opus-4-5 (bypasses model mapping)"
+              value={apiModelOverride}
+              onChange={(e) => setApiModelOverride(e.target.value)}
+              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+            />
+            <p className="text-xs text-board-text-muted mt-1">
+              When set, this value is used directly for --model without any mapping
+            </p>
+          </div>
+        </div>
+        
+        <button
+          onClick={handleSaveApiSettings}
+          disabled={savingApiSettings}
+          className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {savingApiSettings ? 'Saving...' : 'Save API Settings'}
+        </button>
       </div>
 
       {/* Hook Script Section */}
