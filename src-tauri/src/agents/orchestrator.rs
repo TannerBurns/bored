@@ -38,7 +38,6 @@ fn extract_issues_section(output: &str) -> String {
     let text = extract_text_from_stream_json(output)
         .unwrap_or_else(|| output.to_string());
     
-    // Find the start of the issues section
     let start_marker = "## Issues Found";
     let end_marker = "## Summary";
     
@@ -47,11 +46,9 @@ fn extract_issues_section(output: &str) -> String {
         if let Some(end_idx) = text[issues_start..].find(end_marker) {
             return text[issues_start..issues_start + end_idx].trim().to_string();
         }
-        // If no end marker, take everything after the start
         return text[issues_start..].trim().to_string();
     }
     
-    // Fallback: return the whole output
     text
 }
 
@@ -81,6 +78,10 @@ pub struct OrchestratorConfig {
     pub claude_api_config: Option<ClaudeApiConfig>,
     /// Maximum iterations for the code review loop (default: 3)
     pub code_review_max_iterations: usize,
+    /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
+    pub stage_timeout_secs: u64,
+    /// Maximum retries per stage (default: 2)
+    pub stage_max_retries: u32,
 }
 
 /// The stages in a multi-stage workflow.
@@ -139,6 +140,10 @@ pub struct WorkflowOrchestrator {
     claude_api_config: Option<ClaudeApiConfig>,
     /// Maximum iterations for the code review loop
     code_review_max_iterations: usize,
+    /// Timeout per workflow stage in seconds
+    stage_timeout_secs: u64,
+    /// Maximum retries per stage
+    stage_max_retries: u32,
 }
 
 impl WorkflowOrchestrator {
@@ -162,6 +167,8 @@ impl WorkflowOrchestrator {
             is_temp_branch: config.is_temp_branch,
             claude_api_config: config.claude_api_config,
             code_review_max_iterations: config.code_review_max_iterations,
+            stage_timeout_secs: config.stage_timeout_secs,
+            stage_max_retries: config.stage_max_retries,
         }
     }
     
@@ -728,16 +735,60 @@ Do NOT start implementing any code changes. Just create the branch.
         }
     }
 
-    /// Run a single stage of the workflow
+    /// Run a single stage of the workflow with retry support
     async fn run_stage(
         &self,
         stage: &str,
         prompt: &str,
     ) -> Result<AgentRunResult, String> {
-        tracing::info!("Starting stage '{}' for parent run {}", stage, self.parent_run_id);
+        let max_attempts = self.stage_max_retries + 1;
+        let mut last_error = String::new();
         
-        // Emit stage started event
-        self.emit_stage_event(stage, "running", None, None);
+        for attempt in 1..=max_attempts {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            
+            if attempt > 1 {
+                let backoff_secs = 5 * attempt as u64;
+                tracing::warn!(
+                    "Stage '{}' retry {}/{} after {}s backoff",
+                    stage, attempt, max_attempts, backoff_secs
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+            }
+            
+            match self.run_stage_attempt(stage, prompt, attempt, max_attempts).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = e.clone();
+                    if e.contains("cancelled") || e.contains("Cancelled") {
+                        return Err(e);
+                    }
+                    if attempt < max_attempts {
+                        tracing::warn!("Stage '{}' failed (attempt {}/{}): {}", stage, attempt, max_attempts, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        Err(format!("{} (after {} attempts)", last_error, max_attempts))
+    }
+    
+    /// Run a single attempt of a stage
+    async fn run_stage_attempt(
+        &self,
+        stage: &str,
+        prompt: &str,
+        attempt: u32,
+        max_attempts: u32,
+    ) -> Result<AgentRunResult, String> {
+        tracing::info!("Starting stage '{}' attempt {}/{} for parent run {}", stage, attempt, max_attempts, self.parent_run_id);
+        
+        if attempt == 1 {
+            self.emit_stage_event(stage, "running", None, None);
+        }
         
         // Create sub-run in database
         let sub_run = self.db.create_run(&CreateRun {
@@ -770,7 +821,7 @@ Do NOT start implementing any code changes. Just create the branch.
             run_id: sub_run.id.clone(),
             repo_path: self.repo_path.clone(),
             prompt: prompt.to_string(),
-            timeout_secs: Some(1800), // 30 minutes per stage
+            timeout_secs: Some(self.stage_timeout_secs),
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
             model: self.ticket.model.clone(),
@@ -914,7 +965,6 @@ Do NOT start implementing any code changes. Just create the branch.
             result.summary.as_deref(),
         ).map_err(|e| format!("Failed to update sub-run status: {}", e))?;
         
-        // Emit stage completed event
         self.emit_stage_event(
             stage, 
             status.as_str(), 
@@ -922,7 +972,6 @@ Do NOT start implementing any code changes. Just create the branch.
             Some(duration_secs),
         );
         
-        // Check if stage failed
         if result.status != RunOutcome::Success {
             return Err(format!("Stage '{}' failed with status {:?}", stage, result.status));
         }
@@ -987,10 +1036,6 @@ Do NOT start implementing any code changes. Just create the branch.
                         iteration
                     );
                     
-                    if self.is_cancelled() {
-                        return Err("Workflow cancelled".to_string());
-                    }
-                    
                     let issues_context = extract_issues_section(&output);
                     let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
                     let fix_prompt = format!(
@@ -1009,11 +1054,38 @@ Do NOT start implementing any code changes. Just create the branch.
             }
         }
         
-        tracing::warn!(
-            "Code review reached max iterations ({}) for ticket {}",
-            max_iterations,
-            self.ticket.id
+        tracing::info!(
+            "Running final verification code review after {} iterations",
+            max_iterations
         );
+        
+        let final_review_prompt = generate_command_prompt("code-review", &self.repo_path);
+        let final_result = self.run_stage("code-review", &final_review_prompt).await?;
+        let final_output = final_result.captured_stdout.unwrap_or_default();
+        let final_issue_count = parse_code_review_issues(&final_output);
+        
+        match final_issue_count {
+            Some(0) => {
+                tracing::info!(
+                    "Final verification passed: no issues remaining after {} iterations",
+                    max_iterations
+                );
+            }
+            Some(count) => {
+                tracing::warn!(
+                    "Code review reached max iterations ({}) with {} issues still remaining for ticket {}",
+                    max_iterations,
+                    count,
+                    self.ticket.id
+                );
+            }
+            None => {
+                tracing::warn!(
+                    "Could not parse final verification issue count, assuming complete"
+                );
+            }
+        }
+        
         Ok(())
     }
 }

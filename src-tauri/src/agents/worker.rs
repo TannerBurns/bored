@@ -34,6 +34,10 @@ pub struct WorkerConfig {
     pub claude_api_config: Option<ClaudeApiConfig>,
     /// Maximum iterations for the code review loop (default: 3)
     pub code_review_max_iterations: usize,
+    /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
+    pub stage_timeout_secs: u64,
+    /// Maximum retries per stage (default: 2)
+    pub stage_max_retries: u32,
 }
 
 impl Default for WorkerConfig {
@@ -51,6 +55,8 @@ impl Default for WorkerConfig {
             app_handle: None,
             claude_api_config: None,
             code_review_max_iterations: 3,
+            stage_timeout_secs: 1800, // 30 minutes
+            stage_max_retries: 2,
         }
     }
 }
@@ -504,6 +510,8 @@ impl Worker {
             timeout_secs: self.config.agent_timeout_secs,
             claude_api_config: self.config.claude_api_config.clone(),
             code_review_max_iterations: self.config.code_review_max_iterations,
+            stage_timeout_secs: self.config.stage_timeout_secs,
+            stage_max_retries: self.config.stage_max_retries,
         };
 
         let result = runner::execute_agent_run(runner_config).await;
@@ -851,6 +859,9 @@ mod tests {
         assert_eq!(config.heartbeat_interval_secs, 60);
         assert_eq!(config.lock_duration_mins, 30);
         assert_eq!(config.agent_timeout_secs, 3600);
+        assert_eq!(config.code_review_max_iterations, 3);
+        assert_eq!(config.stage_timeout_secs, 1800);
+        assert_eq!(config.stage_max_retries, 2);
     }
 
     #[test]
@@ -964,6 +975,8 @@ mod tests {
             app_handle: None,
             claude_api_config: None,
             code_review_max_iterations: 5,
+            stage_timeout_secs: 900,
+            stage_max_retries: 3,
         };
 
         assert_eq!(config.poll_interval_secs, 30);
@@ -972,6 +985,8 @@ mod tests {
         assert_eq!(config.agent_timeout_secs, 7200);
         assert_eq!(config.api_url, "http://localhost:8080");
         assert_eq!(config.code_review_max_iterations, 5);
+        assert_eq!(config.stage_timeout_secs, 900);
+        assert_eq!(config.stage_max_retries, 3);
     }
 
     #[test]

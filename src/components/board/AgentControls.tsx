@@ -36,7 +36,7 @@ export function AgentControls({
   onRunStarted,
   onRunCompleted,
 }: AgentControlsProps) {
-  const { codeReviewMaxIterations } = useSettingsStore();
+  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
   const [isRunning, setIsRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ stream: string; content: string }>>([]);
@@ -174,10 +174,14 @@ export function AgentControls({
 
     try {
       const runId = await invoke<string>('start_agent_run', {
-        ticketId: ticket.id,
-        agentType,
-        repoPath: '.',
-        codeReviewMaxIterations
+        input: {
+          ticketId: ticket.id,
+          agentType,
+          repoPath: '.',
+          codeReviewMaxIterations,
+          stageTimeoutMinutes,
+          stageMaxRetries,
+        },
       });
 
       setCurrentRunId(runId);

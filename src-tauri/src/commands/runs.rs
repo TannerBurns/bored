@@ -217,6 +217,9 @@ pub struct StartRunInput {
     pub ticket_id: String,
     pub agent_type: String,
     pub repo_path: String,
+    pub code_review_max_iterations: Option<usize>,
+    pub stage_timeout_minutes: Option<u32>,
+    pub stage_max_retries: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -247,14 +250,20 @@ pub struct AgentErrorEvent {
 #[tauri::command]
 pub async fn start_agent_run(
     window: Window,
-    ticket_id: String,
-    agent_type: String,
-    repo_path: String,
-    code_review_max_iterations: Option<usize>,
+    input: StartRunInput,
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<String, String> {
+    let StartRunInput {
+        ticket_id,
+        agent_type,
+        repo_path,
+        code_review_max_iterations,
+        stage_timeout_minutes,
+        stage_max_retries,
+    } = input;
+    
     tracing::info!("=== START_AGENT_RUN CALLED ===");
     tracing::info!("Agent type: {}, Ticket ID: {}, Repo path: {}", agent_type, ticket_id, repo_path);
 
@@ -571,6 +580,8 @@ pub async fn start_agent_run(
                 is_temp_branch: false,
                 claude_api_config: claude_api_config_for_orchestrator,
                 code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
+                stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
+                stage_max_retries: stage_max_retries.unwrap_or(2),
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs

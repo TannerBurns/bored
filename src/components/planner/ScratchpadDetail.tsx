@@ -104,7 +104,7 @@ function ExplorationLog({ explorations }: { explorations: Exploration[] }) {
 
 export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps) {
   const { approvePlan, deleteScratchpad, getScratchpad, setCurrentScratchpad, setStatus, liveLogs } = usePlannerStore();
-  const { plannerAutoApprove, plannerMaxExplorations, plannerModel } = useSettingsStore();
+  const { plannerAutoApprove, plannerMaxExplorations, plannerModel, plannerTimeoutMinutes, plannerMaxRetries } = useSettingsStore();
   const [activeTab, setActiveTab] = useState<'input' | 'exploration' | 'logs' | 'plan' | 'progress'>('input');
   
   // Filter logs for this scratchpad
@@ -168,6 +168,8 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
           maxExplorations: plannerMaxExplorations,
           autoApprove: plannerAutoApprove,
           model,
+          timeoutMinutes: plannerTimeoutMinutes,
+          maxRetries: plannerMaxRetries,
         },
       });
       

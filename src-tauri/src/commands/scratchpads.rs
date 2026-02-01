@@ -189,6 +189,8 @@ pub struct StartPlannerInput {
     pub max_explorations: Option<usize>,
     pub auto_approve: Option<bool>,
     pub model: Option<String>,
+    pub timeout_minutes: Option<u32>,
+    pub max_retries: Option<u32>,
 }
 
 /// Start the planner agent for a scratchpad
@@ -237,6 +239,8 @@ pub async fn start_planner(
         api_url: api_url.inner().clone(),
         api_token: api_token.inner().clone(),
         claude_api_config,
+        timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(300),
+        max_retries: input.max_retries.unwrap_or(2),
     };
     
     let agent = PlannerAgent::with_events(
@@ -286,6 +290,8 @@ pub async fn execute_plan(
         api_url: api_url.inner().clone(),
         api_token: api_token.inner().clone(),
         claude_api_config,
+        timeout_secs: 300, // Not used for execution
+        max_retries: 0,    // Not used for execution
     };
     
     let agent = PlannerAgent::with_events(
