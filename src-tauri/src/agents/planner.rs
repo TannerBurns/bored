@@ -20,7 +20,7 @@ use crate::db::PlanTicket;
 
 use super::planner_prompts;
 use super::spawner;
-use super::{extract_agent_text, AgentKind, AgentRunConfig};
+use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
 
 /// Configuration for the planner agent
 #[derive(Debug, Clone)]
@@ -33,6 +33,8 @@ pub struct PlannerConfig {
     pub repo_path: PathBuf,
     pub api_url: String,
     pub api_token: String,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// Extended config with event broadcasting
@@ -165,7 +167,7 @@ impl PlannerAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
-            claude_api_config: None,
+            claude_api_config: self.config.claude_api_config.clone(),
         };
 
         tracing::info!(
