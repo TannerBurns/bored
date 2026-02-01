@@ -655,6 +655,7 @@ impl Worker {
         
         // Try to spawn diagnostic agent (fire-and-forget in the background)
         let worker_id = self.id.clone();
+        let claude_api_config = self.config.claude_api_config.clone();
         tokio::spawn(async move {
             tracing::info!("Worker {} spawning diagnostic agent for ticket {}", worker_id, ticket_id);
             
@@ -667,6 +668,7 @@ impl Worker {
                 &api_token,
                 ticket_model,
                 agent_kind,
+                claude_api_config,
             ).await {
                 Ok(()) => {
                     tracing::info!(

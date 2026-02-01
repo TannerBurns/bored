@@ -130,7 +130,10 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
-            app.manage(ClaudeApiSettingsState::new());
+            
+            // Load Claude API settings from disk (or create fresh if not present)
+            let claude_settings_path = app_data_dir.join("claude_api_settings.json");
+            app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
 
             // Configure API server with persistent token
             // Try to read existing token from file, or generate a new one

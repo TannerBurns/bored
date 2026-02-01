@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
 use super::worktree::{DiagnosticType, WorktreeError};
 use super::spawner;
-use super::{AgentKind, AgentRunConfig, extract_agent_text};
+use super::{AgentKind, AgentRunConfig, ClaudeApiConfig, extract_agent_text};
 
 /// Context for diagnostic analysis
 #[derive(Debug, Clone)]
@@ -144,6 +144,7 @@ pub async fn run_diagnostic_agent(
     api_token: &str,
     model: Option<String>,
     agent_kind: AgentKind,
+    claude_api_config: Option<ClaudeApiConfig>,
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let ticket_id_owned = ticket_id.to_string();
@@ -188,7 +189,7 @@ pub async fn run_diagnostic_agent(
         api_url: api_url.to_string(),
         api_token: api_token.to_string(),
         model,
-        claude_api_config: None,
+        claude_api_config,
     };
     
     // Spawn the agent in a blocking task since spawner uses sync I/O
