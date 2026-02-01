@@ -19,6 +19,42 @@ use super::plan_validation::{validate_plan_for_clarification, generate_clarifica
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
 
+/// Parse code review output for issue count.
+/// 
+/// Looks for a line like `ISSUES_FOUND: 3` in the output and returns the number.
+fn parse_code_review_issues(output: &str) -> Option<usize> {
+    let text = extract_text_from_stream_json(output)
+        .unwrap_or_else(|| output.to_string());
+    
+    text.lines()
+        .find(|l| l.trim().starts_with("ISSUES_FOUND:"))
+        .and_then(|l| l.split(':').nth(1)?.trim().parse().ok())
+}
+
+/// Extract the issues section from code review output.
+/// 
+/// Extracts content between "## Issues Found" and "## Summary" for passing to the fix phase.
+fn extract_issues_section(output: &str) -> String {
+    let text = extract_text_from_stream_json(output)
+        .unwrap_or_else(|| output.to_string());
+    
+    // Find the start of the issues section
+    let start_marker = "## Issues Found";
+    let end_marker = "## Summary";
+    
+    if let Some(start_idx) = text.find(start_marker) {
+        let issues_start = start_idx + start_marker.len();
+        if let Some(end_idx) = text[issues_start..].find(end_marker) {
+            return text[issues_start..issues_start + end_idx].trim().to_string();
+        }
+        // If no end marker, take everything after the start
+        return text[issues_start..].trim().to_string();
+    }
+    
+    // Fallback: return the whole output
+    text
+}
+
 /// Configuration for creating a WorkflowOrchestrator
 pub struct OrchestratorConfig {
     pub db: Arc<Database>,
@@ -43,9 +79,12 @@ pub struct OrchestratorConfig {
     pub is_temp_branch: bool,
     /// Claude API configuration (auth token, api key, base url, model override)
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Maximum iterations for the code review loop (default: 3)
+    pub code_review_max_iterations: usize,
 }
 
-/// The stages in a multi-stage workflow
+/// The stages in a multi-stage workflow.
+/// The code-review loop runs dynamically after implement (not listed here).
 pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "branch",
     "plan", 
@@ -98,6 +137,8 @@ pub struct WorkflowOrchestrator {
     is_temp_branch: bool,
     /// Claude API configuration (auth token, api key, base url, model override)
     claude_api_config: Option<ClaudeApiConfig>,
+    /// Maximum iterations for the code review loop
+    code_review_max_iterations: usize,
 }
 
 impl WorkflowOrchestrator {
@@ -120,6 +161,7 @@ impl WorkflowOrchestrator {
             branch_already_created: config.branch_already_created,
             is_temp_branch: config.is_temp_branch,
             claude_api_config: config.claude_api_config,
+            code_review_max_iterations: config.code_review_max_iterations,
         }
     }
     
@@ -513,6 +555,8 @@ Do NOT start implementing any code changes. Just create the branch.
         
         let _impl_result = self.run_stage("implement", &implement_prompt).await?;
         
+        self.run_code_review_loop().await?;
+        
         // Move ticket to "Review" when entering QA phase
         self.move_ticket_to_column("Review");
         
@@ -541,7 +585,7 @@ Do NOT start implementing any code changes. Just create the branch.
     fn add_workflow_summary_comment(&self) {
         let comment_text = format!(
             "## Workflow Complete\n\nMulti-stage workflow completed successfully for ticket **{}**.\n\n\
-            Stages completed: branch, plan, implement, deslop, cleanup, unit-tests, review-changes, add-and-commit",
+            Stages completed: branch, plan, implement, code-review loop, deslop, cleanup, unit-tests, review-changes, add-and-commit",
             self.ticket.title
         );
         let create_comment = CreateComment {
@@ -900,6 +944,78 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to emit stage event: {}", e);
         }
     }
+    
+    /// Run the iterative code review loop (find issues, then fix, repeat until clean).
+    async fn run_code_review_loop(&self) -> Result<(), String> {
+        let max_iterations = self.code_review_max_iterations;
+        
+        if max_iterations == 0 {
+            tracing::info!("Code review loop disabled (max_iterations = 0)");
+            return Ok(());
+        }
+        
+        tracing::info!(
+            "Starting code review loop for ticket {} (max {} iterations)",
+            self.ticket.id,
+            max_iterations
+        );
+        
+        for iteration in 1..=max_iterations {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            
+            tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
+            
+            let review_prompt = generate_command_prompt("code-review", &self.repo_path);
+            let review_result = self.run_stage("code-review", &review_prompt).await?;
+            let output = review_result.captured_stdout.unwrap_or_default();
+            let issue_count = parse_code_review_issues(&output);
+            
+            match issue_count {
+                Some(0) => {
+                    tracing::info!(
+                        "Code review complete: no issues found (iteration {})",
+                        iteration
+                    );
+                    return Ok(());
+                }
+                Some(count) => {
+                    tracing::info!(
+                        "Found {} issues in iteration {}, running fix phase",
+                        count,
+                        iteration
+                    );
+                    
+                    if self.is_cancelled() {
+                        return Err("Workflow cancelled".to_string());
+                    }
+                    
+                    let issues_context = extract_issues_section(&output);
+                    let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
+                    let fix_prompt = format!(
+                        "{}\n\n## Issues to Address\n\n{}",
+                        base_fix_prompt,
+                        issues_context
+                    );
+                    self.run_stage("code-review-fix", &fix_prompt).await?;
+                }
+                None => {
+                    tracing::warn!(
+                        "Could not parse issue count from code review output, assuming complete"
+                    );
+                    return Ok(());
+                }
+            }
+        }
+        
+        tracing::warn!(
+            "Code review reached max iterations ({}) for ticket {}",
+            max_iterations,
+            self.ticket.id
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -926,5 +1042,115 @@ mod tests {
         assert!(MULTI_STAGE_WORKFLOW.contains(&"plan"));
         assert!(MULTI_STAGE_WORKFLOW.contains(&"implement"));
         assert!(MULTI_STAGE_WORKFLOW.contains(&"add-and-commit"));
+    }
+    
+    #[test]
+    fn parse_code_review_issues_extracts_count() {
+        let output = r#"## Issues Found
+
+### Issue 1: Missing null check
+- **File:** `src/foo.rs`
+- **Lines:** 42-48
+- **Severity:** high
+- **Description:** Missing null check could cause panic.
+
+## Summary
+ISSUES_FOUND: 1
+"#;
+        assert_eq!(parse_code_review_issues(output), Some(1));
+    }
+    
+    #[test]
+    fn parse_code_review_issues_handles_zero() {
+        let output = r#"## Issues Found
+
+No issues found in the code review.
+
+## Summary
+ISSUES_FOUND: 0
+"#;
+        assert_eq!(parse_code_review_issues(output), Some(0));
+    }
+    
+    #[test]
+    fn parse_code_review_issues_handles_multiple() {
+        let output = "Some text\nISSUES_FOUND: 5\nMore text";
+        assert_eq!(parse_code_review_issues(output), Some(5));
+    }
+    
+    #[test]
+    fn parse_code_review_issues_returns_none_for_missing() {
+        let output = "No issues marker in this output";
+        assert_eq!(parse_code_review_issues(output), None);
+    }
+    
+    #[test]
+    fn parse_code_review_issues_handles_whitespace() {
+        let output = "  ISSUES_FOUND:   3  ";
+        assert_eq!(parse_code_review_issues(output), Some(3));
+    }
+    
+    #[test]
+    fn extract_issues_section_extracts_content() {
+        let output = r#"Some preamble
+
+## Issues Found
+
+### Issue 1: Bug description
+Details here
+
+### Issue 2: Another bug
+More details
+
+## Summary
+ISSUES_FOUND: 2
+"#;
+        let section = extract_issues_section(output);
+        assert!(section.contains("Issue 1: Bug description"));
+        assert!(section.contains("Issue 2: Another bug"));
+        assert!(!section.contains("ISSUES_FOUND"));
+        assert!(!section.contains("Some preamble"));
+    }
+    
+    #[test]
+    fn extract_issues_section_handles_no_end_marker() {
+        let output = r#"## Issues Found
+
+### Issue 1: Something
+"#;
+        let section = extract_issues_section(output);
+        assert!(section.contains("Issue 1: Something"));
+    }
+    
+    #[test]
+    fn extract_issues_section_returns_all_when_no_marker() {
+        let output = "Just plain text without markers";
+        let section = extract_issues_section(output);
+        assert_eq!(section, output);
+    }
+    
+    #[test]
+    fn parse_code_review_issues_handles_large_count() {
+        let output = "ISSUES_FOUND: 99";
+        assert_eq!(parse_code_review_issues(output), Some(99));
+    }
+    
+    #[test]
+    fn parse_code_review_issues_ignores_invalid_number() {
+        let output = "ISSUES_FOUND: abc";
+        assert_eq!(parse_code_review_issues(output), None);
+    }
+    
+    #[test]
+    fn parse_code_review_issues_takes_first_match() {
+        let output = "ISSUES_FOUND: 2\nISSUES_FOUND: 5";
+        assert_eq!(parse_code_review_issues(output), Some(2));
+    }
+    
+    #[test]
+    fn extract_issues_section_handles_empty_section() {
+        let output = "## Issues Found\n## Summary\nISSUES_FOUND: 0";
+        let section = extract_issues_section(output);
+        assert_eq!(section, "");
     }
 }

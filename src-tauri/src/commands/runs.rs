@@ -567,10 +567,9 @@ pub async fn start_agent_run(
                 cancel_handles: cancel_handles_for_orchestrator,
                 worktree_branch,
                 branch_already_created,
-                // For manual runs, branch name was already generated before calling orchestrator,
-                // so it's never a temp branch that needs renaming
                 is_temp_branch: false,
                 claude_api_config: claude_api_config_for_orchestrator,
+                code_review_max_iterations: 3,
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs

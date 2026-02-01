@@ -55,6 +55,55 @@ describe('useSettingsStore', () => {
     });
   });
 
+  describe('planner settings', () => {
+    beforeEach(() => {
+      useSettingsStore.setState({
+        plannerAutoApprove: false,
+        plannerModel: 'default',
+        plannerMaxExplorations: 10,
+        codeReviewMaxIterations: 3,
+      });
+    });
+
+    it('has correct planner defaults', () => {
+      const state = useSettingsStore.getState();
+      expect(state.plannerAutoApprove).toBe(false);
+      expect(state.plannerModel).toBe('default');
+      expect(state.plannerMaxExplorations).toBe(10);
+      expect(state.codeReviewMaxIterations).toBe(3);
+    });
+
+    it('sets code review max iterations', () => {
+      useSettingsStore.getState().setCodeReviewMaxIterations(5);
+      expect(useSettingsStore.getState().codeReviewMaxIterations).toBe(5);
+    });
+
+    it('sets code review max iterations to 1', () => {
+      useSettingsStore.getState().setCodeReviewMaxIterations(1);
+      expect(useSettingsStore.getState().codeReviewMaxIterations).toBe(1);
+    });
+
+    it('sets code review max iterations to max value', () => {
+      useSettingsStore.getState().setCodeReviewMaxIterations(10);
+      expect(useSettingsStore.getState().codeReviewMaxIterations).toBe(10);
+    });
+
+    it('sets planner max explorations', () => {
+      useSettingsStore.getState().setPlannerMaxExplorations(25);
+      expect(useSettingsStore.getState().plannerMaxExplorations).toBe(25);
+    });
+
+    it('sets planner auto approve', () => {
+      useSettingsStore.getState().setPlannerAutoApprove(true);
+      expect(useSettingsStore.getState().plannerAutoApprove).toBe(true);
+    });
+
+    it('sets planner model', () => {
+      useSettingsStore.getState().setPlannerModel('opus');
+      expect(useSettingsStore.getState().plannerModel).toBe('opus');
+    });
+  });
+
   describe('claude API settings', () => {
     beforeEach(() => {
       useSettingsStore.setState({

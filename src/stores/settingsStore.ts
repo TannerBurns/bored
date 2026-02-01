@@ -9,6 +9,7 @@ interface SettingsState {
   plannerAutoApprove: boolean;
   plannerModel: 'default' | 'opus' | 'sonnet';
   plannerMaxExplorations: number;
+  codeReviewMaxIterations: number;
   
   // Claude API settings (stored locally, synced to backend on change)
   claudeAuthToken: string;
@@ -21,6 +22,7 @@ interface SettingsState {
   setPlannerAutoApprove: (autoApprove: boolean) => void;
   setPlannerModel: (model: 'default' | 'opus' | 'sonnet') => void;
   setPlannerMaxExplorations: (max: number) => void;
+  setCodeReviewMaxIterations: (max: number) => void;
   setClaudeAuthToken: (token: string) => void;
   setClaudeApiKey: (key: string) => void;
   setClaudeBaseUrl: (url: string) => void;
@@ -43,6 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
       plannerAutoApprove: false,
       plannerModel: 'default',
       plannerMaxExplorations: 10,
+      codeReviewMaxIterations: 3,
       
       // Claude API defaults (empty = use environment/system defaults)
       claudeAuthToken: '',
@@ -55,6 +58,7 @@ export const useSettingsStore = create<SettingsState>()(
       setPlannerAutoApprove: (plannerAutoApprove) => set({ plannerAutoApprove }),
       setPlannerModel: (plannerModel) => set({ plannerModel }),
       setPlannerMaxExplorations: (plannerMaxExplorations) => set({ plannerMaxExplorations }),
+      setCodeReviewMaxIterations: (codeReviewMaxIterations) => set({ codeReviewMaxIterations }),
       setClaudeAuthToken: (claudeAuthToken) => set({ claudeAuthToken }),
       setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
       setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),

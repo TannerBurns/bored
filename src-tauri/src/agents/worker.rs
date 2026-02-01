@@ -500,6 +500,7 @@ impl Worker {
             is_temp_branch,
             timeout_secs: self.config.agent_timeout_secs,
             claude_api_config: self.config.claude_api_config.clone(),
+            code_review_max_iterations: 3,
         };
 
         let result = runner::execute_agent_run(runner_config).await;

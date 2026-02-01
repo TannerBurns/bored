@@ -57,6 +57,8 @@ export function GeneralSettings() {
     setPlannerModel,
     plannerMaxExplorations,
     setPlannerMaxExplorations,
+    codeReviewMaxIterations,
+    setCodeReviewMaxIterations,
   } = useSettingsStore();
 
   return (
@@ -159,6 +161,24 @@ export function GeneralSettings() {
           />
           <p className="text-xs text-board-text-muted mt-1">
             Maximum number of codebase exploration queries before generating a plan (1-50)
+          </p>
+        </div>
+
+        {/* Code Review Max Iterations */}
+        <div>
+          <label className="block text-sm font-medium text-board-text mb-2">
+            Code Review Max Iterations
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={codeReviewMaxIterations}
+            onChange={(e) => setCodeReviewMaxIterations(parseInt(e.target.value) || 3)}
+            className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+          />
+          <p className="text-xs text-board-text-muted mt-1">
+            Maximum code review iterations before proceeding (1-10)
           </p>
         </div>
 
