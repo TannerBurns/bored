@@ -47,6 +47,7 @@ pub async fn start_worker(
     app: tauri::AppHandle,
     agent_type: String,
     project_id: Option<String>,
+    code_review_max_iterations: Option<usize>,
     db: State<'_, Arc<Database>>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<StartWorkerResponse, String> {
@@ -86,6 +87,7 @@ pub async fn start_worker(
         hook_script_path,
         app_handle: Some(app.clone()),
         claude_api_config,
+        code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         ..Default::default()
     };
 

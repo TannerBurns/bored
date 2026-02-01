@@ -250,6 +250,7 @@ pub async fn start_agent_run(
     ticket_id: String,
     agent_type: String,
     repo_path: String,
+    code_review_max_iterations: Option<usize>,
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
@@ -569,7 +570,7 @@ pub async fn start_agent_run(
                 branch_already_created,
                 is_temp_branch: false,
                 claude_api_config: claude_api_config_for_orchestrator,
-                code_review_max_iterations: 3,
+                code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
