@@ -630,7 +630,7 @@ pub fn is_transient_error(output: &str) -> bool {
 
 /// Build environment variables for the agent process
 fn build_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
-    vec![
+    let mut env_vars = vec![
         (
             "AGENT_KANBAN_TICKET_ID".to_string(),
             config.ticket_id.clone(),
@@ -645,7 +645,21 @@ fn build_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
             "AGENT_KANBAN_REPO_PATH".to_string(),
             config.repo_path.to_string_lossy().to_string(),
         ),
-    ]
+    ];
+    
+    if let (AgentKind::Claude, Some(ref c)) = (config.kind, &config.claude_api_config) {
+        if let Some(v) = c.auth_token.as_ref().filter(|s| !s.is_empty()) {
+            env_vars.push(("ANTHROPIC_AUTH_TOKEN".to_string(), v.clone()));
+        }
+        if let Some(v) = c.api_key.as_ref().filter(|s| !s.is_empty()) {
+            env_vars.push(("ANTHROPIC_API_KEY".to_string(), v.clone()));
+        }
+        if let Some(v) = c.base_url.as_ref().filter(|s| !s.is_empty()) {
+            env_vars.push(("ANTHROPIC_BASE_URL".to_string(), v.clone()));
+        }
+    }
+    
+    env_vars
 }
 
 #[cfg(test)]
@@ -665,6 +679,7 @@ mod tests {
             api_url: "http://localhost:7432".to_string(),
             api_token: "test-token".to_string(),
             model: None,
+            claude_api_config: None,
         };
 
         let env_vars = build_env_vars(&config);
@@ -766,8 +781,97 @@ mod tests {
             api_url: "http://x".to_string(),
             api_token: "tok".to_string(),
             model: None,
+            claude_api_config: None,
         };
         let env_vars = build_env_vars(&config);
+        assert_eq!(env_vars.len(), 5);
+    }
+
+    #[test]
+    fn build_env_vars_includes_claude_api_config() {
+        use crate::agents::ClaudeApiConfig;
+        
+        let config = AgentRunConfig {
+            kind: AgentKind::Claude,
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/"),
+            prompt: "p".to_string(),
+            timeout_secs: None,
+            api_url: "http://x".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            claude_api_config: Some(ClaudeApiConfig {
+                auth_token: Some("my-auth-token".to_string()),
+                api_key: Some("my-api-key".to_string()),
+                base_url: Some("https://custom.api.com".to_string()),
+                model_override: Some("claude-opus-4-5".to_string()),
+            }),
+        };
+        let env_vars = build_env_vars(&config);
+        
+        // Base 5 + 3 Claude API vars (auth_token, api_key, base_url)
+        // model_override is not set as env var, it's used in build_command
+        assert_eq!(env_vars.len(), 8);
+        
+        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-auth-token"));
+        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "my-api-key"));
+        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://custom.api.com"));
+    }
+
+    #[test]
+    fn build_env_vars_skips_empty_claude_values() {
+        use crate::agents::ClaudeApiConfig;
+        
+        let config = AgentRunConfig {
+            kind: AgentKind::Claude,
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/"),
+            prompt: "p".to_string(),
+            timeout_secs: None,
+            api_url: "http://x".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            claude_api_config: Some(ClaudeApiConfig {
+                auth_token: Some("".to_string()), // Empty string should be skipped
+                api_key: Some("key".to_string()),
+                base_url: None,
+                model_override: None,
+            }),
+        };
+        let env_vars = build_env_vars(&config);
+        
+        // Base 5 + only 1 Claude var (api_key)
+        assert_eq!(env_vars.len(), 6);
+        assert!(!env_vars.iter().any(|(k, _)| k == "ANTHROPIC_AUTH_TOKEN"));
+        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "key"));
+    }
+
+    #[test]
+    fn build_env_vars_cursor_ignores_claude_config() {
+        use crate::agents::ClaudeApiConfig;
+        
+        let config = AgentRunConfig {
+            kind: AgentKind::Cursor, // Not Claude
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/"),
+            prompt: "p".to_string(),
+            timeout_secs: None,
+            api_url: "http://x".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            claude_api_config: Some(ClaudeApiConfig {
+                auth_token: Some("token".to_string()),
+                api_key: Some("key".to_string()),
+                base_url: Some("url".to_string()),
+                model_override: Some("model".to_string()),
+            }),
+        };
+        let env_vars = build_env_vars(&config);
+        
+        // Should only have base 5 vars, Claude config ignored for Cursor
         assert_eq!(env_vars.len(), 5);
     }
 

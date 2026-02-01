@@ -188,6 +188,7 @@ pub async fn run_diagnostic_agent(
         api_url: api_url.to_string(),
         api_token: api_token.to_string(),
         model,
+        claude_api_config: None,
     };
     
     // Spawn the agent in a blocking task since spawner uses sync I/O

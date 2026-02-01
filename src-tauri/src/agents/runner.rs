@@ -11,7 +11,7 @@ use tauri::{AppHandle, Window};
 
 use crate::db::{Database, RunStatus, Ticket};
 use crate::db::models::Task;
-use super::AgentKind;
+use super::{AgentKind, ClaudeApiConfig};
 use super::spawner::CancelHandle;
 use super::orchestrator::{WorkflowOrchestrator, OrchestratorConfig};
 use super::claude as claude_hooks;
@@ -41,6 +41,8 @@ pub struct RunnerConfig {
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
     pub timeout_secs: u64,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// Result of an agent run execution
@@ -251,6 +253,7 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,
         is_temp_branch: config.is_temp_branch,
+        claude_api_config: config.claude_api_config.clone(),
     });
     
     orchestrator.execute().await

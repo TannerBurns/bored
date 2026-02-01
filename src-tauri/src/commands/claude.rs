@@ -1,7 +1,64 @@
 use std::path::PathBuf;
-use tauri::AppHandle;
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, State};
 
 use crate::agents::claude;
+
+/// Claude API settings for overriding default API configuration
+/// These settings are injected as environment variables when spawning Claude agents
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeApiSettings {
+    /// ANTHROPIC_AUTH_TOKEN - OAuth token for Claude Code
+    pub auth_token: Option<String>,
+    /// ANTHROPIC_API_KEY - API key for direct API access
+    pub api_key: Option<String>,
+    /// ANTHROPIC_BASE_URL - Custom API base URL
+    pub base_url: Option<String>,
+    /// Model override - bypasses normal model mapping, uses value directly for --model
+    pub model_override: Option<String>,
+}
+
+/// Managed state wrapper for ClaudeApiSettings
+pub struct ClaudeApiSettingsState(pub Arc<Mutex<ClaudeApiSettings>>);
+
+impl ClaudeApiSettingsState {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(ClaudeApiSettings::default())))
+    }
+    
+    pub fn get(&self) -> ClaudeApiSettings {
+        self.0.lock().expect("claude api settings mutex poisoned").clone()
+    }
+    
+    pub fn set(&self, settings: ClaudeApiSettings) {
+        let mut guard = self.0.lock().expect("claude api settings mutex poisoned");
+        *guard = settings;
+    }
+}
+
+impl Default for ClaudeApiSettingsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[tauri::command]
+pub async fn get_claude_api_settings(
+    state: State<'_, ClaudeApiSettingsState>,
+) -> Result<ClaudeApiSettings, String> {
+    Ok(state.get())
+}
+
+#[tauri::command]
+pub async fn set_claude_api_settings(
+    settings: ClaudeApiSettings,
+    state: State<'_, ClaudeApiSettingsState>,
+) -> Result<(), String> {
+    state.set(settings);
+    tracing::info!("Updated Claude API settings");
+    Ok(())
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +176,70 @@ fn get_hook_script_path(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_api_settings_default() {
+        let settings = ClaudeApiSettings::default();
+        assert!(settings.auth_token.is_none());
+        assert!(settings.api_key.is_none());
+        assert!(settings.base_url.is_none());
+        assert!(settings.model_override.is_none());
+    }
+
+    #[test]
+    fn claude_api_settings_serializes_camel_case() {
+        let settings = ClaudeApiSettings {
+            auth_token: Some("token123".to_string()),
+            api_key: Some("key456".to_string()),
+            base_url: Some("https://api.example.com".to_string()),
+            model_override: Some("claude-opus-4-5".to_string()),
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("authToken"));
+        assert!(json.contains("apiKey"));
+        assert!(json.contains("baseUrl"));
+        assert!(json.contains("modelOverride"));
+    }
+
+    #[test]
+    fn claude_api_settings_deserializes_from_camel_case() {
+        let json = r#"{"authToken":"tok","apiKey":"key","baseUrl":"https://x","modelOverride":"model"}"#;
+        let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.auth_token, Some("tok".to_string()));
+        assert_eq!(settings.api_key, Some("key".to_string()));
+        assert_eq!(settings.base_url, Some("https://x".to_string()));
+        assert_eq!(settings.model_override, Some("model".to_string()));
+    }
+
+    #[test]
+    fn claude_api_settings_state_get_set() {
+        let state = ClaudeApiSettingsState::new();
+        
+        // Initially empty
+        let initial = state.get();
+        assert!(initial.auth_token.is_none());
+        
+        // Set new values
+        state.set(ClaudeApiSettings {
+            auth_token: Some("test-token".to_string()),
+            api_key: None,
+            base_url: Some("https://custom.api".to_string()),
+            model_override: None,
+        });
+        
+        // Verify update
+        let updated = state.get();
+        assert_eq!(updated.auth_token, Some("test-token".to_string()));
+        assert!(updated.api_key.is_none());
+        assert_eq!(updated.base_url, Some("https://custom.api".to_string()));
+    }
+
+    #[test]
+    fn claude_api_settings_state_default() {
+        let state = ClaudeApiSettingsState::default();
+        let settings = state.get();
+        assert!(settings.auth_token.is_none());
+    }
 
     #[test]
     fn claude_status_serializes_correctly() {

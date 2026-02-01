@@ -39,7 +39,16 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--dangerously-skip-permissions".to_string(),
     ];
     
-    if let Some(ref model) = config.model {
+    let model_to_use = config.claude_api_config
+        .as_ref()
+        .and_then(|c| c.model_override.as_ref())
+        .filter(|s| !s.is_empty())
+        .cloned();
+    
+    if let Some(model) = model_to_use {
+        args.push("--model".to_string());
+        args.push(model);
+    } else if let Some(ref model) = config.model {
         args.push("--model".to_string());
         args.push(map_model_for_claude(model));
     }
@@ -563,6 +572,7 @@ mod tests {
             api_url: "http://localhost:7432".to_string(),
             api_token: "token".to_string(),
             model: None,
+            claude_api_config: None,
         }
     }
 
@@ -629,6 +639,68 @@ mod tests {
         let config = create_test_config();
         let (_, args) = build_command(&config);
         assert!(!args.contains(&"--model".to_string()));
+    }
+
+    #[test]
+    fn build_command_uses_model_override_directly() {
+        use super::super::ClaudeApiConfig;
+        
+        let mut config = create_test_config();
+        config.model = Some("sonnet-4".to_string()); // Regular model (would be mapped)
+        config.claude_api_config = Some(ClaudeApiConfig {
+            auth_token: None,
+            api_key: None,
+            base_url: None,
+            model_override: Some("custom-model-name".to_string()),
+        });
+        
+        let (_, args) = build_command(&config);
+        
+        // Should use model_override directly, not the mapped version
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"custom-model-name".to_string()));
+        // Should NOT contain the mapped version of sonnet-4
+        assert!(!args.contains(&"claude-sonnet-4".to_string()));
+    }
+
+    #[test]
+    fn build_command_ignores_empty_model_override() {
+        use super::super::ClaudeApiConfig;
+        
+        let mut config = create_test_config();
+        config.model = Some("opus-4.5".to_string());
+        config.claude_api_config = Some(ClaudeApiConfig {
+            auth_token: None,
+            api_key: None,
+            base_url: None,
+            model_override: Some("".to_string()), // Empty string
+        });
+        
+        let (_, args) = build_command(&config);
+        
+        // Should use the regular model with mapping since override is empty
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"claude-opus-4-5".to_string()));
+    }
+
+    #[test]
+    fn build_command_model_override_priority() {
+        use super::super::ClaudeApiConfig;
+        
+        // Both model and model_override set - override should win
+        let mut config = create_test_config();
+        config.model = Some("haiku-4.5".to_string());
+        config.claude_api_config = Some(ClaudeApiConfig {
+            auth_token: None,
+            api_key: None,
+            base_url: None,
+            model_override: Some("my-custom-model".to_string()),
+        });
+        
+        let (_, args) = build_command(&config);
+        
+        assert!(args.contains(&"my-custom-model".to_string()));
+        assert!(!args.contains(&"claude-haiku-4-5".to_string()));
     }
 
     #[test]

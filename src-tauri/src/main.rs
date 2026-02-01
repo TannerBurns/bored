@@ -5,6 +5,7 @@ use tauri::{Manager, WindowBuilder, WindowUrl};
 
 use agent_kanban::{api, commands, db, logging};
 use agent_kanban::commands::runs::RunningAgents;
+use agent_kanban::commands::claude::ClaudeApiSettingsState;
 
 /// Check if a URL is allowed for navigation within the app
 fn is_allowed_url(url: &url::Url) -> bool {
@@ -129,6 +130,7 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
+            app.manage(ClaudeApiSettingsState::new());
 
             // Configure API server with persistent token
             // Try to read existing token from file, or generate a new one
@@ -288,6 +290,8 @@ fn main() {
             commands::check_claude_available,
             commands::check_claude_project_hooks_installed,
             commands::get_claude_hook_script_path,
+            commands::get_claude_api_settings,
+            commands::set_claude_api_settings,
             // Worker management
             commands::workers::start_worker,
             commands::workers::stop_worker,

@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager, Window};
 use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
 use crate::db::models::{Task, TaskType};
 use crate::lifecycle::epic::{on_child_completed, on_child_blocked};
-use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
+use super::{AgentKind, AgentRunConfig, AgentRunResult, ClaudeApiConfig, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
 use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt, generate_task_plan_prompt, generate_task_implement_prompt, generate_task_prompt};
 use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
@@ -41,6 +41,8 @@ pub struct OrchestratorConfig {
     pub branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    pub claude_api_config: Option<ClaudeApiConfig>,
 }
 
 /// The stages in a multi-stage workflow
@@ -94,6 +96,8 @@ pub struct WorkflowOrchestrator {
     branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     is_temp_branch: bool,
+    /// Claude API configuration (auth token, api key, base url, model override)
+    claude_api_config: Option<ClaudeApiConfig>,
 }
 
 impl WorkflowOrchestrator {
@@ -115,6 +119,7 @@ impl WorkflowOrchestrator {
             worktree_branch: config.worktree_branch,
             branch_already_created: config.branch_already_created,
             is_temp_branch: config.is_temp_branch,
+            claude_api_config: config.claude_api_config,
         }
     }
     
@@ -724,6 +729,7 @@ Do NOT start implementing any code changes. Just create the branch.
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
             model: self.ticket.model.clone(),
+            claude_api_config: self.claude_api_config.clone(),
         };
         
         // Create log callback

@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State, Window};
 
-use crate::agents::{self, cursor, AgentKind, AgentRunConfig, extract_text_from_stream_json};
+use crate::agents::{self, cursor, AgentKind, AgentRunConfig, ClaudeApiConfig, extract_text_from_stream_json};
+use crate::commands::claude::ClaudeApiSettingsState;
 use crate::agents::spawner::{CancelHandle, run_agent_with_capture};
 use crate::agents::orchestrator::{WorkflowOrchestrator, OrchestratorConfig};
 use crate::agents::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output};
@@ -126,9 +127,10 @@ async fn generate_ai_branch_name(
         repo_path: repo_path.to_path_buf(),
         prompt: prompt.clone(),
         timeout_secs: Some(60), // Short timeout for branch generation
-        api_url: String::new(), // Not needed for branch generation
-        api_token: String::new(), // Not needed for branch generation
+        api_url: String::new(),
+        api_token: String::new(),
         model,
+        claude_api_config: None,
     };
     
     // Run synchronously in a blocking task
@@ -250,6 +252,7 @@ pub async fn start_agent_run(
     repo_path: String,
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<String, String> {
     tracing::info!("=== START_AGENT_RUN CALLED ===");
     tracing::info!("Agent type: {}, Ticket ID: {}, Repo path: {}", agent_type, ticket_id, repo_path);
@@ -263,6 +266,9 @@ pub async fn start_agent_run(
         AgentKind::Cursor => AgentType::Cursor,
         AgentKind::Claude => AgentType::Claude,
     };
+    
+    let claude_api_config = (agent_kind == AgentKind::Claude)
+        .then(|| ClaudeApiConfig::from(claude_api_state.get()));
 
     let ticket = db
         .get_ticket(&ticket_id)
@@ -465,6 +471,7 @@ pub async fn start_agent_run(
         let db_for_heartbeat = db.inner().clone();
         let ticket_id_for_heartbeat = ticket_id.clone();
         let run_id_for_heartbeat = run_id.clone();
+        let claude_api_config_for_orchestrator = claude_api_config.clone();
         
         tauri::async_runtime::spawn(async move {
             if let Err(e) = db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None) {
@@ -563,6 +570,7 @@ pub async fn start_agent_run(
                 // For manual runs, branch name was already generated before calling orchestrator,
                 // so it's never a temp branch that needs renaming
                 is_temp_branch: false,
+                claude_api_config: claude_api_config_for_orchestrator,
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs

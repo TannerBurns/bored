@@ -165,6 +165,7 @@ impl PlannerAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
+            claude_api_config: None,
         };
 
         tracing::info!(

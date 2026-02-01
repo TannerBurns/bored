@@ -54,4 +54,80 @@ describe('useSettingsStore', () => {
       expect(useSettingsStore.getState().defaultAgentPref).toBe('any');
     });
   });
+
+  describe('claude API settings', () => {
+    beforeEach(() => {
+      useSettingsStore.setState({
+        claudeAuthToken: '',
+        claudeApiKey: '',
+        claudeBaseUrl: '',
+        claudeModelOverride: '',
+      });
+    });
+
+    it('has empty Claude API settings by default', () => {
+      const state = useSettingsStore.getState();
+      expect(state.claudeAuthToken).toBe('');
+      expect(state.claudeApiKey).toBe('');
+      expect(state.claudeBaseUrl).toBe('');
+      expect(state.claudeModelOverride).toBe('');
+    });
+
+    it('sets auth token', () => {
+      useSettingsStore.getState().setClaudeAuthToken('my-token');
+      expect(useSettingsStore.getState().claudeAuthToken).toBe('my-token');
+    });
+
+    it('sets api key', () => {
+      useSettingsStore.getState().setClaudeApiKey('sk-ant-xxx');
+      expect(useSettingsStore.getState().claudeApiKey).toBe('sk-ant-xxx');
+    });
+
+    it('sets base url', () => {
+      useSettingsStore.getState().setClaudeBaseUrl('https://custom.api.com');
+      expect(useSettingsStore.getState().claudeBaseUrl).toBe('https://custom.api.com');
+    });
+
+    it('sets model override', () => {
+      useSettingsStore.getState().setClaudeModelOverride('claude-opus-4-5');
+      expect(useSettingsStore.getState().claudeModelOverride).toBe('claude-opus-4-5');
+    });
+
+    it('sets all API settings at once', () => {
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'token123',
+        apiKey: 'key456',
+        baseUrl: 'https://api.example.com',
+        modelOverride: 'custom-model',
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeAuthToken).toBe('token123');
+      expect(state.claudeApiKey).toBe('key456');
+      expect(state.claudeBaseUrl).toBe('https://api.example.com');
+      expect(state.claudeModelOverride).toBe('custom-model');
+    });
+
+    it('sets partial API settings without affecting others', () => {
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'initial-token',
+        apiKey: 'initial-key',
+      });
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'updated-token',
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeAuthToken).toBe('updated-token');
+      expect(state.claudeApiKey).toBe('');
+    });
+
+    it('handles undefined values as empty strings', () => {
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'token',
+        apiKey: undefined,
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeAuthToken).toBe('token');
+      expect(state.claudeApiKey).toBe('');
+    });
+  });
 });
