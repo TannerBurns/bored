@@ -53,22 +53,21 @@ export function CursorSettings() {
       setProjects(projectList);
       setAvailableCommands(commands);
       
-      // Check user-level commands installation
-      try {
-        const userInstalled = await checkUserCommandsInstalled('cursor');
-        setUserCommandsInstalled(userInstalled);
-      } catch {
-        setUserCommandsInstalled(false);
-      }
+      // Check user-level and project-level commands installation in parallel
+      const [userInstalled, ...projectResults] = await Promise.all([
+        checkUserCommandsInstalled('cursor').catch(() => false),
+        ...projectList.map(project =>
+          checkCommandsInstalled('cursor', project.path)
+            .then(installed => ({ id: project.id, installed }))
+            .catch(() => ({ id: project.id, installed: false }))
+        ),
+      ]);
       
-      // Check project-level command installation status
+      setUserCommandsInstalled(userInstalled as boolean);
+      
       const commandStatus: Record<string, boolean> = {};
-      for (const project of projectList) {
-        try {
-          commandStatus[project.id] = await checkCommandsInstalled('cursor', project.path);
-        } catch {
-          commandStatus[project.id] = false;
-        }
+      for (const result of projectResults as { id: string; installed: boolean }[]) {
+        commandStatus[result.id] = result.installed;
       }
       setProjectCommandStatus(commandStatus);
       
