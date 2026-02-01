@@ -72,12 +72,12 @@ export function ClaudeSettings() {
       setApiBaseUrl(apiSettings.baseUrl ?? '');
       setApiModelOverride(apiSettings.modelOverride ?? '');
       
-      // Also update the store
+      // Also update the store (use empty string for null values so cleared fields update properly)
       updateStoreSettings({
-        authToken: apiSettings.authToken ?? undefined,
-        apiKey: apiSettings.apiKey ?? undefined,
-        baseUrl: apiSettings.baseUrl ?? undefined,
-        modelOverride: apiSettings.modelOverride ?? undefined,
+        authToken: apiSettings.authToken ?? '',
+        apiKey: apiSettings.apiKey ?? '',
+        baseUrl: apiSettings.baseUrl ?? '',
+        modelOverride: apiSettings.modelOverride ?? '',
       });
       
       // Check user-level commands installation
@@ -225,12 +225,12 @@ export function ClaudeSettings() {
       
       await setClaudeApiSettings(settings);
       
-      // Update the store
+      // Update the store (pass values directly so empty strings update properly)
       updateStoreSettings({
-        authToken: apiAuthToken || undefined,
-        apiKey: apiKey || undefined,
-        baseUrl: apiBaseUrl || undefined,
-        modelOverride: apiModelOverride || undefined,
+        authToken: apiAuthToken,
+        apiKey: apiKey,
+        baseUrl: apiBaseUrl,
+        modelOverride: apiModelOverride,
       });
       
       setSuccess('Claude API settings saved successfully!');
