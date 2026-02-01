@@ -74,25 +74,31 @@ impl ClaudeApiSettingsState {
         self.0.lock().expect("claude api settings mutex poisoned").settings.clone()
     }
     
+    /// Set settings in memory. Does not persist to disk.
+    /// Use `set_and_persist` if disk persistence is required.
     pub fn set(&self, settings: ClaudeApiSettings) {
+        let mut guard = self.0.lock().expect("claude api settings mutex poisoned");
+        guard.settings = settings;
+    }
+    
+    /// Set settings and persist to disk.
+    /// Returns an error if persistence fails (settings are still updated in memory).
+    pub fn set_and_persist(&self, settings: ClaudeApiSettings) -> Result<(), String> {
         let mut guard = self.0.lock().expect("claude api settings mutex poisoned");
         guard.settings = settings.clone();
         
         // Persist to file if we have a path
         if let Some(ref path) = guard.persistence_path {
-            match serde_json::to_string_pretty(&settings) {
-                Ok(json) => {
-                    if let Err(e) = std::fs::write(path, json) {
-                        tracing::error!("Failed to save Claude API settings to {}: {}", path.display(), e);
-                    } else {
-                        tracing::debug!("Saved Claude API settings to {}", path.display());
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to serialize Claude API settings: {}", e);
-                }
-            }
+            let json = serde_json::to_string_pretty(&settings)
+                .map_err(|e| format!("Failed to serialize Claude API settings: {}", e))?;
+            
+            std::fs::write(path, json)
+                .map_err(|e| format!("Failed to save Claude API settings to {}: {}", path.display(), e))?;
+            
+            tracing::debug!("Saved Claude API settings to {}", path.display());
         }
+        
+        Ok(())
     }
 }
 
@@ -114,7 +120,7 @@ pub async fn set_claude_api_settings(
     settings: ClaudeApiSettings,
     state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<(), String> {
-    state.set(settings);
+    state.set_and_persist(settings)?;
     tracing::info!("Updated Claude API settings");
     Ok(())
 }
@@ -328,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_api_settings_state_with_path_saves_on_set() {
+    fn claude_api_settings_state_with_path_saves_on_set_and_persist() {
         let temp_dir = std::env::temp_dir();
         let path = temp_dir.join(format!("test_claude_settings_save_{}.json", std::process::id()));
         
@@ -337,13 +343,15 @@ mod tests {
         
         let state = ClaudeApiSettingsState::new_with_path(path.clone());
         
-        // Set new values
-        state.set(ClaudeApiSettings {
+        // Set new values with persistence
+        let result = state.set_and_persist(ClaudeApiSettings {
             auth_token: Some("new-token".to_string()),
             api_key: None,
             base_url: Some("https://api.test.com".to_string()),
             model_override: None,
         });
+        
+        assert!(result.is_ok());
         
         // Verify file was written
         assert!(path.exists());
@@ -356,6 +364,54 @@ mod tests {
         
         // Cleanup
         let _ = std::fs::remove_file(&path);
+    }
+    
+    #[test]
+    fn claude_api_settings_state_set_does_not_persist() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join(format!("test_claude_settings_no_persist_{}.json", std::process::id()));
+        
+        // Ensure file doesn't exist
+        let _ = std::fs::remove_file(&path);
+        
+        let state = ClaudeApiSettingsState::new_with_path(path.clone());
+        
+        // Use set() which should NOT persist
+        state.set(ClaudeApiSettings {
+            auth_token: Some("memory-only".to_string()),
+            api_key: None,
+            base_url: None,
+            model_override: None,
+        });
+        
+        // Settings should be in memory
+        assert_eq!(state.get().auth_token, Some("memory-only".to_string()));
+        
+        // But file should NOT exist
+        assert!(!path.exists());
+    }
+    
+    #[test]
+    fn claude_api_settings_state_set_and_persist_returns_error_on_write_failure() {
+        // Use a path that doesn't exist and can't be created
+        let path = std::path::PathBuf::from("/nonexistent_dir_12345/settings.json");
+        
+        let state = ClaudeApiSettingsState::new_with_path(path);
+        
+        let result = state.set_and_persist(ClaudeApiSettings {
+            auth_token: Some("test".to_string()),
+            api_key: None,
+            base_url: None,
+            model_override: None,
+        });
+        
+        // Should return an error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Failed to save Claude API settings"));
+        
+        // But settings should still be updated in memory
+        assert_eq!(state.get().auth_token, Some("test".to_string()));
     }
 
     #[test]
