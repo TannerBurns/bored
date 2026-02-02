@@ -414,9 +414,13 @@ pub async fn pause_spec_work(
             );
             
             // Determine the current stage from the run's sub-runs
+            // Use graceful degradation: if we can't get the stage, default to "plan"
             let current_stage = db.get_current_run_stage(run_id)
-                .map_err(|e| format!("Failed to get current stage: {}", e))?
-                .unwrap_or_else(|| "plan".to_string()); // Default to plan if unknown
+                .unwrap_or_else(|e| {
+                    tracing::warn!("Failed to get current stage for run {}: {}", run_id, e);
+                    None
+                })
+                .unwrap_or_else(|| "plan".to_string());
             
             // Set pause state on the ticket
             if let Err(e) = db.pause_ticket(&ticket.id, &current_stage, run_id) {
