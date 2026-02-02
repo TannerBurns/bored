@@ -169,7 +169,7 @@ fn calculate_remaining_time(
     total: usize,
     completed: usize,
     in_progress: usize,
-    paused: usize,
+    _paused: usize,
     avg_seconds_per_ticket: Option<f64>,
 ) -> (Option<i64>, Option<DateTime<Utc>>) {
     let avg = match avg_seconds_per_ticket {
@@ -177,13 +177,13 @@ fn calculate_remaining_time(
         _ => return (None, None),
     };
     
-    // Remaining = (total - completed - in_progress - paused) * avg + in_progress * (avg / 2)
+    // Remaining = (total - completed - in_progress) * avg + in_progress * (avg / 2)
     // Assuming in-progress tickets are on average halfway done
-    // Paused tickets are excluded from remaining work calculation
+    // Paused tickets are NOT excluded - they are temporarily suspended but still need to be
+    // completed when resumed. Excluding them would make the ETA artificially optimistic.
     let remaining_count = total
         .saturating_sub(completed)
-        .saturating_sub(in_progress)
-        .saturating_sub(paused);
+        .saturating_sub(in_progress);
     let estimated_remaining = (remaining_count as f64 * avg) + (in_progress as f64 * avg / 2.0);
     
     let remaining_secs = estimated_remaining as i64;
@@ -251,19 +251,19 @@ mod tests {
     #[test]
     fn test_calculate_remaining_time_with_paused_tickets() {
         // 10 total, 3 completed, 2 in progress, 2 paused, avg 60 seconds
-        // Remaining = (10 - 3 - 2 - 2) * 60 + 2 * 30 = 3 * 60 + 60 = 240 seconds
-        // Paused tickets are excluded from remaining work
+        // Remaining = (10 - 3 - 2) * 60 + 2 * 30 = 5 * 60 + 60 = 360 seconds
+        // Paused tickets are NOT excluded - they still need to be completed when resumed
         let (remaining, completion) = calculate_remaining_time(10, 3, 2, 2, Some(60.0));
-        assert_eq!(remaining, Some(240));
+        assert_eq!(remaining, Some(360));
         assert!(completion.is_some());
     }
     
     #[test]
     fn test_calculate_remaining_time_all_paused() {
         // 5 total, 0 completed, 0 in progress, 5 paused, avg 60 seconds
-        // All tickets are paused, so remaining = 0
+        // Remaining = 5 * 60 = 300 seconds (paused tickets still need to be done)
         let (remaining, _) = calculate_remaining_time(5, 0, 0, 5, Some(60.0));
-        assert_eq!(remaining, Some(0));
+        assert_eq!(remaining, Some(300));
     }
     
     #[test]

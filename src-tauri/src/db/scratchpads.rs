@@ -317,7 +317,7 @@ impl Database {
         })
     }
 
-    /// Resume work on a paused scratchpad - sets status back to Working
+    /// Resume work on a paused scratchpad - sets status back to Working and clears ticket pause states
     pub fn resume_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
@@ -338,6 +338,12 @@ impl Database {
                     current_status
                 )));
             }
+            
+            // Clear pause state from all tickets in this scratchpad so workers can pick them up
+            conn.execute(
+                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE scratchpad_id = ?",
+                rusqlite::params![now, id],
+            )?;
             
             conn.execute(
                 "UPDATE scratchpads SET status = 'working', updated_at = ? WHERE id = ?",
@@ -1053,6 +1059,64 @@ mod tests {
         let db = create_test_db();
         let result = db.resume_scratchpad_work("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn resume_scratchpad_work_clears_ticket_pause_state() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Create a ticket linked to the scratchpad
+        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "T1".to_string(),
+            description_md: "".to_string(),
+            priority: crate::db::models::Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: crate::db::models::WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            scratchpad_id: Some(scratchpad.id.clone()),
+        }).unwrap();
+        
+        // Set to working, pause ticket, then pause scratchpad
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
+        
+        assert!(db.is_ticket_paused(&ticket.id).unwrap());
+        
+        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        
+        // Resume the scratchpad - ticket pause state should be cleared
+        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        
+        // Verify scratchpad is working again
+        let resumed = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(resumed.status, ScratchpadStatus::Working);
+        
+        // Verify ticket pause state is cleared so workers can pick it up
+        assert!(!db.is_ticket_paused(&ticket.id).unwrap());
     }
 
     #[test]
