@@ -44,6 +44,8 @@ pub struct PlanValidationConfig {
     pub agent_kind: AgentKind,
     /// Claude API configuration (auth token, api key, base url, model override)
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Timeout for validation agent in seconds (uses stage timeout from settings)
+    pub timeout_secs: u64,
 }
 
 /// Error type for plan validation operations
@@ -186,7 +188,7 @@ pub async fn validate_plan_for_clarification(
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
         prompt,
-        timeout_secs: Some(120),
+        timeout_secs: Some(config.timeout_secs),
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
@@ -204,9 +206,23 @@ pub async fn validate_plan_for_clarification(
             let exit_code = agent_result.exit_code;
             let status = if exit_code == Some(0) { RunStatus::Finished } else { RunStatus::Error };
             
+            tracing::debug!(
+                "Plan validation agent completed: exit_code={:?}, stdout_len={:?}",
+                exit_code,
+                agent_result.captured_stdout.as_ref().map(|s| s.len())
+            );
+            
             let validation_result = agent_result.captured_stdout
                 .as_ref()
-                .and_then(|output| parse_validation_response(output).ok());
+                .and_then(|output| {
+                    match parse_validation_response(output) {
+                        Ok(result) => Some(result),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse plan validation response: {}", e);
+                            None
+                        }
+                    }
+                });
             
             if let Err(e) = db.update_run_status(
                 &run.id,
@@ -222,6 +238,15 @@ pub async fn validate_plan_for_clarification(
                 exit_code,
                 validation_result.as_ref().map(|r| r.needs_clarification)
             );
+            
+            if validation_result.is_none() {
+                tracing::warn!(
+                    "No valid validation result parsed, using default (needs_clarification=false). \
+                    stdout_present={}, status={:?}",
+                    agent_result.captured_stdout.is_some(),
+                    status
+                );
+            }
             
             Ok(validation_result.unwrap_or_default())
         }
@@ -276,7 +301,7 @@ pub async fn generate_clarification_message(
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
         prompt,
-        timeout_secs: Some(120),
+        timeout_secs: Some(config.timeout_secs),
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
@@ -293,6 +318,12 @@ pub async fn generate_clarification_message(
         Ok(Ok(agent_result)) => {
             let exit_code = agent_result.exit_code;
             let status = if exit_code == Some(0) { RunStatus::Finished } else { RunStatus::Error };
+            
+            tracing::debug!(
+                "Clarification agent completed: exit_code={:?}, stdout_len={:?}",
+                exit_code,
+                agent_result.captured_stdout.as_ref().map(|s| s.len())
+            );
             
             let message = agent_result.captured_stdout
                 .as_ref()

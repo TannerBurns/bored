@@ -35,6 +35,10 @@ pub struct PlannerConfig {
     pub api_token: String,
     /// Claude API configuration (auth token, api key, base url, model override)
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Timeout per exploration/planning call in seconds (default: 300 = 5 min)
+    pub timeout_secs: u64,
+    /// Maximum retries per call (default: 2)
+    pub max_retries: u32,
 }
 
 /// Extended config with event broadcasting
@@ -179,15 +183,52 @@ impl PlannerAgent {
         self.run_exploration(scratchpad).await
     }
 
-    /// Run an agent with the given prompt
+    /// Run an agent with the given prompt (with retry support)
     async fn run_agent(&self, prompt: &str, scratchpad: &Scratchpad, phase: &str) -> Result<String, PlannerError> {
+        let max_attempts = self.config.max_retries + 1;
+        let mut last_error = String::new();
+        
+        for attempt in 1..=max_attempts {
+            if attempt > 1 {
+                let backoff_secs = 3 * attempt as u64;
+                tracing::warn!(
+                    "Planner {} retry {}/{} after {}s backoff",
+                    phase, attempt, max_attempts, backoff_secs
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+            }
+            
+            match self.run_agent_attempt(prompt, scratchpad, phase, attempt, max_attempts).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    last_error = e.to_string();
+                    if attempt < max_attempts {
+                        tracing::warn!("Planner {} failed (attempt {}/{}): {}", phase, attempt, max_attempts, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        Err(PlannerError::ExplorationFailed(format!("{} (after {} attempts)", last_error, max_attempts)))
+    }
+    
+    /// Run a single attempt of an agent call
+    async fn run_agent_attempt(
+        &self, 
+        prompt: &str, 
+        scratchpad: &Scratchpad, 
+        phase: &str,
+        attempt: u32,
+        max_attempts: u32,
+    ) -> Result<String, PlannerError> {
         let config = AgentRunConfig {
             kind: self.config.agent_kind,
             ticket_id: scratchpad.id.clone(),
             run_id: format!("planner-{}", uuid::Uuid::new_v4()),
             repo_path: self.config.repo_path.clone(),
             prompt: prompt.to_string(),
-            timeout_secs: Some(300), // 5 min timeout for exploration/planning
+            timeout_secs: Some(self.config.timeout_secs),
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
@@ -195,10 +236,12 @@ impl PlannerAgent {
         };
 
         tracing::info!(
-            "Running {} agent for scratchpad {} (phase: {})",
+            "Running {} agent for scratchpad {} (phase: {}, attempt {}/{})",
             self.config.agent_kind.as_str(),
             scratchpad.id,
-            phase
+            phase,
+            attempt,
+            max_attempts
         );
 
         // Create a log callback that broadcasts log entries in real-time

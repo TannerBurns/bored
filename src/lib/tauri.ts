@@ -131,10 +131,23 @@ export async function deleteTicket(ticketId: string): Promise<void> {
 export async function startAgentRun(
   ticketId: string,
   agentType: 'cursor' | 'claude',
-  repoPath: string
+  repoPath: string,
+  options?: {
+    codeReviewMaxIterations?: number;
+    stageTimeoutMinutes?: number;
+    stageMaxRetries?: number;
+  }
 ): Promise<string> {
-  // Backend returns just the run ID as a string
-  return invoke('start_agent_run', { ticketId, agentType, repoPath });
+  return invoke('start_agent_run', { 
+    input: {
+      ticketId, 
+      agentType, 
+      repoPath, 
+      codeReviewMaxIterations: options?.codeReviewMaxIterations,
+      stageTimeoutMinutes: options?.stageTimeoutMinutes,
+      stageMaxRetries: options?.stageMaxRetries,
+    },
+  });
 }
 
 export async function getAgentRuns(ticketId: string): Promise<AgentRun[]> {

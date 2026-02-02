@@ -43,6 +43,12 @@ pub struct RunnerConfig {
     pub timeout_secs: u64,
     /// Claude API configuration (auth token, api key, base url, model override)
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Maximum iterations for the code review loop (default: 3)
+    pub code_review_max_iterations: usize,
+    /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
+    pub stage_timeout_secs: u64,
+    /// Maximum retries per stage (default: 2)
+    pub stage_max_retries: u32,
 }
 
 /// Result of an agent run execution
@@ -254,6 +260,9 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         branch_already_created: config.branch_already_created,
         is_temp_branch: config.is_temp_branch,
         claude_api_config: config.claude_api_config.clone(),
+        code_review_max_iterations: config.code_review_max_iterations,
+        stage_timeout_secs: config.stage_timeout_secs,
+        stage_max_retries: config.stage_max_retries,
     });
     
     orchestrator.execute().await

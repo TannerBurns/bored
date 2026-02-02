@@ -57,6 +57,16 @@ export function GeneralSettings() {
     setPlannerModel,
     plannerMaxExplorations,
     setPlannerMaxExplorations,
+    plannerTimeoutMinutes,
+    setPlannerTimeoutMinutes,
+    plannerMaxRetries,
+    setPlannerMaxRetries,
+    codeReviewMaxIterations,
+    setCodeReviewMaxIterations,
+    stageTimeoutMinutes,
+    setStageTimeoutMinutes,
+    stageMaxRetries,
+    setStageMaxRetries,
   } = useSettingsStore();
 
   return (
@@ -162,6 +172,42 @@ export function GeneralSettings() {
           </p>
         </div>
 
+        {/* Planner timeout and retries */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-board-text mb-2">
+              Timeout (minutes)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={plannerTimeoutMinutes}
+              onChange={(e) => setPlannerTimeoutMinutes(parseInt(e.target.value) || 5)}
+              className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+            />
+            <p className="text-xs text-board-text-muted mt-1">
+              Max time per exploration/planning call (1-10)
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-board-text mb-2">
+              Max Retries
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={plannerMaxRetries}
+              onChange={(e) => setPlannerMaxRetries(parseInt(e.target.value) || 2)}
+              className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+            />
+            <p className="text-xs text-board-text-muted mt-1">
+              Retry attempts on failure (0-5)
+            </p>
+          </div>
+        </div>
+
         {/* Planner model preference */}
         <div>
           <label className="block text-sm font-medium text-board-text mb-2">
@@ -192,6 +238,70 @@ export function GeneralSettings() {
               );
             })}
           </div>
+        </div>
+      </div>
+
+      {/* Workflow Stage Settings Section */}
+      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+        <div>
+          <h3 className="font-medium text-board-text">Workflow Stage Settings</h3>
+          <p className="text-sm text-board-text-muted mt-0.5">
+            Configure timeouts and retries for multi-stage workflow execution.
+          </p>
+        </div>
+
+        {/* Stage timeout and retries */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-board-text mb-2">
+              Stage Timeout (minutes)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={stageTimeoutMinutes}
+              onChange={(e) => setStageTimeoutMinutes(parseInt(e.target.value) || 30)}
+              className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+            />
+            <p className="text-xs text-board-text-muted mt-1">
+              Max time per workflow stage (1-60)
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-board-text mb-2">
+              Stage Max Retries
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={stageMaxRetries}
+              onChange={(e) => setStageMaxRetries(parseInt(e.target.value) || 2)}
+              className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+            />
+            <p className="text-xs text-board-text-muted mt-1">
+              Retry attempts on stage failure (0-5)
+            </p>
+          </div>
+        </div>
+
+        {/* Code Review Max Iterations */}
+        <div>
+          <label className="block text-sm font-medium text-board-text mb-2">
+            Code Review Max Iterations
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={10}
+            value={codeReviewMaxIterations}
+            onChange={(e) => setCodeReviewMaxIterations(parseInt(e.target.value) || 3)}
+            className="w-24 px-3 py-1.5 text-sm border border-board-border rounded-lg bg-board-surface-raised text-board-text focus:ring-2 focus:ring-board-accent focus:border-board-accent"
+          />
+          <p className="text-xs text-board-text-muted mt-1">
+            Maximum code review iterations before proceeding (0 to disable, max 10)
+          </p>
         </div>
       </div>
 

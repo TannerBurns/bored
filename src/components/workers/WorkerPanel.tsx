@@ -10,12 +10,14 @@ import {
   installCursorHooksProject,
   installClaudeHooksProject,
 } from '../../lib/tauri';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface Props {
   projects: Project[];
 }
 
 export function WorkerPanel({ projects }: Props) {
+  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
     readyCount: 0,
@@ -131,8 +133,13 @@ export function WorkerPanel({ projects }: Props) {
     
     try {
       await invoke('start_worker', {
-        agentType: newWorkerType,
-        projectId: newWorkerProject || null,
+        input: {
+          agentType: newWorkerType,
+          projectId: newWorkerProject || null,
+          codeReviewMaxIterations,
+          stageTimeoutMinutes,
+          stageMaxRetries,
+        },
       });
       await loadStatus();
       setNewWorkerProject('');

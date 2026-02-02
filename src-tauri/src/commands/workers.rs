@@ -18,6 +18,9 @@ pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
 pub struct StartWorkerRequest {
     pub agent_type: String,
     pub project_id: Option<String>,
+    pub code_review_max_iterations: Option<usize>,
+    pub stage_timeout_minutes: Option<u32>,
+    pub stage_max_retries: Option<u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -45,11 +48,18 @@ fn get_hook_script_path(app: &tauri::AppHandle) -> Option<String> {
 #[tauri::command]
 pub async fn start_worker(
     app: tauri::AppHandle,
-    agent_type: String,
-    project_id: Option<String>,
+    input: StartWorkerRequest,
     db: State<'_, Arc<Database>>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<StartWorkerResponse, String> {
+    let StartWorkerRequest {
+        agent_type,
+        project_id,
+        code_review_max_iterations,
+        stage_timeout_minutes,
+        stage_max_retries,
+    } = input;
+    
     tracing::info!(
         "Starting worker: agent_type={}, project_id={:?}",
         agent_type,
@@ -86,6 +96,9 @@ pub async fn start_worker(
         hook_script_path,
         app_handle: Some(app.clone()),
         claude_api_config,
+        code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
+        stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
+        stage_max_retries: stage_max_retries.unwrap_or(2),
         ..Default::default()
     };
 

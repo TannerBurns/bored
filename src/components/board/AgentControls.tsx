@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Ticket, AgentRun, AgentType } from '../../types';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface AgentLogEvent {
   runId: string;
@@ -35,6 +36,7 @@ export function AgentControls({
   onRunStarted,
   onRunCompleted,
 }: AgentControlsProps) {
+  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
   const [isRunning, setIsRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ stream: string; content: string }>>([]);
@@ -172,9 +174,14 @@ export function AgentControls({
 
     try {
       const runId = await invoke<string>('start_agent_run', {
-        ticketId: ticket.id,
-        agentType,
-        repoPath: '.'
+        input: {
+          ticketId: ticket.id,
+          agentType,
+          repoPath: '.',
+          codeReviewMaxIterations,
+          stageTimeoutMinutes,
+          stageMaxRetries,
+        },
       });
 
       setCurrentRunId(runId);
