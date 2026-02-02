@@ -756,7 +756,16 @@ Do NOT start implementing any code changes. Just create the branch.
                     "Stage '{}' retry {}/{} after {}s backoff",
                     stage, attempt, max_attempts, backoff_secs
                 );
-                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                
+                // Cancellation-aware sleep: check cancellation every second during backoff
+                // This ensures cancellation is responsive even during long retry delays
+                for _ in 0..backoff_secs {
+                    if self.is_cancelled() {
+                        tracing::info!("Stage '{}' backoff interrupted by cancellation", stage);
+                        return Err("Workflow cancelled".to_string());
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
             }
             
             match self.run_stage_attempt(stage, prompt, attempt, max_attempts).await {
