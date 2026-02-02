@@ -167,11 +167,17 @@ fn calculate_timing_stats(
 }
 
 /// Calculate estimated remaining time
+///
+/// Breakdown of ticket states:
+/// - Completed: Done, no time needed
+/// - In Progress: Assumed halfway done (avg / 2)
+/// - Paused: Work suspended, needs full duration when resumed
+/// - Not Started: Waiting in backlog/ready, needs full duration
 fn calculate_remaining_time(
     total: usize,
     completed: usize,
     in_progress: usize,
-    _paused: usize,
+    paused: usize,
     avg_seconds_per_ticket: Option<f64>,
 ) -> (Option<i64>, Option<DateTime<Utc>>) {
     let avg = match avg_seconds_per_ticket {
@@ -179,14 +185,22 @@ fn calculate_remaining_time(
         _ => return (None, None),
     };
     
-    // Remaining = (total - completed - in_progress) * avg + in_progress * (avg / 2)
-    // Assuming in-progress tickets are on average halfway done
-    // Paused tickets are NOT excluded - they are temporarily suspended but still need to be
-    // completed when resumed. Excluding them would make the ETA artificially optimistic.
-    let remaining_count = total
+    // Calculate tickets not yet started (backlog, ready, etc.)
+    // These are tickets that are neither completed, in progress, nor paused
+    let not_started = total
         .saturating_sub(completed)
-        .saturating_sub(in_progress);
-    let estimated_remaining = (remaining_count as f64 * avg) + (in_progress as f64 * avg / 2.0);
+        .saturating_sub(in_progress)
+        .saturating_sub(paused);
+    
+    // Estimated remaining time:
+    // - Not started tickets: need full average duration
+    // - In-progress tickets: assumed halfway done, need avg / 2
+    // - Paused tickets: need full duration (work was suspended, will resume from saved state
+    //   but we conservatively estimate full duration since partial progress isn't tracked)
+    let estimated_remaining = 
+        (not_started as f64 * avg) +           // Tickets not started
+        (in_progress as f64 * avg / 2.0) +     // In-progress (halfway done)
+        (paused as f64 * avg);                 // Paused (full duration)
     
     let remaining_secs = estimated_remaining as i64;
     let completion_time = Utc::now() + chrono::Duration::seconds(remaining_secs);
