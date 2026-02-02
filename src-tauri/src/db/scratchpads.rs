@@ -409,9 +409,10 @@ impl Database {
                 other => DbError::Sqlite(other),
             })?;
             
-            if current_status != "executed" && current_status != "halted" {
+            // Allow executed, halted, or completed (command handler validates completed is valid edge case)
+            if current_status != "executed" && current_status != "halted" && current_status != "completed" {
                 return Err(DbError::Validation(format!(
-                    "Cannot start work: scratchpad is in '{}' status, must be 'executed' or 'halted'",
+                    "Cannot start work: scratchpad is in '{}' status, must be 'executed', 'halted', or 'completed'",
                     current_status
                 )));
             }
