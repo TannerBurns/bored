@@ -76,6 +76,17 @@ export function FullscreenEditorModal({
     }
   }, [isEditMode]);
 
+  const handleSave = async () => {
+    if (!onSave) return;
+    setIsSaving(true);
+    try {
+      await onSave(editContent);
+      setIsEditMode(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Handle keyboard shortcuts
   useEffect(() => {
     if (!isOpen) return;
@@ -99,7 +110,7 @@ export function FullscreenEditorModal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isEditMode, content, onClose]);
+  }, [isOpen, isEditMode, content, onClose, onSave, editContent]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -112,17 +123,6 @@ export function FullscreenEditorModal({
       document.body.style.overflow = '';
     };
   }, [isOpen]);
-
-  const handleSave = async () => {
-    if (!onSave) return;
-    setIsSaving(true);
-    try {
-      await onSave(editContent);
-      setIsEditMode(false);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   const handleCancel = () => {
     setIsEditMode(false);

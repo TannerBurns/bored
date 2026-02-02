@@ -47,11 +47,61 @@ function formatDuration(startedAt: Date, endedAt: Date): string {
 }
 
 const navItems = [
-  { id: 'boards', label: 'Boards' },
-  { id: 'specs', label: 'Specs' },
-  { id: 'runs', label: 'Agents' },
-  { id: 'workers', label: 'Workers' },
-  { id: 'settings', label: 'Settings' },
+  { 
+    id: 'boards', 
+    label: 'Boards',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7" />
+        <rect x="14" y="3" width="7" height="7" />
+        <rect x="3" y="14" width="7" height="7" />
+        <rect x="14" y="14" width="7" height="7" />
+      </svg>
+    ),
+  },
+  { 
+    id: 'specs', 
+    label: 'Specs',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <line x1="10" y1="9" x2="8" y2="9" />
+      </svg>
+    ),
+  },
+  { 
+    id: 'runs', 
+    label: 'Agents',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 8V4H8" />
+        <rect x="8" y="8" width="8" height="8" rx="2" />
+        <path d="M12 16v4h4" />
+        <path d="M8 12H4" />
+        <path d="M20 12h-4" />
+      </svg>
+    ),
+  },
+  { 
+    id: 'workers', 
+    label: 'Workers',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 1v4" />
+        <path d="M12 19v4" />
+        <path d="M4.22 4.22l2.83 2.83" />
+        <path d="M16.95 16.95l2.83 2.83" />
+        <path d="M1 12h4" />
+        <path d="M19 12h4" />
+        <path d="M4.22 19.78l2.83-2.83" />
+        <path d="M16.95 7.05l2.83-2.83" />
+      </svg>
+    ),
+  },
 ];
 
 function App() {
@@ -364,6 +414,7 @@ function App() {
         onCreateBoard={() => setIsCreateBoardModalOpen(true)}
         onRenameBoard={handleRenameBoard}
         onDeleteBoard={requestDeleteBoard}
+        onSettingsClick={() => setActiveNav('settings')}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
@@ -384,23 +435,23 @@ function App() {
             activeNav === 'boards' && boards.length > 0 ? (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 bg-board-accent text-white rounded-xl hover:bg-board-accent-hover hover:shadow-lg hover:scale-[1.02] transition-all duration-200 flex items-center gap-2 shadow-md"
+                className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                New Ticket
+                New
               </button>
             ) : undefined
           }
