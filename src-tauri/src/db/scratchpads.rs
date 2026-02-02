@@ -339,9 +339,11 @@ impl Database {
                 )));
             }
             
-            // Clear pause state from all tickets in this scratchpad so workers can pick them up
+            // Clear paused_at from all tickets so workers can pick them up again.
+            // IMPORTANT: Preserve paused_at_stage so the worker knows which stage to resume from.
+            // The worker will clear paused_at_stage after reading it and starting from that stage.
             conn.execute(
-                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE scratchpad_id = ?",
+                "UPDATE tickets SET paused_at = NULL, updated_at = ? WHERE scratchpad_id = ?",
                 rusqlite::params![now, id],
             )?;
             
@@ -1117,6 +1119,65 @@ mod tests {
         
         // Verify ticket pause state is cleared so workers can pick it up
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
+    }
+
+    #[test]
+    fn resume_scratchpad_work_preserves_paused_at_stage() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Create a ticket linked to the scratchpad
+        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "T1".to_string(),
+            description_md: "".to_string(),
+            priority: crate::db::models::Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: crate::db::models::WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            scratchpad_id: Some(scratchpad.id.clone()),
+        }).unwrap();
+        
+        // Set to working, pause ticket at "implement" stage, then pause scratchpad
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        db.pause_ticket(&ticket.id, "implement", "run-123").unwrap();
+        
+        let paused = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(paused.paused_at_stage, Some("implement".to_string()));
+        
+        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        
+        // Resume the scratchpad
+        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        
+        // Verify ticket is no longer paused (paused_at cleared)
+        assert!(!db.is_ticket_paused(&ticket.id).unwrap());
+        
+        // But paused_at_stage should be preserved so worker knows where to resume
+        let resumed_ticket = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(resumed_ticket.paused_at_stage, Some("implement".to_string()));
     }
 
     #[test]
