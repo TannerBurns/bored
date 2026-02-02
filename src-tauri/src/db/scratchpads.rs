@@ -408,8 +408,9 @@ impl Database {
                 )));
             }
             
+            // Only set work_started_at if not already set (preserves original timestamp on restart after halt)
             conn.execute(
-                "UPDATE scratchpads SET status = 'working', work_started_at = ?, updated_at = ? WHERE id = ?",
+                "UPDATE scratchpads SET status = 'working', work_started_at = COALESCE(work_started_at, ?), updated_at = ? WHERE id = ?",
                 rusqlite::params![now, now, id],
             )?;
             

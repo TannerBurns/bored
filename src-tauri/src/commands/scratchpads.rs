@@ -317,15 +317,16 @@ pub async fn start_scratchpad_work(
     // Get scratchpad and validate state
     let scratchpad = db.get_scratchpad(&scratchpad_id).map_err(|e| e.to_string())?;
     
-    // Must be in Executed status (epics created but work not started)
+    // Must be in Executed or Halted status (epics created but work not started/was stopped)
     // Also allow from Completed status if not all epics are actually done (handles edge case from old code)
     let can_start = scratchpad.status == ScratchpadStatus::Executed 
+        || scratchpad.status == ScratchpadStatus::Halted
         || (scratchpad.status == ScratchpadStatus::Completed 
             && !db.are_all_scratchpad_epics_done(&scratchpad_id).unwrap_or(true));
     
     if !can_start {
         return Err(format!(
-            "Cannot start work: scratchpad is in '{}' status, expected 'executed'",
+            "Cannot start work: scratchpad is in '{}' status, expected 'executed' or 'halted'",
             scratchpad.status.as_str()
         ));
     }
