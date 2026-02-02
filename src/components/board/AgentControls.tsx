@@ -334,6 +334,8 @@ export function AgentControls({
                         ? 'bg-yellow-500 animate-pulse'
                         : run.status === 'error'
                         ? 'bg-red-500'
+                        : run.status === 'paused'
+                        ? 'bg-blue-400'
                         : 'bg-gray-500'
                     }`}
                   />
@@ -352,6 +354,8 @@ export function AgentControls({
                       ? 'bg-yellow-900 text-yellow-200'
                       : run.status === 'error'
                       ? 'bg-red-900 text-red-200'
+                      : run.status === 'paused'
+                      ? 'bg-blue-900 text-blue-200'
                       : 'bg-gray-700 text-gray-300'
                   }`}
                 >

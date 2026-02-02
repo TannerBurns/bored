@@ -7,7 +7,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
                           started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage
+                          parent_run_id, stage, resumed_from_run_id
                    FROM agent_runs WHERE id = ?"#
             )?;
             
@@ -32,6 +32,7 @@ impl Database {
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
                     parent_run_id: row.get(10)?,
                     stage: row.get(11)?,
+                    resumed_from_run_id: row.get(12)?,
                 })
             }).map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => {
@@ -49,8 +50,8 @@ impl Database {
             
             conn.execute(
                 r#"INSERT INTO agent_runs 
-                   (id, ticket_id, agent_type, repo_path, status, started_at, parent_run_id, stage)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, ticket_id, agent_type, repo_path, status, started_at, parent_run_id, stage, resumed_from_run_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     run_id,
                     run.ticket_id,
@@ -60,6 +61,7 @@ impl Database {
                     now.to_rfc3339(),
                     run.parent_run_id,
                     run.stage,
+                    run.resumed_from_run_id,
                 ],
             )?;
 
@@ -76,6 +78,7 @@ impl Database {
                 metadata: None,
                 parent_run_id: run.parent_run_id.clone(),
                 stage: run.stage.clone(),
+                resumed_from_run_id: run.resumed_from_run_id.clone(),
             })
         })
     }
@@ -102,13 +105,66 @@ impl Database {
             Ok(())
         })
     }
+    
+    /// Update a run's metadata (used to store stage outputs for resume)
+    pub fn set_run_metadata(
+        &self,
+        run_id: &str,
+        metadata: &serde_json::Value,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let metadata_json = serde_json::to_string(metadata)
+                .map_err(|e| DbError::Validation(format!("Failed to serialize metadata: {}", e)))?;
+            
+            conn.execute(
+                "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                rusqlite::params![metadata_json, run_id],
+            )?;
+            Ok(())
+        })
+    }
+    
+    /// Get completed stage outputs from sub-runs of a parent run
+    /// Returns a map of stage name -> extracted output text
+    pub fn get_completed_stage_outputs(
+        &self,
+        parent_run_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT stage, metadata_json FROM agent_runs 
+                   WHERE parent_run_id = ? AND status = 'finished' AND stage IS NOT NULL
+                   ORDER BY started_at ASC"#
+            )?;
+            
+            let mut outputs = std::collections::HashMap::new();
+            let rows = stmt.query_map([parent_run_id], |row| {
+                let stage: String = row.get(0)?;
+                let metadata_json: Option<String> = row.get(1)?;
+                Ok((stage, metadata_json))
+            })?;
+            
+            for row in rows {
+                let (stage, metadata_json) = row?;
+                if let Some(json_str) = metadata_json {
+                    if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        if let Some(output) = metadata.get("stage_output").and_then(|v| v.as_str()) {
+                            outputs.insert(stage, output.to_string());
+                        }
+                    }
+                }
+            }
+            
+            Ok(outputs)
+        })
+    }
 
     pub fn get_runs(&self, ticket_id: &str) -> Result<Vec<AgentRun>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
                           started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage
+                          parent_run_id, stage, resumed_from_run_id
                    FROM agent_runs WHERE ticket_id = ? ORDER BY started_at DESC"#
             )?;
             
@@ -133,6 +189,7 @@ impl Database {
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
                     parent_run_id: row.get(10)?,
                     stage: row.get(11)?,
+                    resumed_from_run_id: row.get(12)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -147,7 +204,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
                           started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage
+                          parent_run_id, stage, resumed_from_run_id
                    FROM agent_runs 
                    WHERE parent_run_id IS NULL
                    ORDER BY started_at DESC 
@@ -175,6 +232,7 @@ impl Database {
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
                     parent_run_id: row.get(10)?,
                     stage: row.get(11)?,
+                    resumed_from_run_id: row.get(12)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -189,7 +247,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, ticket_id, agent_type, repo_path, status, 
                           started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage
+                          parent_run_id, stage, resumed_from_run_id
                    FROM agent_runs WHERE parent_run_id = ? ORDER BY started_at ASC"#
             )?;
             
@@ -214,11 +272,42 @@ impl Database {
                     metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
                     parent_run_id: row.get(10)?,
                     stage: row.get(11)?,
+                    resumed_from_run_id: row.get(12)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
             
             Ok(runs)
+        })
+    }
+    
+    /// Get the current stage of a parent run by finding the latest running or finished sub-run.
+    /// Returns the stage name if found, or None if no sub-runs exist.
+    pub fn get_current_run_stage(&self, parent_run_id: &str) -> Result<Option<String>, DbError> {
+        self.with_conn(|conn| {
+            // First try to find a running sub-run
+            let running_stage: Option<String> = conn.query_row(
+                r#"SELECT stage FROM agent_runs 
+                   WHERE parent_run_id = ? AND status = 'running' AND stage IS NOT NULL
+                   ORDER BY started_at DESC LIMIT 1"#,
+                [parent_run_id],
+                |row| row.get(0),
+            ).ok();
+            
+            if running_stage.is_some() {
+                return Ok(running_stage);
+            }
+            
+            // Fall back to the most recent sub-run (finished or otherwise)
+            let latest_stage: Option<String> = conn.query_row(
+                r#"SELECT stage FROM agent_runs 
+                   WHERE parent_run_id = ? AND stage IS NOT NULL
+                   ORDER BY started_at DESC LIMIT 1"#,
+                [parent_run_id],
+                |row| row.get(0),
+            ).ok();
+            
+            Ok(latest_stage)
         })
     }
     
@@ -278,7 +367,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -287,6 +376,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         assert_eq!(run.status, RunStatus::Queued);
@@ -319,7 +409,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -328,6 +418,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         db.update_run_status(&run.id, RunStatus::Finished, Some(0), Some("Done")).unwrap();
@@ -361,7 +452,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let created = db.create_run(&CreateRun {
@@ -370,6 +461,7 @@ mod tests {
             repo_path: "/tmp/repo".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         let fetched = db.get_run(&created.id).unwrap();
@@ -411,7 +503,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -420,6 +512,7 @@ mod tests {
             repo_path: "/tmp/repo".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         let artifacts = RunArtifacts {
@@ -464,7 +557,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -473,6 +566,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         let fetched = db.get_run_artifacts(&run.id).unwrap();

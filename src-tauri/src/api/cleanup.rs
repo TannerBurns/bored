@@ -171,7 +171,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
 
         // Create a run and lock the ticket with an expired time
@@ -181,6 +181,7 @@ mod tests {
             repo_path: "/tmp/test".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
@@ -221,7 +222,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
 
         // Create a run and lock the ticket with a future expiration
@@ -231,6 +232,7 @@ mod tests {
             repo_path: "/tmp/test".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
 
         let future_time = Utc::now() + ChronoDuration::minutes(30);
@@ -269,7 +271,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
 
         // Create a run with running status
@@ -279,6 +281,7 @@ mod tests {
             repo_path: "/tmp/test".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
 
         db.update_run_status(&run.id, RunStatus::Running, None, None).unwrap();
@@ -356,7 +359,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
 
         let ticket2 = db.create_ticket(&CreateTicket {
@@ -375,7 +378,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
 
         let run1 = db.create_run(&CreateRun {
@@ -384,6 +387,7 @@ mod tests {
             repo_path: "/tmp/test".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
 
         let run2 = db.create_run(&CreateRun {
@@ -392,6 +396,7 @@ mod tests {
             repo_path: "/tmp/test".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);

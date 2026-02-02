@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import type { ScratchpadProgress, ScratchpadEta } from '../../types';
+import type { SpecProgress, SpecEta } from '../../types';
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
@@ -17,27 +17,27 @@ function formatDuration(seconds: number): string {
 }
 
 interface EpicProgressPanelProps {
-  progress: ScratchpadProgress;
-  scratchpadId?: string;
+  progress: SpecProgress;
+  specId?: string;
   isWorking: boolean;
   isPaused?: boolean;
   isCompleted: boolean;
 }
 
-export function EpicProgressPanel({ progress, scratchpadId, isWorking, isPaused = false, isCompleted }: EpicProgressPanelProps) {
+export function EpicProgressPanel({ progress, specId, isWorking, isPaused = false, isCompleted }: EpicProgressPanelProps) {
   const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
-  const [eta, setEta] = useState<ScratchpadEta | null>(null);
+  const [eta, setEta] = useState<SpecEta | null>(null);
   
   // Load ETA when working
   useEffect(() => {
-    if (!scratchpadId || (!isWorking && !isPaused)) {
+    if (!specId || (!isWorking && !isPaused)) {
       setEta(null);
       return;
     }
     
     const loadEta = async () => {
       try {
-        const result = await invoke<ScratchpadEta>('get_scratchpad_eta', { scratchpadId });
+        const result = await invoke<SpecEta>('get_spec_eta', { specId });
         setEta(result);
       } catch {
         // ETA calculation can fail gracefully - it's informational
@@ -52,7 +52,7 @@ export function EpicProgressPanel({ progress, scratchpadId, isWorking, isPaused 
       const interval = setInterval(loadEta, 30000); // Update every 30s
       return () => clearInterval(interval);
     }
-  }, [scratchpadId, isWorking, isPaused]);
+  }, [specId, isWorking, isPaused]);
   
   const toggleEpic = (epicId: string) => {
     setExpandedEpics(prev => {

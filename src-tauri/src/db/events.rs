@@ -93,7 +93,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let run = db.create_run(&CreateRun {
@@ -102,6 +102,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         let event = db.create_event(&NormalizedEvent {

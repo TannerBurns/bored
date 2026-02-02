@@ -1,19 +1,19 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { usePlannerStore } from '../stores/plannerStore';
+import { useSpecStore } from '../stores/specStore';
 import { logger } from '../lib/logger';
 
-interface PlannerLiveEvent {
+interface SpecLiveEvent {
   type:
-    | 'scratchpad_created'
-    | 'scratchpad_updated'
-    | 'scratchpad_deleted'
+    | 'spec_created'
+    | 'spec_updated'
+    | 'spec_deleted'
     | 'exploration_progress'
     | 'plan_generated'
     | 'plan_approved'
     | 'plan_execution_started'
     | 'plan_execution_completed'
     | 'planner_log_entry';
-  scratchpad_id?: string;
+  spec_id?: string;
   board_id?: string;
   query?: string;
   status?: string;
@@ -25,19 +25,19 @@ interface PlannerLiveEvent {
   timestamp?: string;
 }
 
-interface UsePlannerSyncOptions {
+interface UseSpecSyncOptions {
   reconnectDelay?: number;
   maxReconnects?: number;
 }
 
 /**
- * Hook that syncs planner state with SSE events from the backend.
- * Listens for scratchpad updates and refreshes the store accordingly.
+ * Hook that syncs spec state with SSE events from the backend.
+ * Listens for spec updates and refreshes the store accordingly.
  */
-export function usePlannerSync(
+export function useSpecSync(
   apiUrl: string,
   token: string,
-  options: UsePlannerSyncOptions = {}
+  options: UseSpecSyncOptions = {}
 ) {
   const { reconnectDelay = 3000, maxReconnects = 10 } = options;
 
@@ -46,137 +46,137 @@ export function usePlannerSync(
   const reconnectTimeoutRef = useRef<number | null>(null);
 
   const {
-    getScratchpad,
-    currentScratchpad,
-    loadAllScratchpads,
-    scratchpads,
-    setScratchpads,
-    setCurrentScratchpad,
+    getSpec,
+    currentSpec,
+    loadAllSpecs,
+    specs,
+    setSpecs,
+    setCurrentSpec,
     setExploring,
     setPlanning,
-    loadScratchpadTickets,
+    loadSpecTickets,
     addLogEntry,
     clearLogs,
-  } = usePlannerStore();
+  } = useSpecStore();
 
   const handleEvent = useCallback(
-    async (event: PlannerLiveEvent) => {
-      const { scratchpad_id } = event;
+    async (event: SpecLiveEvent) => {
+      const { spec_id } = event;
 
       switch (event.type) {
-        case 'scratchpad_created':
-          // Reload all scratchpads
-          loadAllScratchpads();
+        case 'spec_created':
+          // Reload all specs
+          loadAllSpecs();
           break;
 
-        case 'scratchpad_updated':
-          if (scratchpad_id) {
+        case 'spec_updated':
+          if (spec_id) {
             try {
-              // Refresh the specific scratchpad
-              const updated = await getScratchpad(scratchpad_id);
+              // Refresh the specific spec
+              const updated = await getSpec(spec_id);
               
-              // Update in scratchpads list
-              setScratchpads(
-                scratchpads.map((s) => (s.id === scratchpad_id ? updated : s))
+              // Update in specs list
+              setSpecs(
+                specs.map((s) => (s.id === spec_id ? updated : s))
               );
               
               // Update current if it's the one being viewed
-              if (currentScratchpad?.id === scratchpad_id) {
-                setCurrentScratchpad(updated);
+              if (currentSpec?.id === spec_id) {
+                setCurrentSpec(updated);
                 
                 // Update exploring/planning flags based on status
                 setExploring(updated.status === 'exploring');
                 setPlanning(updated.status === 'planning');
               }
             } catch (error) {
-              logger.error('Failed to refresh scratchpad', { scratchpad_id, error });
+              logger.error('Failed to refresh spec', { spec_id, error });
             }
           }
           break;
 
-        case 'scratchpad_deleted':
-          loadAllScratchpads();
-          if (currentScratchpad?.id === scratchpad_id) {
-            setCurrentScratchpad(null);
+        case 'spec_deleted':
+          loadAllSpecs();
+          if (currentSpec?.id === spec_id) {
+            setCurrentSpec(null);
           }
           break;
 
         case 'exploration_progress':
           // Update exploring status
-          if (currentScratchpad?.id === scratchpad_id) {
+          if (currentSpec?.id === spec_id) {
             setExploring(event.status === 'running');
             // Clear logs when starting a new exploration
-            if (event.status === 'running' && scratchpad_id) {
-              clearLogs(scratchpad_id);
+            if (event.status === 'running' && spec_id) {
+              clearLogs(spec_id);
             }
           }
-          logger.debug('Exploration progress', { scratchpad_id, query: event.query, status: event.status });
+          logger.debug('Exploration progress', { spec_id, query: event.query, status: event.status });
           break;
 
         case 'plan_generated':
           // Refresh to get the new plan
-          if (scratchpad_id) {
+          if (spec_id) {
             try {
-              const updated = await getScratchpad(scratchpad_id);
-              setScratchpads(
-                scratchpads.map((s) => (s.id === scratchpad_id ? updated : s))
+              const updated = await getSpec(spec_id);
+              setSpecs(
+                specs.map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentScratchpad?.id === scratchpad_id) {
-                setCurrentScratchpad(updated);
+              if (currentSpec?.id === spec_id) {
+                setCurrentSpec(updated);
                 setPlanning(false);
               }
             } catch (error) {
-              logger.error('Failed to refresh scratchpad after plan generated', error);
+              logger.error('Failed to refresh spec after plan generated', error);
             }
           }
           break;
 
         case 'plan_approved':
-          // Refresh scratchpad to update status
-          if (scratchpad_id) {
+          // Refresh spec to update status
+          if (spec_id) {
             try {
-              const updated = await getScratchpad(scratchpad_id);
-              setScratchpads(
-                scratchpads.map((s) => (s.id === scratchpad_id ? updated : s))
+              const updated = await getSpec(spec_id);
+              setSpecs(
+                specs.map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentScratchpad?.id === scratchpad_id) {
-                setCurrentScratchpad(updated);
+              if (currentSpec?.id === spec_id) {
+                setCurrentSpec(updated);
               }
             } catch (error) {
-              logger.error('Failed to refresh scratchpad after approval', error);
+              logger.error('Failed to refresh spec after approval', error);
             }
           }
           break;
 
         case 'plan_execution_started':
           // Could show a toast or update UI
-          logger.info('Plan execution started', { scratchpad_id });
+          logger.info('Plan execution started', { spec_id });
           break;
 
         case 'plan_execution_completed':
-          // Refresh scratchpad and load created tickets
-          if (scratchpad_id) {
+          // Refresh spec and load created tickets
+          if (spec_id) {
             try {
-              const updated = await getScratchpad(scratchpad_id);
-              setScratchpads(
-                scratchpads.map((s) => (s.id === scratchpad_id ? updated : s))
+              const updated = await getSpec(spec_id);
+              setSpecs(
+                specs.map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentScratchpad?.id === scratchpad_id) {
-                setCurrentScratchpad(updated);
-                loadScratchpadTickets(scratchpad_id);
+              if (currentSpec?.id === spec_id) {
+                setCurrentSpec(updated);
+                loadSpecTickets(spec_id);
               }
             } catch (error) {
               logger.error('Failed to refresh after execution', error);
             }
           }
-          logger.info('Plan execution completed', { scratchpad_id, epic_ids: event.epic_ids });
+          logger.info('Plan execution completed', { spec_id, epic_ids: event.epic_ids });
           break;
           
         case 'planner_log_entry':
           // Add real-time log entry from agent output
-          if (scratchpad_id && event.message) {
+          if (spec_id && event.message) {
             addLogEntry({
-              scratchpadId: scratchpad_id,
+              specId: spec_id,
               phase: (event.phase as 'exploration' | 'planning') || 'exploration',
               level: (event.level as 'info' | 'output' | 'error') || 'output',
               message: event.message,
@@ -187,15 +187,15 @@ export function usePlannerSync(
       }
     },
     [
-      currentScratchpad,
-      getScratchpad,
-      loadAllScratchpads,
-      loadScratchpadTickets,
-      scratchpads,
-      setCurrentScratchpad,
+      currentSpec,
+      getSpec,
+      loadAllSpecs,
+      loadSpecTickets,
+      specs,
+      setCurrentSpec,
       setExploring,
       setPlanning,
-      setScratchpads,
+      setSpecs,
       addLogEntry,
       clearLogs,
     ]
@@ -204,8 +204,8 @@ export function usePlannerSync(
   const connect = useCallback(() => {
     if (!apiUrl || !token) return;
 
-    // Filter to only scratchpad-related events
-    const typeFilter = 'scratchpad_created,scratchpad_updated,scratchpad_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry';
+    // Filter to only spec-related events
+    const typeFilter = 'spec_created,spec_updated,spec_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry';
     
     const params = new URLSearchParams({ token, types: typeFilter });
     const url = `${apiUrl}/v1/stream/filtered?${params}`;
@@ -222,7 +222,7 @@ export function usePlannerSync(
       try {
         if (e.data === 'ping') return;
 
-        const data: PlannerLiveEvent = JSON.parse(e.data);
+        const data: SpecLiveEvent = JSON.parse(e.data);
         handleEvent(data);
       } catch {
         // Ignore malformed events

@@ -55,9 +55,9 @@ pub async fn factory_reset(
 }
 
 #[tauri::command]
-pub async fn repair_scratchpads_table(
+pub async fn repair_specs_table(
     db: State<'_, Arc<Database>>,
 ) -> Result<String, String> {
-    tracing::warn!("Repairing scratchpads table CHECK constraint");
-    db.repair_scratchpads_constraint().map_err(|e| e.to_string())
+    tracing::warn!("Repairing specs table CHECK constraint");
+    db.repair_specs_constraint().map_err(|e| e.to_string())
 }

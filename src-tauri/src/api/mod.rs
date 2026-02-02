@@ -89,7 +89,6 @@ async fn start_server_with_state(
     let actual_addr = listener.local_addr()?;
 
     tracing::info!("API server listening on http://{}", actual_addr);
-    tracing::info!("API token: {}", config.token);
 
     // Start the lock cleanup background service
     start_cleanup_service(db, CleanupConfig::default());

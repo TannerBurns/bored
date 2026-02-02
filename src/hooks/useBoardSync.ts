@@ -145,7 +145,7 @@ export function useBoardSync(): BoardSyncState {
           setTickets(ticketsData);
           
           // Also update the selectedTicket if it's in this board and has changed
-          // This ensures the TicketModal sees updated lockedByRunId, column, etc.
+          // This ensures the TicketModal sees updated lockedByRunId, column, pausedAt, etc.
           if (selectedTicket) {
             const updatedSelectedTicket = ticketsData.find(t => t.id === selectedTicket.id);
             if (updatedSelectedTicket) {
@@ -153,13 +153,18 @@ export function useBoardSync(): BoardSyncState {
               const hasChanged = 
                 updatedSelectedTicket.lockedByRunId !== selectedTicket.lockedByRunId ||
                 updatedSelectedTicket.columnId !== selectedTicket.columnId ||
-                updatedSelectedTicket.lockExpiresAt !== selectedTicket.lockExpiresAt;
+                updatedSelectedTicket.lockExpiresAt !== selectedTicket.lockExpiresAt ||
+                // Check pause-related fields for resume button visibility
+                String(updatedSelectedTicket.pausedAt) !== String(selectedTicket.pausedAt) ||
+                updatedSelectedTicket.pausedAtStage !== selectedTicket.pausedAtStage;
               
               if (hasChanged) {
                 logger.debug('Updating selectedTicket with polled data', {
                   id: updatedSelectedTicket.id,
                   lockedByRunId: updatedSelectedTicket.lockedByRunId,
                   columnId: updatedSelectedTicket.columnId,
+                  pausedAt: updatedSelectedTicket.pausedAt,
+                  pausedAtStage: updatedSelectedTicket.pausedAtStage,
                 });
                 selectTicket(updatedSelectedTicket);
               }

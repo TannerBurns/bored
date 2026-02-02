@@ -350,7 +350,7 @@ export async function factoryReset(): Promise<void> {
   return invoke('factory_reset');
 }
 
-// Repair scratchpads table - fixes CHECK constraint issue
-export async function repairScratchpadsTable(): Promise<string> {
-  return invoke('repair_scratchpads_table');
+// Repair specs table - fixes CHECK constraint issue
+export async function repairSpecsTable(): Promise<string> {
+  return invoke('repair_specs_table');
 }

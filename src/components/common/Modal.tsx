@@ -2,15 +2,27 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+
 interface ModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
   children: ReactNode;
+  /** Modal width size - defaults to 'md' */
+  size?: ModalSize;
 }
 
-export function Modal({ open, onOpenChange, title, description, children }: ModalProps) {
+const sizeClasses: Record<ModalSize, string> = {
+  sm: 'max-w-sm',   // 384px
+  md: 'max-w-md',   // 448px
+  lg: 'max-w-lg',   // 512px
+  xl: 'max-w-xl',   // 576px
+  '2xl': 'max-w-2xl', // 672px
+};
+
+export function Modal({ open, onOpenChange, title, description, children, size = 'md' }: ModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -18,8 +30,9 @@ export function Modal({ open, onOpenChange, title, description, children }: Moda
         <Dialog.Content
           className={cn(
             'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
-            'w-full max-w-md rounded-xl bg-board-column border border-board-border p-6 shadow-2xl',
-            'focus:outline-none'
+            'w-full rounded-xl bg-board-column border border-board-border p-6 shadow-2xl',
+            'focus:outline-none',
+            sizeClasses[size]
           )}
         >
           <Dialog.Title className="text-lg font-semibold text-board-text">

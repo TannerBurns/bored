@@ -9,6 +9,7 @@ use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::validation::{ValidationResult, validate_worker_environment};
 use crate::agents::{AgentKind, ClaudeApiConfig, cursor, claude};
 use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::runs::RunningAgents;
 use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
@@ -51,6 +52,7 @@ pub async fn start_worker(
     input: StartWorkerRequest,
     db: State<'_, Arc<Database>>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
+    running_agents: State<'_, RunningAgents>,
 ) -> Result<StartWorkerResponse, String> {
     let StartWorkerRequest {
         agent_type,
@@ -102,7 +104,9 @@ pub async fn start_worker(
         ..Default::default()
     };
 
-    let worker_id = WORKER_MANAGER.start_worker(config, db.inner().clone());
+    // Pass the shared cancel handles so worker runs can be cancelled via the API
+    let cancel_handles = Some(running_agents.handles.clone());
+    let worker_id = WORKER_MANAGER.start_worker(config, db.inner().clone(), cancel_handles);
 
     tracing::info!("Worker started: {}", worker_id);
 

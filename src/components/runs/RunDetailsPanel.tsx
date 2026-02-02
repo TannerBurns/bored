@@ -28,6 +28,7 @@ const STATUS_COLORS: Record<RunStatus, string> = {
   finished: 'bg-green-500',
   error: 'bg-red-500',
   aborted: 'bg-gray-600',
+  paused: 'bg-blue-400',
 };
 
 function formatDuration(startedAt: Date, endedAt?: Date): string {

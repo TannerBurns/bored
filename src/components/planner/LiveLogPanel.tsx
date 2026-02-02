@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import type { PlannerLogEntry } from '../../stores/plannerStore';
+import type { SpecLogEntry } from '../../stores/specStore';
 
 interface LiveLogPanelProps {
-  logs: PlannerLogEntry[];
+  logs: SpecLogEntry[];
   isProcessing: boolean;
   currentPhase?: 'exploration' | 'planning';
 }

@@ -473,7 +473,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -514,7 +514,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();
@@ -547,7 +547,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let check = db.can_move_to_ready(&ticket.id).unwrap();

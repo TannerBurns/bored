@@ -123,12 +123,12 @@ export function GeneralSettings() {
         </div>
       </div>
 
-      {/* Planner Settings Section */}
+      {/* Spec Agent Settings Section */}
       <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
         <div>
-          <h3 className="font-medium text-board-text">Planner Agent Settings</h3>
+          <h3 className="font-medium text-board-text">Spec Agent Settings</h3>
           <p className="text-sm text-board-text-muted mt-0.5">
-            Configure how the AI planner explores codebases and generates work plans.
+            Configure how the AI spec agent explores codebases and generates work plans.
           </p>
         </div>
 
@@ -172,7 +172,7 @@ export function GeneralSettings() {
           </p>
         </div>
 
-        {/* Planner timeout and retries */}
+        {/* Spec agent timeout and retries */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-board-text mb-2">
@@ -208,10 +208,10 @@ export function GeneralSettings() {
           </div>
         </div>
 
-        {/* Planner model preference */}
+        {/* Spec agent model preference */}
         <div>
           <label className="block text-sm font-medium text-board-text mb-2">
-            Planner Model
+            Spec Agent Model
           </label>
           <div className="grid grid-cols-3 gap-3">
             {plannerModelOptions.map((option) => {

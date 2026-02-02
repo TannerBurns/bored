@@ -539,7 +539,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         ticket.id
     }
@@ -1112,6 +1112,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         db.start_task(&task.id, &run.id).unwrap();
@@ -1155,6 +1156,7 @@ mod tests {
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         }).unwrap();
         
         db.start_task(&task.id, &run.id).unwrap();

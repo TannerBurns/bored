@@ -1,17 +1,17 @@
-//! Database operations for scratchpads (planner agent)
+//! Database operations for specs (planning agent)
 
 use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Scratchpad, CreateScratchpad, UpdateScratchpad, ScratchpadStatus, Exploration, ScratchpadProgress, ScratchpadEpicStatus, ScratchpadTicketStatus};
+use crate::db::models::{Spec, CreateSpec, UpdateSpec, SpecStatus, Exploration, SpecProgress, SpecEpicStatus, SpecTicketStatus};
 
 impl Database {
-    pub fn create_scratchpad(&self, input: &CreateScratchpad) -> Result<Scratchpad, DbError> {
+    pub fn create_spec(&self, input: &CreateSpec) -> Result<Spec, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now();
             let settings_json = serde_json::to_string(&input.settings).unwrap_or_else(|_| "{}".to_string());
             
             conn.execute(
-                r#"INSERT INTO scratchpads 
+                r#"INSERT INTO specs 
                    (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, settings_json, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
@@ -21,7 +21,7 @@ impl Database {
                     input.project_id,
                     input.name,
                     input.user_input,
-                    ScratchpadStatus::Draft.as_str(),
+                    SpecStatus::Draft.as_str(),
                     input.agent_pref,
                     input.model,
                     settings_json,
@@ -30,14 +30,14 @@ impl Database {
                 ],
             )?;
 
-            Ok(Scratchpad {
+            Ok(Spec {
                 id,
                 board_id: input.board_id.clone(),
                 target_board_id: input.target_board_id.clone(),
                 project_id: input.project_id.clone(),
                 name: input.name.clone(),
                 user_input: input.user_input.clone(),
-                status: ScratchpadStatus::Draft,
+                status: SpecStatus::Draft,
                 agent_pref: input.agent_pref.clone(),
                 model: input.model.clone(),
                 exploration_log: vec![],
@@ -51,66 +51,66 @@ impl Database {
         })
     }
 
-    pub fn get_scratchpad(&self, id: &str) -> Result<Scratchpad, DbError> {
+    pub fn get_spec(&self, id: &str) -> Result<Spec, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
-                   FROM scratchpads WHERE id = ?"#
+                   FROM specs WHERE id = ?"#
             )?;
             
-            stmt.query_row([id], Self::map_scratchpad_row)
+            stmt.query_row([id], Self::map_spec_row)
                 .map_err(|e| match e {
                     rusqlite::Error::QueryReturnedNoRows => {
-                        DbError::NotFound(format!("Scratchpad {}", id))
+                        DbError::NotFound(format!("Spec {}", id))
                     }
                     other => DbError::Sqlite(other),
                 })
         })
     }
 
-    pub fn get_scratchpads(&self, board_id: &str) -> Result<Vec<Scratchpad>, DbError> {
+    pub fn get_specs(&self, board_id: &str) -> Result<Vec<Spec>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
-                   FROM scratchpads WHERE board_id = ?
+                   FROM specs WHERE board_id = ?
                    ORDER BY created_at DESC"#
             )?;
             
-            let rows = stmt.query_map([board_id], Self::map_scratchpad_row)?;
+            let rows = stmt.query_map([board_id], Self::map_spec_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
 
-    /// Get all scratchpads across all boards
-    pub fn get_all_scratchpads(&self) -> Result<Vec<Scratchpad>, DbError> {
+    /// Get all specs across all boards
+    pub fn get_all_specs(&self) -> Result<Vec<Spec>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
-                   FROM scratchpads
+                   FROM specs
                    ORDER BY created_at DESC"#
             )?;
             
-            let rows = stmt.query_map([], Self::map_scratchpad_row)?;
+            let rows = stmt.query_map([], Self::map_spec_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
 
-    pub fn update_scratchpad(&self, id: &str, updates: &UpdateScratchpad) -> Result<Scratchpad, DbError> {
+    pub fn update_spec(&self, id: &str, updates: &UpdateSpec) -> Result<Spec, DbError> {
         self.with_conn(|conn| {
             // First get existing
             let existing = {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                               exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
-                       FROM scratchpads WHERE id = ?"#
+                       FROM specs WHERE id = ?"#
                 )?;
-                stmt.query_row([id], Self::map_scratchpad_row)
+                stmt.query_row([id], Self::map_spec_row)
                     .map_err(|e| match e {
                         rusqlite::Error::QueryReturnedNoRows => {
-                            DbError::NotFound(format!("Scratchpad {}", id))
+                            DbError::NotFound(format!("Spec {}", id))
                         }
                         other => DbError::Sqlite(other),
                     })?
@@ -132,7 +132,7 @@ impl Database {
             let plan_json_str = plan_json.map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_string()));
 
             conn.execute(
-                r#"UPDATE scratchpads 
+                r#"UPDATE specs 
                    SET name = ?, user_input = ?, status = ?, agent_pref = ?, model = ?,
                        exploration_log = ?, plan_markdown = ?, plan_json = ?, settings_json = ?, updated_at = ?
                    WHERE id = ?"#,
@@ -155,34 +155,34 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
                           exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
-                   FROM scratchpads WHERE id = ?"#
+                   FROM specs WHERE id = ?"#
             )?;
-            stmt.query_row([id], Self::map_scratchpad_row)
+            stmt.query_row([id], Self::map_spec_row)
                 .map_err(DbError::Sqlite)
         })
     }
 
-    pub fn delete_scratchpad(&self, id: &str) -> Result<(), DbError> {
+    pub fn delete_spec(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let affected = conn.execute(
-                "DELETE FROM scratchpads WHERE id = ?",
+                "DELETE FROM specs WHERE id = ?",
                 [id],
             )?;
             
             if affected == 0 {
-                return Err(DbError::NotFound(format!("Scratchpad {}", id)));
+                return Err(DbError::NotFound(format!("Spec {}", id)));
             }
             Ok(())
         })
     }
     
-    /// Delete a scratchpad and all tickets created from it (cascade delete)
+    /// Delete a spec and all tickets created from it (cascade delete)
     /// Returns the number of tickets deleted
-    pub fn delete_scratchpad_with_tickets(&self, id: &str) -> Result<usize, DbError> {
+    pub fn delete_spec_with_tickets(&self, id: &str) -> Result<usize, DbError> {
         self.with_conn(|conn| {
-            // First, get all ticket IDs associated with this scratchpad
+            // First, get all ticket IDs associated with this spec
             let mut stmt = conn.prepare(
-                "SELECT id FROM tickets WHERE scratchpad_id = ?"
+                "SELECT id FROM tickets WHERE spec_id = ?"
             )?;
             let ticket_ids: Vec<String> = stmt.query_map([id], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -201,36 +201,36 @@ impl Database {
                 conn.execute("DELETE FROM runs WHERE ticket_id = ?", [ticket_id])?;
             }
             
-            // Delete all tickets with this scratchpad_id
+            // Delete all tickets with this spec_id
             conn.execute(
-                "DELETE FROM tickets WHERE scratchpad_id = ?",
+                "DELETE FROM tickets WHERE spec_id = ?",
                 [id],
             )?;
             
-            // Delete the scratchpad itself
+            // Delete the spec itself
             let affected = conn.execute(
-                "DELETE FROM scratchpads WHERE id = ?",
+                "DELETE FROM specs WHERE id = ?",
                 [id],
             )?;
             
             if affected == 0 {
-                return Err(DbError::NotFound(format!("Scratchpad {}", id)));
+                return Err(DbError::NotFound(format!("Spec {}", id)));
             }
             
             Ok(ticket_count)
         })
     }
 
-    /// Append an exploration entry to a scratchpad's log
-    pub fn append_exploration(&self, id: &str, exploration: &Exploration) -> Result<(), DbError> {
+    /// Append an exploration entry to a spec's log
+    pub fn append_spec_exploration(&self, id: &str, exploration: &Exploration) -> Result<(), DbError> {
         self.with_conn(|conn| {
             // Get existing log
             let existing_log: Option<String> = conn.query_row(
-                "SELECT exploration_log FROM scratchpads WHERE id = ?",
+                "SELECT exploration_log FROM specs WHERE id = ?",
                 [id],
                 |row| row.get(0),
             ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
                 other => DbError::Sqlite(other),
             })?;
 
@@ -244,7 +244,7 @@ impl Database {
             let now = chrono::Utc::now().to_rfc3339();
             
             conn.execute(
-                "UPDATE scratchpads SET exploration_log = ?, updated_at = ? WHERE id = ?",
+                "UPDATE specs SET exploration_log = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![log_json, now, id],
             )?;
             
@@ -252,64 +252,64 @@ impl Database {
         })
     }
 
-    /// Update the status of a scratchpad
-    pub fn set_scratchpad_status(&self, id: &str, status: ScratchpadStatus) -> Result<(), DbError> {
+    /// Update the status of a spec
+    pub fn set_spec_status(&self, id: &str, status: SpecStatus) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             let affected = conn.execute(
-                "UPDATE scratchpads SET status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE specs SET status = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![status.as_str(), now, id],
             )?;
             
             if affected == 0 {
-                return Err(DbError::NotFound(format!("Scratchpad {}", id)));
+                return Err(DbError::NotFound(format!("Spec {}", id)));
             }
             Ok(())
         })
     }
 
-    /// Set the generated plan for a scratchpad
-    pub fn set_scratchpad_plan(&self, id: &str, markdown: &str, json: Option<&serde_json::Value>) -> Result<(), DbError> {
+    /// Set the generated plan for a spec
+    pub fn set_spec_plan(&self, id: &str, markdown: &str, json: Option<&serde_json::Value>) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             let json_str = json.map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_string()));
             
             let affected = conn.execute(
-                "UPDATE scratchpads SET plan_markdown = ?, plan_json = ?, updated_at = ? WHERE id = ?",
+                "UPDATE specs SET plan_markdown = ?, plan_json = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![markdown, json_str, now, id],
             )?;
             
             if affected == 0 {
-                return Err(DbError::NotFound(format!("Scratchpad {}", id)));
+                return Err(DbError::NotFound(format!("Spec {}", id)));
             }
             Ok(())
         })
     }
 
-    /// Pause work on a scratchpad - sets status to Paused
-    pub fn pause_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+    /// Pause work on a spec - sets status to Paused
+    pub fn pause_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             
             // Check current status - can only pause if Working
             let current_status: String = conn.query_row(
-                "SELECT status FROM scratchpads WHERE id = ?",
+                "SELECT status FROM specs WHERE id = ?",
                 [id],
                 |row| row.get(0),
             ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
                 other => DbError::Sqlite(other),
             })?;
             
             if current_status != "working" {
                 return Err(DbError::Validation(format!(
-                    "Cannot pause: scratchpad is in '{}' status, must be 'working'",
+                    "Cannot pause: spec is in '{}' status, must be 'working'",
                     current_status
                 )));
             }
             
             conn.execute(
-                "UPDATE scratchpads SET status = 'paused', updated_at = ? WHERE id = ?",
+                "UPDATE specs SET status = 'paused', updated_at = ? WHERE id = ?",
                 rusqlite::params![now, id],
             )?;
             
@@ -317,39 +317,36 @@ impl Database {
         })
     }
 
-    /// Resume work on a paused scratchpad - sets status back to Working and clears ticket pause states
-    pub fn resume_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+    /// Resume work on a paused spec - sets status back to Working and clears ticket pause states
+    pub fn resume_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             
             // Check current status - can only resume if Paused
             let current_status: String = conn.query_row(
-                "SELECT status FROM scratchpads WHERE id = ?",
+                "SELECT status FROM specs WHERE id = ?",
                 [id],
                 |row| row.get(0),
             ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
                 other => DbError::Sqlite(other),
             })?;
             
             if current_status != "paused" {
                 return Err(DbError::Validation(format!(
-                    "Cannot resume: scratchpad is in '{}' status, must be 'paused'",
+                    "Cannot resume: spec is in '{}' status, must be 'paused'",
                     current_status
                 )));
             }
             
-            // Clear paused_at and paused_run_id from all tickets so workers can pick them up again.
-            // IMPORTANT: Preserve paused_at_stage so the worker knows which stage to resume from.
-            // The worker will clear paused_at_stage after reading it and starting from that stage.
-            // We clear paused_run_id since the old run is no longer valid after resuming.
+            // Clear paused_at but preserve stage/run info for resume
             conn.execute(
-                "UPDATE tickets SET paused_at = NULL, paused_run_id = NULL, updated_at = ? WHERE scratchpad_id = ?",
+                "UPDATE tickets SET paused_at = NULL, updated_at = ? WHERE spec_id = ?",
                 rusqlite::params![now, id],
             )?;
             
             conn.execute(
-                "UPDATE scratchpads SET status = 'working', updated_at = ? WHERE id = ?",
+                "UPDATE specs SET status = 'working', updated_at = ? WHERE id = ?",
                 rusqlite::params![now, id],
             )?;
             
@@ -357,37 +354,37 @@ impl Database {
         })
     }
 
-    /// Halt work on a scratchpad - sets status to Halted and clears paused tickets
-    pub fn halt_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+    /// Halt work on a spec - sets status to Halted and clears paused tickets
+    pub fn halt_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             
             // Check current status - can only halt if Working or Paused
             let current_status: String = conn.query_row(
-                "SELECT status FROM scratchpads WHERE id = ?",
+                "SELECT status FROM specs WHERE id = ?",
                 [id],
                 |row| row.get(0),
             ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
                 other => DbError::Sqlite(other),
             })?;
             
             if current_status != "working" && current_status != "paused" {
                 return Err(DbError::Validation(format!(
-                    "Cannot halt: scratchpad is in '{}' status, must be 'working' or 'paused'",
+                    "Cannot halt: spec is in '{}' status, must be 'working' or 'paused'",
                     current_status
                 )));
             }
             
-            // Clear pause state from all tickets in this scratchpad
+            // Clear pause state from all tickets in this spec
             conn.execute(
-                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE scratchpad_id = ?",
+                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE spec_id = ?",
                 rusqlite::params![now, id],
             )?;
             
-            // Set scratchpad to halted
+            // Set spec to halted
             conn.execute(
-                "UPDATE scratchpads SET status = 'halted', updated_at = ? WHERE id = ?",
+                "UPDATE specs SET status = 'halted', updated_at = ? WHERE id = ?",
                 rusqlite::params![now, id],
             )?;
             
@@ -395,32 +392,32 @@ impl Database {
         })
     }
 
-    /// Start work on a scratchpad - sets status to Working and records work_started_at
-    pub fn start_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+    /// Start work on a spec - sets status to Working and records work_started_at
+    pub fn start_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             
             // Check current status - can only start if Executed or Halted
             let current_status: String = conn.query_row(
-                "SELECT status FROM scratchpads WHERE id = ?",
+                "SELECT status FROM specs WHERE id = ?",
                 [id],
                 |row| row.get(0),
             ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
                 other => DbError::Sqlite(other),
             })?;
             
             // Allow executed, halted, or completed (command handler validates completed is valid edge case)
             if current_status != "executed" && current_status != "halted" && current_status != "completed" {
                 return Err(DbError::Validation(format!(
-                    "Cannot start work: scratchpad is in '{}' status, must be 'executed', 'halted', or 'completed'",
+                    "Cannot start work: spec is in '{}' status, must be 'executed', 'halted', or 'completed'",
                     current_status
                 )));
             }
             
             // Only set work_started_at if not already set (preserves original timestamp on restart after halt)
             conn.execute(
-                "UPDATE scratchpads SET status = 'working', work_started_at = COALESCE(work_started_at, ?), updated_at = ? WHERE id = ?",
+                "UPDATE specs SET status = 'working', work_started_at = COALESCE(work_started_at, ?), updated_at = ? WHERE id = ?",
                 rusqlite::params![now, now, id],
             )?;
             
@@ -428,68 +425,68 @@ impl Database {
         })
     }
 
-    /// Get all tickets created from a scratchpad
-    pub fn get_scratchpad_tickets(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+    /// Get all tickets created from a spec
+    pub fn get_spec_tickets(&self, spec_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
                           paused_at, paused_at_stage, paused_run_id
-                   FROM tickets WHERE scratchpad_id = ?
+                   FROM tickets WHERE spec_id = ?
                    ORDER BY created_at ASC"#
             )?;
             
-            let rows = stmt.query_map([scratchpad_id], Self::map_ticket_row_v10)?;
+            let rows = stmt.query_map([spec_id], Self::map_ticket_row_v15)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
 
-    /// Get all epics created from a scratchpad
-    pub fn get_scratchpad_epics(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+    /// Get all epics created from a spec
+    pub fn get_spec_epics(&self, spec_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
                           paused_at, paused_at_stage, paused_run_id
-                   FROM tickets WHERE scratchpad_id = ? AND is_epic = 1
+                   FROM tickets WHERE spec_id = ? AND is_epic = 1
                    ORDER BY created_at ASC"#
             )?;
             
-            let rows = stmt.query_map([scratchpad_id], Self::map_ticket_row_v10)?;
+            let rows = stmt.query_map([spec_id], Self::map_ticket_row_v15)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
     
-    /// Get root epics (no dependencies) for a scratchpad
-    pub fn get_scratchpad_root_epics(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+    /// Get root epics (no dependencies) for a spec
+    pub fn get_spec_root_epics(&self, spec_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets 
-                   WHERE scratchpad_id = ? AND is_epic = 1 AND depends_on_epic_id IS NULL
+                   WHERE spec_id = ? AND is_epic = 1 AND depends_on_epic_id IS NULL
                    ORDER BY created_at ASC"#
             )?;
             
-            let rows = stmt.query_map([scratchpad_id], Self::map_ticket_row_v10)?;
+            let rows = stmt.query_map([spec_id], Self::map_ticket_row_v15)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
     
-    /// Check if all epics for a scratchpad are complete (in Done column)
-    pub fn are_all_scratchpad_epics_done(&self, scratchpad_id: &str) -> Result<bool, DbError> {
+    /// Check if all epics for a spec are complete (in Done column)
+    pub fn are_all_spec_epics_done(&self, spec_id: &str) -> Result<bool, DbError> {
         self.with_conn(|conn| {
-            // First check if there are any epics for this scratchpad
+            // First check if there are any epics for this spec
             let epic_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM tickets WHERE scratchpad_id = ? AND is_epic = 1",
-                [scratchpad_id],
+                "SELECT COUNT(*) FROM tickets WHERE spec_id = ? AND is_epic = 1",
+                [spec_id],
                 |row| row.get(0),
             )?;
             
@@ -501,8 +498,8 @@ impl Database {
             let done_count: i64 = conn.query_row(
                 r#"SELECT COUNT(*) FROM tickets t
                    JOIN columns c ON t.column_id = c.id
-                   WHERE t.scratchpad_id = ? AND t.is_epic = 1 AND c.name = 'Done'"#,
-                [scratchpad_id],
+                   WHERE t.spec_id = ? AND t.is_epic = 1 AND c.name = 'Done'"#,
+                [spec_id],
                 |row| row.get(0),
             )?;
             
@@ -510,19 +507,19 @@ impl Database {
         })
     }
     
-    /// Get progress stats for a scratchpad's epics
-    pub fn get_scratchpad_progress(&self, scratchpad_id: &str) -> Result<ScratchpadProgress, DbError> {
+    /// Get progress stats for a spec's epics
+    pub fn get_spec_progress(&self, spec_id: &str) -> Result<SpecProgress, DbError> {
         self.with_conn(|conn| {
             // First, get all epics with their dependency info (using JSON array for multiple deps)
             let mut epic_stmt = conn.prepare(
                 r#"SELECT t.id, t.title, c.name as column_name, t.depends_on_epic_ids_json
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
-                   WHERE t.scratchpad_id = ? AND t.is_epic = 1
+                   WHERE t.spec_id = ? AND t.is_epic = 1
                    ORDER BY t.created_at ASC"#
             )?;
             
-            let epic_rows = epic_stmt.query_map([scratchpad_id], |row| {
+            let epic_rows = epic_stmt.query_map([spec_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -551,14 +548,14 @@ impl Database {
             let mut epics = Vec::new();
             for (epic_id, epic_title, epic_column, depends_on_json) in epic_data {
                 let ticket_rows = ticket_stmt.query_map([&epic_id], |row| {
-                    Ok(ScratchpadTicketStatus {
+                    Ok(SpecTicketStatus {
                         id: row.get(0)?,
                         title: row.get(1)?,
                         column: row.get(2)?,
                     })
                 })?;
                 
-                let tickets: Vec<ScratchpadTicketStatus> = ticket_rows.collect::<Result<Vec<_>, _>>()?;
+                let tickets: Vec<SpecTicketStatus> = ticket_rows.collect::<Result<Vec<_>, _>>()?;
                 
                 // Parse dependency IDs from JSON
                 let depends_on_ids: Vec<String> = depends_on_json
@@ -571,7 +568,7 @@ impl Database {
                     .filter_map(|id| epic_title_map.get(id).cloned())
                     .collect();
                 
-                epics.push(ScratchpadEpicStatus {
+                epics.push(SpecEpicStatus {
                     id: epic_id,
                     title: epic_title,
                     column: epic_column,
@@ -590,12 +587,12 @@ impl Database {
             
             // Get total count of ALL tickets (epics + child tickets)
             let total_tickets: usize = conn.query_row(
-                "SELECT COUNT(*) FROM tickets WHERE scratchpad_id = ?",
-                [scratchpad_id],
+                "SELECT COUNT(*) FROM tickets WHERE spec_id = ?",
+                [spec_id],
                 |row| row.get::<_, i64>(0),
             )? as usize;
             
-            Ok(ScratchpadProgress {
+            Ok(SpecProgress {
                 total,
                 done,
                 in_progress,
@@ -606,12 +603,12 @@ impl Database {
         })
     }
 
-    fn map_scratchpad_row(row: &rusqlite::Row) -> rusqlite::Result<Scratchpad> {
+    fn map_spec_row(row: &rusqlite::Row) -> rusqlite::Result<Spec> {
         // Column order: 0-id, 1-board_id, 2-target_board_id, 3-project_id, 4-name, 5-user_input,
         //               6-status, 7-agent_pref, 8-model, 9-exploration_log, 10-plan_markdown,
         //               11-plan_json, 12-settings_json, 13-work_started_at, 14-created_at, 15-updated_at
         let status_str: String = row.get(6)?;
-        let status = ScratchpadStatus::parse(&status_str).unwrap_or_default();
+        let status = SpecStatus::parse(&status_str).unwrap_or_default();
         
         let exploration_log_str: Option<String> = row.get(9)?;
         let exploration_log: Vec<Exploration> = exploration_log_str
@@ -626,7 +623,7 @@ impl Database {
         
         let work_started_at: Option<String> = row.get(13)?;
 
-        Ok(Scratchpad {
+        Ok(Spec {
             id: row.get(0)?,
             board_id: row.get(1)?,
             target_board_id: row.get(2)?,
@@ -646,9 +643,8 @@ impl Database {
         })
     }
 
-    // Temporary helper to map ticket rows with new columns (v10)
-    // This will be consolidated with map_ticket_row once tickets.rs is updated
-    fn map_ticket_row_v10(row: &rusqlite::Row) -> rusqlite::Result<crate::db::models::Ticket> {
+    // Helper to map ticket rows with spec_id column (v15)
+    fn map_ticket_row_v15(row: &rusqlite::Row) -> rusqlite::Result<crate::db::models::Ticket> {
         use crate::db::models::{Ticket, Priority, AgentPref, WorkflowType};
         
         let labels_json: String = row.get(6)?;
@@ -674,7 +670,7 @@ impl Database {
         let depends_on_epic_ids: Vec<String> = depends_on_epic_ids_json
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let scratchpad_id: Option<String> = row.get(21)?;
+        let spec_id: Option<String> = row.get(21)?;
         
         // Pause fields (columns 22, 23, 24)
         let paused_at: Option<String> = row.get(22)?;
@@ -703,7 +699,7 @@ impl Database {
             order_in_epic,
             depends_on_epic_id,
             depends_on_epic_ids,
-            scratchpad_id,
+            spec_id,
             paused_at: paused_at.map(parse_datetime),
             paused_at_stage,
             paused_run_id,
@@ -734,12 +730,12 @@ mod tests {
     }
 
     #[test]
-    fn create_and_get_scratchpad() {
+    fn create_and_get_spec() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -750,26 +746,26 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        assert_eq!(scratchpad.name, "Feature Plan");
-        assert_eq!(scratchpad.project_id, project.id);
-        assert_eq!(scratchpad.agent_pref, Some("claude".to_string()));
-        assert_eq!(scratchpad.model, Some("opus".to_string()));
-        assert_eq!(scratchpad.status, ScratchpadStatus::Draft);
-        assert!(scratchpad.exploration_log.is_empty());
+        assert_eq!(spec.name, "Feature Plan");
+        assert_eq!(spec.project_id, project.id);
+        assert_eq!(spec.agent_pref, Some("claude".to_string()));
+        assert_eq!(spec.model, Some("opus".to_string()));
+        assert_eq!(spec.status, SpecStatus::Draft);
+        assert!(spec.exploration_log.is_empty());
         
-        let fetched = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(fetched.id, scratchpad.id);
+        let fetched = db.get_spec(&spec.id).unwrap();
+        assert_eq!(fetched.id, spec.id);
         assert_eq!(fetched.user_input, "I want to add a new authentication system");
         assert_eq!(fetched.project_id, project.id);
     }
 
     #[test]
-    fn get_scratchpads_for_board() {
+    fn get_specs_for_board() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        db.create_scratchpad(&CreateScratchpad {
+        db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -780,7 +776,7 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        db.create_scratchpad(&CreateScratchpad {
+        db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -791,17 +787,17 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        let scratchpads = db.get_scratchpads(&board.id).unwrap();
-        assert_eq!(scratchpads.len(), 2);
+        let specs = db.get_specs(&board.id).unwrap();
+        assert_eq!(specs.len(), 2);
     }
 
     #[test]
-    fn update_scratchpad() {
+    fn update_spec() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -812,10 +808,10 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        let updated = db.update_scratchpad(&scratchpad.id, &UpdateScratchpad {
+        let updated = db.update_spec(&spec.id, &UpdateSpec {
             name: Some("Updated".to_string()),
             user_input: None,
-            status: Some(ScratchpadStatus::Exploring),
+            status: Some(SpecStatus::Exploring),
             agent_pref: Some("cursor".to_string()),
             model: Some("sonnet".to_string()),
             exploration_log: None,
@@ -826,18 +822,18 @@ mod tests {
         
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.user_input, "Original input");
-        assert_eq!(updated.status, ScratchpadStatus::Exploring);
+        assert_eq!(updated.status, SpecStatus::Exploring);
         assert_eq!(updated.agent_pref, Some("cursor".to_string()));
         assert_eq!(updated.model, Some("sonnet".to_string()));
     }
 
     #[test]
-    fn append_exploration() {
+    fn append_spec_exploration() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -854,20 +850,20 @@ mod tests {
             timestamp: chrono::Utc::now(),
         };
         
-        db.append_exploration(&scratchpad.id, &exploration).unwrap();
+        db.append_spec_exploration(&spec.id, &exploration).unwrap();
         
-        let fetched = db.get_scratchpad(&scratchpad.id).unwrap();
+        let fetched = db.get_spec(&spec.id).unwrap();
         assert_eq!(fetched.exploration_log.len(), 1);
         assert_eq!(fetched.exploration_log[0].query, "How does auth work?");
     }
 
     #[test]
-    fn set_scratchpad_status() {
+    fn set_spec_status() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -878,21 +874,21 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        assert_eq!(scratchpad.status, ScratchpadStatus::Draft);
+        assert_eq!(spec.status, SpecStatus::Draft);
         
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Completed).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Completed).unwrap();
         
-        let fetched = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(fetched.status, ScratchpadStatus::Completed);
+        let fetched = db.get_spec(&spec.id).unwrap();
+        assert_eq!(fetched.status, SpecStatus::Completed);
     }
 
     #[test]
-    fn set_scratchpad_plan() {
+    fn set_spec_plan() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -908,21 +904,21 @@ mod tests {
             "epics": []
         });
         
-        db.set_scratchpad_plan(&scratchpad.id, "# Test Plan\n\nOverview...", Some(&plan_json)).unwrap();
+        db.set_spec_plan(&spec.id, "# Test Plan\n\nOverview...", Some(&plan_json)).unwrap();
         
-        let fetched = db.get_scratchpad(&scratchpad.id).unwrap();
+        let fetched = db.get_spec(&spec.id).unwrap();
         assert!(fetched.plan_markdown.is_some());
         assert!(fetched.plan_json.is_some());
         assert_eq!(fetched.plan_json.unwrap()["overview"], "Test plan");
     }
 
     #[test]
-    fn delete_scratchpad() {
+    fn delete_spec() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -933,46 +929,46 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        db.delete_scratchpad(&scratchpad.id).unwrap();
+        db.delete_spec(&spec.id).unwrap();
         
-        let result = db.get_scratchpad(&scratchpad.id);
+        let result = db.get_spec(&spec.id);
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
     #[test]
-    fn delete_scratchpad_not_found() {
+    fn delete_spec_not_found() {
         let db = create_test_db();
-        let result = db.delete_scratchpad("nonexistent");
+        let result = db.delete_spec("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
     #[test]
-    fn scratchpad_status_roundtrip() {
+    fn spec_status_roundtrip() {
         for status in [
-            ScratchpadStatus::Draft,
-            ScratchpadStatus::Exploring,
-            ScratchpadStatus::Planning,
-            ScratchpadStatus::AwaitingApproval,
-            ScratchpadStatus::Approved,
-            ScratchpadStatus::Executing,
-            ScratchpadStatus::Executed,
-            ScratchpadStatus::Working,
-            ScratchpadStatus::Paused,
-            ScratchpadStatus::Halted,
-            ScratchpadStatus::Completed,
-            ScratchpadStatus::Failed,
+            SpecStatus::Draft,
+            SpecStatus::Exploring,
+            SpecStatus::Planning,
+            SpecStatus::AwaitingApproval,
+            SpecStatus::Approved,
+            SpecStatus::Executing,
+            SpecStatus::Executed,
+            SpecStatus::Working,
+            SpecStatus::Paused,
+            SpecStatus::Halted,
+            SpecStatus::Completed,
+            SpecStatus::Failed,
         ] {
-            assert_eq!(ScratchpadStatus::parse(status.as_str()), Some(status));
+            assert_eq!(SpecStatus::parse(status.as_str()), Some(status));
         }
     }
 
     // ===== Pause/Resume/Halt Tests =====
 
-    fn create_working_scratchpad(db: &Database) -> crate::db::models::Scratchpad {
+    fn create_working_spec(db: &Database) -> crate::db::models::Spec {
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -984,32 +980,32 @@ mod tests {
         }).unwrap();
         
         // Move through the workflow to 'executed' then 'working'
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
-        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
+        db.start_spec_work(&spec.id).unwrap();
         
-        db.get_scratchpad(&scratchpad.id).unwrap()
+        db.get_spec(&spec.id).unwrap()
     }
 
     #[test]
-    fn pause_scratchpad_work_success() {
+    fn pause_spec_work_success() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
-        assert_eq!(scratchpad.status, ScratchpadStatus::Working);
+        assert_eq!(spec.status, SpecStatus::Working);
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
         
-        let paused = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(paused.status, ScratchpadStatus::Paused);
+        let paused = db.get_spec(&spec.id).unwrap();
+        assert_eq!(paused.status, SpecStatus::Paused);
     }
 
     #[test]
-    fn pause_scratchpad_work_fails_if_not_working() {
+    fn pause_spec_work_fails_if_not_working() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1021,59 +1017,59 @@ mod tests {
         }).unwrap();
         
         // Status is Draft, not Working
-        let result = db.pause_scratchpad_work(&scratchpad.id);
+        let result = db.pause_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
     }
 
     #[test]
-    fn pause_scratchpad_work_not_found() {
+    fn pause_spec_work_not_found() {
         let db = create_test_db();
-        let result = db.pause_scratchpad_work("nonexistent");
+        let result = db.pause_spec_work("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
     #[test]
-    fn resume_scratchpad_work_success() {
+    fn resume_spec_work_success() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
         
-        let paused = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(paused.status, ScratchpadStatus::Paused);
+        let paused = db.get_spec(&spec.id).unwrap();
+        assert_eq!(paused.status, SpecStatus::Paused);
         
-        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        db.resume_spec_work(&spec.id).unwrap();
         
-        let resumed = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(resumed.status, ScratchpadStatus::Working);
+        let resumed = db.get_spec(&spec.id).unwrap();
+        assert_eq!(resumed.status, SpecStatus::Working);
     }
 
     #[test]
-    fn resume_scratchpad_work_fails_if_not_paused() {
+    fn resume_spec_work_fails_if_not_paused() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
         // Status is Working, not Paused
-        let result = db.resume_scratchpad_work(&scratchpad.id);
+        let result = db.resume_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
     }
 
     #[test]
-    fn resume_scratchpad_work_not_found() {
+    fn resume_spec_work_not_found() {
         let db = create_test_db();
-        let result = db.resume_scratchpad_work("nonexistent");
+        let result = db.resume_spec_work("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
     #[test]
-    fn resume_scratchpad_work_clears_ticket_pause_state() {
+    fn resume_spec_work_clears_ticket_pause_state() {
         let db = create_test_db();
         let board = db.create_board("Board").unwrap();
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1084,7 +1080,7 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        // Create a ticket linked to the scratchpad
+        // Create a ticket linked to the spec
         let ticket = db.create_ticket(&crate::db::models::CreateTicket {
             board_id: board.id.clone(),
             column_id: ready.id.clone(),
@@ -1101,37 +1097,37 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: Some(scratchpad.id.clone()),
+            spec_id: Some(spec.id.clone()),
         }).unwrap();
         
-        // Set to working, pause ticket, then pause scratchpad
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        // Set to working, pause ticket, then pause spec
+        db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
         
         assert!(db.is_ticket_paused(&ticket.id).unwrap());
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
         
-        // Resume the scratchpad - ticket pause state should be cleared
-        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        // Resume the spec - ticket pause state should be cleared
+        db.resume_spec_work(&spec.id).unwrap();
         
-        // Verify scratchpad is working again
-        let resumed = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(resumed.status, ScratchpadStatus::Working);
+        // Verify spec is working again
+        let resumed = db.get_spec(&spec.id).unwrap();
+        assert_eq!(resumed.status, SpecStatus::Working);
         
         // Verify ticket pause state is cleared so workers can pick it up
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
     }
 
     #[test]
-    fn resume_scratchpad_work_preserves_paused_at_stage() {
+    fn resume_spec_work_preserves_paused_at_stage() {
         let db = create_test_db();
         let board = db.create_board("Board").unwrap();
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1142,7 +1138,7 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        // Create a ticket linked to the scratchpad
+        // Create a ticket linked to the spec
         let ticket = db.create_ticket(&crate::db::models::CreateTicket {
             board_id: board.id.clone(),
             column_id: ready.id.clone(),
@@ -1159,40 +1155,41 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: Some(scratchpad.id.clone()),
+            spec_id: Some(spec.id.clone()),
         }).unwrap();
         
-        // Set to working, pause ticket at "implement" stage, then pause scratchpad
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        // Set to working, pause ticket at "implement" stage, then pause spec
+        db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "implement", "run-123").unwrap();
         
         let paused = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(paused.paused_at_stage, Some("implement".to_string()));
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
         
-        // Resume the scratchpad
-        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        // Resume the spec
+        db.resume_spec_work(&spec.id).unwrap();
         
         // Verify ticket is no longer paused (paused_at cleared)
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
         
-        // But paused_at_stage should be preserved so worker knows where to resume
+        // Both paused_at_stage and paused_run_id should be preserved so worker can resume
+        // the same run from the same stage
         let resumed_ticket = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(resumed_ticket.paused_at_stage, Some("implement".to_string()));
-        // paused_run_id should be cleared since the old run is no longer valid
-        assert_eq!(resumed_ticket.paused_run_id, None);
+        // paused_run_id is preserved so the same run can be reused for continuity
+        assert_eq!(resumed_ticket.paused_run_id, Some("run-123".to_string()));
     }
 
     #[test]
-    fn resume_scratchpad_work_clears_paused_run_id() {
+    fn resume_spec_work_preserves_paused_run_id() {
         let db = create_test_db();
         let board = db.create_board("Board").unwrap();
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1203,7 +1200,7 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        // Create a ticket linked to the scratchpad
+        // Create a ticket linked to the spec
         let ticket = db.create_ticket(&crate::db::models::CreateTicket {
             board_id: board.id.clone(),
             column_id: ready.id.clone(),
@@ -1220,59 +1217,59 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: Some(scratchpad.id.clone()),
+            spec_id: Some(spec.id.clone()),
         }).unwrap();
         
         // Set to working and pause the ticket with a run ID
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "review", "run-xyz-123").unwrap();
         
         // Verify the run ID was saved
         let paused_ticket = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(paused_ticket.paused_run_id, Some("run-xyz-123".to_string()));
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
-        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
+        db.resume_spec_work(&spec.id).unwrap();
         
-        // paused_run_id should be cleared (old run is no longer valid)
-        // paused_at_stage should be preserved (worker needs to know where to resume)
+        // paused_run_id should be preserved so the same run can be reused for continuity
+        // paused_at_stage should be preserved so worker knows where to resume
         let resumed_ticket = db.get_ticket(&ticket.id).unwrap();
-        assert_eq!(resumed_ticket.paused_run_id, None);
+        assert_eq!(resumed_ticket.paused_run_id, Some("run-xyz-123".to_string()));
         assert_eq!(resumed_ticket.paused_at_stage, Some("review".to_string()));
     }
 
     #[test]
-    fn halt_scratchpad_work_from_working() {
+    fn halt_spec_work_from_working() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
-        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        db.halt_spec_work(&spec.id).unwrap();
         
-        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(halted.status, ScratchpadStatus::Halted);
+        let halted = db.get_spec(&spec.id).unwrap();
+        assert_eq!(halted.status, SpecStatus::Halted);
     }
 
     #[test]
-    fn halt_scratchpad_work_from_paused() {
+    fn halt_spec_work_from_paused() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
-        db.pause_scratchpad_work(&scratchpad.id).unwrap();
-        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        db.pause_spec_work(&spec.id).unwrap();
+        db.halt_spec_work(&spec.id).unwrap();
         
-        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(halted.status, ScratchpadStatus::Halted);
+        let halted = db.get_spec(&spec.id).unwrap();
+        assert_eq!(halted.status, SpecStatus::Halted);
     }
 
     #[test]
-    fn halt_scratchpad_work_clears_ticket_pause_state() {
+    fn halt_spec_work_clears_ticket_pause_state() {
         let db = create_test_db();
         let board = db.create_board("Board").unwrap();
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1283,7 +1280,7 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        // Create a ticket linked to the scratchpad
+        // Create a ticket linked to the spec
         let ticket = db.create_ticket(&crate::db::models::CreateTicket {
             board_id: board.id.clone(),
             column_id: ready.id.clone(),
@@ -1300,29 +1297,29 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: Some(scratchpad.id.clone()),
+            spec_id: Some(spec.id.clone()),
         }).unwrap();
         
         // Set to working and pause the ticket
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
         
         assert!(db.is_ticket_paused(&ticket.id).unwrap());
         
-        // Halt the scratchpad
-        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        // Halt the spec
+        db.halt_spec_work(&spec.id).unwrap();
         
         // Ticket pause state should be cleared
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
     }
 
     #[test]
-    fn halt_scratchpad_work_fails_if_wrong_status() {
+    fn halt_spec_work_fails_if_wrong_status() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1334,24 +1331,24 @@ mod tests {
         }).unwrap();
         
         // Status is Draft
-        let result = db.halt_scratchpad_work(&scratchpad.id);
+        let result = db.halt_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
     }
 
     #[test]
-    fn halt_scratchpad_work_not_found() {
+    fn halt_spec_work_not_found() {
         let db = create_test_db();
-        let result = db.halt_scratchpad_work("nonexistent");
+        let result = db.halt_spec_work("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
     #[test]
-    fn start_scratchpad_work_from_executed() {
+    fn start_spec_work_from_executed() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1362,38 +1359,38 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
         
-        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        db.start_spec_work(&spec.id).unwrap();
         
-        let working = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(working.status, ScratchpadStatus::Working);
+        let working = db.get_spec(&spec.id).unwrap();
+        assert_eq!(working.status, SpecStatus::Working);
         assert!(working.work_started_at.is_some());
     }
 
     #[test]
-    fn start_scratchpad_work_from_halted() {
+    fn start_spec_work_from_halted() {
         let db = create_test_db();
-        let scratchpad = create_working_scratchpad(&db);
+        let spec = create_working_spec(&db);
         
-        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        db.halt_spec_work(&spec.id).unwrap();
         
-        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(halted.status, ScratchpadStatus::Halted);
+        let halted = db.get_spec(&spec.id).unwrap();
+        assert_eq!(halted.status, SpecStatus::Halted);
         
-        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        db.start_spec_work(&spec.id).unwrap();
         
-        let restarted = db.get_scratchpad(&scratchpad.id).unwrap();
-        assert_eq!(restarted.status, ScratchpadStatus::Working);
+        let restarted = db.get_spec(&spec.id).unwrap();
+        assert_eq!(restarted.status, SpecStatus::Working);
     }
 
     #[test]
-    fn start_scratchpad_work_fails_if_wrong_status() {
+    fn start_spec_work_fails_if_wrong_status() {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1405,14 +1402,14 @@ mod tests {
         }).unwrap();
         
         // Status is Draft
-        let result = db.start_scratchpad_work(&scratchpad.id);
+        let result = db.start_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
     }
 
     #[test]
-    fn start_scratchpad_work_not_found() {
+    fn start_spec_work_not_found() {
         let db = create_test_db();
-        let result = db.start_scratchpad_work("nonexistent");
+        let result = db.start_spec_work("nonexistent");
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
 
@@ -1422,7 +1419,7 @@ mod tests {
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
         
-        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+        let spec = db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
             project_id: project.id.clone(),
@@ -1433,12 +1430,12 @@ mod tests {
             settings: serde_json::json!({}),
         }).unwrap();
         
-        assert!(scratchpad.work_started_at.is_none());
+        assert!(spec.work_started_at.is_none());
         
-        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
-        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
+        db.start_spec_work(&spec.id).unwrap();
         
-        let started = db.get_scratchpad(&scratchpad.id).unwrap();
+        let started = db.get_spec(&spec.id).unwrap();
         assert!(started.work_started_at.is_some());
     }
 }

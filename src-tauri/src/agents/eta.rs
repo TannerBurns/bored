@@ -1,20 +1,20 @@
-//! ETA calculation module for scratchpad work estimation.
+//! ETA calculation module for spec work estimation.
 //!
 //! This module provides timing data aggregation and ETA calculation for
-//! estimating when scratchpad work will complete.
+//! estimating when spec work will complete.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
-use crate::db::{Database, ScratchpadEta, EtaConfidence};
+use crate::db::{Database, SpecEta, EtaConfidence};
 
-/// Calculate ETA for a scratchpad based on timing data from completed tickets
-pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<ScratchpadEta, String> {
-    let scratchpad = db.get_scratchpad(scratchpad_id)
+/// Calculate ETA for a spec based on timing data from completed tickets
+pub fn calculate_eta(db: &Arc<Database>, spec_id: &str) -> Result<SpecEta, String> {
+    let spec = db.get_spec(spec_id)
         .map_err(|e| e.to_string())?;
     
-    let tickets = db.get_scratchpad_tickets(scratchpad_id)
+    let tickets = db.get_spec_tickets(spec_id)
         .map_err(|e| e.to_string())?;
     
     let child_tickets: Vec<_> = tickets.iter()
@@ -23,10 +23,10 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
     
     let total_tickets = child_tickets.len();
     
-    let columns = if let Some(ref target_board_id) = scratchpad.target_board_id {
+    let columns = if let Some(ref target_board_id) = spec.target_board_id {
         db.get_columns(target_board_id).ok()
     } else {
-        db.get_columns(&scratchpad.board_id).ok()
+        db.get_columns(&spec.board_id).ok()
     }.unwrap_or_default();
     
     let column_names: HashMap<String, String> = columns.iter()
@@ -42,8 +42,6 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
             .map(|s| s.as_str())
             .unwrap_or("Unknown");
         
-        // Column status is the primary criterion - a ticket in Done is completed
-        // regardless of paused_at timestamp (e.g., if manually moved to Done while paused)
         if column_name == "Done" {
             completed_tickets += 1;
         } else if ticket.paused_at.is_some() {
@@ -54,14 +52,14 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
     }
     
     let now = Utc::now();
-    let elapsed_seconds = if let Some(ref started) = scratchpad.work_started_at {
+    let elapsed_seconds = if let Some(ref started) = spec.work_started_at {
         (now - *started).num_seconds()
     } else {
         0
     };
     
     let (avg_seconds_per_ticket, avg_seconds_per_stage, confidence) = 
-        calculate_timing_stats(db, scratchpad_id);
+        calculate_timing_stats(db, spec_id);
     
     let (estimated_seconds_remaining, estimated_completion_time) = 
         calculate_remaining_time(
@@ -72,9 +70,9 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
             avg_seconds_per_ticket,
         );
     
-    Ok(ScratchpadEta {
-        scratchpad_id: scratchpad_id.to_string(),
-        work_started_at: scratchpad.work_started_at,
+    Ok(SpecEta {
+        spec_id: spec_id.to_string(),
+        work_started_at: spec.work_started_at,
         total_tickets,
         completed_tickets,
         in_progress_tickets,
@@ -90,9 +88,9 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
 
 fn calculate_timing_stats(
     db: &Arc<Database>,
-    scratchpad_id: &str,
+    spec_id: &str,
 ) -> (Option<f64>, HashMap<String, f64>, EtaConfidence) {
-    let tickets = match db.get_scratchpad_tickets(scratchpad_id) {
+    let tickets = match db.get_spec_tickets(spec_id) {
         Ok(t) => t,
         Err(_) => return (None, HashMap::new(), EtaConfidence::Low),
     };
@@ -154,8 +152,6 @@ fn calculate_timing_stats(
         })
         .collect();
     
-    // Confidence is based on the number of completed runs we have timing data for,
-    // not the number of tickets in "Done" column (which may not reflect actual run data)
     let confidence = match run_count {
         0 => EtaConfidence::Low,
         1..=2 => EtaConfidence::Low,
@@ -166,13 +162,6 @@ fn calculate_timing_stats(
     (avg_per_ticket, avg_per_stage, confidence)
 }
 
-/// Calculate estimated remaining time
-///
-/// Breakdown of ticket states:
-/// - Completed: Done, no time needed
-/// - In Progress: Assumed halfway done (avg / 2)
-/// - Paused: Work suspended, needs full duration when resumed
-/// - Not Started: Waiting in backlog/ready, needs full duration
 fn calculate_remaining_time(
     total: usize,
     completed: usize,
@@ -185,22 +174,16 @@ fn calculate_remaining_time(
         _ => return (None, None),
     };
     
-    // Calculate tickets not yet started (backlog, ready, etc.)
-    // These are tickets that are neither completed, in progress, nor paused
     let not_started = total
         .saturating_sub(completed)
         .saturating_sub(in_progress)
         .saturating_sub(paused);
     
-    // Estimated remaining time:
-    // - Not started tickets: need full average duration
-    // - In-progress tickets: assumed halfway done, need avg / 2
-    // - Paused tickets: need full duration (work was suspended, will resume from saved state
-    //   but we conservatively estimate full duration since partial progress isn't tracked)
+    // Not started: full avg, in-progress: half, paused: full (conservative)
     let estimated_remaining = 
-        (not_started as f64 * avg) +           // Tickets not started
-        (in_progress as f64 * avg / 2.0) +     // In-progress (halfway done)
-        (paused as f64 * avg);                 // Paused (full duration)
+        (not_started as f64 * avg) +
+        (in_progress as f64 * avg / 2.0) +
+        (paused as f64 * avg);
     
     let remaining_secs = estimated_remaining as i64;
     let completion_time = Utc::now() + chrono::Duration::seconds(remaining_secs);

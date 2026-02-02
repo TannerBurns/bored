@@ -11,8 +11,8 @@ use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
 use crate::db::{
-    AgentPref, CreateTicket, Database, Exploration, PlanEpic, Priority, ProjectPlan, Scratchpad,
-    ScratchpadStatus, WorkflowType,
+    AgentPref, CreateTicket, Database, Exploration, PlanEpic, Priority, ProjectPlan, Spec,
+    SpecStatus, WorkflowType,
 };
 
 #[cfg(test)]
@@ -25,7 +25,7 @@ use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
 /// Configuration for the planner agent
 #[derive(Debug, Clone)]
 pub struct PlannerConfig {
-    pub scratchpad_id: String,
+    pub spec_id: String,
     pub max_explorations: usize,
     pub auto_approve: bool,
     pub model: Option<String>,
@@ -50,8 +50,8 @@ pub struct PlannerConfigWithEvents {
 /// Result of a planner execution
 #[derive(Debug)]
 pub struct PlannerResult {
-    pub scratchpad_id: String,
-    pub status: ScratchpadStatus,
+    pub spec_id: String,
+    pub status: SpecStatus,
     pub epic_ids: Vec<String>,
     pub ticket_ids: Vec<String>,
 }
@@ -62,8 +62,8 @@ pub enum PlannerError {
     #[error("Database error: {0}")]
     Database(String),
 
-    #[error("Scratchpad not found: {0}")]
-    ScratchpadNotFound(String),
+    #[error("Spec not found: {0}")]
+    SpecNotFound(String),
 
     #[error("Invalid state: {0}")]
     InvalidState(String),
@@ -118,28 +118,28 @@ impl PlannerAgent {
 
     /// Run the full planner workflow: explore -> plan -> (optionally) execute
     pub async fn run(&self) -> Result<PlannerResult, PlannerError> {
-        // Get scratchpad
-        let scratchpad = self
+        // Get spec
+        let spec = self
             .db
-            .get_scratchpad(&self.config.scratchpad_id)
+            .get_spec(&self.config.spec_id)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         tracing::info!(
-            "Starting planner for scratchpad {}: {:?}",
-            scratchpad.id,
-            scratchpad.status
+            "Starting planner for spec {}: {:?}",
+            spec.id,
+            spec.status
         );
 
         // Run exploration and planning with error recovery
-        match self.run_explore_and_plan(&scratchpad).await {
+        match self.run_explore_and_plan(&spec).await {
             Ok(exploration_result) => {
                 // Generate plan using exploration context
-                if let Err(e) = self.generate_plan(&scratchpad, &exploration_result).await {
+                if let Err(e) = self.generate_plan(&spec, &exploration_result).await {
                     // Set status to failed so UI stops showing spinner
                     tracing::error!("Plan generation failed, setting status to failed: {}", e);
-                    let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
-                    self.broadcast(LiveEvent::ScratchpadUpdated {
-                        scratchpad_id: scratchpad.id.clone(),
+                    let _ = self.db.set_spec_status(&spec.id, SpecStatus::Failed);
+                    self.broadcast(LiveEvent::SpecUpdated {
+                        spec_id: spec.id.clone(),
                     });
                     return Err(e);
                 }
@@ -147,9 +147,9 @@ impl PlannerAgent {
             Err(e) => {
                 // Set status to failed so UI stops showing spinner
                 tracing::error!("Exploration failed, setting status to failed: {}", e);
-                let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Failed);
-                self.broadcast(LiveEvent::ScratchpadUpdated {
-                    scratchpad_id: scratchpad.id.clone(),
+                let _ = self.db.set_spec_status(&spec.id, SpecStatus::Failed);
+                self.broadcast(LiveEvent::SpecUpdated {
+                    spec_id: spec.id.clone(),
                 });
                 return Err(e);
             }
@@ -158,11 +158,11 @@ impl PlannerAgent {
         // Check if auto-approve is enabled
         if self.config.auto_approve {
             self.db
-                .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Approved)
+                .set_spec_status(&spec.id, SpecStatus::Approved)
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
 
             self.broadcast(LiveEvent::PlanApproved {
-                scratchpad_id: scratchpad.id.clone(),
+                spec_id: spec.id.clone(),
             });
 
             // Execute the plan
@@ -171,20 +171,20 @@ impl PlannerAgent {
 
         // Return awaiting approval
         Ok(PlannerResult {
-            scratchpad_id: scratchpad.id,
-            status: ScratchpadStatus::AwaitingApproval,
+            spec_id: spec.id,
+            status: SpecStatus::AwaitingApproval,
             epic_ids: vec![],
             ticket_ids: vec![],
         })
     }
 
     /// Run the exploration phase, returning the exploration result
-    async fn run_explore_and_plan(&self, scratchpad: &Scratchpad) -> Result<String, PlannerError> {
-        self.run_exploration(scratchpad).await
+    async fn run_explore_and_plan(&self, spec: &Spec) -> Result<String, PlannerError> {
+        self.run_exploration(spec).await
     }
 
     /// Run an agent with the given prompt (with retry support)
-    async fn run_agent(&self, prompt: &str, scratchpad: &Scratchpad, phase: &str) -> Result<String, PlannerError> {
+    async fn run_agent(&self, prompt: &str, spec: &Spec, phase: &str) -> Result<String, PlannerError> {
         let max_attempts = self.config.max_retries + 1;
         let mut last_error = String::new();
         
@@ -198,7 +198,7 @@ impl PlannerAgent {
                 tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
             }
             
-            match self.run_agent_attempt(prompt, scratchpad, phase, attempt, max_attempts).await {
+            match self.run_agent_attempt(prompt, spec, phase, attempt, max_attempts).await {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     last_error = e.to_string();
@@ -217,14 +217,14 @@ impl PlannerAgent {
     async fn run_agent_attempt(
         &self, 
         prompt: &str, 
-        scratchpad: &Scratchpad, 
+        spec: &Spec, 
         phase: &str,
         attempt: u32,
         max_attempts: u32,
     ) -> Result<String, PlannerError> {
         let config = AgentRunConfig {
             kind: self.config.agent_kind,
-            ticket_id: scratchpad.id.clone(),
+            ticket_id: spec.id.clone(),
             run_id: format!("planner-{}", uuid::Uuid::new_v4()),
             repo_path: self.config.repo_path.clone(),
             prompt: prompt.to_string(),
@@ -236,9 +236,9 @@ impl PlannerAgent {
         };
 
         tracing::info!(
-            "Running {} agent for scratchpad {} (phase: {}, attempt {}/{})",
+            "Running {} agent for spec {} (phase: {}, attempt {}/{})",
             self.config.agent_kind.as_str(),
-            scratchpad.id,
+            spec.id,
             phase,
             attempt,
             max_attempts
@@ -247,7 +247,7 @@ impl PlannerAgent {
         // Create a log callback that broadcasts log entries in real-time
         let log_callback: Option<Arc<super::LogCallback>> = if let Some(ref tx) = self.event_tx {
             let tx_clone = tx.clone();
-            let scratchpad_id = scratchpad.id.clone();
+            let spec_id = spec.id.clone();
             let phase_str = phase.to_string();
             
             Some(Arc::new(Box::new(move |line: super::LogLine| {
@@ -257,7 +257,7 @@ impl PlannerAgent {
                 };
                 
                 let _ = tx_clone.send(LiveEvent::PlannerLogEntry {
-                    scratchpad_id: scratchpad_id.clone(),
+                    spec_id: spec_id.clone(),
                     phase: phase_str.clone(),
                     level: level.to_string(),
                     message: line.content,
@@ -289,57 +289,57 @@ impl PlannerAgent {
     }
 
     /// Run the exploration phase
-    async fn run_exploration(&self, scratchpad: &Scratchpad) -> Result<String, PlannerError> {
+    async fn run_exploration(&self, spec: &Spec) -> Result<String, PlannerError> {
         // Update status to exploring
         self.db
-            .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Exploring)
+            .set_spec_status(&spec.id, SpecStatus::Exploring)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
-        self.broadcast(LiveEvent::ScratchpadUpdated {
-            scratchpad_id: scratchpad.id.clone(),
+        self.broadcast(LiveEvent::SpecUpdated {
+            spec_id: spec.id.clone(),
         });
 
         tracing::info!(
-            "Starting exploration phase for scratchpad {} (max {} queries)",
-            scratchpad.id,
+            "Starting exploration phase for spec {} (max {} queries)",
+            spec.id,
             self.config.max_explorations
         );
 
         self.broadcast(LiveEvent::ExplorationProgress {
-            scratchpad_id: scratchpad.id.clone(),
+            spec_id: spec.id.clone(),
             query: "Starting codebase exploration...".to_string(),
             status: "running".to_string(),
         });
 
         // Generate exploration prompt
-        let prompt = planner_prompts::generate_exploration_prompt(&scratchpad.user_input, 1);
+        let prompt = planner_prompts::generate_exploration_prompt(&spec.user_input, 1);
 
         // Run the agent
-        let output = self.run_agent(&prompt, scratchpad, "exploration").await?;
+        let output = self.run_agent(&prompt, spec, "exploration").await?;
 
         // Extract text from agent output (handles Claude stream-json format)
         let response = extract_agent_text(&output);
 
         // Store the exploration result
         let exploration = Exploration {
-            query: format!("Analyzing codebase for: {}", scratchpad.user_input),
+            query: format!("Analyzing codebase for: {}", spec.user_input),
             response: response.clone(),
             timestamp: chrono::Utc::now(),
         };
 
         self.db
-            .append_exploration(&scratchpad.id, &exploration)
+            .append_spec_exploration(&spec.id, &exploration)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::ExplorationProgress {
-            scratchpad_id: scratchpad.id.clone(),
+            spec_id: spec.id.clone(),
             query: exploration.query.clone(),
             status: "completed".to_string(),
         });
 
         tracing::info!(
-            "Exploration completed for scratchpad {}, response length: {} chars",
-            scratchpad.id,
+            "Exploration completed for spec {}, response length: {} chars",
+            spec.id,
             response.len()
         );
 
@@ -349,26 +349,26 @@ impl PlannerAgent {
     /// Generate a structured plan based on exploration results
     async fn generate_plan(
         &self,
-        scratchpad: &Scratchpad,
+        spec: &Spec,
         exploration_context: &str,
     ) -> Result<(), PlannerError> {
         // Update status to planning
         self.db
-            .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Planning)
+            .set_spec_status(&spec.id, SpecStatus::Planning)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
-        self.broadcast(LiveEvent::ScratchpadUpdated {
-            scratchpad_id: scratchpad.id.clone(),
+        self.broadcast(LiveEvent::SpecUpdated {
+            spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Generating plan for scratchpad {}", scratchpad.id);
+        tracing::info!("Generating plan for spec {}", spec.id);
 
         // Generate planning prompt
         let prompt =
-            planner_prompts::generate_planning_prompt(&scratchpad.user_input, exploration_context);
+            planner_prompts::generate_planning_prompt(&spec.user_input, exploration_context);
 
         // Run the agent to generate plan
-        let output = self.run_agent(&prompt, scratchpad, "planning").await
+        let output = self.run_agent(&prompt, spec, "planning").await
             .map_err(|e| PlannerError::PlanGenerationFailed(e.to_string()))?;
 
         // Extract text from agent output
@@ -390,20 +390,20 @@ impl PlannerAgent {
 
         // Save the plan
         self.db
-            .set_scratchpad_plan(&scratchpad.id, &markdown, Some(&plan_json))
+            .set_spec_plan(&spec.id, &markdown, Some(&plan_json))
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         // Update status to awaiting approval
         self.db
-            .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::AwaitingApproval)
+            .set_spec_status(&spec.id, SpecStatus::AwaitingApproval)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::PlanGenerated {
-            scratchpad_id: scratchpad.id.clone(),
+            spec_id: spec.id.clone(),
         });
 
-        self.broadcast(LiveEvent::ScratchpadUpdated {
-            scratchpad_id: scratchpad.id.clone(),
+        self.broadcast(LiveEvent::SpecUpdated {
+            spec_id: spec.id.clone(),
         });
 
         Ok(())
@@ -411,41 +411,41 @@ impl PlannerAgent {
 
     /// Execute an approved plan by creating epics and tickets
     pub async fn execute_plan(&self) -> Result<PlannerResult, PlannerError> {
-        let scratchpad = self
+        let spec = self
             .db
-            .get_scratchpad(&self.config.scratchpad_id)
+            .get_spec(&self.config.spec_id)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         // Verify status is approved (or stuck in executing from a previous failed attempt)
-        if scratchpad.status != ScratchpadStatus::Approved && scratchpad.status != ScratchpadStatus::Executing {
+        if spec.status != SpecStatus::Approved && spec.status != SpecStatus::Executing {
             return Err(PlannerError::InvalidState(format!(
                 "Cannot execute plan: status is {:?}, expected Approved",
-                scratchpad.status
+                spec.status
             )));
         }
 
         // Update status to executing (if not already)
-        if scratchpad.status != ScratchpadStatus::Executing {
+        if spec.status != SpecStatus::Executing {
             self.db
-                .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executing)
+                .set_spec_status(&spec.id, SpecStatus::Executing)
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
         }
 
         self.broadcast(LiveEvent::PlanExecutionStarted {
-            scratchpad_id: scratchpad.id.clone(),
+            spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Executing plan for scratchpad {}", scratchpad.id);
+        tracing::info!("Executing plan for spec {}", spec.id);
         
         // Execute the plan creation with error recovery
-        match self.execute_plan_inner(&scratchpad).await {
+        match self.execute_plan_inner(&spec).await {
             Ok(result) => Ok(result),
             Err(e) => {
                 // Reset status to approved so user can retry
                 tracing::error!("Plan execution failed, resetting status to approved: {}", e);
-                let _ = self.db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Approved);
-                self.broadcast(LiveEvent::ScratchpadUpdated {
-                    scratchpad_id: scratchpad.id.clone(),
+                let _ = self.db.set_spec_status(&spec.id, SpecStatus::Approved);
+                self.broadcast(LiveEvent::SpecUpdated {
+                    spec_id: spec.id.clone(),
                 });
                 Err(e)
             }
@@ -453,9 +453,9 @@ impl PlannerAgent {
     }
     
     /// Inner implementation of execute_plan for error recovery
-    async fn execute_plan_inner(&self, scratchpad: &Scratchpad) -> Result<PlannerResult, PlannerError> {
+    async fn execute_plan_inner(&self, spec: &Spec) -> Result<PlannerResult, PlannerError> {
         // Get the plan JSON
-        let plan_json = scratchpad
+        let plan_json = spec
             .plan_json
             .clone()
             .ok_or_else(|| PlannerError::InvalidState("No plan JSON found".to_string()))?;
@@ -464,8 +464,8 @@ impl PlannerAgent {
             .map_err(|e| PlannerError::ExecutionFailed(format!("Failed to parse plan: {}", e)))?;
 
         // Use target_board_id if set, otherwise fall back to board_id
-        let target_board_id = scratchpad.target_board_id.as_ref()
-            .unwrap_or(&scratchpad.board_id);
+        let target_board_id = spec.target_board_id.as_ref()
+            .unwrap_or(&spec.board_id);
         
         // Get target board's backlog column for creating tickets
         let columns = self
@@ -503,8 +503,8 @@ impl PlannerAgent {
 
         let mut epic_title_to_id = std::collections::HashMap::new();
 
-        // Convert scratchpad's agent_pref string to AgentPref enum
-        let agent_pref = scratchpad
+        // Convert spec's agent_pref string to AgentPref enum
+        let agent_pref = spec
             .agent_pref
             .as_ref()
             .and_then(|s| AgentPref::parse(s));
@@ -536,16 +536,16 @@ impl PlannerAgent {
                     description_md: plan_epic.description.clone(),
                     priority: Priority::Medium,
                     labels: vec!["plan-generated".to_string()],
-                    project_id: Some(scratchpad.project_id.clone()),
+                    project_id: Some(spec.project_id.clone()),
                     agent_pref: agent_pref.clone(),
                     workflow_type: WorkflowType::MultiStage,
-                    model: scratchpad.model.clone(),
+                    model: spec.model.clone(),
                     branch_name: None,
                     is_epic: true,
                     epic_id: None,
                     depends_on_epic_id,
                     depends_on_epic_ids,
-                    scratchpad_id: Some(scratchpad.id.clone()),
+                    spec_id: Some(spec.id.clone()),
                 })
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
 
@@ -573,16 +573,16 @@ impl PlannerAgent {
                         description_md: description,
                         priority: Priority::Medium,
                         labels: vec!["plan-generated".to_string()],
-                        project_id: Some(scratchpad.project_id.clone()),
+                        project_id: Some(spec.project_id.clone()),
                         agent_pref: agent_pref.clone(),
                         workflow_type: WorkflowType::MultiStage,
-                        model: scratchpad.model.clone(),
+                        model: spec.model.clone(),
                         branch_name: None,
                         is_epic: false,
                         epic_id: Some(epic.id.clone()),
                         depends_on_epic_id: None,
                         depends_on_epic_ids: vec![],
-                        scratchpad_id: Some(scratchpad.id.clone()),
+                        spec_id: Some(spec.id.clone()),
                     })
                     .map_err(|e| PlannerError::Database(e.to_string()))?;
 
@@ -592,11 +592,11 @@ impl PlannerAgent {
 
         // Update status to executed (ready to start work)
         self.db
-            .set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed)
+            .set_spec_status(&spec.id, SpecStatus::Executed)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::PlanExecutionCompleted {
-            scratchpad_id: scratchpad.id.clone(),
+            spec_id: spec.id.clone(),
             epic_ids: epic_ids.clone(),
         });
 
@@ -607,8 +607,8 @@ impl PlannerAgent {
         );
 
         Ok(PlannerResult {
-            scratchpad_id: scratchpad.id.clone(),
-            status: ScratchpadStatus::Executed,
+            spec_id: spec.id.clone(),
+            status: SpecStatus::Executed,
             epic_ids,
             ticket_ids,
         })

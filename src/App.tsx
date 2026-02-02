@@ -9,16 +9,16 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal } from './components/common/ConfirmModal';
 import { WorkerPanel } from './components/workers';
 import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from './components/settings';
-import { ScratchpadList, ScratchpadDetail, CreateScratchpadModal } from './components/planner';
+import { SpecList, SpecDetail, CreateSpecModal } from './components/planner';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
-import { usePlannerStore } from './stores/plannerStore';
+import { useSpecStore } from './stores/specStore';
 import { useBoardSync } from './hooks/useBoardSync';
-import { usePlannerSync } from './hooks/usePlannerSync';
+import { useSpecSync } from './hooks/useSpecSync';
 import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { logger } from './lib/logger';
-import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, Scratchpad } from './types';
+import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, Spec } from './types';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -48,7 +48,7 @@ function formatDuration(startedAt: Date, endedAt: Date): string {
 
 const navItems = [
   { id: 'boards', label: 'Boards' },
-  { id: 'planner', label: 'Planner' },
+  { id: 'specs', label: 'Specs' },
   { id: 'runs', label: 'Agents' },
   { id: 'workers', label: 'Workers' },
   { id: 'settings', label: 'Settings' },
@@ -63,8 +63,8 @@ function App() {
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
-  const [isCreateScratchpadModalOpen, setIsCreateScratchpadModalOpen] = useState(false);
-  const [selectedScratchpad, setSelectedScratchpad] = useState<Scratchpad | null>(null);
+  const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
+  const [selectedSpec, setSelectedSpec] = useState<Spec | null>(null);
   const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
 
   const { theme } = useSettingsStore();
@@ -107,13 +107,13 @@ function App() {
 
   const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
   const { 
-    loadAllScratchpads, 
-    selectScratchpad,
-    currentScratchpad,
-  } = usePlannerStore();
+    loadAllSpecs, 
+    selectSpec,
+    currentSpec,
+  } = useSpecStore();
 
   // Enable real-time planner updates via SSE
-  usePlannerSync(
+  useSpecSync(
     apiConfig?.url || '',
     apiConfig?.token || ''
   );
@@ -194,26 +194,26 @@ function App() {
     refreshProjects();
   }, [activeNav]);
 
-  // Load all scratchpads when planner tab is active
+  // Load all specs when specs tab is active
   useEffect(() => {
-    if (activeNav !== 'planner') return;
+    if (activeNav !== 'specs') return;
     
-    loadAllScratchpads();
-  }, [activeNav, loadAllScratchpads]);
+    loadAllSpecs();
+  }, [activeNav, loadAllSpecs]);
 
-  // Clear selection when navigating away from planner tab
+  // Clear selection when navigating away from specs tab
   useEffect(() => {
-    if (activeNav !== 'planner') {
-      // Clear selection when leaving the planner tab
-      selectScratchpad(null);
-      setSelectedScratchpad(null);
+    if (activeNav !== 'specs') {
+      // Clear selection when leaving the specs tab
+      selectSpec(null);
+      setSelectedSpec(null);
     }
-  }, [activeNav, selectScratchpad]);
+  }, [activeNav, selectSpec]);
 
-  // Sync selected scratchpad with store
+  // Sync selected spec with store
   useEffect(() => {
-    setSelectedScratchpad(currentScratchpad);
-  }, [currentScratchpad]);
+    setSelectedSpec(currentSpec);
+  }, [currentSpec]);
 
   const {
     isTicketModalOpen,
@@ -371,16 +371,14 @@ function App() {
           title={
             activeNav === 'boards' && currentBoard 
               ? currentBoard.name 
-              : activeNav === 'planner' 
-                ? 'AI Planner' 
+              : activeNav === 'specs' 
+                ? 'AI Specs' 
                 : 'Bored'
           }
           subtitle={
             activeNav === 'boards' && currentBoard 
               ? 'Manage your coding tasks and let AI agents do the work.' 
-              : activeNav === 'planner'
-                ? 'Create work plans with AI-powered codebase exploration'
-                : undefined
+              : undefined
           }
           action={
             activeNav === 'boards' && boards.length > 0 ? (
@@ -454,17 +452,17 @@ function App() {
           </div>
         )}
 
-        {activeNav === 'planner' && (
+        {activeNav === 'specs' && (
           <div className="flex-1 overflow-hidden flex gap-4">
-            {/* Scratchpad List */}
+            {/* Spec List */}
             <div className="w-80 bg-board-column rounded-xl border border-board-border overflow-hidden flex flex-col">
               <div className="p-4 border-b border-board-border flex items-center justify-between">
-                <h3 className="font-semibold text-board-text">Scratchpads</h3>
+                <h3 className="font-semibold text-board-text">Specs</h3>
                 <button
-                  onClick={() => setIsCreateScratchpadModalOpen(true)}
+                  onClick={() => setIsCreateSpecModalOpen(true)}
                   disabled={!currentBoard}
                   className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={currentBoard ? 'Create new scratchpad' : 'Select a board first'}
+                  title={currentBoard ? 'Create new spec' : 'Select a board first'}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -483,23 +481,23 @@ function App() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <ScratchpadList
-                  onSelect={(scratchpad) => {
-                    selectScratchpad(scratchpad);
-                    setSelectedScratchpad(scratchpad);
+                <SpecList
+                  onSelect={(spec) => {
+                    selectSpec(spec);
+                    setSelectedSpec(spec);
                   }}
                 />
               </div>
             </div>
             
-            {/* Scratchpad Detail */}
+            {/* Spec Detail */}
             <div className="flex-1 bg-board-column rounded-xl border border-board-border overflow-hidden">
-              {selectedScratchpad ? (
-                <ScratchpadDetail
-                  scratchpad={selectedScratchpad}
+              {selectedSpec ? (
+                <SpecDetail
+                  spec={selectedSpec}
                   onClose={() => {
-                    selectScratchpad(null);
-                    setSelectedScratchpad(null);
+                    selectSpec(null);
+                    setSelectedSpec(null);
                   }}
                 />
               ) : (
@@ -520,7 +518,7 @@ function App() {
                       <line x1="16" y1="17" x2="8" y2="17" />
                       <polyline points="10 9 9 9 8 9" />
                     </svg>
-                    <p>Select a scratchpad to view details</p>
+                    <p>Select a spec to view details</p>
                     <p className="text-sm mt-1">or create a new one to start planning</p>
                   </div>
                 </div>
@@ -588,6 +586,7 @@ function App() {
                       finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
                       error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
                       aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
+                      paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
                     };
                     const status = statusConfig[run.status] || statusConfig.error;
                     const startedAt = new Date(run.startedAt);
@@ -758,9 +757,9 @@ function App() {
       />
 
       {currentBoard && (
-        <CreateScratchpadModal
-          open={isCreateScratchpadModalOpen}
-          onOpenChange={setIsCreateScratchpadModalOpen}
+        <CreateSpecModal
+          open={isCreateSpecModalOpen}
+          onOpenChange={setIsCreateSpecModalOpen}
           boardId={currentBoard.id}
           projectId={currentBoard.defaultProjectId}
         />

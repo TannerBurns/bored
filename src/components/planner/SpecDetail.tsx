@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import { usePlannerStore } from '../../stores/plannerStore';
+import { useSpecStore } from '../../stores/specStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Button } from '../common/Button';
 import { MarkdownViewer } from '../common/MarkdownViewer';
@@ -8,10 +8,10 @@ import { PlanViewer } from './PlanViewer';
 import { LiveLogPanel } from './LiveLogPanel';
 import { EpicProgressPanel } from './EpicProgressPanel';
 import { logger } from '../../lib/logger';
-import type { Scratchpad, Exploration, ScratchpadStatus, ScratchpadProgress } from '../../types';
+import type { Spec, Exploration, SpecStatus, SpecProgress } from '../../types';
 
-interface ScratchpadDetailProps {
-  scratchpad: Scratchpad;
+interface SpecDetailProps {
+  spec: Spec;
   onClose: () => void;
 }
 
@@ -49,7 +49,7 @@ const statusMessages: Record<string, { title: string; subtitle: string; variant?
   },
 };
 
-function ProgressIndicator({ status }: { status: ScratchpadStatus }) {
+function ProgressIndicator({ status }: { status: SpecStatus }) {
   const message = statusMessages[status];
   if (!message) return null;
 
@@ -133,13 +133,13 @@ function ExplorationLog({ explorations }: { explorations: Exploration[] }) {
   );
 }
 
-export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps) {
-  const { approvePlan, deleteScratchpad, getScratchpad, setCurrentScratchpad, setStatus, liveLogs, pauseWork, resumeWork, haltWork } = usePlannerStore();
+export function SpecDetail({ spec, onClose }: SpecDetailProps) {
+  const { approvePlan, deleteSpec, getSpec, setCurrentSpec, setStatus, liveLogs, pauseWork, resumeWork, haltWork } = useSpecStore();
   const { plannerAutoApprove, plannerMaxExplorations, plannerModel, plannerTimeoutMinutes, plannerMaxRetries } = useSettingsStore();
   const [activeTab, setActiveTab] = useState<'input' | 'exploration' | 'logs' | 'plan' | 'progress'>('input');
   
-  // Filter logs for this scratchpad
-  const scratchpadLogs = liveLogs.filter(log => log.scratchpadId === scratchpad.id);
+  // Filter logs for this spec
+  const specLogs = liveLogs.filter(log => log.specId === spec.id);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -147,25 +147,38 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   const [isPausing, setIsPausing] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [isHalting, setIsHalting] = useState(false);
-  const [progress, setProgress] = useState<ScratchpadProgress | null>(null);
+  const [progress, setProgress] = useState<SpecProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   
   // Load progress when status is working, paused, halted, or completed
   useEffect(() => {
     const loadProgress = async () => {
-      if (['working', 'paused', 'halted', 'completed', 'executed'].includes(scratchpad.status)) {
+      if (['working', 'paused', 'halted', 'completed', 'executed'].includes(spec.status)) {
         try {
-          const prog = await invoke<ScratchpadProgress>('get_scratchpad_progress', { scratchpadId: scratchpad.id });
+          const prog = await invoke<SpecProgress>('get_spec_progress', { specId: spec.id });
           setProgress(prog);
           
           // Auto-correct status if marked as 'completed' but epics aren't done
-          if (scratchpad.status === 'completed' && prog.total > 0 && prog.done < prog.total) {
-            logger.info('Auto-correcting scratchpad status from completed to executed', { 
-              scratchpadId: scratchpad.id, 
+          if (spec.status === 'completed' && prog.total > 0 && prog.done < prog.total) {
+            logger.info('Auto-correcting spec status from completed to executed', { 
+              specId: spec.id, 
               done: prog.done, 
               total: prog.total 
             });
-            await setStatus(scratchpad.id, 'executed');
+            await setStatus(spec.id, 'executed');
+          }
+          
+          // Auto-correct status if all epics are done but status is not 'completed'
+          // This handles edge cases where the backend completion check wasn't triggered
+          if (prog.total > 0 && prog.done === prog.total && 
+              ['working', 'paused', 'halted', 'executed'].includes(spec.status)) {
+            logger.info('Auto-correcting spec status to completed - all epics done', { 
+              specId: spec.id, 
+              done: prog.done, 
+              total: prog.total,
+              previousStatus: spec.status
+            });
+            await setStatus(spec.id, 'completed');
           }
         } catch (err) {
           logger.error('Failed to load progress', err);
@@ -175,29 +188,29 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     loadProgress();
     
     // Poll for progress updates when working
-    if (scratchpad.status === 'working') {
+    if (spec.status === 'working') {
       const interval = setInterval(loadProgress, 5000);
       return () => clearInterval(interval);
     }
-  }, [scratchpad.id, scratchpad.status, setStatus]);
+  }, [spec.id, spec.status, setStatus]);
 
   const handleStartPlanner = async () => {
     setIsStarting(true);
     setError(null);
     try {
-      const model = scratchpad.model 
+      const model = spec.model 
         || (plannerModel === 'default' ? undefined : plannerModel);
-      const agentKind = scratchpad.agentPref || undefined;
+      const agentKind = spec.agentPref || undefined;
       
       logger.info('Starting planner', { 
-        scratchpadId: scratchpad.id, 
+        specId: spec.id, 
         agentKind,
         model,
       });
       
       await invoke('start_planner', {
         input: {
-          scratchpadId: scratchpad.id,
+          specId: spec.id,
           agentKind,
           maxExplorations: plannerMaxExplorations,
           autoApprove: plannerAutoApprove,
@@ -207,9 +220,9 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
         },
       });
       
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Planner started successfully', { scratchpadId: scratchpad.id });
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Planner started successfully', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to start planner', err);
       setError(String(err));
@@ -222,10 +235,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     setIsExecuting(true);
     setError(null);
     try {
-      await invoke('execute_plan', { scratchpadId: scratchpad.id });
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Plan executed', { scratchpadId: scratchpad.id });
+      await invoke('execute_plan', { specId: spec.id });
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Plan executed', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to execute plan', err);
       setError(String(err));
@@ -238,10 +251,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     setIsStartingWork(true);
     setError(null);
     try {
-      await invoke('start_scratchpad_work', { scratchpadId: scratchpad.id });
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Work started', { scratchpadId: scratchpad.id });
+      await invoke('start_spec_work', { specId: spec.id });
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Work started', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to start work', err);
       setError(String(err));
@@ -252,7 +265,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
 
   const handleApprove = async () => {
     try {
-      await approvePlan(scratchpad.id);
+      await approvePlan(spec.id);
     } catch (err) {
       logger.error('Failed to approve plan:', err);
       setError(String(err));
@@ -262,9 +275,9 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   const handleRetry = async () => {
     // Reset status to draft so we can start again
     try {
-      await setStatus(scratchpad.id, 'draft');
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
+      await setStatus(spec.id, 'draft');
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
       setError(null);
       // Now start the planner again
       await handleStartPlanner();
@@ -277,17 +290,17 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   const handleDelete = async (deleteTickets = false) => {
     const ticketCount = progress?.totalTickets || 0;
     const message = deleteTickets && ticketCount > 0
-      ? `Are you sure you want to delete this scratchpad AND all ${ticketCount} associated tickets (epics and their children)? This cannot be undone.`
-      : 'Are you sure you want to delete this scratchpad? The tickets created from it will remain.';
+      ? `Are you sure you want to delete this spec AND all ${ticketCount} associated tickets (epics and their children)? This cannot be undone.`
+      : 'Are you sure you want to delete this spec? The tickets created from it will remain.';
     
     if (!confirm(message)) return;
     
     setIsDeleting(true);
     try {
-      await deleteScratchpad(scratchpad.id, deleteTickets);
+      await deleteSpec(spec.id, deleteTickets);
       onClose();
     } catch (err) {
-      logger.error('Failed to delete scratchpad:', err);
+      logger.error('Failed to delete spec:', err);
       setError(String(err));
     } finally {
       setIsDeleting(false);
@@ -298,10 +311,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     setIsPausing(true);
     setError(null);
     try {
-      await pauseWork(scratchpad.id);
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Work paused', { scratchpadId: scratchpad.id });
+      await pauseWork(spec.id);
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Work paused', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to pause work', err);
       setError(String(err));
@@ -314,10 +327,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     setIsResuming(true);
     setError(null);
     try {
-      await resumeWork(scratchpad.id);
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Work resumed', { scratchpadId: scratchpad.id });
+      await resumeWork(spec.id);
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Work resumed', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to resume work', err);
       setError(String(err));
@@ -333,10 +346,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     setIsHalting(true);
     setError(null);
     try {
-      await haltWork(scratchpad.id);
-      const updated = await getScratchpad(scratchpad.id);
-      setCurrentScratchpad(updated);
-      logger.info('Work halted', { scratchpadId: scratchpad.id });
+      await haltWork(spec.id);
+      const updated = await getSpec(spec.id);
+      setCurrentSpec(updated);
+      logger.info('Work halted', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to halt work', err);
       setError(String(err));
@@ -345,18 +358,18 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     }
   };
 
-  const canStart = scratchpad.status === 'draft';
-  const canRetry = scratchpad.status === 'failed';
-  const canApprove = scratchpad.status === 'awaiting_approval' && scratchpad.planMarkdown;
-  const canExecute = scratchpad.status === 'approved' && scratchpad.planJson;
-  const canStartWork = scratchpad.status === 'executed' 
-    || scratchpad.status === 'halted'
-    || (scratchpad.status === 'completed' && progress !== null && progress.done < progress.total);
-  const isWorking = scratchpad.status === 'working';
-  const isPaused = scratchpad.status === 'paused';
-  const isHalted = scratchpad.status === 'halted';
-  const isCompleted = scratchpad.status === 'completed';
-  const isProcessing = ['exploring', 'planning', 'executing'].includes(scratchpad.status);
+  const canStart = spec.status === 'draft';
+  const canRetry = spec.status === 'failed';
+  const canApprove = spec.status === 'awaiting_approval' && spec.planMarkdown;
+  const canExecute = spec.status === 'approved' && spec.planJson;
+  const canStartWork = spec.status === 'executed' 
+    || spec.status === 'halted'
+    || (spec.status === 'completed' && progress !== null && progress.done < progress.total);
+  const isWorking = spec.status === 'working';
+  const isPaused = spec.status === 'paused';
+  const isHalted = spec.status === 'halted';
+  const isCompleted = spec.status === 'completed';
+  const isProcessing = ['exploring', 'planning', 'executing'].includes(spec.status);
   
   // Pause/resume controls
   const canPause = isWorking;
@@ -377,10 +390,10 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
       <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {scratchpad.name}
+            {spec.name}
           </h2>
           <p className="text-sm text-gray-500 capitalize">
-            Status: {scratchpad.status.replace('_', ' ')}
+            Status: {spec.status.replace('_', ' ')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -470,7 +483,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
                   onClick={() => handleDelete(false)}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
                 >
-                  Delete scratchpad only
+                  Delete spec only
                 </button>
                 <button
                   onClick={() => handleDelete(true)}
@@ -495,7 +508,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
       )}
 
       {/* Progress Indicator */}
-      <ProgressIndicator status={scratchpad.status} />
+      <ProgressIndicator status={spec.status} />
 
       {/* Tabs */}
       <div className="flex border-b dark:border-gray-700">
@@ -521,9 +534,9 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
           {isProcessing && (
             <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
           )}
-          {scratchpadLogs.length > 0 && (
+          {specLogs.length > 0 && (
             <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 rounded">
-              {scratchpadLogs.length}
+              {specLogs.length}
             </span>
           )}
         </button>
@@ -535,7 +548,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
               : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          Exploration ({scratchpad.explorationLog?.length || 0})
+          Exploration ({spec.explorationLog?.length || 0})
         </button>
         <button
           onClick={() => setActiveTab('plan')}
@@ -575,30 +588,30 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
         {activeTab === 'input' && (
           <div className="prose dark:prose-invert max-w-none">
             <h3>Original Request</h3>
-            <p className="whitespace-pre-wrap">{scratchpad.userInput}</p>
+            <p className="whitespace-pre-wrap">{spec.userInput}</p>
           </div>
         )}
         
         {activeTab === 'logs' && (
           <LiveLogPanel 
-            logs={scratchpadLogs} 
+            logs={specLogs} 
             isProcessing={isProcessing}
             currentPhase={
-              scratchpad.status === 'exploring' ? 'exploration' :
-              scratchpad.status === 'planning' ? 'planning' : undefined
+              spec.status === 'exploring' ? 'exploration' :
+              spec.status === 'planning' ? 'planning' : undefined
             }
           />
         )}
 
         {activeTab === 'exploration' && (
-          <ExplorationLog explorations={scratchpad.explorationLog || []} />
+          <ExplorationLog explorations={spec.explorationLog || []} />
         )}
 
         {activeTab === 'plan' && (
-          scratchpad.planMarkdown ? (
+          spec.planMarkdown ? (
             <PlanViewer
-              markdown={scratchpad.planMarkdown}
-              planJson={scratchpad.planJson}
+              markdown={spec.planMarkdown}
+              planJson={spec.planJson}
             />
           ) : (
             <div className="text-gray-500 text-center py-8">
@@ -610,7 +623,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
         {activeTab === 'progress' && progress && (
           <EpicProgressPanel 
             progress={progress}
-            scratchpadId={scratchpad.id}
+            specId={spec.id}
             isWorking={isWorking}
             isPaused={isPaused}
             isCompleted={isCompleted}
