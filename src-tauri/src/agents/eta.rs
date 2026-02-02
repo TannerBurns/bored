@@ -168,7 +168,7 @@ fn calculate_remaining_time(
     total: usize,
     completed: usize,
     in_progress: usize,
-    _paused: usize,
+    paused: usize,
     avg_seconds_per_ticket: Option<f64>,
 ) -> (Option<i64>, Option<DateTime<Utc>>) {
     let avg = match avg_seconds_per_ticket {
@@ -176,9 +176,13 @@ fn calculate_remaining_time(
         _ => return (None, None),
     };
     
-    // Remaining = (total - completed - in_progress) * avg + in_progress * (avg / 2)
+    // Remaining = (total - completed - in_progress - paused) * avg + in_progress * (avg / 2)
     // Assuming in-progress tickets are on average halfway done
-    let remaining_count = total.saturating_sub(completed).saturating_sub(in_progress);
+    // Paused tickets are excluded from remaining work calculation
+    let remaining_count = total
+        .saturating_sub(completed)
+        .saturating_sub(in_progress)
+        .saturating_sub(paused);
     let estimated_remaining = (remaining_count as f64 * avg) + (in_progress as f64 * avg / 2.0);
     
     let remaining_secs = estimated_remaining as i64;
@@ -240,6 +244,24 @@ mod tests {
     fn test_calculate_remaining_time_handles_saturating_sub() {
         // Edge case: more completed than total (shouldn't happen but should not panic)
         let (remaining, _) = calculate_remaining_time(5, 10, 0, 0, Some(60.0));
+        assert_eq!(remaining, Some(0));
+    }
+    
+    #[test]
+    fn test_calculate_remaining_time_with_paused_tickets() {
+        // 10 total, 3 completed, 2 in progress, 2 paused, avg 60 seconds
+        // Remaining = (10 - 3 - 2 - 2) * 60 + 2 * 30 = 3 * 60 + 60 = 240 seconds
+        // Paused tickets are excluded from remaining work
+        let (remaining, completion) = calculate_remaining_time(10, 3, 2, 2, Some(60.0));
+        assert_eq!(remaining, Some(240));
+        assert!(completion.is_some());
+    }
+    
+    #[test]
+    fn test_calculate_remaining_time_all_paused() {
+        // 5 total, 0 completed, 0 in progress, 5 paused, avg 60 seconds
+        // All tickets are paused, so remaining = 0
+        let (remaining, _) = calculate_remaining_time(5, 0, 0, 5, Some(60.0));
         assert_eq!(remaining, Some(0));
     }
     

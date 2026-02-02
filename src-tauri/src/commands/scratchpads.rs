@@ -365,8 +365,8 @@ pub async fn start_scratchpad_work(
         tracing::info!("Started epic {} for scratchpad {}", epic.id, scratchpad_id);
     }
     
-    // Update scratchpad status to Working
-    db.set_scratchpad_status(&scratchpad_id, ScratchpadStatus::Working)
+    // Update scratchpad status to Working and set work_started_at timestamp (for ETA calculation)
+    db.start_scratchpad_work(&scratchpad_id)
         .map_err(|e| e.to_string())?;
     
     // Broadcast update
