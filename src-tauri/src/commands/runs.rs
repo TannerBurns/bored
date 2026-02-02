@@ -815,11 +815,13 @@ pub async fn cancel_agent_run(
         }
     }
     
-    // Also unlock any ticket that was locked by this run
-    // We need to find the ticket first
-    if let Ok(run) = db.get_run(&run_id) {
-        if let Err(e) = db.unlock_ticket(&run.ticket_id) {
-            tracing::warn!("Failed to unlock ticket after {}: {}", if is_pause { "pause" } else { "cancel" }, e);
+    // Also unlock any ticket that was locked by this run (but NOT when pausing)
+    // When pausing, we keep the lock so the resume flow can find the paused run
+    if !is_pause {
+        if let Ok(run) = db.get_run(&run_id) {
+            if let Err(e) = db.unlock_ticket(&run.ticket_id) {
+                tracing::warn!("Failed to unlock ticket after cancel: {}", e);
+            }
         }
     }
     
