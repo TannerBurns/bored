@@ -13,76 +13,140 @@ body {
   min-height: 100vh;
 }
 
-/* Light theme - clean, modern, high contrast */
+/* ============================================
+   GLASSMORPHISM DESIGN SYSTEM
+   ============================================ */
+
+/* Light theme - warm, airy, frosted glass */
 :root.light {
-  /* Backgrounds */
-  --app-board-bg: #f8fafc;
-  --app-board-column: #ffffff;
-  --app-board-card: #ffffff;
-  --app-board-card-hover: #f1f5f9;
+  /* Background gradients */
+  --app-bg-gradient-start: #f5f5f7;
+  --app-bg-gradient-end: #e8e8ed;
+  --app-board-bg: linear-gradient(135deg, var(--app-bg-gradient-start) 0%, var(--app-bg-gradient-end) 100%);
+  --app-board-bg-solid: #f0f0f5;
+  
+  /* Glass surfaces */
+  --app-glass-bg: rgba(255, 255, 255, 0.7);
+  --app-glass-bg-subtle: rgba(255, 255, 255, 0.5);
+  --app-glass-bg-intense: rgba(255, 255, 255, 0.85);
+  --app-glass-border: rgba(255, 255, 255, 0.8);
+  --app-glass-border-subtle: rgba(0, 0, 0, 0.06);
+  
+  /* Accent gradients */
+  --app-accent-start: #8b5cf6;
+  --app-accent-end: #3b82f6;
+  --app-accent-gradient: linear-gradient(135deg, var(--app-accent-start) 0%, var(--app-accent-end) 100%);
+  --app-accent-glow: rgba(139, 92, 246, 0.25);
+  --app-accent-glow-intense: rgba(139, 92, 246, 0.4);
+  
+  /* Mapped to existing variables for compatibility */
+  --app-board-column: rgba(255, 255, 255, 0.7);
+  --app-board-card: rgba(255, 255, 255, 0.85);
+  --app-board-card-hover: rgba(255, 255, 255, 0.95);
   
   /* Accent & interactive */
-  --app-board-accent: #6366f1;
-  --app-board-accent-hover: #4f46e5;
-  --app-board-accent-subtle: #eef2ff;
+  --app-board-accent: #8b5cf6;
+  --app-board-accent-hover: #7c3aed;
+  --app-board-accent-subtle: rgba(139, 92, 246, 0.1);
   
   /* Text */
-  --app-board-text: #0f172a;
-  --app-board-text-secondary: #475569;
-  --app-board-text-muted: #94a3b8;
+  --app-board-text: #1a1a2e;
+  --app-board-text-secondary: #4a4a6a;
+  --app-board-text-muted: #8888a0;
   
   /* Borders & dividers */
-  --app-board-border: #e2e8f0;
-  --app-board-border-subtle: #f1f5f9;
+  --app-board-border: rgba(0, 0, 0, 0.08);
+  --app-board-border-subtle: rgba(0, 0, 0, 0.04);
   
   /* Surfaces */
-  --app-board-surface: #f1f5f9;
-  --app-board-surface-raised: #ffffff;
+  --app-board-surface: rgba(255, 255, 255, 0.6);
+  --app-board-surface-raised: rgba(255, 255, 255, 0.9);
+  
+  /* Shadows */
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --app-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.04), 0 2px 10px rgba(0, 0, 0, 0.06);
+  --app-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.06), 0 6px 12px rgba(0, 0, 0, 0.08);
+  --app-shadow-glow: 0 0 20px rgba(139, 92, 246, 0.15);
+  --app-shadow-glow-intense: 0 0 30px rgba(139, 92, 246, 0.25);
   
   /* Status colors */
   --app-status-success: #10b981;
+  --app-status-success-glow: rgba(16, 185, 129, 0.2);
   --app-status-warning: #f59e0b;
+  --app-status-warning-glow: rgba(245, 158, 11, 0.2);
   --app-status-error: #ef4444;
+  --app-status-error-glow: rgba(239, 68, 68, 0.2);
   --app-status-info: #3b82f6;
+  --app-status-info-glow: rgba(59, 130, 246, 0.2);
 }
 
-/* Dark theme - rich, modern, easy on eyes */
+/* Dark theme - deep, immersive, luminous */
 :root, :root.dark {
-  /* Backgrounds */
-  --app-board-bg: #0f172a;
-  --app-board-column: #1e293b;
-  --app-board-card: #334155;
-  --app-board-card-hover: #475569;
+  /* Background gradients */
+  --app-bg-gradient-start: #0a0a0f;
+  --app-bg-gradient-end: #111118;
+  --app-board-bg: linear-gradient(135deg, var(--app-bg-gradient-start) 0%, var(--app-bg-gradient-end) 100%);
+  --app-board-bg-solid: #0d0d12;
+  
+  /* Glass surfaces */
+  --app-glass-bg: rgba(255, 255, 255, 0.03);
+  --app-glass-bg-subtle: rgba(255, 255, 255, 0.02);
+  --app-glass-bg-intense: rgba(255, 255, 255, 0.06);
+  --app-glass-border: rgba(255, 255, 255, 0.08);
+  --app-glass-border-subtle: rgba(255, 255, 255, 0.04);
+  
+  /* Accent gradients */
+  --app-accent-start: #a78bfa;
+  --app-accent-end: #22d3ee;
+  --app-accent-gradient: linear-gradient(135deg, var(--app-accent-start) 0%, var(--app-accent-end) 100%);
+  --app-accent-glow: rgba(167, 139, 250, 0.2);
+  --app-accent-glow-intense: rgba(167, 139, 250, 0.35);
+  
+  /* Mapped to existing variables for compatibility */
+  --app-board-column: rgba(255, 255, 255, 0.03);
+  --app-board-card: rgba(255, 255, 255, 0.05);
+  --app-board-card-hover: rgba(255, 255, 255, 0.08);
   
   /* Accent & interactive */
-  --app-board-accent: #818cf8;
-  --app-board-accent-hover: #a5b4fc;
-  --app-board-accent-subtle: rgba(129, 140, 248, 0.1);
+  --app-board-accent: #a78bfa;
+  --app-board-accent-hover: #c4b5fd;
+  --app-board-accent-subtle: rgba(167, 139, 250, 0.1);
   
   /* Text */
-  --app-board-text: #f8fafc;
-  --app-board-text-secondary: #cbd5e1;
-  --app-board-text-muted: #64748b;
+  --app-board-text: #f0f0f5;
+  --app-board-text-secondary: #a0a0b8;
+  --app-board-text-muted: #606078;
   
   /* Borders & dividers */
-  --app-board-border: #334155;
-  --app-board-border-subtle: #1e293b;
+  --app-board-border: rgba(255, 255, 255, 0.08);
+  --app-board-border-subtle: rgba(255, 255, 255, 0.04);
   
   /* Surfaces */
-  --app-board-surface: #1e293b;
-  --app-board-surface-raised: #334155;
+  --app-board-surface: rgba(255, 255, 255, 0.03);
+  --app-board-surface-raised: rgba(255, 255, 255, 0.06);
+  
+  /* Shadows */
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 4px rgba(0, 0, 0, 0.15);
+  --app-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 10px rgba(0, 0, 0, 0.2);
+  --app-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.3), 0 6px 12px rgba(0, 0, 0, 0.25);
+  --app-shadow-glow: 0 0 20px rgba(167, 139, 250, 0.15);
+  --app-shadow-glow-intense: 0 0 30px rgba(167, 139, 250, 0.3);
   
   /* Status colors */
   --app-status-success: #34d399;
+  --app-status-success-glow: rgba(52, 211, 153, 0.25);
   --app-status-warning: #fbbf24;
+  --app-status-warning-glow: rgba(251, 191, 36, 0.25);
   --app-status-error: #f87171;
+  --app-status-error-glow: rgba(248, 113, 113, 0.25);
   --app-status-info: #60a5fa;
+  --app-status-info-glow: rgba(96, 165, 250, 0.25);
 }
 
 /* Custom Tailwind theme - maps to CSS variables for dynamic theming */
 @theme {
   /* Core colors */
-  --color-board-bg: var(--app-board-bg);
+  --color-board-bg: var(--app-board-bg-solid);
   --color-board-column: var(--app-board-column);
   --color-board-card: var(--app-board-card);
   --color-board-card-hover: var(--app-board-card-hover);
@@ -110,4 +174,142 @@ body {
   --color-status-warning: var(--app-status-warning);
   --color-status-error: var(--app-status-error);
   --color-status-info: var(--app-status-info);
+}
+
+/* ============================================
+   GLASS EFFECT UTILITIES
+   ============================================ */
+
+.glass {
+  background: var(--app-glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--app-glass-border);
+}
+
+.glass-subtle {
+  background: var(--app-glass-bg-subtle);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--app-glass-border-subtle);
+}
+
+.glass-intense {
+  background: var(--app-glass-bg-intense);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--app-glass-border);
+}
+
+/* Gradient background for main app area */
+.app-gradient-bg {
+  background: var(--app-board-bg);
+  min-height: 100vh;
+}
+
+/* Accent gradient for buttons and highlights */
+.accent-gradient {
+  background: var(--app-accent-gradient);
+}
+
+/* Glow effects */
+.glow-accent {
+  box-shadow: var(--app-shadow-glow);
+}
+
+.glow-accent-intense {
+  box-shadow: var(--app-shadow-glow-intense);
+}
+
+.glow-success {
+  box-shadow: 0 0 20px var(--app-status-success-glow);
+}
+
+.glow-warning {
+  box-shadow: 0 0 20px var(--app-status-warning-glow);
+}
+
+.glow-error {
+  box-shadow: 0 0 20px var(--app-status-error-glow);
+}
+
+/* ============================================
+   ANIMATION UTILITIES
+   ============================================ */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: var(--app-shadow-glow);
+  }
+  50% {
+    box-shadow: var(--app-shadow-glow-intense);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+
+/* Custom scrollbar for glass surfaces */
+.glass::-webkit-scrollbar,
+.glass-subtle::-webkit-scrollbar,
+.glass-intense::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.glass::-webkit-scrollbar-track,
+.glass-subtle::-webkit-scrollbar-track,
+.glass-intense::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.glass::-webkit-scrollbar-thumb,
+.glass-subtle::-webkit-scrollbar-thumb,
+.glass-intense::-webkit-scrollbar-thumb {
+  background: var(--app-glass-border);
+  border-radius: 3px;
+}
+
+.glass::-webkit-scrollbar-thumb:hover,
+.glass-subtle::-webkit-scrollbar-thumb:hover,
+.glass-intense::-webkit-scrollbar-thumb:hover {
+  background: var(--app-board-text-muted);
 }

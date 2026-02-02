@@ -72,21 +72,25 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
     return (
       <div className="space-y-6">
         {/* Overview Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-900 dark:text-white">
-            Work Plan Overview
-          </h3>
-          <div className="prose dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <div className="glass rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-board-border glass-subtle">
+            <h3 className="text-lg font-semibold text-board-text">
+              Work Plan Overview
+            </h3>
+          </div>
+          <div className="p-4">
             <MarkdownViewer content={planJson.overview} />
           </div>
         </div>
 
         {/* Execution Flow Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-900 dark:text-white">
-            Execution Flow
-          </h3>
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <div className="glass rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-board-border glass-subtle">
+            <h3 className="text-lg font-semibold text-board-text">
+              Execution Flow
+            </h3>
+          </div>
+          <div className="p-4">
             {(() => {
               const phases = calculateExecutionPhases(planJson.epics);
               const rootCount = phases[0]?.epics.length ?? 0;
@@ -94,17 +98,20 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
               return (
                 <div className="space-y-4">
                   {/* Summary */}
-                  <div className="text-sm text-gray-600 dark:text-gray-300">
+                  <div className="text-sm">
                     {rootCount === 1 ? (
-                      <span className="text-green-600 dark:text-green-400">
-                        ✓ Sequential execution: 1 root epic, {phases.length} phases total
+                      <span className="text-status-success flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-status-success" />
+                        Sequential execution: 1 root epic, {phases.length} phases total
                       </span>
                     ) : rootCount === planJson.epics.length ? (
-                      <span className="text-amber-600 dark:text-amber-400">
-                        ⚠ All {rootCount} epics are root (no dependencies) - all can run in parallel
+                      <span className="text-status-warning flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-status-warning" />
+                        All {rootCount} epics are root (no dependencies) - all can run in parallel
                       </span>
                     ) : (
-                      <span>
+                      <span className="text-board-text-secondary flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-status-info" />
                         {rootCount} root epic{rootCount !== 1 ? 's' : ''} (can start immediately), {phases.length} phases total
                       </span>
                     )}
@@ -115,7 +122,7 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
                     {phases.map(({ phase, epics: phaseEpics }) => (
                       <div key={phase} className="flex items-start gap-3">
                         <div className="flex-shrink-0 w-20 text-right">
-                          <span className="inline-block bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium px-2 py-1 rounded">
+                          <span className="inline-block accent-gradient text-white text-xs font-medium px-2.5 py-1 rounded-full shadow-sm">
                             Phase {phase}
                           </span>
                         </div>
@@ -126,14 +133,14 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
                               return (
                                 <div
                                   key={idx}
-                                  className="group relative bg-white dark:bg-gray-900 border dark:border-gray-700 rounded px-3 py-1.5 text-sm"
+                                  className="group relative glass-intense rounded-lg px-3 py-1.5 text-sm hover:shadow-md transition-all duration-200"
                                 >
-                                  <span className="font-medium text-gray-900 dark:text-white">
+                                  <span className="font-medium text-board-text">
                                     {epic.title}
                                   </span>
                                   {deps.length > 0 && (
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
-                                      <div className="bg-gray-900 dark:bg-gray-700 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                                      <div className="glass-intense text-board-text text-xs rounded-lg px-2 py-1 whitespace-nowrap shadow-lg">
                                         Depends on: {deps.join(', ')}
                                       </div>
                                     </div>
@@ -142,8 +149,8 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
                               );
                             })}
                             {phaseEpics.length > 1 && (
-                              <span className="text-xs text-gray-400 self-center">
-                                (parallel)
+                              <span className="text-xs text-board-text-muted self-center glass-subtle px-2 py-0.5 rounded-full">
+                                parallel
                               </span>
                             )}
                           </div>
@@ -159,7 +166,7 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
 
         {/* Epics Breakdown */}
         <div>
-          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold mb-4 text-board-text">
             Epics ({planJson.epics.length})
           </h3>
           
@@ -167,47 +174,47 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
             {planJson.epics.map((epic, epicIdx) => (
               <div
                 key={epicIdx}
-                className="border dark:border-gray-700 rounded-lg overflow-hidden"
+                className="glass rounded-xl overflow-hidden"
               >
-                <div className="bg-purple-50 dark:bg-purple-900/20 px-4 py-3">
+                <div className="p-4 glass-subtle border-b border-board-border">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="bg-purple-500 text-white text-xs font-medium px-2 py-0.5 rounded">
+                    <span className="accent-gradient text-white text-xs font-medium px-2.5 py-0.5 rounded-full shadow-sm">
                       Epic {epicIdx + 1}
                     </span>
                     {(() => {
                       const deps = normalizeDependencies(epic.dependsOn);
                       if (deps.length === 0) return null;
                       return (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                        <span className="text-xs text-board-text-muted">
                           → depends on: {deps.length === 1 ? deps[0] : deps.join(', ')}
                         </span>
                       );
                     })()}
                   </div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mt-2">
+                  <h4 className="font-medium text-board-text mt-2">
                     {epic.title}
                   </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                  <p className="text-sm text-board-text-secondary mt-1">
                     {epic.description}
                   </p>
                 </div>
 
-                <div className="divide-y dark:divide-gray-700">
+                <div className="divide-y divide-board-border">
                   {epic.tickets.map((ticket, ticketIdx) => (
-                    <div key={ticketIdx} className="px-4 py-3 bg-white dark:bg-gray-900">
+                    <div key={ticketIdx} className="px-4 py-3">
                       <div className="flex items-start gap-3">
-                        <span className="text-gray-400 text-sm font-mono">
+                        <span className="text-board-text-muted text-sm font-mono glass-subtle px-2 py-0.5 rounded">
                           {epicIdx + 1}.{ticketIdx + 1}
                         </span>
                         <div className="flex-1">
-                          <h5 className="font-medium text-gray-900 dark:text-white">
+                          <h5 className="font-medium text-board-text">
                             {ticket.title}
                           </h5>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          <p className="text-sm text-board-text-muted mt-1">
                             {ticket.description}
                           </p>
                           {ticket.acceptanceCriteria && ticket.acceptanceCriteria.length > 0 && (
-                            <ul className="mt-2 text-sm text-gray-600 dark:text-gray-300 list-disc list-inside">
+                            <ul className="mt-2 text-sm text-board-text-secondary list-disc list-inside">
                               {ticket.acceptanceCriteria.map((criteria, i) => (
                                 <li key={i}>{criteria}</li>
                               ))}
@@ -228,7 +235,7 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
 
   // Fallback: show full markdown if no structured data
   return (
-    <div className="prose dark:prose-invert max-w-none">
+    <div className="glass rounded-xl p-6">
       <MarkdownViewer content={markdown} />
     </div>
   );

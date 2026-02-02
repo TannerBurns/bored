@@ -205,7 +205,7 @@ export function CursorSettings() {
       )}
 
       {/* Status Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Status</h3>
         
         <div className="grid grid-cols-2 gap-4 text-sm">
@@ -237,7 +237,7 @@ export function CursorSettings() {
       </div>
 
       {/* Hook Script Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Hook Script</h3>
         <p className="text-sm text-board-text-muted">
           The hook script intercepts Cursor agent events and sends them to Agent Kanban.
@@ -261,7 +261,7 @@ export function CursorSettings() {
       </div>
 
       {/* Install Hooks Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-4">
         <h3 className="font-medium text-board-text">Install Hooks</h3>
         
         <div className="flex gap-4">
@@ -357,7 +357,7 @@ export function CursorSettings() {
       </div>
 
       {/* Command Templates Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-4">
         <h3 className="font-medium text-board-text">Install Commands</h3>
         <p className="text-sm text-board-text-muted">
           Install workflow command templates to enable the QA sequence: deslop, cleanup, unit-tests, review-changes, add-and-commit.
@@ -465,7 +465,7 @@ export function CursorSettings() {
       </div>
 
       {/* Manual Setup Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Manual Setup</h3>
         <p className="text-sm text-board-text-muted">
           If automatic installation doesn't work, manually create/edit:

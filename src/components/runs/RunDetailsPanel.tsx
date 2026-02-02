@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { EventTimeline } from '../timeline/EventTimeline';
+import { cn } from '../../lib/utils';
 import type { AgentRun, RunStatus } from '../../types';
 
 interface AgentLogEvent {
@@ -23,12 +24,21 @@ interface RunDetailsPanelProps {
 }
 
 const STATUS_COLORS: Record<RunStatus, string> = {
-  queued: 'bg-gray-500',
-  running: 'bg-yellow-500',
-  finished: 'bg-green-500',
-  error: 'bg-red-500',
-  aborted: 'bg-gray-600',
-  paused: 'bg-blue-400',
+  queued: 'bg-board-text-muted',
+  running: 'bg-status-warning',
+  finished: 'bg-status-success',
+  error: 'bg-status-error',
+  aborted: 'bg-board-text-muted',
+  paused: 'bg-status-info',
+};
+
+const STATUS_GLOWS: Record<RunStatus, string> = {
+  queued: '',
+  running: 'glow-warning animate-pulse-glow',
+  finished: 'glow-success',
+  error: 'glow-error',
+  aborted: '',
+  paused: '',
 };
 
 function formatDuration(startedAt: Date, endedAt?: Date): string {
@@ -155,20 +165,20 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full bg-board-bg">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-board-text"></div>
+      <div className="flex items-center justify-center h-full glass">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-board-accent border-t-transparent"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-board-bg p-4">
+      <div className="flex flex-col items-center justify-center h-full glass p-4">
         <p className="text-status-error mb-2">Error loading run</p>
         <p className="text-xs text-board-text-muted">{error}</p>
         <button
           onClick={onClose}
-          className="mt-4 px-4 py-2 bg-board-surface hover:bg-board-surface-raised rounded text-sm text-board-text"
+          className="mt-4 px-4 py-2 glass hover:glass-intense rounded-xl text-sm text-board-text transition-all duration-200"
         >
           Close
         </button>
@@ -178,11 +188,11 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
   if (!run) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-board-bg p-4">
+      <div className="flex flex-col items-center justify-center h-full glass p-4">
         <p className="text-board-text-muted">Run not found</p>
         <button
           onClick={onClose}
-          className="mt-4 px-4 py-2 bg-board-surface hover:bg-board-surface-raised rounded text-sm text-board-text"
+          className="mt-4 px-4 py-2 glass hover:glass-intense rounded-xl text-sm text-board-text transition-all duration-200"
         >
           Close
         </button>
@@ -191,21 +201,26 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   }
 
   const agentLabel = run.agentType === 'cursor' ? 'Cursor' : 'Claude';
-  const statusColor = STATUS_COLORS[run.status] || 'bg-gray-500';
+  const statusColor = STATUS_COLORS[run.status] || 'bg-board-text-muted';
+  const statusGlow = STATUS_GLOWS[run.status] || '';
 
   return (
-    <div className="flex flex-col h-full bg-board-bg">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-board-border">
+      <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
         <div className="flex-1">
           <h3 className="font-semibold text-board-text">
             Run {run.id.substring(0, 8)}
           </h3>
-          <div className="flex items-center gap-2 mt-1">
-            <span className={`px-2 py-0.5 text-xs rounded ${statusColor} text-white capitalize`}>
+          <div className="flex items-center gap-3 mt-1">
+            <span className={cn(
+              'px-2.5 py-0.5 text-xs rounded-full text-white capitalize shadow-sm',
+              statusColor,
+              statusGlow
+            )}>
               {run.status}
             </span>
-            <span className="text-sm text-board-text-muted">
+            <span className="text-sm text-board-text-muted glass-subtle px-2 py-0.5 rounded-lg">
               {agentLabel}
             </span>
             <span className="text-xs text-board-text-muted">
@@ -215,7 +230,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         </div>
         <button
           onClick={onClose}
-          className="p-2 text-board-text-muted hover:text-board-text hover:bg-board-surface rounded transition-colors"
+          className="p-2 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-xl transition-all duration-200"
           aria-label="Close"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -225,26 +240,40 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-board-border">
+      <div className="flex border-b border-board-border px-4">
         <button
           onClick={() => setActiveTab('timeline')}
-          className={`px-4 py-2 text-sm transition-colors ${
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative',
             activeTab === 'timeline'
-              ? 'border-b-2 border-board-accent text-board-text'
+              ? 'text-board-accent'
               : 'text-board-text-muted hover:text-board-text'
-          }`}
+          )}
         >
           Timeline
+          {activeTab === 'timeline' && (
+            <div 
+              className="absolute bottom-0 left-0 right-0 h-0.5"
+              style={{ background: 'var(--app-accent-gradient)' }}
+            />
+          )}
         </button>
         <button
           onClick={() => setActiveTab('logs')}
-          className={`px-4 py-2 text-sm transition-colors ${
+          className={cn(
+            'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative',
             activeTab === 'logs'
-              ? 'border-b-2 border-board-accent text-board-text'
+              ? 'text-board-accent'
               : 'text-board-text-muted hover:text-board-text'
-          }`}
+          )}
         >
           Logs
+          {activeTab === 'logs' && (
+            <div 
+              className="absolute bottom-0 left-0 right-0 h-0.5"
+              style={{ background: 'var(--app-accent-gradient)' }}
+            />
+          )}
         </button>
       </div>
 
@@ -257,7 +286,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         {activeTab === 'timeline' ? (
           <EventTimeline runId={runId} />
         ) : (
-          <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5">
+          <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5 glass rounded-xl p-4">
             {logs.length === 0 ? (
               <p className="text-board-text-muted italic">
                 {run?.status === 'running' || run?.status === 'queued'
@@ -268,9 +297,10 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
               logs.map((entry) => (
                 <div
                   key={entry.id}
-                  className={`py-0.5 ${
+                  className={cn(
+                    'py-0.5',
                     entry.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
-                  }`}
+                  )}
                 >
                   <span className="text-board-text-muted select-none">
                     [{entry.timestamp.toLocaleTimeString()}]
@@ -286,7 +316,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
 
       {/* Summary Footer */}
       {run.summaryMd && (
-        <div className="p-4 border-t border-board-border bg-board-surface/50">
+        <div className="p-4 border-t border-board-border glass-subtle">
           <h4 className="text-sm font-medium text-board-text-muted mb-2">Summary</h4>
           <p className="text-sm text-board-text-secondary">{run.summaryMd}</p>
         </div>
@@ -297,12 +327,15 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         <div className="flex flex-wrap gap-4">
           <span>
             <span className="text-board-text-secondary">Path:</span>{' '}
-            <code className="bg-board-surface px-1 rounded">{run.repoPath}</code>
+            <code className="glass-subtle px-1.5 py-0.5 rounded">{run.repoPath}</code>
           </span>
           {run.exitCode !== undefined && run.exitCode !== null && (
             <span>
               <span className="text-board-text-secondary">Exit code:</span>{' '}
-              <code className={`px-1 rounded ${run.exitCode === 0 ? 'bg-status-success/20 text-status-success' : 'bg-status-error/20 text-status-error'}`}>
+              <code className={cn(
+                'px-1.5 py-0.5 rounded',
+                run.exitCode === 0 ? 'bg-status-success/20 text-status-success' : 'bg-status-error/20 text-status-error'
+              )}>
                 {run.exitCode}
               </code>
             </span>

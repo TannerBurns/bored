@@ -153,7 +153,7 @@ export function DataSettings() {
       </div>
 
       {/* Storage Info */}
-      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-5 space-y-4">
         <div>
           <h3 className="font-medium text-board-text">Local Storage</h3>
           <p className="text-sm text-board-text-muted mt-0.5">
@@ -174,7 +174,7 @@ export function DataSettings() {
       </div>
 
       {/* Cleanup Stale Runs */}
-      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-5 space-y-4">
         <div className="flex items-start gap-3">
           <div className="p-2 bg-status-warning/10 rounded-lg">
             <RefreshIcon className="w-5 h-5 text-status-warning" />
@@ -212,7 +212,7 @@ export function DataSettings() {
       </div>
 
       {/* Factory Reset */}
-      <div className="bg-board-surface rounded-xl p-5 space-y-4 border border-status-error/30">
+      <div className="glass rounded-xl p-5 space-y-4 ring-1 ring-status-error/30">
         <div className="flex items-start gap-3">
           <div className="p-2 bg-status-error/10 rounded-lg">
             <TrashIcon className="w-5 h-5 text-status-error" />

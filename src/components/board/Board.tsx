@@ -103,8 +103,8 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
 
         <DragOverlay dropAnimation={null}>
           {activeTicket && (
-            <div className="rotate-3 opacity-90">
-              <TicketPreview ticket={activeTicket} />
+            <div className="rotate-2 scale-105 transition-transform duration-150">
+              <TicketPreview ticket={activeTicket} isDragging />
             </div>
           )}
         </DragOverlay>

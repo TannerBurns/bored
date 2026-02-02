@@ -40,16 +40,16 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       {...listeners}
       onClick={handleClick}
       className={cn(
-        'bg-board-card p-3 rounded-lg cursor-pointer border-l-4 border border-board-border border-l-4',
-        'hover:bg-board-card-hover hover:shadow-md transition-all duration-150',
+        'glass-intense p-3 rounded-xl cursor-pointer border-l-4 transition-all duration-200',
+        'hover:shadow-lg hover:-translate-y-0.5',
         PRIORITY_BORDER_COLORS[ticket.priority],
-        isDragging && 'opacity-50 ring-2 ring-board-accent shadow-lg',
-        ticket.isEpic && 'ring-1 ring-purple-500/30'
+        isDragging && 'opacity-50 ring-2 ring-board-accent shadow-xl glow-accent-intense scale-105',
+        ticket.isEpic && 'ring-1 ring-purple-500/40'
       )}
     >
       <div className="flex items-center gap-2 mb-2">
         {ticket.isEpic && (
-          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded font-medium">
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium accent-gradient text-white shadow-sm">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="10"
@@ -67,7 +67,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
           </span>
         )}
         {ticket.epicId && (
-          <span className="text-xs text-purple-400/70 truncate" title="Part of an Epic">
+          <span className="text-xs text-purple-400/70 truncate flex items-center" title="Part of an Epic">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="10"
@@ -78,7 +78,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="inline mr-1"
+              className="mr-1"
             >
               <polyline points="9 18 15 12 9 6" />
             </svg>
@@ -93,7 +93,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
           {ticket.labels.slice(0, 3).map((label) => (
             <span
               key={label}
-              className="text-xs px-2 py-0.5 bg-board-surface rounded-full text-board-text-secondary"
+              className="text-xs px-2 py-0.5 glass-subtle rounded-full text-board-text-secondary"
             >
               {label}
             </span>
@@ -107,7 +107,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       )}
       
       <div className="flex items-center justify-between text-xs text-board-text-muted">
-        <span>{ticket.agentPref || 'any'}</span>
+        <span className="glass-subtle px-2 py-0.5 rounded-full">{ticket.agentPref || 'any'}</span>
         <div className="flex items-center gap-2">
           {!ticket.projectId && (
             <span className="text-status-warning flex items-center gap-1">
@@ -130,7 +130,10 @@ export function Ticket({ ticket, onClick }: TicketProps) {
             </span>
           )}
           {ticket.lockedByRunId && (
-            <span className="text-status-warning font-medium">Running</span>
+            <span className="text-status-warning font-medium flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
+              Running
+            </span>
           )}
         </div>
       </div>

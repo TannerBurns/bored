@@ -49,9 +49,12 @@ export function MarkdownViewer({ content, className }: MarkdownViewerProps) {
         'prose-p:text-board-text-secondary prose-p:my-2',
         'prose-a:text-board-accent prose-a:no-underline hover:prose-a:underline',
         'prose-strong:text-board-text prose-strong:font-semibold',
-        'prose-code:text-board-accent prose-code:bg-board-surface-raised prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none',
-        'prose-pre:bg-board-surface-raised prose-pre:border prose-pre:border-board-border',
-        'prose-blockquote:border-l-board-accent prose-blockquote:text-board-text-muted',
+        // Code styling with glass effect
+        'prose-code:text-board-accent prose-code:glass-subtle prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-lg prose-code:text-sm prose-code:before:content-none prose-code:after:content-none',
+        // Pre/code block with glass effect and gradient border
+        'prose-pre:glass prose-pre:rounded-xl prose-pre:border-none prose-pre:relative',
+        // Blockquote with gradient left border
+        'prose-blockquote:border-l-4 prose-blockquote:border-l-board-accent prose-blockquote:text-board-text-muted prose-blockquote:pl-4 prose-blockquote:italic',
         'prose-ul:text-board-text-secondary prose-ol:text-board-text-secondary',
         'prose-li:my-0.5',
         'prose-hr:border-board-border',

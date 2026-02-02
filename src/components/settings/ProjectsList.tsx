@@ -200,7 +200,7 @@ export function ProjectsList() {
 
       {/* Add existing project form */}
       {addMode === 'existing' && (
-        <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+        <div className="glass rounded-xl p-4 space-y-3">
           <div className="text-sm font-medium text-board-text-secondary mb-2">Add Existing Project</div>
           <div>
             <label className="block text-sm text-board-text-secondary mb-1.5">Name</label>
@@ -304,7 +304,7 @@ export function ProjectsList() {
 
       {/* Create new project form */}
       {addMode === 'create' && (
-        <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+        <div className="glass rounded-xl p-4 space-y-3">
           <div className="text-sm font-medium text-board-text-secondary mb-2">Create New Project</div>
           <div>
             <label className="block text-sm text-board-text-secondary mb-1.5">Parent Directory</label>
@@ -384,7 +384,7 @@ export function ProjectsList() {
         {projects.map((project) => (
           <div
             key={project.id}
-            className="flex items-center justify-between bg-board-surface rounded-xl p-4 border border-board-border"
+            className="flex items-center justify-between glass rounded-xl p-4"
           >
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate text-board-text">{project.name}</div>

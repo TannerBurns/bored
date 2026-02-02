@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { cn } from '../../lib/utils';
+import { Button } from '../common/Button';
 import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';
 import { logger } from '../../lib/logger';
 import {
@@ -189,6 +191,17 @@ export function WorkerPanel({ projects }: Props) {
         return 'bg-board-text-muted';
     }
   };
+  
+  const getStatusGlow = (status: WorkerStatus['status']) => {
+    switch (status) {
+      case 'running':
+        return 'glow-success';
+      case 'idle':
+        return '';
+      case 'stopped':
+        return '';
+    }
+  };
 
   const formatDate = (date: Date | string | undefined) => {
     if (!date) return 'Never';
@@ -201,34 +214,35 @@ export function WorkerPanel({ projects }: Props) {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-board-text">Agent Workers</h2>
         {workers.length > 0 && (
-          <button
+          <Button
             onClick={handleStopAll}
-            className="px-3 py-1.5 bg-status-error text-white text-sm rounded-lg hover:opacity-90 transition-colors"
+            variant="danger"
+            size="sm"
           >
             Stop All
-          </button>
+          </Button>
         )}
       </div>
 
       {error && (
-        <div className="bg-status-error/10 border border-status-error/30 rounded-xl p-3 text-status-error text-sm">
-          {error}
+        <div className="glass rounded-xl p-4 ring-1 ring-status-error/50 glow-error">
+          <p className="text-status-error text-sm">{error}</p>
         </div>
       )}
 
       {/* Queue Status Cards */}
-      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+      <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-board-text-muted mb-4">Queue Status</h3>
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+          <div className="glass-intense rounded-xl p-4 text-center">
             <div className="text-3xl font-bold text-board-text">{queueStatus.readyCount}</div>
             <div className="text-sm text-board-text-muted mt-1">Ready</div>
           </div>
-          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+          <div className="glass-intense rounded-xl p-4 text-center">
             <div className="text-3xl font-bold text-status-warning">{queueStatus.inProgressCount}</div>
             <div className="text-sm text-board-text-muted mt-1">In Progress</div>
           </div>
-          <div className="bg-board-surface-raised rounded-xl p-4 text-center border border-board-border">
+          <div className="glass-intense rounded-xl p-4 text-center">
             <div className="text-3xl font-bold text-status-success">{queueStatus.workerCount}</div>
             <div className="text-sm text-board-text-muted mt-1">Workers</div>
           </div>
@@ -236,12 +250,12 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {/* Start New Worker */}
-      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+      <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-board-text-muted mb-4">Start New Worker</h3>
 
         <div className="space-y-4">
           <div className="flex gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="radio"
                 name="agentType"
@@ -249,9 +263,9 @@ export function WorkerPanel({ projects }: Props) {
                 onChange={() => setNewWorkerType('cursor')}
                 className="w-4 h-4 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-board-text">Cursor</span>
+              <span className="text-board-text group-hover:text-board-accent transition-colors">Cursor</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer group">
               <input
                 type="radio"
                 name="agentType"
@@ -259,14 +273,14 @@ export function WorkerPanel({ projects }: Props) {
                 onChange={() => setNewWorkerType('claude')}
                 className="w-4 h-4 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-board-text">Claude</span>
+              <span className="text-board-text group-hover:text-board-accent transition-colors">Claude</span>
             </label>
           </div>
 
           <select
             value={newWorkerProject}
             onChange={(e) => setNewWorkerProject(e.target.value)}
-            className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
+            className="w-full px-3 py-2.5 glass rounded-xl text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/30 transition-all duration-200"
           >
             <option value="">All projects (no filter)</option>
             {projects.map((project) => (
@@ -278,10 +292,13 @@ export function WorkerPanel({ projects }: Props) {
 
           {/* Validation Status */}
           {newWorkerProject && validationResult && (
-            <div className={`rounded-xl p-4 border ${validationResult.valid ? 'bg-status-success/10 border-status-success/30' : 'bg-status-error/10 border-status-error/30'}`}>
+            <div className={cn(
+              'glass rounded-xl p-4 ring-1',
+              validationResult.valid ? 'ring-status-success/50 glow-success' : 'ring-status-error/50 glow-error'
+            )}>
               <div className="flex items-center gap-2 mb-2">
-                <span className={`w-2 h-2 rounded-full ${validationResult.valid ? 'bg-status-success' : 'bg-status-error'}`} />
-                <span className={`font-medium ${validationResult.valid ? 'text-status-success' : 'text-status-error'}`}>
+                <span className={cn('w-2 h-2 rounded-full', validationResult.valid ? 'bg-status-success' : 'bg-status-error')} />
+                <span className={cn('font-medium', validationResult.valid ? 'text-status-success' : 'text-status-error')}>
                   {validationResult.valid ? 'Environment Ready' : 'Environment Issues'}
                 </span>
               </div>
@@ -290,17 +307,21 @@ export function WorkerPanel({ projects }: Props) {
                 {validationResult.checks.map((check) => (
                   <div key={check.name} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
-                      <span className={`w-1.5 h-1.5 rounded-full ${check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'}`} />
+                      <span className={cn(
+                        'w-1.5 h-1.5 rounded-full',
+                        check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'
+                      )} />
                       <span className="text-board-text-secondary">{check.message}</span>
                     </div>
                     {!check.passed && check.fixAction && (
-                      <button
+                      <Button
                         onClick={() => handleFix(check.fixAction!)}
                         disabled={isFixing}
-                        className="px-2 py-1 text-xs bg-board-accent text-white rounded hover:bg-board-accent-hover disabled:opacity-50"
+                        size="sm"
+                        variant="primary"
                       >
                         {isFixing ? 'Fixing...' : 'Fix'}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ))}
@@ -320,11 +341,13 @@ export function WorkerPanel({ projects }: Props) {
           )}
 
           {isValidating && (
-            <div className="text-sm text-board-text-muted text-center">Validating environment...</div>
+            <div className="text-sm text-board-text-muted text-center glass-subtle rounded-xl py-3">
+              Validating environment...
+            </div>
           )}
 
           {validationError && (
-            <div className="rounded-xl p-4 border bg-status-error/10 border-status-error/30">
+            <div className="glass rounded-xl p-4 ring-1 ring-status-error/50">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-status-error" />
                 <span className="font-medium text-status-error">Validation Error</span>
@@ -333,22 +356,23 @@ export function WorkerPanel({ projects }: Props) {
             </div>
           )}
 
-          <button
+          <Button
             onClick={handleStartWorker}
             disabled={isStarting || isValidating || !!validationError || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
-            className="w-full px-4 py-2.5 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            variant="primary"
+            className="w-full"
           >
             {isStarting ? 'Starting...' : isValidating ? 'Validating...' : 'Start Worker'}
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Active Workers */}
-      <div className="bg-board-surface rounded-xl p-5 border border-board-border">
+      <div className="glass rounded-xl p-5">
         <h3 className="text-sm font-medium text-board-text-muted mb-4">Active Workers</h3>
 
         {workers.length === 0 ? (
-          <div className="text-center py-8">
+          <div className="text-center py-8 glass-subtle rounded-xl">
             <div className="text-board-text-muted text-sm">No workers running</div>
             <p className="text-board-text-muted/60 text-xs mt-1">Start a worker above to begin processing tickets</p>
           </div>
@@ -359,17 +383,21 @@ export function WorkerPanel({ projects }: Props) {
               return (
                 <div
                   key={worker.id}
-                  className="flex items-center justify-between bg-board-surface-raised rounded-xl p-4 border border-board-border"
+                  className="flex items-center justify-between glass-intense rounded-xl p-4"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`w-2 h-2 rounded-full ${getStatusColor(worker.status)}`}
+                        className={cn(
+                          'w-2.5 h-2.5 rounded-full',
+                          getStatusColor(worker.status),
+                          getStatusGlow(worker.status)
+                        )}
                       />
                       <span className="font-medium text-board-text">
                         {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
                       </span>
-                      <span className="text-xs text-board-text-muted px-2 py-0.5 bg-board-surface rounded-full">
+                      <span className="text-xs text-board-text-muted px-2 py-0.5 glass-subtle rounded-full">
                         {worker.status}
                       </span>
                     </div>
@@ -378,7 +406,8 @@ export function WorkerPanel({ projects }: Props) {
                       {worker.ticketsProcessed} processed
                     </div>
                     {worker.currentTicketId && (
-                      <div className="text-xs text-board-accent mt-1 truncate">
+                      <div className="text-xs text-board-accent mt-1 truncate flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-board-accent animate-pulse" />
                         Working on: {worker.currentTicketId.substring(0, 8)}...
                       </div>
                     )}
@@ -386,12 +415,13 @@ export function WorkerPanel({ projects }: Props) {
                       Last poll: {formatDate(worker.lastPollAt)}
                     </div>
                   </div>
-                  <button
+                  <Button
                     onClick={() => handleStopWorker(worker.id, worker.status === 'running' && !!worker.currentTicketId)}
-                    className="px-3 py-1.5 bg-board-surface border border-board-border text-sm text-board-text-secondary rounded-lg hover:bg-board-card-hover transition-colors ml-3"
+                    variant="secondary"
+                    size="sm"
                   >
                     Stop
-                  </button>
+                  </Button>
                 </div>
               );
             })}
@@ -400,7 +430,7 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {/* Info Card */}
-      <div className="bg-status-info/10 border border-status-info/30 rounded-xl p-4 text-sm">
+      <div className="glass rounded-xl p-4 text-sm ring-1 ring-status-info/30">
         <h4 className="font-medium text-status-info mb-2">How Workers Operate</h4>
         <ul className="text-board-text-secondary space-y-1 list-disc list-inside">
           <li>Workers continuously poll for tickets in the Ready column</li>

@@ -278,7 +278,7 @@ export function ClaudeSettings() {
       )}
 
       {/* Status Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Status</h3>
         
         <div className="grid grid-cols-2 gap-4 text-sm">
@@ -310,7 +310,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* API Configuration Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-4">
         <h3 className="font-medium text-board-text">API Configuration</h3>
         <p className="text-sm text-board-text-muted">
           Configure custom API credentials for Claude Code. Leave fields empty to use system defaults.
@@ -383,7 +383,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* Hook Script Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Hook Script</h3>
         <p className="text-sm text-board-text-muted">
           The hook script intercepts Claude Code lifecycle events and sends them to Agent Kanban.
@@ -407,7 +407,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* Install Hooks Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-4">
         <h3 className="font-medium text-board-text">Install Hooks</h3>
         
         <div className="flex gap-4">
@@ -503,7 +503,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* Command Templates Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-4">
         <h3 className="font-medium text-board-text">Install Commands</h3>
         <p className="text-sm text-board-text-muted">
           Install workflow command templates to enable the QA sequence. Claude agents read and follow these files during the workflow.
@@ -611,7 +611,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* Settings File Locations */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Settings File Locations</h3>
         <ul className="text-sm text-board-text-muted space-y-2">
           <li>
@@ -660,7 +660,7 @@ export function ClaudeSettings() {
       </div>
 
       {/* Supported Hooks Table */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
+      <div className="glass rounded-xl p-4 space-y-3">
         <h3 className="font-medium text-board-text">Supported Hooks</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

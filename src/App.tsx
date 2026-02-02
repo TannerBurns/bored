@@ -353,7 +353,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-board-bg text-board-text">
+    <div className="flex h-screen app-gradient-bg text-board-text">
       <Sidebar
         navItems={navItems}
         activeItem={activeNav}
@@ -384,7 +384,7 @@ function App() {
             activeNav === 'boards' && boards.length > 0 ? (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors flex items-center gap-2 shadow-sm"
+                className="px-4 py-2 accent-gradient text-white rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all duration-200 flex items-center gap-2 shadow-md glow-accent"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -410,11 +410,11 @@ function App() {
           <div className="flex-1 overflow-hidden">
             {isLoading ? (
               <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-board-text"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-board-accent border-t-transparent"></div>
               </div>
             ) : boards.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full">
-                <div className="text-center max-w-md">
+                <div className="text-center max-w-md glass rounded-2xl p-8">
                   <svg
                     className="w-16 h-16 mx-auto text-board-text-muted mb-4"
                     viewBox="0 0 24 24"
@@ -435,7 +435,7 @@ function App() {
                   </p>
                   <button
                     onClick={() => setIsCreateBoardModalOpen(true)}
-                    className="px-6 py-3 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors font-medium shadow-sm"
+                    className="px-6 py-3 accent-gradient text-white rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all duration-200 font-medium shadow-md glow-accent"
                   >
                     Create Your First Board
                   </button>
@@ -455,13 +455,13 @@ function App() {
         {activeNav === 'specs' && (
           <div className="flex-1 overflow-hidden flex gap-4">
             {/* Spec List */}
-            <div className="w-80 bg-board-column rounded-xl border border-board-border overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-board-border flex items-center justify-between">
+            <div className="w-80 glass rounded-2xl overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-board-border flex items-center justify-between glass-subtle">
                 <h3 className="font-semibold text-board-text">Specs</h3>
                 <button
                   onClick={() => setIsCreateSpecModalOpen(true)}
                   disabled={!currentBoard}
-                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={currentBoard ? 'Create new spec' : 'Select a board first'}
                 >
                   <svg
@@ -491,7 +491,7 @@ function App() {
             </div>
             
             {/* Spec Detail */}
-            <div className="flex-1 bg-board-column rounded-xl border border-board-border overflow-hidden">
+            <div className="flex-1 glass rounded-2xl overflow-hidden">
               {selectedSpec ? (
                 <SpecDetail
                   spec={selectedSpec}
@@ -502,7 +502,7 @@ function App() {
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-board-text-muted">
-                  <div className="text-center">
+                  <div className="text-center glass-subtle rounded-xl p-8">
                     <svg
                       className="w-12 h-12 mx-auto mb-3 opacity-50"
                       viewBox="0 0 24 24"
@@ -528,7 +528,7 @@ function App() {
         )}
 
         {activeNav === 'runs' && (
-          <div className="bg-board-column rounded-xl p-6 border border-board-border overflow-auto">
+          <div className="glass rounded-2xl p-6 overflow-auto">
             <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
             <p className="text-board-text-secondary mb-4">
               View active and completed agent runs.
@@ -546,7 +546,7 @@ function App() {
                     .map((ticket) => (
                       <div
                         key={ticket.id}
-                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
+                        className="p-3 glass-intense rounded-xl flex items-center justify-between glow-warning"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -576,7 +576,7 @@ function App() {
               </h4>
               <div className="space-y-2">
                 {recentRuns.length === 0 ? (
-                  <p className="text-board-text-muted text-sm">No runs yet. Start a run from a ticket to see activity.</p>
+                  <p className="text-board-text-muted text-sm glass-subtle rounded-xl p-4 text-center">No runs yet. Start a run from a ticket to see activity.</p>
                 ) : (
                   recentRuns.map((run) => {
                     const ticket = tickets.find((t) => t.id === run.ticketId);
@@ -597,7 +597,7 @@ function App() {
                     return (
                       <div
                         key={run.id}
-                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
+                        className="p-3 glass-intense rounded-xl flex items-center justify-between hover:shadow-md transition-all duration-200"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -627,7 +627,7 @@ function App() {
         )}
 
         {activeNav === 'workers' && (
-          <div className="flex-1 overflow-auto bg-board-column rounded-lg">
+          <div className="flex-1 overflow-auto glass rounded-2xl">
             <WorkerPanel projects={projects} />
           </div>
         )}
@@ -635,61 +635,30 @@ function App() {
         {activeNav === 'settings' && (
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Settings Tabs */}
-            <div className="flex border-b border-board-border mb-4">
-              <button
-                onClick={() => setSettingsTab('general')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'general'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                General
-              </button>
-              <button
-                onClick={() => setSettingsTab('projects')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'projects'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Projects
-              </button>
-              <button
-                onClick={() => setSettingsTab('cursor')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'cursor'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Cursor
-              </button>
-              <button
-                onClick={() => setSettingsTab('claude')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'claude'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Claude Code
-              </button>
-              <button
-                onClick={() => setSettingsTab('data')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'data'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Data
-              </button>
+            <div className="flex gap-1 mb-4">
+              {[
+                { id: 'general', label: 'General' },
+                { id: 'projects', label: 'Projects' },
+                { id: 'cursor', label: 'Cursor' },
+                { id: 'claude', label: 'Claude Code' },
+                { id: 'data', label: 'Data' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSettingsTab(tab.id as typeof settingsTab)}
+                  className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${
+                    settingsTab === tab.id
+                      ? 'accent-gradient text-white shadow-md glow-accent'
+                      : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
             
             {/* Settings Content */}
-            <div className="flex-1 overflow-auto bg-board-column rounded-xl p-6 border border-board-border">
+            <div className="flex-1 overflow-auto glass rounded-2xl p-6">
               {settingsTab === 'general' && <GeneralSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}
