@@ -1177,8 +1177,15 @@ Do NOT start implementing any code changes. Just create the branch.
                     .unwrap_or_else(|| output.clone());
                 
                 // Limit output size to avoid huge metadata (keep first 50KB)
+                // Use char_indices to find a safe UTF-8 boundary to avoid panic on multi-byte chars
                 let truncated_output = if extracted_output.len() > 50_000 {
-                    format!("{}...[truncated]", &extracted_output[..50_000])
+                    let safe_boundary = extracted_output
+                        .char_indices()
+                        .take_while(|(idx, _)| *idx < 50_000)
+                        .last()
+                        .map(|(idx, c)| idx + c.len_utf8())
+                        .unwrap_or(0);
+                    format!("{}...[truncated]", &extracted_output[..safe_boundary])
                 } else {
                     extracted_output
                 };

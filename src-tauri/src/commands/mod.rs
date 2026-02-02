@@ -16,7 +16,9 @@ pub use runs::{start_agent_run, get_agent_runs, get_recent_runs, get_agent_run, 
 pub use specs::{
     create_spec, get_specs, get_spec, update_spec, delete_spec,
     set_spec_status, append_spec_exploration, set_spec_plan, approve_plan,
-    get_spec_tickets, start_planner, execute_plan,
+    get_spec_tickets, start_planner, execute_plan, start_spec_work,
+    get_spec_progress, pause_spec_work, resume_spec_work, halt_spec_work,
+    get_spec_eta,
 };
 pub use tasks::{
     get_tasks, get_task, create_task, add_preset_task, delete_task,
