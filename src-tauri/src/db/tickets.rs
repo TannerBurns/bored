@@ -190,7 +190,11 @@ impl Database {
     /// 
     /// This method uses atomic locking semantics: it only acquires the lock if:
     /// - The ticket is not currently locked (locked_by_run_id IS NULL), OR
+    /// - The same run already holds the lock (locked_by_run_id = run_id), OR
     /// - The existing lock has expired (lock_expires_at < now)
+    /// 
+    /// The second condition allows a paused run to re-acquire its lock when resuming,
+    /// since the lock is preserved during pause to maintain exclusive access.
     /// 
     /// Returns Ok(()) if the lock was acquired, Err(LockConflict) if another run
     /// holds a valid lock, or Err(NotFound) if the ticket doesn't exist.
@@ -204,17 +208,19 @@ impl Database {
             let now = chrono::Utc::now();
             let now_str = now.to_rfc3339();
             
-            // Atomically acquire lock only if not held by another run
+            // Atomically acquire lock only if not held by another run.
+            // Also allow the same run to re-acquire its own lock (for resume after pause).
             let affected = conn.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?, lock_expires_at = ?, updated_at = ?
                    WHERE id = ? 
-                     AND (locked_by_run_id IS NULL OR lock_expires_at < ?)"#,
+                     AND (locked_by_run_id IS NULL OR locked_by_run_id = ? OR lock_expires_at < ?)"#,
                 rusqlite::params![
                     run_id,
                     expires_at.to_rfc3339(),
                     now_str,
                     ticket_id,
+                    run_id,
                     now_str,
                 ],
             )?;
@@ -1745,6 +1751,50 @@ mod tests {
         // Original lock should still be in place
         let locked = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(locked.locked_by_run_id, Some("run-1".to_string()));
+    }
+
+    #[test]
+    fn lock_ticket_succeeds_when_same_run_reacquires() {
+        // This test verifies that a paused run can re-acquire its own lock when resuming.
+        // When a ticket is paused, the lock is preserved (not unlocked). When the run
+        // resumes, it needs to re-lock the ticket with a new expiration time.
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        
+        // First lock should succeed
+        db.lock_ticket(&ticket.id, "run-1", expires).unwrap();
+        
+        // Same run re-acquiring lock should succeed (simulates resume after pause)
+        let new_expires = chrono::Utc::now() + chrono::Duration::minutes(60);
+        db.lock_ticket(&ticket.id, "run-1", new_expires).unwrap();
+        
+        // Lock should be updated with new expiration
+        let locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(locked.locked_by_run_id, Some("run-1".to_string()));
+        // Verify expiration was updated (new_expires > original expires)
+        assert!(locked.lock_expires_at.unwrap() > expires);
     }
 
     #[test]
