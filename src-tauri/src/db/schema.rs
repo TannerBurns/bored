@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 14;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -64,13 +64,14 @@ CREATE TABLE IF NOT EXISTS scratchpads (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     user_input TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
     agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
     model TEXT,
     exploration_log TEXT,
     plan_markdown TEXT,
     plan_json TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
+    work_started_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -110,7 +111,11 @@ CREATE TABLE IF NOT EXISTS tickets (
     -- All epic dependencies as JSON array of IDs (for display purposes)
     depends_on_epic_ids_json TEXT,
     -- Link back to scratchpad that created this ticket
-    scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL
+    scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL,
+    -- Pause state for tickets
+    paused_at TEXT,
+    paused_at_stage TEXT,
+    paused_run_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -334,6 +339,18 @@ CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHER
 pub const MIGRATION_V13: &str = r#"
 -- Add depends_on_epic_ids_json column to store all epic dependencies as JSON array
 ALTER TABLE tickets ADD COLUMN depends_on_epic_ids_json TEXT;
+"#;
+
+/// Migration SQL for schema version 14
+/// Adds pause/resume support for scratchpads and tickets, plus work_started_at for ETA
+pub const MIGRATION_V14: &str = r#"
+-- Add work_started_at to scratchpads for ETA tracking
+ALTER TABLE scratchpads ADD COLUMN work_started_at TEXT;
+
+-- Add pause columns to tickets
+ALTER TABLE tickets ADD COLUMN paused_at TEXT;
+ALTER TABLE tickets ADD COLUMN paused_at_stage TEXT;
+ALTER TABLE tickets ADD COLUMN paused_run_id TEXT;
 "#;
 
 /// Default columns for a new board

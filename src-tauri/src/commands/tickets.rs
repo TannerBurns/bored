@@ -277,3 +277,43 @@ pub async fn reorder_epic_children(
     tracing::info!("Reordering children for epic {}: {:?}", epic_id, child_ids);
     db.reorder_epic_children(&epic_id, &child_ids).map_err(|e| e.to_string())
 }
+
+/// Pause a ticket's execution - saves current stage and run ID for later resume
+#[tauri::command]
+pub async fn pause_ticket(
+    ticket_id: String,
+    stage: String,
+    run_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    tracing::info!("Pausing ticket {} at stage {} (run {})", ticket_id, stage, run_id);
+    db.pause_ticket(&ticket_id, &stage, &run_id).map_err(|e| e.to_string())
+}
+
+/// Resume a paused ticket - returns the stage to resume from
+#[tauri::command]
+pub async fn resume_ticket(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<String>, String> {
+    tracing::info!("Resuming ticket {}", ticket_id);
+    db.resume_ticket(&ticket_id).map_err(|e| e.to_string())
+}
+
+/// Check if a ticket is currently paused
+#[tauri::command]
+pub async fn is_ticket_paused(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<bool, String> {
+    db.is_ticket_paused(&ticket_id).map_err(|e| e.to_string())
+}
+
+/// Get all paused tickets for a scratchpad
+#[tauri::command]
+pub async fn get_paused_tickets(
+    scratchpad_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<Ticket>, String> {
+    db.get_paused_tickets(&scratchpad_id).map_err(|e| e.to_string())
+}

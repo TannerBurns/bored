@@ -340,6 +340,15 @@ fn main() {
             commands::scratchpads::execute_plan,
             commands::scratchpads::start_scratchpad_work,
             commands::scratchpads::get_scratchpad_progress,
+            commands::scratchpads::pause_scratchpad_work,
+            commands::scratchpads::resume_scratchpad_work,
+            commands::scratchpads::halt_scratchpad_work,
+            commands::scratchpads::get_scratchpad_eta,
+            // Ticket pause/resume commands
+            commands::tickets::pause_ticket,
+            commands::tickets::resume_ticket,
+            commands::tickets::is_ticket_paused,
+            commands::tickets::get_paused_tickets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

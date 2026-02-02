@@ -44,6 +44,7 @@ impl Database {
                 plan_markdown: None,
                 plan_json: None,
                 settings: input.settings.clone(),
+                work_started_at: None,
                 created_at: now,
                 updated_at: now,
             })
@@ -54,7 +55,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
-                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                          exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
             
@@ -72,7 +73,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
-                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                          exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
                    FROM scratchpads WHERE board_id = ?
                    ORDER BY created_at DESC"#
             )?;
@@ -87,7 +88,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
-                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                          exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
                    FROM scratchpads
                    ORDER BY created_at DESC"#
             )?;
@@ -103,7 +104,7 @@ impl Database {
             let existing = {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
-                              exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                              exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
                        FROM scratchpads WHERE id = ?"#
                 )?;
                 stmt.query_row([id], Self::map_scratchpad_row)
@@ -153,7 +154,7 @@ impl Database {
             // Re-query to return updated
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model,
-                          exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
+                          exploration_log, plan_markdown, plan_json, settings_json, work_started_at, created_at, updated_at
                    FROM scratchpads WHERE id = ?"#
             )?;
             stmt.query_row([id], Self::map_scratchpad_row)
@@ -285,6 +286,137 @@ impl Database {
         })
     }
 
+    /// Pause work on a scratchpad - sets status to Paused
+    pub fn pause_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            // Check current status - can only pause if Working
+            let current_status: String = conn.query_row(
+                "SELECT status FROM scratchpads WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            if current_status != "working" {
+                return Err(DbError::Validation(format!(
+                    "Cannot pause: scratchpad is in '{}' status, must be 'working'",
+                    current_status
+                )));
+            }
+            
+            conn.execute(
+                "UPDATE scratchpads SET status = 'paused', updated_at = ? WHERE id = ?",
+                rusqlite::params![now, id],
+            )?;
+            
+            Ok(())
+        })
+    }
+
+    /// Resume work on a paused scratchpad - sets status back to Working
+    pub fn resume_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            // Check current status - can only resume if Paused
+            let current_status: String = conn.query_row(
+                "SELECT status FROM scratchpads WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            if current_status != "paused" {
+                return Err(DbError::Validation(format!(
+                    "Cannot resume: scratchpad is in '{}' status, must be 'paused'",
+                    current_status
+                )));
+            }
+            
+            conn.execute(
+                "UPDATE scratchpads SET status = 'working', updated_at = ? WHERE id = ?",
+                rusqlite::params![now, id],
+            )?;
+            
+            Ok(())
+        })
+    }
+
+    /// Halt work on a scratchpad - sets status to Halted and clears paused tickets
+    pub fn halt_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            // Check current status - can only halt if Working or Paused
+            let current_status: String = conn.query_row(
+                "SELECT status FROM scratchpads WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            if current_status != "working" && current_status != "paused" {
+                return Err(DbError::Validation(format!(
+                    "Cannot halt: scratchpad is in '{}' status, must be 'working' or 'paused'",
+                    current_status
+                )));
+            }
+            
+            // Clear pause state from all tickets in this scratchpad
+            conn.execute(
+                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE scratchpad_id = ?",
+                rusqlite::params![now, id],
+            )?;
+            
+            // Set scratchpad to halted
+            conn.execute(
+                "UPDATE scratchpads SET status = 'halted', updated_at = ? WHERE id = ?",
+                rusqlite::params![now, id],
+            )?;
+            
+            Ok(())
+        })
+    }
+
+    /// Start work on a scratchpad - sets status to Working and records work_started_at
+    pub fn start_scratchpad_work(&self, id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            // Check current status - can only start if Executed or Halted
+            let current_status: String = conn.query_row(
+                "SELECT status FROM scratchpads WHERE id = ?",
+                [id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Scratchpad {}", id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            if current_status != "executed" && current_status != "halted" {
+                return Err(DbError::Validation(format!(
+                    "Cannot start work: scratchpad is in '{}' status, must be 'executed' or 'halted'",
+                    current_status
+                )));
+            }
+            
+            conn.execute(
+                "UPDATE scratchpads SET status = 'working', work_started_at = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![now, now, id],
+            )?;
+            
+            Ok(())
+        })
+    }
+
     /// Get all tickets created from a scratchpad
     pub fn get_scratchpad_tickets(&self, scratchpad_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
@@ -292,7 +424,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE scratchpad_id = ?
                    ORDER BY created_at ASC"#
             )?;
@@ -309,7 +442,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE scratchpad_id = ? AND is_epic = 1
                    ORDER BY created_at ASC"#
             )?;
@@ -326,7 +460,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets 
                    WHERE scratchpad_id = ? AND is_epic = 1 AND depends_on_epic_id IS NULL
                    ORDER BY created_at ASC"#
@@ -461,11 +596,9 @@ impl Database {
     }
 
     fn map_scratchpad_row(row: &rusqlite::Row) -> rusqlite::Result<Scratchpad> {
-        // Column order: id, board_id, project_id, name, user_input, status, agent_pref, model,
-        //               exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at
         // Column order: 0-id, 1-board_id, 2-target_board_id, 3-project_id, 4-name, 5-user_input,
         //               6-status, 7-agent_pref, 8-model, 9-exploration_log, 10-plan_markdown,
-        //               11-plan_json, 12-settings_json, 13-created_at, 14-updated_at
+        //               11-plan_json, 12-settings_json, 13-work_started_at, 14-created_at, 15-updated_at
         let status_str: String = row.get(6)?;
         let status = ScratchpadStatus::parse(&status_str).unwrap_or_default();
         
@@ -479,6 +612,8 @@ impl Database {
         
         let settings_str: String = row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "{}".to_string());
         let settings = serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
+        
+        let work_started_at: Option<String> = row.get(13)?;
 
         Ok(Scratchpad {
             id: row.get(0)?,
@@ -494,8 +629,9 @@ impl Database {
             plan_markdown: row.get(10)?,
             plan_json,
             settings,
-            created_at: parse_datetime(row.get(13)?),
-            updated_at: parse_datetime(row.get(14)?),
+            work_started_at: work_started_at.map(parse_datetime),
+            created_at: parse_datetime(row.get(14)?),
+            updated_at: parse_datetime(row.get(15)?),
         })
     }
 
@@ -528,6 +664,11 @@ impl Database {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let scratchpad_id: Option<String> = row.get(21)?;
+        
+        // Pause fields (columns 22, 23, 24)
+        let paused_at: Option<String> = row.get(22)?;
+        let paused_at_stage: Option<String> = row.get(23)?;
+        let paused_run_id: Option<String> = row.get(24)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -552,6 +693,9 @@ impl Database {
             depends_on_epic_id,
             depends_on_epic_ids,
             scratchpad_id,
+            paused_at: paused_at.map(parse_datetime),
+            paused_at_stage,
+            paused_run_id,
         })
     }
 }
@@ -800,10 +944,314 @@ mod tests {
             ScratchpadStatus::AwaitingApproval,
             ScratchpadStatus::Approved,
             ScratchpadStatus::Executing,
+            ScratchpadStatus::Executed,
+            ScratchpadStatus::Working,
+            ScratchpadStatus::Paused,
+            ScratchpadStatus::Halted,
             ScratchpadStatus::Completed,
             ScratchpadStatus::Failed,
         ] {
             assert_eq!(ScratchpadStatus::parse(status.as_str()), Some(status));
         }
+    }
+
+    // ===== Pause/Resume/Halt Tests =====
+
+    fn create_working_scratchpad(db: &Database) -> crate::db::models::Scratchpad {
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Work Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Move through the workflow to 'executed' then 'working'
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
+        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        
+        db.get_scratchpad(&scratchpad.id).unwrap()
+    }
+
+    #[test]
+    fn pause_scratchpad_work_success() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        assert_eq!(scratchpad.status, ScratchpadStatus::Working);
+        
+        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let paused = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(paused.status, ScratchpadStatus::Paused);
+    }
+
+    #[test]
+    fn pause_scratchpad_work_fails_if_not_working() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Status is Draft, not Working
+        let result = db.pause_scratchpad_work(&scratchpad.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn pause_scratchpad_work_not_found() {
+        let db = create_test_db();
+        let result = db.pause_scratchpad_work("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn resume_scratchpad_work_success() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let paused = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(paused.status, ScratchpadStatus::Paused);
+        
+        db.resume_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let resumed = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(resumed.status, ScratchpadStatus::Working);
+    }
+
+    #[test]
+    fn resume_scratchpad_work_fails_if_not_paused() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        // Status is Working, not Paused
+        let result = db.resume_scratchpad_work(&scratchpad.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn resume_scratchpad_work_not_found() {
+        let db = create_test_db();
+        let result = db.resume_scratchpad_work("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn halt_scratchpad_work_from_working() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(halted.status, ScratchpadStatus::Halted);
+    }
+
+    #[test]
+    fn halt_scratchpad_work_from_paused() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        db.pause_scratchpad_work(&scratchpad.id).unwrap();
+        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(halted.status, ScratchpadStatus::Halted);
+    }
+
+    #[test]
+    fn halt_scratchpad_work_clears_ticket_pause_state() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Create a ticket linked to the scratchpad
+        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "T1".to_string(),
+            description_md: "".to_string(),
+            priority: crate::db::models::Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: crate::db::models::WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            scratchpad_id: Some(scratchpad.id.clone()),
+        }).unwrap();
+        
+        // Set to working and pause the ticket
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Working).unwrap();
+        db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
+        
+        assert!(db.is_ticket_paused(&ticket.id).unwrap());
+        
+        // Halt the scratchpad
+        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        
+        // Ticket pause state should be cleared
+        assert!(!db.is_ticket_paused(&ticket.id).unwrap());
+    }
+
+    #[test]
+    fn halt_scratchpad_work_fails_if_wrong_status() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Status is Draft
+        let result = db.halt_scratchpad_work(&scratchpad.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn halt_scratchpad_work_not_found() {
+        let db = create_test_db();
+        let result = db.halt_scratchpad_work("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn start_scratchpad_work_from_executed() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
+        
+        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let working = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(working.status, ScratchpadStatus::Working);
+        assert!(working.work_started_at.is_some());
+    }
+
+    #[test]
+    fn start_scratchpad_work_from_halted() {
+        let db = create_test_db();
+        let scratchpad = create_working_scratchpad(&db);
+        
+        db.halt_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let halted = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(halted.status, ScratchpadStatus::Halted);
+        
+        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let restarted = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert_eq!(restarted.status, ScratchpadStatus::Working);
+    }
+
+    #[test]
+    fn start_scratchpad_work_fails_if_wrong_status() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Status is Draft
+        let result = db.start_scratchpad_work(&scratchpad.id);
+        assert!(matches!(result, Err(DbError::Validation(_))));
+    }
+
+    #[test]
+    fn start_scratchpad_work_not_found() {
+        let db = create_test_db();
+        let result = db.start_scratchpad_work("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn work_started_at_is_set_on_start() {
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let project = create_test_project(&db);
+        
+        let scratchpad = db.create_scratchpad(&CreateScratchpad {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Plan".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        assert!(scratchpad.work_started_at.is_none());
+        
+        db.set_scratchpad_status(&scratchpad.id, ScratchpadStatus::Executed).unwrap();
+        db.start_scratchpad_work(&scratchpad.id).unwrap();
+        
+        let started = db.get_scratchpad(&scratchpad.id).unwrap();
+        assert!(started.work_started_at.is_some());
     }
 }

@@ -184,6 +184,12 @@ pub struct Ticket {
     pub depends_on_epic_ids: Vec<String>,
     /// Link back to scratchpad that created this ticket
     pub scratchpad_id: Option<String>,
+    /// When the ticket was paused (if currently paused)
+    pub paused_at: Option<DateTime<Utc>>,
+    /// Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review")
+    pub paused_at_stage: Option<String>,
+    /// The run ID that was in progress when paused
+    pub paused_run_id: Option<String>,
 }
 
 impl Ticket {
@@ -626,6 +632,10 @@ pub enum ScratchpadStatus {
     Executed,
     /// Work has been started (epics moved to Ready, agents running)
     Working,
+    /// Work is paused (can be resumed)
+    Paused,
+    /// Work has been halted (can be restarted from beginning)
+    Halted,
     /// All epics completed successfully
     Completed,
     /// An error occurred
@@ -643,6 +653,8 @@ impl ScratchpadStatus {
             ScratchpadStatus::Executing => "executing",
             ScratchpadStatus::Executed => "executed",
             ScratchpadStatus::Working => "working",
+            ScratchpadStatus::Paused => "paused",
+            ScratchpadStatus::Halted => "halted",
             ScratchpadStatus::Completed => "completed",
             ScratchpadStatus::Failed => "failed",
         }
@@ -658,6 +670,8 @@ impl ScratchpadStatus {
             "executing" => Some(ScratchpadStatus::Executing),
             "executed" => Some(ScratchpadStatus::Executed),
             "working" => Some(ScratchpadStatus::Working),
+            "paused" => Some(ScratchpadStatus::Paused),
+            "halted" => Some(ScratchpadStatus::Halted),
             "completed" => Some(ScratchpadStatus::Completed),
             "failed" => Some(ScratchpadStatus::Failed),
             _ => None,
@@ -700,6 +714,8 @@ pub struct Scratchpad {
     pub plan_json: Option<serde_json::Value>,
     /// Settings for this scratchpad (auto_approve, etc.)
     pub settings: serde_json::Value,
+    /// When work phase was started (for ETA calculation)
+    pub work_started_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -841,6 +857,48 @@ pub struct ScratchpadProgress {
     pub total_tickets: usize,
     /// List of epics with their status
     pub epics: Vec<ScratchpadEpicStatus>,
+}
+
+/// ETA calculation result for a scratchpad
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchpadEta {
+    pub scratchpad_id: String,
+    /// When work phase was started
+    pub work_started_at: Option<DateTime<Utc>>,
+    /// Total number of tickets
+    pub total_tickets: usize,
+    /// Completed tickets
+    pub completed_tickets: usize,
+    /// Currently in-progress tickets
+    pub in_progress_tickets: usize,
+    /// Paused tickets
+    pub paused_tickets: usize,
+    /// Time elapsed since work started (seconds)
+    pub elapsed_seconds: i64,
+    /// Average seconds per completed ticket
+    pub avg_seconds_per_ticket: Option<f64>,
+    /// Average seconds per stage (for completed stages)
+    pub avg_seconds_per_stage: std::collections::HashMap<String, f64>,
+    /// Estimated seconds remaining
+    pub estimated_seconds_remaining: Option<i64>,
+    /// Estimated completion time (ISO 8601)
+    pub estimated_completion_time: Option<DateTime<Utc>>,
+    /// Confidence level based on sample size
+    pub confidence: EtaConfidence,
+}
+
+/// Confidence level for ETA estimates
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EtaConfidence {
+    /// Not enough data for reliable estimate
+    #[default]
+    Low,
+    /// Some data available
+    Medium,
+    /// Good sample size for reliable estimate
+    High,
 }
 
 #[cfg(test)]
@@ -1090,6 +1148,9 @@ mod tests {
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
                 scratchpad_id: None,
+                paused_at: None,
+                paused_at_stage: None,
+                paused_run_id: None,
             }
         }
 

@@ -776,6 +776,9 @@ mod tests {
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
             scratchpad_id: None,
+            paused_at: None,
+            paused_at_stage: None,
+            paused_run_id: None,
         }
     }
 

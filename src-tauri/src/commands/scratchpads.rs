@@ -385,3 +385,66 @@ pub async fn get_scratchpad_progress(
 ) -> Result<ScratchpadProgress, String> {
     db.get_scratchpad_progress(&scratchpad_id).map_err(|e| e.to_string())
 }
+
+/// Pause work on a scratchpad
+#[tauri::command]
+pub async fn pause_scratchpad_work(
+    scratchpad_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<(), String> {
+    tracing::info!("Pausing work for scratchpad {}", scratchpad_id);
+    
+    db.pause_scratchpad_work(&scratchpad_id).map_err(|e| e.to_string())?;
+    
+    let _ = event_tx.send(LiveEvent::ScratchpadUpdated {
+        scratchpad_id: scratchpad_id.clone(),
+    });
+    
+    Ok(())
+}
+
+/// Resume work on a paused scratchpad
+#[tauri::command]
+pub async fn resume_scratchpad_work(
+    scratchpad_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<(), String> {
+    tracing::info!("Resuming work for scratchpad {}", scratchpad_id);
+    
+    db.resume_scratchpad_work(&scratchpad_id).map_err(|e| e.to_string())?;
+    
+    let _ = event_tx.send(LiveEvent::ScratchpadUpdated {
+        scratchpad_id: scratchpad_id.clone(),
+    });
+    
+    Ok(())
+}
+
+/// Halt work on a scratchpad - stops and resets to Halted status
+#[tauri::command]
+pub async fn halt_scratchpad_work(
+    scratchpad_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<(), String> {
+    tracing::info!("Halting work for scratchpad {}", scratchpad_id);
+    
+    db.halt_scratchpad_work(&scratchpad_id).map_err(|e| e.to_string())?;
+    
+    let _ = event_tx.send(LiveEvent::ScratchpadUpdated {
+        scratchpad_id: scratchpad_id.clone(),
+    });
+    
+    Ok(())
+}
+
+/// Get ETA information for a scratchpad
+#[tauri::command]
+pub async fn get_scratchpad_eta(
+    scratchpad_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<crate::db::ScratchpadEta, String> {
+    crate::agents::eta::calculate_eta(&db.inner().clone(), &scratchpad_id)
+}

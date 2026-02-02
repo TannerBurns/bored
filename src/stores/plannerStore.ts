@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/tauri';
-import type { Scratchpad, CreateScratchpadInput, UpdateScratchpadInput, Ticket } from '../types';
+import type { Scratchpad, CreateScratchpadInput, UpdateScratchpadInput, Ticket, ScratchpadEta } from '../types';
 import { logger } from '../lib/logger';
 
 /** A single log entry from the planner agent */
@@ -19,6 +19,8 @@ interface PlannerState {
   scratchpadTickets: Ticket[];
   /** Real-time log entries from agent output */
   liveLogs: PlannerLogEntry[];
+  /** ETA information for the current scratchpad */
+  currentEta: ScratchpadEta | null;
   isLoading: boolean;
   isExploring: boolean;
   isPlanning: boolean;
@@ -46,6 +48,14 @@ interface PlannerState {
   // Get tickets created from scratchpad
   loadScratchpadTickets: (id: string) => Promise<void>;
   
+  // Pause/Resume/Halt controls
+  pauseWork: (id: string) => Promise<void>;
+  resumeWork: (id: string) => Promise<void>;
+  haltWork: (id: string) => Promise<void>;
+  
+  // ETA
+  loadEta: (id: string) => Promise<void>;
+  
   // Live log management
   addLogEntry: (entry: Omit<PlannerLogEntry, 'id'>) => void;
   clearLogs: (scratchpadId?: string) => void;
@@ -64,6 +74,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   currentScratchpad: null,
   scratchpadTickets: [],
   liveLogs: [],
+  currentEta: null,
   isLoading: false,
   isExploring: false,
   isPlanning: false,
@@ -287,6 +298,76 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     } catch (error) {
       logger.error('Failed to load scratchpad tickets', error);
       throw error;
+    }
+  },
+
+  // Pause/Resume/Halt controls
+  pauseWork: async (id: string) => {
+    try {
+      await invoke('pause_scratchpad_work', { scratchpadId: id });
+      
+      // Refresh the scratchpad
+      const scratchpad = await get().getScratchpad(id);
+      const { scratchpads, currentScratchpad } = get();
+      set({
+        scratchpads: scratchpads.map(s => s.id === id ? scratchpad : s),
+        currentScratchpad: currentScratchpad?.id === id ? scratchpad : currentScratchpad,
+      });
+      
+      logger.info('Paused work on scratchpad', { id });
+    } catch (error) {
+      logger.error('Failed to pause scratchpad work', error);
+      throw error;
+    }
+  },
+
+  resumeWork: async (id: string) => {
+    try {
+      await invoke('resume_scratchpad_work', { scratchpadId: id });
+      
+      // Refresh the scratchpad
+      const scratchpad = await get().getScratchpad(id);
+      const { scratchpads, currentScratchpad } = get();
+      set({
+        scratchpads: scratchpads.map(s => s.id === id ? scratchpad : s),
+        currentScratchpad: currentScratchpad?.id === id ? scratchpad : currentScratchpad,
+      });
+      
+      logger.info('Resumed work on scratchpad', { id });
+    } catch (error) {
+      logger.error('Failed to resume scratchpad work', error);
+      throw error;
+    }
+  },
+
+  haltWork: async (id: string) => {
+    try {
+      await invoke('halt_scratchpad_work', { scratchpadId: id });
+      
+      // Refresh the scratchpad
+      const scratchpad = await get().getScratchpad(id);
+      const { scratchpads, currentScratchpad } = get();
+      set({
+        scratchpads: scratchpads.map(s => s.id === id ? scratchpad : s),
+        currentScratchpad: currentScratchpad?.id === id ? scratchpad : currentScratchpad,
+      });
+      
+      logger.info('Halted work on scratchpad', { id });
+    } catch (error) {
+      logger.error('Failed to halt scratchpad work', error);
+      throw error;
+    }
+  },
+
+  // ETA
+  loadEta: async (id: string) => {
+    try {
+      const eta = await invoke<ScratchpadEta>('get_scratchpad_eta', { scratchpadId: id });
+      set({ currentEta: eta });
+    } catch (error) {
+      logger.error('Failed to load ETA', error);
+      // Don't throw - ETA is non-critical
+      set({ currentEta: null });
     }
   },
 

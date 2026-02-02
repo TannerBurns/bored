@@ -57,6 +57,9 @@ export function TicketModal({
   const [agentLogs, setAgentLogs] = useState<Array<{ stream: string; content: string; timestamp: string }>>([]);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [isTicketPaused, setIsTicketPaused] = useState(!!ticket.pausedAt);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -117,7 +120,8 @@ export function TicketModal({
     setEditColumnId(ticket.columnId);
     setIsEditing(false);
     setShowDeleteConfirm(false);
-  }, [ticket.id]);
+    setIsTicketPaused(!!ticket.pausedAt);
+  }, [ticket.id, ticket.pausedAt]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -549,6 +553,51 @@ export function TicketModal({
     } catch (err) {
       logger.error('Failed to clear lock:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // Pause ticket for scratchpad workflow - prevents worker from picking it up again
+  const handlePauseTicket = async () => {
+    const runId = ticket.lockedByRunId;
+    if (!runId) return;
+    
+    setIsPausing(true);
+    try {
+      const currentRun = agentRuns.find(r => r.id === runId);
+      const stage = currentRun?.stage || 'unknown';
+      
+      await invoke('pause_ticket', { ticketId: ticket.id, stage, runId });
+      setIsTicketPaused(true);
+      logger.info('Ticket paused', { ticketId: ticket.id, stage });
+      
+      if (ticket.lockedByRunId) {
+        await invoke('cancel_agent_run', { runId: ticket.lockedByRunId });
+        setIsAgentRunning(false);
+        setAgentLogs([]);
+      }
+      
+      const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
+      setAgentRuns(runs);
+    } catch (err) {
+      logger.error('Failed to pause ticket:', err);
+      setAgentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  // Resume a paused ticket - worker will pick it up at the saved stage
+  const handleResumeTicket = async () => {
+    setIsResuming(true);
+    try {
+      const previousRunId = await invoke<string | null>('resume_ticket', { ticketId: ticket.id });
+      setIsTicketPaused(false);
+      logger.info('Ticket resumed', { ticketId: ticket.id, previousRunId });
+    } catch (err) {
+      logger.error('Failed to resume ticket:', err);
+      setAgentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsResuming(false);
     }
   };
 
@@ -1248,6 +1297,16 @@ export function TicketModal({
                       This ticket is currently being worked on by an agent
                     </p>
                     <div className="flex gap-2">
+                      {ticket.scratchpadId && (
+                        <button
+                          onClick={handlePauseTicket}
+                          disabled={isPausing}
+                          className="px-3 py-1 bg-yellow-600 text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                          title="Pause ticket and cancel current run - can be resumed later"
+                        >
+                          {isPausing ? 'Pausing...' : 'Pause'}
+                        </button>
+                      )}
                       <button
                         onClick={handleCancelAgent}
                         disabled={isCancelling}
@@ -1268,6 +1327,32 @@ export function TicketModal({
                   <p className="text-xs text-board-text-muted mt-1">
                     Run ID: {ticket.lockedByRunId}
                   </p>
+                </div>
+              )}
+              
+              {/* Paused ticket indicator with resume button */}
+              {isTicketPaused && !ticket.lockedByRunId && (
+                <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-yellow-500 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full" />
+                        This ticket is paused
+                      </p>
+                      {ticket.pausedAtStage && (
+                        <p className="text-xs text-board-text-muted mt-1">
+                          Paused at stage: {ticket.pausedAtStage}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleResumeTicket}
+                      disabled={isResuming}
+                      className="px-3 py-1 bg-green-600 text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                    >
+                      {isResuming ? 'Resuming...' : 'Resume'}
+                    </button>
+                  </div>
                 </div>
               )}
 

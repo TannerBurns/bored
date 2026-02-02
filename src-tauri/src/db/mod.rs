@@ -375,6 +375,29 @@ impl Database {
                 tracing::info!("Migration v13 completed successfully");
             }
             
+            if current_version < 14 && current_version > 0 {
+                tracing::info!("Applying migration v14: pause/resume support and work_started_at for ETA");
+                // Add work_started_at to scratchpads for ETA tracking
+                let _ = conn.execute(
+                    "ALTER TABLE scratchpads ADD COLUMN work_started_at TEXT",
+                    [],
+                );
+                // Add pause columns to tickets
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN paused_at TEXT",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN paused_at_stage TEXT",
+                    [],
+                );
+                let _ = conn.execute(
+                    "ALTER TABLE tickets ADD COLUMN paused_run_id TEXT",
+                    [],
+                );
+                tracing::info!("Migration v14 completed successfully");
+            }
+            
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

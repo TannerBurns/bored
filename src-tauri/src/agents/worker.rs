@@ -189,6 +189,32 @@ impl Worker {
         };
 
         tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
+        
+        // Check if the ticket's parent scratchpad is paused or halted
+        if let Some(ref scratchpad_id) = ticket.scratchpad_id {
+            match self.db.get_scratchpad(scratchpad_id) {
+                Ok(scratchpad) => {
+                    use crate::db::ScratchpadStatus;
+                    match scratchpad.status {
+                        ScratchpadStatus::Paused | ScratchpadStatus::Halted => {
+                            tracing::info!(
+                                "Worker {} skipping ticket {} because scratchpad {} is {:?}",
+                                self.id, ticket.id, scratchpad_id, scratchpad.status
+                            );
+                            self.db.unlock_ticket(&ticket.id)?;
+                            return Ok(false);
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Worker {} failed to check scratchpad {} status: {}",
+                        self.id, scratchpad_id, e
+                    );
+                }
+            }
+        }
 
         // Get the repo path for this ticket
         let repo_path = match self.get_repo_path(&ticket) {

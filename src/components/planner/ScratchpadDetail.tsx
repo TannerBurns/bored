@@ -15,7 +15,7 @@ interface ScratchpadDetailProps {
   onClose: () => void;
 }
 
-const statusMessages: Record<string, { title: string; subtitle: string; variant?: 'info' | 'error' }> = {
+const statusMessages: Record<string, { title: string; subtitle: string; variant?: 'info' | 'error' | 'warning' }> = {
   exploring: {
     title: 'Analyzing codebase...',
     subtitle: 'The agent is exploring your project to understand its structure',
@@ -32,6 +32,16 @@ const statusMessages: Record<string, { title: string; subtitle: string; variant?
     title: 'Work in progress...',
     subtitle: 'Agents are working on the epics. Track progress in the Progress tab.',
   },
+  paused: {
+    title: 'Work paused',
+    subtitle: 'Work has been paused. Resume when ready to continue.',
+    variant: 'warning',
+  },
+  halted: {
+    title: 'Work halted',
+    subtitle: 'Work has been halted. Start again when ready.',
+    variant: 'warning',
+  },
   failed: {
     title: 'Exploration failed',
     subtitle: 'The agent encountered an error. Check the logs for details and try again.',
@@ -44,27 +54,48 @@ function ProgressIndicator({ status }: { status: ScratchpadStatus }) {
   if (!message) return null;
 
   const isError = message.variant === 'error';
+  const isWarning = message.variant === 'warning';
+
+  const bgColor = isError 
+    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+    : isWarning
+    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
+  
+  const titleColor = isError 
+    ? 'text-red-700 dark:text-red-300'
+    : isWarning
+    ? 'text-yellow-700 dark:text-yellow-300'
+    : 'text-blue-700 dark:text-blue-300';
+  
+  const subtitleColor = isError 
+    ? 'text-red-600 dark:text-red-400'
+    : isWarning
+    ? 'text-yellow-600 dark:text-yellow-400'
+    : 'text-blue-600 dark:text-blue-400';
 
   return (
-    <div className={`mx-4 mt-4 flex items-center gap-3 p-4 rounded-lg border ${
-      isError 
-        ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' 
-        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-    }`}>
+    <div className={`mx-4 mt-4 flex items-center gap-3 p-4 rounded-lg border ${bgColor}`}>
       {isError ? (
         <div className="h-5 w-5 flex-shrink-0 text-red-500">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
         </div>
+      ) : isWarning ? (
+        <div className="h-5 w-5 flex-shrink-0 text-yellow-500">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 112 0v4a1 1 0 11-2 0V9zm1-4a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+          </svg>
+        </div>
       ) : (
         <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full flex-shrink-0" />
       )}
       <div>
-        <p className={`font-medium ${isError ? 'text-red-700 dark:text-red-300' : 'text-blue-700 dark:text-blue-300'}`}>
+        <p className={`font-medium ${titleColor}`}>
           {message.title}
         </p>
-        <p className={`text-sm ${isError ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+        <p className={`text-sm ${subtitleColor}`}>
           {message.subtitle}
         </p>
       </div>
@@ -103,7 +134,7 @@ function ExplorationLog({ explorations }: { explorations: Exploration[] }) {
 }
 
 export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps) {
-  const { approvePlan, deleteScratchpad, getScratchpad, setCurrentScratchpad, setStatus, liveLogs } = usePlannerStore();
+  const { approvePlan, deleteScratchpad, getScratchpad, setCurrentScratchpad, setStatus, liveLogs, pauseWork, resumeWork, haltWork } = usePlannerStore();
   const { plannerAutoApprove, plannerMaxExplorations, plannerModel, plannerTimeoutMinutes, plannerMaxRetries } = useSettingsStore();
   const [activeTab, setActiveTab] = useState<'input' | 'exploration' | 'logs' | 'plan' | 'progress'>('input');
   
@@ -113,13 +144,16 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
   const [isStarting, setIsStarting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isStartingWork, setIsStartingWork] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [isHalting, setIsHalting] = useState(false);
   const [progress, setProgress] = useState<ScratchpadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   
-  // Load progress when status is working or completed
+  // Load progress when status is working, paused, halted, or completed
   useEffect(() => {
     const loadProgress = async () => {
-      if (scratchpad.status === 'working' || scratchpad.status === 'completed' || scratchpad.status === 'executed') {
+      if (['working', 'paused', 'halted', 'completed', 'executed'].includes(scratchpad.status)) {
         try {
           const prog = await invoke<ScratchpadProgress>('get_scratchpad_progress', { scratchpadId: scratchpad.id });
           setProgress(prog);
@@ -260,15 +294,74 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
     }
   };
 
+  const handlePause = async () => {
+    setIsPausing(true);
+    setError(null);
+    try {
+      await pauseWork(scratchpad.id);
+      const updated = await getScratchpad(scratchpad.id);
+      setCurrentScratchpad(updated);
+      logger.info('Work paused', { scratchpadId: scratchpad.id });
+    } catch (err) {
+      logger.error('Failed to pause work', err);
+      setError(String(err));
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    setError(null);
+    try {
+      await resumeWork(scratchpad.id);
+      const updated = await getScratchpad(scratchpad.id);
+      setCurrentScratchpad(updated);
+      logger.info('Work resumed', { scratchpadId: scratchpad.id });
+    } catch (err) {
+      logger.error('Failed to resume work', err);
+      setError(String(err));
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const handleHalt = async () => {
+    if (!confirm('Are you sure you want to halt all work? This will stop all active runs and reset tickets to their initial state.')) {
+      return;
+    }
+    setIsHalting(true);
+    setError(null);
+    try {
+      await haltWork(scratchpad.id);
+      const updated = await getScratchpad(scratchpad.id);
+      setCurrentScratchpad(updated);
+      logger.info('Work halted', { scratchpadId: scratchpad.id });
+    } catch (err) {
+      logger.error('Failed to halt work', err);
+      setError(String(err));
+    } finally {
+      setIsHalting(false);
+    }
+  };
+
   const canStart = scratchpad.status === 'draft';
   const canRetry = scratchpad.status === 'failed';
   const canApprove = scratchpad.status === 'awaiting_approval' && scratchpad.planMarkdown;
   const canExecute = scratchpad.status === 'approved' && scratchpad.planJson;
   const canStartWork = scratchpad.status === 'executed' 
+    || scratchpad.status === 'halted'
     || (scratchpad.status === 'completed' && progress !== null && progress.done < progress.total);
   const isWorking = scratchpad.status === 'working';
+  const isPaused = scratchpad.status === 'paused';
+  const isHalted = scratchpad.status === 'halted';
   const isCompleted = scratchpad.status === 'completed';
   const isProcessing = ['exploring', 'planning', 'executing'].includes(scratchpad.status);
+  
+  // Pause/resume controls
+  const canPause = isWorking;
+  const canResume = isPaused;
+  const canHalt = isWorking || isPaused;
   
   // Auto-switch to logs tab when processing starts
   useEffect(() => {
@@ -329,7 +422,36 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
               variant="primary"
               disabled={isStartingWork}
             >
-              {isStartingWork ? 'Starting...' : 'Start Work'}
+              {isStartingWork ? 'Starting...' : isHalted ? 'Restart Work' : 'Start Work'}
+            </Button>
+          )}
+          {/* Pause/Resume/Halt controls */}
+          {canPause && (
+            <Button
+              onClick={handlePause}
+              variant="secondary"
+              disabled={isPausing}
+            >
+              {isPausing ? 'Pausing...' : 'Pause'}
+            </Button>
+          )}
+          {canResume && (
+            <Button
+              onClick={handleResume}
+              variant="primary"
+              disabled={isResuming}
+            >
+              {isResuming ? 'Resuming...' : 'Resume'}
+            </Button>
+          )}
+          {canHalt && (
+            <Button
+              onClick={handleHalt}
+              variant="secondary"
+              disabled={isHalting}
+              className="text-red-500 hover:text-red-600"
+            >
+              {isHalting ? 'Halting...' : 'Halt'}
             </Button>
           )}
           {/* Delete dropdown */}
@@ -425,7 +547,7 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
         >
           Plan
         </button>
-        {(isWorking || isCompleted || canStartWork) && progress && (
+        {(isWorking || isPaused || isCompleted || canStartWork) && progress && (
           <button
             onClick={() => setActiveTab('progress')}
             className={`px-4 py-2 text-sm font-medium flex items-center gap-1.5 ${
@@ -437,6 +559,9 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
             Progress
             {isWorking && (
               <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            )}
+            {isPaused && (
+              <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full" />
             )}
             <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 rounded">
               {progress.done}/{progress.total}
@@ -485,7 +610,9 @@ export function ScratchpadDetail({ scratchpad, onClose }: ScratchpadDetailProps)
         {activeTab === 'progress' && progress && (
           <EpicProgressPanel 
             progress={progress}
+            scratchpadId={scratchpad.id}
             isWorking={isWorking}
+            isPaused={isPaused}
             isCompleted={isCompleted}
           />
         )}

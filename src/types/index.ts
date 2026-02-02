@@ -83,6 +83,12 @@ export interface Ticket {
   dependsOnEpicId?: string;
   /** Link back to scratchpad that created this ticket */
   scratchpadId?: string;
+  /** When the ticket was paused (if currently paused) */
+  pausedAt?: Date;
+  /** Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review") */
+  pausedAtStage?: string;
+  /** The run ID that was in progress when paused */
+  pausedRunId?: string;
 }
 
 export type ReadinessCheck =
@@ -274,6 +280,8 @@ export type ScratchpadStatus =
   | 'executing'
   | 'executed'  // Epics/tickets created, ready to start work
   | 'working'   // Work in progress
+  | 'paused'    // Work paused (can be resumed)
+  | 'halted'    // Work halted (can be restarted from beginning)
   | 'completed'
   | 'failed';
 
@@ -344,8 +352,40 @@ export interface Scratchpad {
   planJson?: ProjectPlan;
   /** Settings for this scratchpad (auto_approve, etc.) */
   settings: Record<string, unknown>;
+  /** When work phase was started (for ETA calculation) */
+  workStartedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Confidence level for ETA estimates */
+export type EtaConfidence = 'low' | 'medium' | 'high';
+
+/** ETA calculation result for a scratchpad */
+export interface ScratchpadEta {
+  scratchpadId: string;
+  /** When work phase was started */
+  workStartedAt?: Date;
+  /** Total number of tickets */
+  totalTickets: number;
+  /** Completed tickets */
+  completedTickets: number;
+  /** Currently in-progress tickets */
+  inProgressTickets: number;
+  /** Paused tickets */
+  pausedTickets: number;
+  /** Time elapsed since work started (seconds) */
+  elapsedSeconds: number;
+  /** Average seconds per completed ticket */
+  avgSecondsPerTicket?: number;
+  /** Average seconds per stage (for completed stages) */
+  avgSecondsPerStage: Record<string, number>;
+  /** Estimated seconds remaining */
+  estimatedSecondsRemaining?: number;
+  /** Estimated completion time (ISO 8601) */
+  estimatedCompletionTime?: Date;
+  /** Confidence level based on sample size */
+  confidence: EtaConfidence;
 }
 
 export interface CreateScratchpadInput {
