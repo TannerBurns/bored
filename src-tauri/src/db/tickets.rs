@@ -687,8 +687,12 @@ impl Database {
             })?;
             
             let now = chrono::Utc::now().to_rfc3339();
+            // Clear paused_at and paused_run_id so workers can pick up the ticket again.
+            // IMPORTANT: Preserve paused_at_stage so the worker knows which stage to resume from.
+            // The worker will clear paused_at_stage after reading it and starting from that stage.
+            // We clear paused_run_id since the old run is no longer valid after resuming.
             conn.execute(
-                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE id = ?",
+                "UPDATE tickets SET paused_at = NULL, paused_run_id = NULL, updated_at = ? WHERE id = ?",
                 rusqlite::params![now, ticket_id],
             )?;
             
@@ -3092,8 +3096,11 @@ mod tests {
         assert_eq!(stage, Some("review".to_string()));
         
         let resumed = db.get_ticket(&ticket.id).unwrap();
+        // paused_at is cleared so workers can pick up the ticket
         assert!(resumed.paused_at.is_none());
-        assert!(resumed.paused_at_stage.is_none());
+        // paused_at_stage is preserved so worker knows which stage to resume from
+        assert_eq!(resumed.paused_at_stage, Some("review".to_string()));
+        // paused_run_id is cleared since the old run is no longer valid
         assert!(resumed.paused_run_id.is_none());
     }
 
