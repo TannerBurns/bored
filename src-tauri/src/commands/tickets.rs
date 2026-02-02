@@ -55,7 +55,7 @@ pub async fn get_tickets(
     board_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<Ticket>, String> {
-    tracing::info!("Getting tickets for board: {}", board_id);
+    tracing::debug!("Getting tickets for board: {}", board_id);
     db.get_tickets(&board_id, None).map_err(|e| e.to_string())
 }
 
@@ -193,7 +193,7 @@ pub async fn get_comments(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<Comment>, String> {
-    tracing::info!("Getting comments for ticket: {}", ticket_id);
+    tracing::debug!("Getting comments for ticket: {}", ticket_id);
     db.get_comments(&ticket_id).map_err(|e| e.to_string())
 }
 
@@ -236,7 +236,7 @@ pub async fn get_epic_children(
     epic_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<Ticket>, String> {
-    tracing::info!("Getting children for epic: {}", epic_id);
+    tracing::debug!("Getting children for epic: {}", epic_id);
     db.get_epic_children(&epic_id).map_err(|e| e.to_string())
 }
 
@@ -245,7 +245,7 @@ pub async fn get_epic_progress(
     epic_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<EpicProgress, String> {
-    tracing::info!("Getting progress for epic: {}", epic_id);
+    tracing::debug!("Getting progress for epic: {}", epic_id);
     db.get_epic_progress(&epic_id).map_err(|e| e.to_string())
 }
 

@@ -788,7 +788,7 @@ pub async fn get_agent_runs(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<AgentRun>, String> {
-    tracing::info!("Getting agent runs for ticket: {}", ticket_id);
+    tracing::debug!("Getting agent runs for ticket: {}", ticket_id);
     db.get_runs(&ticket_id).map_err(|e| e.to_string())
 }
 
@@ -798,13 +798,13 @@ pub async fn get_recent_runs(
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<AgentRun>, String> {
     let limit = limit.unwrap_or(50);
-    tracing::info!("Getting recent {} agent runs", limit);
+    tracing::debug!("Getting recent {} agent runs", limit);
     db.get_recent_runs(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_agent_run(run_id: String, db: State<'_, Arc<Database>>) -> Result<AgentRun, String> {
-    tracing::info!("Getting agent run: {}", run_id);
+    tracing::debug!("Getting agent run: {}", run_id);
     db.get_run(&run_id).map_err(|e| e.to_string())
 }
 
@@ -813,7 +813,7 @@ pub async fn get_run_events(
     run_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<crate::db::AgentEvent>, String> {
-    tracing::info!("Getting events for run: {}", run_id);
+    tracing::debug!("Getting events for run: {}", run_id);
     db.get_events(&run_id).map_err(|e| e.to_string())
 }
 
