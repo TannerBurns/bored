@@ -12,6 +12,8 @@ interface ModalProps {
   children: ReactNode;
   /** Modal width size - defaults to 'md' */
   size?: ModalSize;
+  /** If true, prevents the modal from closing when clicking outside or pressing Escape */
+  preventClose?: boolean;
 }
 
 const sizeClasses: Record<ModalSize, string> = {
@@ -22,12 +24,22 @@ const sizeClasses: Record<ModalSize, string> = {
   '2xl': 'max-w-2xl', // 672px
 };
 
-export function Modal({ open, onOpenChange, title, description, children, size = 'md' }: ModalProps) {
+export function Modal({ open, onOpenChange, title, description, children, size = 'md', preventClose = false }: ModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 z-50" />
         <Dialog.Content
+          onInteractOutside={(e) => {
+            if (preventClose) {
+              e.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(e) => {
+            if (preventClose) {
+              e.preventDefault();
+            }
+          }}
           className={cn(
             'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
             'w-full rounded-2xl glass-intense p-6 shadow-2xl',

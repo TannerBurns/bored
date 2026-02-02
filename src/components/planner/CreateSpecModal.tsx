@@ -92,17 +92,6 @@ export function CreateSpecModal({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  // Wrap onOpenChange to prevent closing when fullscreen is open
-  // This is needed because the fullscreen editor is rendered outside the Radix Dialog,
-  // so clicks on it are seen as "outside" clicks and would close the modal
-  const handleModalOpenChange = (newOpen: boolean) => {
-    // Don't close the modal if we're in fullscreen mode
-    if (!newOpen && isFullscreen) {
-      return;
-    }
-    onOpenChange(newOpen);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -255,15 +244,12 @@ You can use:
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-board-border shrink-0">
+        <div className="flex items-center justify-center p-4 border-t border-board-border shrink-0">
           <div className="text-xs text-board-text-muted">
             <span>
-              Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to exit fullscreen
+              Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> or click outside to exit fullscreen
             </span>
           </div>
-          <Button type="button" onClick={() => setIsFullscreen(false)}>
-            Done
-          </Button>
         </div>
       </div>
     </div>
@@ -271,7 +257,7 @@ You can use:
 
   return (
     <>
-    <Modal open={open} onOpenChange={handleModalOpenChange} title="New Spec" size="2xl">
+    <Modal open={open} onOpenChange={onOpenChange} title="New Spec" size="2xl" preventClose={isFullscreen}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-board-text-secondary mb-1">

@@ -40,11 +40,11 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       {...listeners}
       onClick={handleClick}
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-pointer border border-violet-400/50 border-l-4 transition-all duration-200',
-        'hover:shadow-lg hover:-translate-y-0.5 hover:border-violet-500/70',
+        'glass-intense p-3 rounded-xl cursor-pointer border-l-4 ring-1 ring-violet-400/50 transition-all duration-200',
+        'hover:shadow-lg hover:-translate-y-0.5 hover:ring-violet-500/80 hover:ring-2',
         PRIORITY_BORDER_COLORS[ticket.priority],
         isDragging && 'opacity-50 ring-2 ring-board-accent shadow-xl glow-accent-intense scale-105',
-        ticket.isEpic && 'ring-1 ring-purple-500/40'
+        ticket.isEpic && 'ring-purple-500/40'
       )}
     >
       <div className="flex items-center gap-2 mb-2">
@@ -93,7 +93,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
           {ticket.labels.slice(0, 3).map((label) => (
             <span
               key={label}
-              className="text-xs px-2 py-0.5 glass-subtle rounded-full text-board-text-secondary"
+              className="text-xs px-2 py-0.5 bg-violet-500/20 text-violet-300 rounded-full font-medium"
             >
               {label}
             </span>
@@ -107,7 +107,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       )}
       
       <div className="flex items-center justify-between text-xs text-board-text-muted">
-        <span className="glass-subtle px-2 py-0.5 rounded-full">{ticket.agentPref || 'any'}</span>
+        <span className="bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-medium">{ticket.agentPref || 'any'}</span>
         <div className="flex items-center gap-2">
           {!ticket.projectId && (
             <span className="text-status-warning flex items-center gap-1">

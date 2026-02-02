@@ -16,7 +16,7 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
   return (
     <div
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-grabbing border border-violet-400/50 border-l-4',
+        'glass-intense p-3 rounded-xl cursor-grabbing border-l-4',
         'ring-2 ring-board-accent shadow-xl glow-accent-intense',
         PRIORITY_BORDER_COLORS[ticket.priority],
         ticket.isEpic && 'ring-purple-500',
@@ -69,7 +69,7 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
           {ticket.labels.slice(0, 3).map((label) => (
             <span
               key={label}
-              className="text-xs px-2 py-0.5 glass-subtle rounded-full text-board-text-secondary"
+              className="text-xs px-2 py-0.5 bg-violet-500/20 text-violet-300 rounded-full font-medium"
             >
               {label}
             </span>
@@ -83,7 +83,7 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
       )}
       
       <div className="flex items-center justify-between text-xs text-board-text-muted">
-        <span className="glass-subtle px-2 py-0.5 rounded-full">{ticket.agentPref || 'any'}</span>
+        <span className="bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-medium">{ticket.agentPref || 'any'}</span>
         {ticket.lockedByRunId && (
           <span className="text-status-warning font-medium flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
