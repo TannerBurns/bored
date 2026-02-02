@@ -174,6 +174,7 @@ pub async fn validate_plan_for_clarification(
         repo_path: config.repo_path.to_string_lossy().to_string(),
         parent_run_id: Some(config.parent_run_id.clone()),
         stage: Some("plan-validation".to_string()),
+        ..Default::default()
     }).map_err(|e| PlanValidationError::RunCreationFailed(e.to_string()))?;
     
     if let Err(e) = config.db.update_run_status(&run.id, RunStatus::Running, None, None) {
@@ -287,6 +288,7 @@ pub async fn generate_clarification_message(
         repo_path: config.repo_path.to_string_lossy().to_string(),
         parent_run_id: Some(config.parent_run_id.clone()),
         stage: Some("clarification-gen".to_string()),
+        ..Default::default()
     }).map_err(|e| PlanValidationError::RunCreationFailed(e.to_string()))?;
     
     if let Err(e) = config.db.update_run_status(&run.id, RunStatus::Running, None, None) {

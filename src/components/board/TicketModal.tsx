@@ -57,8 +57,10 @@ export function TicketModal({
   const [agentLogs, setAgentLogs] = useState<Array<{ stream: string; content: string; timestamp: string }>>([]);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [isTicketPaused, setIsTicketPaused] = useState(!!ticket.pausedAt);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
-  const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   
@@ -117,7 +119,8 @@ export function TicketModal({
     setEditColumnId(ticket.columnId);
     setIsEditing(false);
     setShowDeleteConfirm(false);
-  }, [ticket.id]);
+    setIsTicketPaused(!!ticket.pausedAt);
+  }, [ticket.id, ticket.pausedAt]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -359,7 +362,7 @@ export function TicketModal({
         if (currentRun && currentRun.status !== 'running') {
           logger.debug('Run completed', { status: currentRun.status });
           setIsAgentRunning(false);
-          if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted') {
+          if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted' || currentRun.status === 'paused') {
             onAgentComplete?.(runId, currentRun.status);
           }
         }
@@ -478,10 +481,11 @@ export function TicketModal({
     };
   }, [ticket.id]);
 
-  // Auto-scroll logs only if user is at the bottom
+  // Auto-scroll logs only if user is at the bottom of the logs container
+  // Important: Use scrollTop instead of scrollIntoView to avoid scrolling the entire modal
   useEffect(() => {
-    if (shouldAutoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (shouldAutoScroll && logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
   }, [agentLogs, shouldAutoScroll]);
 
@@ -549,6 +553,102 @@ export function TicketModal({
     } catch (err) {
       logger.error('Failed to clear lock:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // Pause ticket for spec workflow - prevents worker from picking it up again
+  const handlePauseTicket = async () => {
+    const runId = ticket.lockedByRunId;
+    if (!runId) return;
+    
+    setIsPausing(true);
+    try {
+      // The parent run doesn't have a stage - we need to find the most recent sub-run
+      // Sub-runs have parentRunId set and a stage field
+      const subRuns = agentRuns
+        .filter(r => r.parentRunId === runId && r.stage)
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+      
+      // Define stage order to determine the next stage
+      // Must match the order in orchestrator.rs should_skip_stage()
+      const stageOrder = [
+        'branch-gen', 'branch', 
+        'plan', 'plan-validation',  // Plan validation is a sub-step after plan
+        'implement', 
+        'code-review', 'code-review-fix',
+        'deslop', 'cleanup', 'unit-tests', 
+        'review-changes', 'add-and-commit'
+      ];
+      
+      // Find the most recent sub-run
+      const latestSubRun = subRuns[0];
+      const latestStage = latestSubRun?.stage;
+      
+      // Determine the resume stage:
+      // - If the last stage completed (has endedAt and status is completed/success), save the NEXT stage
+      // - If the last stage was running/cancelled, save that stage to re-run it
+      let resumeStage: string;
+      
+      if (!latestStage) {
+        resumeStage = 'branch';
+      } else if (latestSubRun.endedAt && latestSubRun.status === 'finished') {
+        // Last stage completed - find the next stage in the workflow
+        const currentIdx = stageOrder.indexOf(latestStage);
+        if (currentIdx !== -1 && currentIdx < stageOrder.length - 1) {
+          resumeStage = stageOrder[currentIdx + 1];
+        } else {
+          resumeStage = latestStage; // Already at the end, or unknown stage
+        }
+      } else {
+        // Last stage was running/cancelled/errored - resume from that stage to re-run it
+        resumeStage = latestStage;
+      }
+      
+      logger.info('Pausing with resume stage', { 
+        resumeStage, 
+        latestStage,
+        latestStatus: latestSubRun?.status,
+        subRunId: latestSubRun?.id, 
+        parentRunId: runId 
+      });
+      
+      await invoke('pause_ticket', { ticketId: ticket.id, stage: resumeStage, runId });
+      setIsTicketPaused(true);
+      logger.info('Ticket paused', { ticketId: ticket.id, stage: resumeStage });
+      
+      if (ticket.lockedByRunId) {
+        // Pass isPause: true so the run gets marked as "paused" instead of "aborted"
+        await invoke('cancel_agent_run', { runId: ticket.lockedByRunId, isPause: true });
+        setIsAgentRunning(false);
+        setAgentLogs([]);
+      }
+      
+      const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
+      setAgentRuns(runs);
+    } catch (err) {
+      logger.error('Failed to pause ticket:', err);
+      setAgentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  // Resume a paused ticket - moves to Ready and worker will pick it up at the saved stage
+  const handleResumeTicket = async () => {
+    setIsResuming(true);
+    try {
+      const previousStage = await invoke<string | null>('resume_ticket', { ticketId: ticket.id });
+      setIsTicketPaused(false);
+      logger.info('Ticket resumed and moved to Ready', { ticketId: ticket.id, previousStage });
+      
+      // Close the modal since the ticket is now in a different column (Ready)
+      // The polling will update the board state
+      onClose();
+    } catch (err) {
+      logger.error('Failed to resume ticket:', err);
+      setAgentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsResuming(false);
     }
   };
 
@@ -1236,6 +1336,32 @@ export function TicketModal({
           {/* Task Queue - hide for epics since children ARE the tasks */}
           {!ticket.isEpic && <TaskList ticketId={ticket.id} />}
 
+          {/* Paused ticket indicator with resume button - show independently of agent status */}
+          {isTicketPaused && !ticket.lockedByRunId && (
+            <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-yellow-500 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full" />
+                    This ticket is paused
+                  </p>
+                  {ticket.pausedAtStage && (
+                    <p className="text-xs text-board-text-muted mt-1">
+                      Paused at stage: {ticket.pausedAtStage}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleResumeTicket}
+                  disabled={isResuming}
+                  className="px-3 py-1 bg-green-600 text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                >
+                  {isResuming ? 'Resuming...' : 'Resume'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Agent Status Section */}
           {(ticket.lockedByRunId || agentLogs.length > 0 || agentError) && (
             <div className="space-y-3">
@@ -1248,6 +1374,14 @@ export function TicketModal({
                       This ticket is currently being worked on by an agent
                     </p>
                     <div className="flex gap-2">
+                      <button
+                        onClick={handlePauseTicket}
+                        disabled={isPausing}
+                        className="px-3 py-1 bg-yellow-600 text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                        title="Pause ticket and cancel current run - can be resumed later"
+                      >
+                        {isPausing ? 'Pausing...' : 'Pause'}
+                      </button>
                       <button
                         onClick={handleCancelAgent}
                         disabled={isCancelling}
@@ -1305,7 +1439,6 @@ export function TicketModal({
                         {log.content}
                       </div>
                     ))}
-                    <div ref={logsEndRef} />
                   </div>
                 </div>
               )}
@@ -1379,6 +1512,7 @@ export function TicketModal({
                                     subRun.status === 'finished' ? 'bg-status-success' :
                                     subRun.status === 'running' ? 'bg-status-warning animate-pulse' :
                                     subRun.status === 'error' ? 'bg-status-error' :
+                                    subRun.status === 'paused' ? 'bg-blue-400' :
                                     'bg-board-text-muted'
                                   )}
                                 />
@@ -1390,6 +1524,7 @@ export function TicketModal({
                                   subRun.status === 'finished' ? 'text-status-success' :
                                   subRun.status === 'running' ? 'text-status-warning' :
                                   subRun.status === 'error' ? 'text-status-error' :
+                                  subRun.status === 'paused' ? 'text-blue-400' :
                                   'text-board-text-muted'
                                 )}>
                                   {subRun.status}
@@ -1447,12 +1582,14 @@ export function TicketModal({
                                     run.status === 'finished' ? 'bg-status-success' :
                                     run.status === 'running' ? 'bg-status-warning animate-pulse' :
                                     run.status === 'error' ? 'bg-status-error' :
+                                    run.status === 'paused' ? 'bg-blue-400' :
                                     'bg-board-text-muted'
                                   )}
                                 />
                                 <span className="text-board-text-secondary">
                                   {run.agentType === 'cursor' ? 'Cursor' : 'Claude'}
                                   {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
+                                  {run.resumedFromRunId && <span className="text-blue-400 ml-1">(Resumed)</span>}
                                 </span>
                                 <span className="text-board-text-muted text-xs">
                                   {new Date(run.startedAt).toLocaleString()}
@@ -1467,6 +1604,7 @@ export function TicketModal({
                                   run.status === 'finished' ? 'bg-status-success/20 text-status-success' :
                                   run.status === 'running' ? 'bg-status-warning/20 text-status-warning' :
                                   run.status === 'error' ? 'bg-status-error/20 text-status-error' :
+                                  run.status === 'paused' ? 'bg-blue-400/20 text-blue-400' :
                                   'bg-board-surface text-board-text-muted'
                                 )}
                               >
@@ -1504,6 +1642,7 @@ export function TicketModal({
                                               subRun.status === 'finished' ? 'bg-status-success' :
                                               subRun.status === 'running' ? 'bg-status-warning animate-pulse' :
                                               subRun.status === 'error' ? 'bg-status-error' :
+                                              subRun.status === 'paused' ? 'bg-blue-400' :
                                               'bg-board-text-muted'
                                             )}
                                           />
@@ -1515,6 +1654,7 @@ export function TicketModal({
                                             subRun.status === 'finished' ? 'text-status-success' :
                                             subRun.status === 'running' ? 'text-status-warning' :
                                             subRun.status === 'error' ? 'text-status-error' :
+                                            subRun.status === 'paused' ? 'text-blue-400' :
                                             'text-board-text-muted'
                                           )}>
                                             {subRun.status}

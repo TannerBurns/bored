@@ -168,6 +168,7 @@ pub async fn run_diagnostic_agent(
         repo_path: context.repo_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: Some("diagnostic".to_string()),
+        ..Default::default()
     }).map_err(|e| DiagnosticError::RunCreationFailed(e.to_string()))?;
     
     // Update run to running status

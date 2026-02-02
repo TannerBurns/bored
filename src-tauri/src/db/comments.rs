@@ -136,7 +136,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let comment = db.create_comment(&CreateComment {
@@ -176,7 +176,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let comment = db.create_comment(&CreateComment {
@@ -223,7 +223,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let metadata = serde_json::json!({"stage": "plan", "key": "value"});

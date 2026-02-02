@@ -81,8 +81,14 @@ export interface Ticket {
   orderInEpic?: number;
   /** Cross-epic dependency: which epic must complete before this epic can start */
   dependsOnEpicId?: string;
-  /** Link back to scratchpad that created this ticket */
-  scratchpadId?: string;
+  /** Link back to spec that created this ticket */
+  specId?: string;
+  /** When the ticket was paused (if currently paused) */
+  pausedAt?: Date;
+  /** Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review") */
+  pausedAtStage?: string;
+  /** The run ID that was in progress when paused */
+  pausedRunId?: string;
 }
 
 export type ReadinessCheck =
@@ -101,7 +107,7 @@ export interface Comment {
 }
 
 export type AgentType = 'cursor' | 'claude';
-export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted';
+export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted' | 'paused';
 
 export interface AgentRun {
   id: string;
@@ -118,6 +124,8 @@ export interface AgentRun {
   parentRunId?: string;
   /** For sub-runs: the stage name (e.g., "branch", "plan", "implement", "deslop") */
   stage?: string;
+  /** For resumed runs: the ID of the run this is resuming from */
+  resumedFromRunId?: string;
 }
 
 export interface AgentEvent {
@@ -263,9 +271,9 @@ export interface EpicProgress {
   done: number;
 }
 
-// ===== Scratchpad / Planner Types =====
+// ===== Spec Types =====
 
-export type ScratchpadStatus = 
+export type SpecStatus = 
   | 'draft'
   | 'exploring'
   | 'planning'
@@ -274,18 +282,20 @@ export type ScratchpadStatus =
   | 'executing'
   | 'executed'  // Epics/tickets created, ready to start work
   | 'working'   // Work in progress
+  | 'paused'    // Work paused (can be resumed)
+  | 'halted'    // Work halted (can be restarted from beginning)
   | 'completed'
   | 'failed';
 
 /** Status of a single ticket within an epic */
-export interface ScratchpadTicketStatus {
+export interface SpecTicketStatus {
   id: string;
   title: string;
   column: string;
 }
 
-/** Status of a single epic within a scratchpad */
-export interface ScratchpadEpicStatus {
+/** Status of a single epic within a spec */
+export interface SpecEpicStatus {
   id: string;
   title: string;
   column: string;
@@ -294,11 +304,11 @@ export interface ScratchpadEpicStatus {
   /** Titles of the dependency epics (for display, in same order as dependsOnIds) */
   dependsOnTitles: string[];
   /** Child tickets in this epic */
-  tickets: ScratchpadTicketStatus[];
+  tickets: SpecTicketStatus[];
 }
 
-/** Progress stats for a scratchpad's epics */
-export interface ScratchpadProgress {
+/** Progress stats for a spec's epics */
+export interface SpecProgress {
   /** Number of epics */
   total: number;
   /** Epics in Done column */
@@ -310,7 +320,7 @@ export interface ScratchpadProgress {
   /** Total number of all tickets (epics + child tickets) */
   totalTickets: number;
   /** List of epics with their status */
-  epics: ScratchpadEpicStatus[];
+  epics: SpecEpicStatus[];
 }
 
 /** A single exploration query and its result */
@@ -320,18 +330,18 @@ export interface Exploration {
   timestamp: Date;
 }
 
-/** A scratchpad for the planner agent */
-export interface Scratchpad {
+/** A spec for the planning agent */
+export interface Spec {
   id: string;
-  /** The board this scratchpad belongs to (for organization) */
+  /** The board this spec belongs to (for organization) */
   boardId: string;
   /** The board where tickets will be created (defaults to boardId if not set) */
   targetBoardId?: string;
-  /** The project this scratchpad is scoped to (required) */
+  /** The project this spec is scoped to (required) */
   projectId: string;
   name: string;
   userInput: string;
-  status: ScratchpadStatus;
+  status: SpecStatus;
   /** Preferred agent type for executing the plan */
   agentPref?: 'cursor' | 'claude' | 'any';
   /** Preferred model for the agent */
@@ -342,17 +352,49 @@ export interface Scratchpad {
   planMarkdown?: string;
   /** Parsed plan structure (for execution) */
   planJson?: ProjectPlan;
-  /** Settings for this scratchpad (auto_approve, etc.) */
+  /** Settings for this spec (auto_approve, etc.) */
   settings: Record<string, unknown>;
+  /** When work phase was started (for ETA calculation) */
+  workStartedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface CreateScratchpadInput {
+/** Confidence level for ETA estimates */
+export type EtaConfidence = 'low' | 'medium' | 'high';
+
+/** ETA calculation result for a spec */
+export interface SpecEta {
+  specId: string;
+  /** When work phase was started */
+  workStartedAt?: Date;
+  /** Total number of tickets */
+  totalTickets: number;
+  /** Completed tickets */
+  completedTickets: number;
+  /** Currently in-progress tickets */
+  inProgressTickets: number;
+  /** Paused tickets */
+  pausedTickets: number;
+  /** Time elapsed since work started (seconds) */
+  elapsedSeconds: number;
+  /** Average seconds per completed ticket */
+  avgSecondsPerTicket?: number;
+  /** Average seconds per stage (for completed stages) */
+  avgSecondsPerStage: Record<string, number>;
+  /** Estimated seconds remaining */
+  estimatedSecondsRemaining?: number;
+  /** Estimated completion time (ISO 8601) */
+  estimatedCompletionTime?: Date;
+  /** Confidence level based on sample size */
+  confidence: EtaConfidence;
+}
+
+export interface CreateSpecInput {
   boardId: string;
   /** The board where tickets will be created (defaults to boardId if not set) */
   targetBoardId?: string;
-  /** The project this scratchpad is scoped to (required) */
+  /** The project this spec is scoped to (required) */
   projectId: string;
   name: string;
   userInput: string;
@@ -362,7 +404,7 @@ export interface CreateScratchpadInput {
   model?: string;
 }
 
-export interface UpdateScratchpadInput {
+export interface UpdateSpecInput {
   name?: string;
   userInput?: string;
   agentPref?: 'cursor' | 'claude' | 'any';

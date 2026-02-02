@@ -107,6 +107,7 @@ async fn generate_ai_branch_name(
         repo_path: repo_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: Some("branch-gen".to_string()),
+        ..Default::default()
     });
     
     if let Err(e) = &sub_run {
@@ -284,15 +285,41 @@ pub async fn start_agent_run(
         .get_ticket(&ticket_id)
         .map_err(|e| format!("Failed to get ticket: {}", e))?;
 
-    let run = db
-        .create_run(&CreateRun {
+    // If resuming from a paused run, reuse the same run ID for continuity
+    let run = if let Some(ref paused_run_id) = ticket.paused_run_id {
+        tracing::info!("Resuming paused run {} for ticket {}", paused_run_id, ticket_id);
+        
+        // Get the existing run and update its status back to running
+        let existing_run = db.get_run(paused_run_id)
+            .map_err(|e| format!("Failed to get paused run: {}", e))?;
+        
+        db.update_run_status(paused_run_id, RunStatus::Running, None, None)
+            .map_err(|e| format!("Failed to update paused run status: {}", e))?;
+        
+        // CRITICAL: Remove the old cancelled handle so the orchestrator doesn't
+        // immediately detect cancellation when checking is_cancelled()
+        {
+            let mut handles = running_agents.handles.lock().expect("running agents mutex poisoned");
+            if handles.remove(paused_run_id).is_some() {
+                tracing::info!(
+                    "Removed old cancelled handle for run {} to allow resume",
+                    paused_run_id
+                );
+            }
+        }
+        
+        existing_run
+    } else {
+        db.create_run(&CreateRun {
             ticket_id: ticket_id.clone(),
             agent_type: db_agent_type,
             repo_path: repo_path.clone(),
             parent_run_id: None,
             stage: None,
+            ..Default::default()
         })
-        .map_err(|e| format!("Failed to create run: {}", e))?;
+        .map_err(|e| format!("Failed to create run: {}", e))?
+    };
 
     let run_id = run.id.clone();
     
@@ -562,6 +589,25 @@ pub async fn start_agent_run(
                 }
             }
             
+            // Check if we're resuming from a paused state
+            let resume_from_stage = ticket_for_orchestrator.paused_at_stage.clone();
+            let previous_run_id = ticket_for_orchestrator.paused_run_id.clone();
+            if let Some(ref stage) = resume_from_stage {
+                tracing::info!(
+                    "Resuming ticket {} from stage '{}' (previous run: {:?})",
+                    ticket_for_orchestrator.id, stage, previous_run_id
+                );
+            }
+            
+            // Clear pause state now that we've captured the resume info
+            if ticket_for_orchestrator.paused_run_id.is_some() {
+                if let Err(e) = db_clone.clear_ticket_pause(&ticket_for_orchestrator.id) {
+                    tracing::warn!("Failed to clear ticket pause state: {}", e);
+                } else {
+                    tracing::info!("Cleared pause state for ticket {} after capturing resume info", ticket_for_orchestrator.id);
+                }
+            }
+            
             let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
                 db: db_clone.clone(),
                 window: Some(window_clone.clone()),
@@ -582,6 +628,8 @@ pub async fn start_agent_run(
                 code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
                 stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
                 stage_max_retries: stage_max_retries.unwrap_or(2),
+                resume_from_stage,
+                previous_run_id,
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
@@ -639,12 +687,15 @@ pub async fn start_agent_run(
                     }
                 }
                 Err(e) => {
-                    // Check if this was a cancellation vs a real failure
-                    let was_cancelled = e.contains("cancelled") || e.contains("Cancelled");
+                    // Check if this was a cancellation/pause vs a real failure
+                    let was_cancelled_or_paused = e.contains("cancelled") 
+                        || e.contains("Cancelled")
+                        || e.contains("paused")
+                        || e.contains("Paused");
                     
-                    if was_cancelled {
-                        tracing::info!("Multi-stage workflow was cancelled for run {}", run_id_for_task);
-                        // Don't update run status - cancel_agent_run already set it to Aborted
+                    if was_cancelled_or_paused {
+                        tracing::info!("Multi-stage workflow was cancelled/paused for run {}", run_id_for_task);
+                        // Don't update run status - cancel_agent_run already set it to Aborted/Paused
                         // Don't mark task as failed - cancel_agent_run already reset it to pending
                     } else {
                         tracing::error!("Multi-stage workflow failed for run {}: {}", run_id_for_task, e);
@@ -657,7 +708,7 @@ pub async fn start_agent_run(
                             tracing::error!("Failed to update run status to Error: {}", db_err);
                         }
                         
-                        // Mark task as failed (only for real failures, not cancellations)
+                        // Mark task as failed (only for real failures, not cancellations/pauses)
                         if let Some(ref t) = task {
                             if let Err(fail_err) = db_clone.fail_task(&t.id) {
                                 tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
@@ -701,10 +752,12 @@ pub async fn start_agent_run(
 #[tauri::command]
 pub async fn cancel_agent_run(
     run_id: String,
+    is_pause: Option<bool>,
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
 ) -> Result<(), String> {
-    tracing::info!("Cancelling agent run: {}", run_id);
+    let is_pause = is_pause.unwrap_or(false);
+    tracing::info!("{} agent run: {}", if is_pause { "Pausing" } else { "Cancelling" }, run_id);
 
     // Try to cancel via handle
     let handle_found = {
@@ -740,27 +793,35 @@ pub async fn cancel_agent_run(
         );
     }
 
-    // Update the status in the database
-    db.update_run_status(&run_id, RunStatus::Aborted, None, Some("Cancelled by user"))
+    // Update the status in the database - use Paused for pause, Aborted for cancel
+    let (status, message) = if is_pause {
+        (RunStatus::Paused, "Paused by user")
+    } else {
+        (RunStatus::Aborted, "Cancelled by user")
+    };
+    
+    db.update_run_status(&run_id, status, None, Some(message))
         .map_err(|e| e.to_string())?;
     
     // Reset any in-progress task back to pending so it can be retried
     match db.reset_tasks_for_run(&run_id) {
         Ok(count) => {
             if count > 0 {
-                tracing::info!("Reset {} task(s) to pending for cancelled run {}", count, run_id);
+                tracing::info!("Reset {} task(s) to pending for {} run {}", count, if is_pause { "paused" } else { "cancelled" }, run_id);
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to reset tasks for cancelled run {}: {}", run_id, e);
+            tracing::warn!("Failed to reset tasks for {} run {}: {}", if is_pause { "paused" } else { "cancelled" }, run_id, e);
         }
     }
     
-    // Also unlock any ticket that was locked by this run
-    // We need to find the ticket first
-    if let Ok(run) = db.get_run(&run_id) {
-        if let Err(e) = db.unlock_ticket(&run.ticket_id) {
-            tracing::warn!("Failed to unlock ticket after cancel: {}", e);
+    // Also unlock any ticket that was locked by this run (but NOT when pausing)
+    // When pausing, we keep the lock so the resume flow can find the paused run
+    if !is_pause {
+        if let Ok(run) = db.get_run(&run_id) {
+            if let Err(e) = db.unlock_ticket(&run.ticket_id) {
+                tracing::warn!("Failed to unlock ticket after cancel: {}", e);
+            }
         }
     }
     

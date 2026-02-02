@@ -82,6 +82,12 @@ pub struct OrchestratorConfig {
     pub stage_timeout_secs: u64,
     /// Maximum retries per stage (default: 2)
     pub stage_max_retries: u32,
+    /// Stage to resume from (when resuming a paused ticket).
+    /// If set, stages before this one will be skipped.
+    pub resume_from_stage: Option<String>,
+    /// The previous run ID (when resuming a paused ticket).
+    /// Used to retrieve stage outputs from the run that was paused.
+    pub previous_run_id: Option<String>,
 }
 
 /// The stages in a multi-stage workflow.
@@ -93,9 +99,6 @@ pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "deslop",
     "cleanup",
     "unit-tests",
-    "cleanup",
-    "review-changes",
-    "cleanup",
     "review-changes",
     "add-and-commit",
 ];
@@ -144,10 +147,66 @@ pub struct WorkflowOrchestrator {
     stage_timeout_secs: u64,
     /// Maximum retries per stage
     stage_max_retries: u32,
+    /// Stage to resume from (when resuming a paused ticket).
+    /// If set, stages before this one will be skipped.
+    resume_from_stage: Option<String>,
+    /// Cached stage outputs from the previous run (loaded on resume)
+    previous_stage_outputs: std::collections::HashMap<String, String>,
 }
 
 impl WorkflowOrchestrator {
     pub fn new(config: OrchestratorConfig) -> Self {
+        // If resuming, load stage outputs from:
+        // 1. The previous run (if we created a new run that links to the old one)
+        // 2. OR the current run's existing sub-runs (if we're reusing the same run ID)
+        let previous_stage_outputs = if config.resume_from_stage.is_some() {
+            // First, try to load from a separate previous run if specified
+            let mut outputs = if let Some(ref prev_run_id) = config.previous_run_id {
+                match config.db.get_completed_stage_outputs(prev_run_id) {
+                    Ok(outputs) => {
+                        tracing::info!(
+                            "Loaded {} stage outputs from previous run {}",
+                            outputs.len(),
+                            prev_run_id
+                        );
+                        outputs
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load previous stage outputs: {}", e);
+                        std::collections::HashMap::new()
+                    }
+                }
+            } else {
+                std::collections::HashMap::new()
+            };
+            
+            // Also check the current run's sub-runs (for when we reuse the same run ID)
+            if outputs.is_empty() {
+                match config.db.get_completed_stage_outputs(&config.parent_run_id) {
+                    Ok(current_outputs) => {
+                        if !current_outputs.is_empty() {
+                            tracing::info!(
+                                "Loaded {} stage outputs from current run {} (reusing paused run)",
+                                current_outputs.len(),
+                                config.parent_run_id
+                            );
+                            outputs = current_outputs;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("No stage outputs from current run: {}", e);
+                    }
+                }
+            }
+            
+            for (stage, output) in &outputs {
+                tracing::debug!("  - {}: {} chars", stage, output.len());
+            }
+            outputs
+        } else {
+            std::collections::HashMap::new()
+        };
+        
         Self {
             db: config.db,
             window: config.window,
@@ -169,6 +228,46 @@ impl WorkflowOrchestrator {
             code_review_max_iterations: config.code_review_max_iterations,
             stage_timeout_secs: config.stage_timeout_secs,
             stage_max_retries: config.stage_max_retries,
+            resume_from_stage: config.resume_from_stage,
+            previous_stage_outputs,
+        }
+    }
+    
+    /// Check if a stage should be skipped due to resumption.
+    /// Returns true if we're resuming and haven't reached the resume stage yet.
+    fn should_skip_stage(&self, stage: &str) -> bool {
+        match &self.resume_from_stage {
+            None => false, // Not resuming, don't skip anything
+            Some(resume_stage) => {
+                // Define the stage order. Stages before the resume point are skipped.
+                // This includes both the main workflow stages and the code-review stages.
+                // Must match the order in TicketModal.tsx handlePauseTicket()
+                let stage_order = [
+                    "branch-gen", "branch",           // Branch creation
+                    "plan", "plan-validation",        // Planning (validation is a sub-step)
+                    "implement",                      // Implementation
+                    "code-review", "code-review-fix", // Code review loop
+                    "deslop", "cleanup", "unit-tests", // QA stages
+                    "review-changes", "add-and-commit", // Final stages
+                ];
+                
+                // Find the index of the resume stage
+                let resume_idx = stage_order.iter().position(|&s| s == resume_stage);
+                // Find the index of the current stage
+                let current_idx = stage_order.iter().position(|&s| s == stage);
+                
+                match (resume_idx, current_idx) {
+                    (Some(resume), Some(current)) => current < resume,
+                    _ => {
+                        // Unknown stage, don't skip to be safe
+                        tracing::warn!(
+                            "Unknown stage for resumption check: stage={}, resume_from={}",
+                            stage, resume_stage
+                        );
+                        false
+                    }
+                }
+            }
         }
     }
     
@@ -254,14 +353,30 @@ impl WorkflowOrchestrator {
 
     /// Execute the full multi-stage workflow
     pub async fn execute(&self) -> Result<(), String> {
-        tracing::info!("Starting multi-stage workflow for ticket {}", self.ticket.id);
+        // Log resumption info if we're resuming from a paused state
+        if let Some(ref resume_stage) = self.resume_from_stage {
+            tracing::info!(
+                "Resuming multi-stage workflow for ticket {} from stage '{}'",
+                self.ticket.id, resume_stage
+            );
+            // Clear the paused_at_stage from the database now that we're resuming
+            if let Err(e) = self.db.clear_ticket_pause(&self.ticket.id) {
+                tracing::warn!("Failed to clear ticket pause state: {}", e);
+                // Continue anyway - the important thing is we have the resume stage
+            }
+        } else {
+            tracing::info!("Starting multi-stage workflow for ticket {}", self.ticket.id);
+        }
         
         // Move ticket to "In Progress" when workflow starts
         self.move_ticket_to_column("In Progress");
         
         // Handle branch creation based on whether we already have a branch name
         // and whether it was already created (e.g., via worktree)
-        if let Some(ref branch_name) = self.worktree_branch {
+        // Skip if we're resuming past the branch stage
+        if self.should_skip_stage("branch") {
+            tracing::info!("Skipping branch stage (resuming from later stage)");
+        } else if let Some(ref branch_name) = self.worktree_branch {
             if self.is_temp_branch {
                 // Temp branch exists but needs to be renamed to an AI-generated name
                 tracing::info!("Temp branch '{}' exists, generating AI name and renaming...", branch_name);
@@ -449,46 +564,57 @@ Do NOT start implementing any code changes. Just create the branch.
         }
         
         // Stage 1: Plan
-        if self.is_cancelled() {
-            return Err("Workflow cancelled".to_string());
-        }
-        
-        // Use task-based prompts if we have a task, otherwise fall back to ticket-based
-        let plan_prompt = if let Some(ref task) = self.task {
-            // For preset tasks, we skip the plan stage and go directly to execution
-            if task.task_type != TaskType::Custom {
-                // Skip plan for preset tasks - they have their own instructions
-                tracing::info!("Skipping plan stage for preset task type: {:?}", task.task_type);
+        // Skip if we're resuming past the plan stage, but retrieve the saved plan
+        let plan = if self.should_skip_stage("plan") {
+            tracing::info!("Skipping plan stage (resuming from later stage)");
+            // Try to retrieve the saved plan from previous comments for use in implementation
+            self.get_saved_plan().unwrap_or_else(|| {
+                tracing::warn!("No saved plan found - implementation will proceed without plan context");
                 String::new()
-            } else {
-                generate_task_plan_prompt(task, &self.ticket)
+            })
+        } else {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
             }
-        } else {
-            generate_plan_prompt(&self.ticket)
+            
+            // Use task-based prompts if we have a task, otherwise fall back to ticket-based
+            let plan_prompt = if let Some(ref task) = self.task {
+                // For preset tasks, we skip the plan stage and go directly to execution
+                if task.task_type != TaskType::Custom {
+                    // Skip plan for preset tasks - they have their own instructions
+                    tracing::info!("Skipping plan stage for preset task type: {:?}", task.task_type);
+                    String::new()
+                } else {
+                    generate_task_plan_prompt(task, &self.ticket)
+                }
+            } else {
+                generate_plan_prompt(&self.ticket)
+            };
+            
+            if !plan_prompt.is_empty() {
+                let plan_result = self.run_stage("plan", &plan_prompt).await?;
+                // Extract only the text content from stream-json output.
+                // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
+                // which can be 100K+ tokens. We only need the final plan text.
+                let raw_output = plan_result.captured_stdout.unwrap_or_default();
+                let extracted = extract_text_from_stream_json(&raw_output)
+                    .unwrap_or_else(|| raw_output.clone());
+                
+                tracing::info!(
+                    "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+                    raw_output.len(),
+                    extracted.len(),
+                    if raw_output.is_empty() { 0 } else { 100 - (extracted.len() * 100 / raw_output.len()) }
+                );
+                
+                extracted
+            } else {
+                String::new()
+            }
         };
         
-        let plan = if !plan_prompt.is_empty() {
-            let plan_result = self.run_stage("plan", &plan_prompt).await?;
-            // Extract only the text content from stream-json output.
-            // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
-            // which can be 100K+ tokens. We only need the final plan text.
-            let raw_output = plan_result.captured_stdout.unwrap_or_default();
-            let extracted = extract_text_from_stream_json(&raw_output)
-                .unwrap_or_else(|| raw_output.clone());
-            
-            tracing::info!(
-                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
-                raw_output.len(),
-                extracted.len(),
-                if raw_output.is_empty() { 0 } else { 100 - (extracted.len() * 100 / raw_output.len()) }
-            );
-            
-            extracted
-        } else {
-            String::new()
-        };
-        
-        if !plan.is_empty() {
+        // Only run plan validation if we actually ran the plan stage (not skipped)
+        if !plan.is_empty() && !self.should_skip_stage("plan") {
             self.add_plan_comment(&plan);
             
             tracing::info!("Running plan clarification validation for ticket {}", self.ticket.id);
@@ -546,33 +672,49 @@ Do NOT start implementing any code changes. Just create the branch.
         }
         
         // Stage 2: Implement
-        if self.is_cancelled() {
-            return Err("Workflow cancelled".to_string());
+        // Skip if we're resuming past the implement stage
+        if self.should_skip_stage("implement") {
+            tracing::info!("Skipping implement stage (resuming from later stage)");
+        } else {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            
+            let implement_prompt = if let Some(ref task) = self.task {
+                // For preset tasks, use the preset-specific prompt
+                if task.task_type != TaskType::Custom {
+                    generate_task_prompt(task, &self.ticket, &self.repo_path)
+                } else {
+                    generate_task_implement_prompt(task, &self.ticket, &plan)
+                }
+            } else {
+                generate_implement_prompt(&self.ticket, &plan)
+            };
+            
+            let _impl_result = self.run_stage("implement", &implement_prompt).await?;
         }
         
-        let implement_prompt = if let Some(ref task) = self.task {
-            // For preset tasks, use the preset-specific prompt
-            if task.task_type != TaskType::Custom {
-                generate_task_prompt(task, &self.ticket, &self.repo_path)
-            } else {
-                generate_task_implement_prompt(task, &self.ticket, &plan)
-            }
+        // Code review loop - skip if resuming past it
+        if self.should_skip_stage("code-review") {
+            tracing::info!("Skipping code-review loop (resuming from later stage)");
         } else {
-            generate_implement_prompt(&self.ticket, &plan)
-        };
-        
-        let _impl_result = self.run_stage("implement", &implement_prompt).await?;
-        
-        self.run_code_review_loop().await?;
+            self.run_code_review_loop().await?;
+        }
         
         // Move ticket to "Review" when entering QA phase
         self.move_ticket_to_column("Review");
         
         // Stage 3+: QA Commands
-        let qa_commands = &["deslop", "cleanup", "unit-tests", "cleanup", 
-                           "review-changes", "cleanup", "review-changes", "add-and-commit"];
+        // Each command is checked individually to allow resumption from any point
+        let qa_commands = &["deslop", "cleanup", "unit-tests", "review-changes", "add-and-commit"];
         
         for cmd in qa_commands {
+            // Skip commands that come before the resume point
+            if self.should_skip_stage(cmd) {
+                tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+                continue;
+            }
+            
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
@@ -613,6 +755,53 @@ Do NOT start implementing any code changes. Just create the branch.
                 "ticketId": self.ticket.id,
                 "comment": comment_text,
             }));
+        }
+    }
+    
+    /// Retrieve stage output from previous run (used when resuming)
+    fn get_previous_stage_output(&self, stage: &str) -> Option<String> {
+        self.previous_stage_outputs.get(stage).cloned()
+    }
+    
+    /// Retrieve the saved plan from previous run or comments (used when resuming)
+    fn get_saved_plan(&self) -> Option<String> {
+        // First, try to get from previous run's stage outputs (more reliable)
+        if let Some(plan) = self.get_previous_stage_output("plan") {
+            tracing::info!("Retrieved saved plan from previous run ({} chars)", plan.len());
+            return Some(plan);
+        }
+        
+        // Fallback: try to get from comments (legacy support)
+        match self.db.get_comments(&self.ticket.id) {
+            Ok(comments) => {
+                // Find the most recent plan comment (by looking for metadata with type="plan")
+                for comment in comments.iter().rev() {
+                    if let Some(metadata) = &comment.metadata {
+                        if metadata.get("type").and_then(|v| v.as_str()) == Some("plan") {
+                            // Extract the plan content from the comment body
+                            // The format is: "## Implementation Plan\n\n{plan}\n\n---\n..."
+                            let body = &comment.body_md;
+                            if let Some(start) = body.find("## Implementation Plan\n\n") {
+                                let content_start = start + "## Implementation Plan\n\n".len();
+                                if let Some(end) = body[content_start..].find("\n\n---\n") {
+                                    let plan = body[content_start..content_start + end].to_string();
+                                    tracing::info!(
+                                        "Retrieved saved plan from comment ({} chars)",
+                                        plan.len()
+                                    );
+                                    return Some(plan);
+                                }
+                            }
+                        }
+                    }
+                }
+                tracing::warn!("No plan found in previous run or comments for ticket {}", self.ticket.id);
+                None
+            }
+            Err(e) => {
+                tracing::warn!("Failed to get comments for plan retrieval: {}", e);
+                None
+            }
         }
     }
     
@@ -810,6 +999,7 @@ Do NOT start implementing any code changes. Just create the branch.
             repo_path: self.repo_path.to_string_lossy().to_string(),
             parent_run_id: Some(self.parent_run_id.clone()),
             stage: Some(stage.to_string()),
+            ..Default::default()
         }).map_err(|e| format!("Failed to create sub-run: {}", e))?;
         
         // Update project hooks with parent run configuration
@@ -974,6 +1164,40 @@ Do NOT start implementing any code changes. Just create the branch.
             result.exit_code,
             result.summary.as_deref(),
         ).map_err(|e| format!("Failed to update sub-run status: {}", e))?;
+        
+        // Save stage output to run metadata for resume capability
+        if result.status == RunOutcome::Success {
+            if let Some(ref output) = result.captured_stdout {
+                // Extract just the text content, not the full stream-json
+                let extracted_output = extract_text_from_stream_json(output)
+                    .unwrap_or_else(|| output.clone());
+                
+                // Limit output size to avoid huge metadata (keep first 50KB)
+                // Use char_indices to find a safe UTF-8 boundary to avoid panic on multi-byte chars
+                let truncated_output = if extracted_output.len() > 50_000 {
+                    let safe_boundary = extracted_output
+                        .char_indices()
+                        .take_while(|(idx, _)| *idx < 50_000)
+                        .last()
+                        .map(|(idx, c)| idx + c.len_utf8())
+                        .unwrap_or(0);
+                    format!("{}...[truncated]", &extracted_output[..safe_boundary])
+                } else {
+                    extracted_output
+                };
+                
+                let metadata = serde_json::json!({
+                    "stage_output": truncated_output,
+                    "duration_secs": duration_secs,
+                });
+                
+                if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
+                    tracing::warn!("Failed to save stage output to metadata: {}", e);
+                } else {
+                    tracing::debug!("Saved stage '{}' output ({} chars)", stage, truncated_output.len());
+                }
+            }
+        }
         
         self.emit_stage_event(
             stage, 

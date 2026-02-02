@@ -4,7 +4,7 @@
 //! Also handles cross-epic dependencies (depends_on_epic_id).
 
 use std::sync::Arc;
-use crate::db::{Database, DbError, Ticket, AuthorType, CreateComment, ScratchpadStatus, UpdateTicket};
+use crate::db::{Database, DbError, Ticket, AuthorType, CreateComment, SpecStatus, UpdateTicket};
 use super::TicketState;
 
 /// Result of epic advancement
@@ -122,21 +122,21 @@ fn populate_consolidation_tickets(
     db: &Arc<Database>,
     epic: &Ticket,
 ) -> Result<(), DbError> {
-    let Some(ref scratchpad_id) = epic.scratchpad_id else {
+    let Some(ref spec_id) = epic.spec_id else {
         tracing::warn!(
-            "Consolidation epic {} has no scratchpad_id, cannot populate branch info",
+            "Consolidation epic {} has no spec_id, cannot populate branch info",
             epic.id
         );
         return Ok(());
     };
 
-    // Get all epics from the scratchpad with their final branches
-    let epics_with_branches = db.get_scratchpad_epics_with_branches(scratchpad_id)?;
+    // Get all epics from the spec with their final branches
+    let epics_with_branches = db.get_spec_epics_with_branches(spec_id)?;
     
     if epics_with_branches.is_empty() {
         tracing::warn!(
-            "Consolidation epic {}: no epics with branches found in scratchpad {}",
-            epic.id, scratchpad_id
+            "Consolidation epic {}: no epics with branches found in spec {}",
+            epic.id, spec_id
         );
         return Ok(());
     }
@@ -146,7 +146,7 @@ fn populate_consolidation_tickets(
     merge_steps.push("## Branch Consolidation Task\n".to_string());
     merge_steps.push("Create a consolidation branch and merge all epic work sequentially.\n".to_string());
     merge_steps.push("### Steps:\n".to_string());
-    merge_steps.push(format!("1. Create new branch from main: `scratchpad/{}/consolidated`\n", scratchpad_id));
+    merge_steps.push(format!("1. Create new branch from main: `spec/{}/consolidated`\n", spec_id));
     
     let mut step = 2;
     for (epic_id, epic_title, branch) in &epics_with_branches {
@@ -240,8 +240,8 @@ pub fn on_child_completed(
             // Check for dependent epics that can now be moved to Ready
             let advanced = advance_dependent_epics(db, &epic)?;
             
-            // Check if this epic belongs to a scratchpad and if all scratchpad epics are done
-            check_scratchpad_completion(db, &epic)?;
+            // Check if this epic belongs to a spec and if all spec epics are done
+            check_spec_completion(db, &epic)?;
             
             if !advanced.is_empty() {
                 return Ok(EpicAdvancement::DependentsAdvanced { epic_ids: advanced });
@@ -318,31 +318,53 @@ pub fn advance_dependent_epics(
     Ok(advanced)
 }
 
-/// Check if all epics for a scratchpad are complete
-/// If so, update the scratchpad status to Completed
-fn check_scratchpad_completion(
+/// Check if all epics for a spec are complete
+/// If so, update the spec status to Completed
+fn check_spec_completion(
     db: &Arc<Database>,
     completed_epic: &Ticket,
 ) -> Result<(), DbError> {
-    // Only check if epic belongs to a scratchpad
-    let Some(ref scratchpad_id) = completed_epic.scratchpad_id else {
+    // Only check if epic belongs to a spec
+    let Some(ref spec_id) = completed_epic.spec_id else {
         return Ok(());
     };
     
-    // Check if all scratchpad epics are done
-    if db.are_all_scratchpad_epics_done(scratchpad_id)? {
-        // Get scratchpad to check current status
-        let scratchpad = db.get_scratchpad(scratchpad_id)?;
+    check_spec_completion_by_id(db, spec_id)
+}
+
+/// Check if all epics for a spec are complete by spec ID
+/// If so, update the spec status to Completed
+/// This is public so it can be called from start_spec_work and other places
+pub fn check_spec_completion_by_id(
+    db: &Arc<Database>,
+    spec_id: &str,
+) -> Result<(), DbError> {
+    // Check if all spec epics are done
+    if db.are_all_spec_epics_done(spec_id)? {
+        // Get spec to check current status
+        let spec = db.get_spec(spec_id)?;
         
-        // Only update if currently in Working status
-        if scratchpad.status == ScratchpadStatus::Working {
-            db.set_scratchpad_status(scratchpad_id, ScratchpadStatus::Completed)?;
-            
-            tracing::info!(
-                "Scratchpad {} completed - all {} epics done",
-                scratchpad_id,
-                db.get_scratchpad_epics(scratchpad_id)?.len()
-            );
+        // Update if currently in a status that indicates work was in progress
+        // This handles edge cases like:
+        // - Working: normal completion
+        // - Paused: work was paused but all epics completed
+        // - Halted: work was halted but all epics completed
+        // - Executed: work never started but epics were moved to Done manually
+        match spec.status {
+            SpecStatus::Working | SpecStatus::Paused | 
+            SpecStatus::Halted | SpecStatus::Executed => {
+                db.set_spec_status(spec_id, SpecStatus::Completed)?;
+                
+                tracing::info!(
+                    "Spec {} completed (from status '{}') - all {} epics done",
+                    spec_id,
+                    spec.status.as_str(),
+                    db.get_spec_epics(spec_id)?.len()
+                );
+            }
+            _ => {
+                // Already completed, failed, or in an earlier state - don't change
+            }
         }
     }
     
@@ -423,7 +445,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 
@@ -444,7 +466,7 @@ mod tests {
             epic_id: Some(epic_id.to_string()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 
@@ -573,7 +595,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: Some(depends_on.to_string()),
             depends_on_epic_ids: vec![depends_on.to_string()],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 

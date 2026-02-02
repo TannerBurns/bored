@@ -49,6 +49,12 @@ pub struct RunnerConfig {
     pub stage_timeout_secs: u64,
     /// Maximum retries per stage (default: 2)
     pub stage_max_retries: u32,
+    /// Stage to resume from (when resuming a paused ticket).
+    /// If set, stages before this one will be skipped.
+    pub resume_from_stage: Option<String>,
+    /// The previous run ID (when resuming a paused ticket).
+    /// Used to retrieve stage outputs from the run that was paused.
+    pub previous_run_id: Option<String>,
 }
 
 /// Result of an agent run execution
@@ -263,6 +269,8 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         code_review_max_iterations: config.code_review_max_iterations,
         stage_timeout_secs: config.stage_timeout_secs,
         stage_max_retries: config.stage_max_retries,
+        resume_from_stage: config.resume_from_stage.clone(),
+        previous_run_id: config.previous_run_id.clone(),
     });
     
     orchestrator.execute().await

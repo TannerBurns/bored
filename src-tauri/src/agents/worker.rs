@@ -93,7 +93,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new(id: String, config: WorkerConfig, db: Arc<Database>) -> Self {
+    pub fn new(id: String, config: WorkerConfig, db: Arc<Database>, cancel_handles: Option<runner::CancelHandlesMap>) -> Self {
         let status = WorkerStatus {
             id: id.clone(),
             agent_type: config.agent_type.as_str().to_string(),
@@ -112,7 +112,7 @@ impl Worker {
             db,
             running: Arc::new(AtomicBool::new(false)),
             status: Arc::new(std::sync::Mutex::new(status)),
-            cancel_handles: runner::create_cancel_handles(),
+            cancel_handles: cancel_handles.unwrap_or_else(runner::create_cancel_handles),
         }
     }
 
@@ -185,10 +185,57 @@ impl Worker {
             &run_id,
             lock_expires,
         )? else {
+            // Log diagnostics to help debug why no tickets are being picked up
+            if let Ok(diag) = self.db.get_ready_ticket_diagnostics(
+                self.config.project_id.as_deref(),
+                self.config.agent_type,
+            ) {
+                if diag.total_ready > 0 {
+                    tracing::debug!(
+                        "Worker {} found no eligible tickets: {} total in Ready (paused={}, locked={}, epics={}, wrong_project={}, wrong_agent={}, eligible={})",
+                        self.id,
+                        diag.total_ready,
+                        diag.paused,
+                        diag.locked,
+                        diag.epics,
+                        diag.wrong_project,
+                        diag.wrong_agent_pref,
+                        diag.eligible
+                    );
+                }
+            }
             return Ok(false);
         };
 
         tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
+        
+        // Check if the ticket's parent spec is paused or halted
+        if let Some(ref spec_id) = ticket.spec_id {
+            match self.db.get_spec(spec_id) {
+                Ok(spec) => {
+                    use crate::db::SpecStatus;
+                    match spec.status {
+                        SpecStatus::Paused | SpecStatus::Halted => {
+                            tracing::info!(
+                                "Worker {} skipping ticket {} because spec {} is {:?}",
+                                self.id, ticket.id, spec_id, spec.status
+                            );
+                            self.db.unlock_ticket(&ticket.id)?;
+                            return Ok(false);
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Worker {} failed to check spec {} status: {}, unlocking ticket to be safe",
+                        self.id, spec_id, e
+                    );
+                    self.db.unlock_ticket(&ticket.id)?;
+                    return Ok(false);
+                }
+            }
+        }
 
         // Get the repo path for this ticket
         let repo_path = match self.get_repo_path(&ticket) {
@@ -346,22 +393,93 @@ impl Worker {
         let worktree = worktree_info.expect("Worktree should always be created");
         let working_path = worktree.path.clone();
 
-        // Create the run in the database
-        let run = match self.db.create_run(&CreateRun {
-            ticket_id: ticket.id.clone(),
-            agent_type: match self.config.agent_type {
-                AgentKind::Cursor => AgentType::Cursor,
-                AgentKind::Claude => AgentType::Claude,
-            },
-            repo_path: working_path.to_string_lossy().to_string(),
-            parent_run_id: None,
-            stage: None,
-        }) {
-            Ok(run) => run,
-            Err(e) => {
-                let _ = self.db.unlock_ticket(&ticket.id);
-                let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
-                return Err(e.into());
+        // If resuming from a paused run, reuse the same run ID for continuity
+        // Otherwise, create a new run
+        let run = if let Some(ref paused_run_id) = ticket.paused_run_id {
+            // Reuse the existing paused run
+            tracing::info!(
+                "Worker {} resuming paused run {} for ticket {}",
+                self.id, paused_run_id, ticket.id
+            );
+            
+            // Get the existing run and update its status back to running
+            match self.db.get_run(paused_run_id) {
+                Ok(mut existing_run) => {
+                    // Update the run status back to running
+                    if let Err(e) = self.db.update_run_status(
+                        paused_run_id,
+                        RunStatus::Running,
+                        None,
+                        None, // Clear any previous summary
+                    ) {
+                        tracing::error!("Failed to update paused run status to running: {}", e);
+                        let _ = self.db.unlock_ticket(&ticket.id);
+                        let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                        return Err(e.into());
+                    }
+                    
+                    // CRITICAL: Remove the old cancelled handle so the orchestrator doesn't
+                    // immediately detect cancellation when checking is_cancelled()
+                    {
+                        let mut handles = self.cancel_handles.lock().expect("cancel handles mutex poisoned");
+                        if handles.remove(paused_run_id).is_some() {
+                            tracing::info!(
+                                "Removed old cancelled handle for run {} to allow resume",
+                                paused_run_id
+                            );
+                        }
+                    }
+                    
+                    // Update repo_path in case worktree changed
+                    existing_run.repo_path = working_path.to_string_lossy().to_string();
+                    existing_run.status = RunStatus::Running;
+                    existing_run
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Could not find paused run {}, creating new run: {}",
+                        paused_run_id, e
+                    );
+                    // Fall back to creating a new run
+                    match self.db.create_run(&CreateRun {
+                        ticket_id: ticket.id.clone(),
+                        agent_type: match self.config.agent_type {
+                            AgentKind::Cursor => AgentType::Cursor,
+                            AgentKind::Claude => AgentType::Claude,
+                        },
+                        repo_path: working_path.to_string_lossy().to_string(),
+                        parent_run_id: None,
+                        stage: None,
+                        ..Default::default()
+                    }) {
+                        Ok(run) => run,
+                        Err(e) => {
+                            let _ = self.db.unlock_ticket(&ticket.id);
+                            let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+        } else {
+            // Create a new run
+            match self.db.create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: match self.config.agent_type {
+                    AgentKind::Cursor => AgentType::Cursor,
+                    AgentKind::Claude => AgentType::Claude,
+                },
+                repo_path: working_path.to_string_lossy().to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            }) {
+                Ok(run) => run,
+                Err(e) => {
+                    let _ = self.db.unlock_ticket(&ticket.id);
+                    let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
+                    return Err(e.into());
+                }
             }
         };
 
@@ -491,6 +609,25 @@ impl Worker {
             (Some(worktree.branch_name.clone()), true, worktree.is_temp_branch)
         };
         
+        // Check if we're resuming from a paused state
+        // The ticket's paused_at_stage field tells us which stage to resume from
+        let resume_from_stage = ticket.paused_at_stage.clone();
+        if let Some(ref stage) = resume_from_stage {
+            tracing::info!(
+                "Worker {} resuming ticket {} from stage '{}'",
+                self.id, ticket.id, stage
+            );
+        }
+        
+        // Get the previous run ID for retrieving stage outputs when resuming
+        let previous_run_id = ticket.paused_run_id.clone();
+        if previous_run_id.is_some() {
+            tracing::info!(
+                "Worker {} will retrieve stage outputs from previous run {:?}",
+                self.id, previous_run_id
+            );
+        }
+        
         let runner_config = RunnerConfig {
             db: self.db.clone(),
             window: None, // Workers don't have a window
@@ -512,7 +649,19 @@ impl Worker {
             code_review_max_iterations: self.config.code_review_max_iterations,
             stage_timeout_secs: self.config.stage_timeout_secs,
             stage_max_retries: self.config.stage_max_retries,
+            resume_from_stage,
+            previous_run_id,
         };
+
+        // Clear pause state now that we've captured the resume info
+        // This prevents the ticket from being picked up again if something goes wrong
+        if ticket.paused_run_id.is_some() {
+            if let Err(e) = self.db.clear_ticket_pause(&ticket.id) {
+                tracing::warn!("Failed to clear ticket pause state: {}", e);
+            } else {
+                tracing::info!("Cleared pause state for ticket {} after capturing resume info", ticket.id);
+            }
+        }
 
         let result = runner::execute_agent_run(runner_config).await;
         
@@ -528,7 +677,7 @@ impl Worker {
                 );
                 
                 // Mark task as completed or failed based on result
-                // Note: For Aborted (cancelled) runs, the task was already reset to pending
+                // Note: For Aborted/Paused runs, the task was already reset to pending
                 // by cancel_agent_run, so we don't update it here
                 if let Some(ref t) = task {
                     let task_result = match r.status {
@@ -537,6 +686,11 @@ impl Worker {
                         RunStatus::Aborted => {
                             // Task already reset to pending by cancel handler
                             tracing::info!("Skipping task update for aborted run - task already reset");
+                            Ok(t.clone())
+                        }
+                        RunStatus::Paused => {
+                            // Task already reset to pending by pause handler
+                            tracing::info!("Skipping task update for paused run - task already reset");
                             Ok(t.clone())
                         }
                         _ => Ok(t.clone()),
@@ -548,15 +702,18 @@ impl Worker {
             }
             Err(e) => {
                 let error_str = e.to_string();
-                let was_cancelled = error_str.contains("cancelled") || error_str.contains("Cancelled");
+                let was_cancelled_or_paused = error_str.contains("cancelled") 
+                    || error_str.contains("Cancelled")
+                    || error_str.contains("paused")
+                    || error_str.contains("Paused");
                 
-                if was_cancelled {
-                    tracing::info!("Worker {} run {} was cancelled", self.id, run.id);
-                    // Task already reset to pending by cancel handler, don't mark as failed
+                if was_cancelled_or_paused {
+                    tracing::info!("Worker {} run {} was cancelled/paused", self.id, run.id);
+                    // Task already reset to pending by cancel/pause handler, don't mark as failed
                 } else {
                     tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
                     
-                    // Mark task as failed (only for real failures, not cancellations)
+                    // Mark task as failed (only for real failures, not cancellations/pauses)
                     if let Some(ref t) = task {
                         if let Err(fail_err) = self.db.fail_task(&t.id) {
                             tracing::warn!("Failed to mark task {} as failed: {}", t.id, fail_err);
@@ -777,9 +934,9 @@ impl WorkerManager {
         }
     }
 
-    pub fn start_worker(&self, config: WorkerConfig, db: Arc<Database>) -> String {
+    pub fn start_worker(&self, config: WorkerConfig, db: Arc<Database>, cancel_handles: Option<runner::CancelHandlesMap>) -> String {
         let id = uuid::Uuid::new_v4().to_string();
-        let worker = Arc::new(Worker::new(id.clone(), config, db));
+        let worker = Arc::new(Worker::new(id.clone(), config, db, cancel_handles));
         let worker_clone = worker.clone();
 
         let handle = tokio::spawn(async move {
@@ -922,7 +1079,7 @@ mod tests {
             ..Default::default()
         };
 
-        let worker = Worker::new("test-worker".to_string(), config, db);
+        let worker = Worker::new("test-worker".to_string(), config, db, None);
 
         assert_eq!(worker.id, "test-worker");
         assert!(!worker.is_running());
@@ -940,7 +1097,7 @@ mod tests {
     #[test]
     fn worker_stop_sets_state() {
         let db = Arc::new(Database::open_in_memory().unwrap());
-        let worker = Worker::new("w1".to_string(), WorkerConfig::default(), db);
+        let worker = Worker::new("w1".to_string(), WorkerConfig::default(), db, None);
 
         worker.stop();
 

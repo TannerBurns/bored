@@ -1,9 +1,9 @@
-import { usePlannerStore } from '../../stores/plannerStore';
+import { useSpecStore } from '../../stores/specStore';
 import { useBoardStore } from '../../stores/boardStore';
-import type { Scratchpad } from '../../types';
+import type { Spec } from '../../types';
 
-interface ScratchpadListProps {
-  onSelect: (scratchpad: Scratchpad) => void;
+interface SpecListProps {
+  onSelect: (spec: Spec) => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -32,8 +32,8 @@ const statusLabels: Record<string, string> = {
   failed: 'Failed',
 };
 
-export function ScratchpadList({ onSelect }: ScratchpadListProps) {
-  const { scratchpads, currentScratchpad, isLoading } = usePlannerStore();
+export function SpecList({ onSelect }: SpecListProps) {
+  const { specs, currentSpec, isLoading } = useSpecStore();
   const { boards } = useBoardStore();
   
   // Helper to get board name by ID
@@ -45,27 +45,27 @@ export function ScratchpadList({ onSelect }: ScratchpadListProps) {
   if (isLoading) {
     return (
       <div className="p-4 text-gray-500 text-sm">
-        Loading scratchpads...
+        Loading specs...
       </div>
     );
   }
 
-  if (scratchpads.length === 0) {
+  if (specs.length === 0) {
     return (
       <div className="p-4 text-gray-500 text-sm">
-        No scratchpads yet. Create one to start planning!
+        No specs yet. Create one to start planning!
       </div>
     );
   }
 
   return (
     <div className="space-y-2 p-2">
-      {scratchpads.map((scratchpad) => (
+      {specs.map((spec) => (
         <button
-          key={scratchpad.id}
-          onClick={() => onSelect(scratchpad)}
+          key={spec.id}
+          onClick={() => onSelect(spec)}
           className={`w-full text-left p-3 rounded-lg border transition-all ${
-            currentScratchpad?.id === scratchpad.id
+            currentSpec?.id === spec.id
               ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
               : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
           }`}
@@ -73,26 +73,26 @@ export function ScratchpadList({ onSelect }: ScratchpadListProps) {
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
               <h4 className="font-medium text-gray-900 dark:text-white truncate">
-                {scratchpad.name}
+                {spec.name}
               </h4>
               <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
-                {scratchpad.userInput}
+                {spec.userInput}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                Board: {getBoardName(scratchpad.boardId)}
+                Board: {getBoardName(spec.boardId)}
               </p>
             </div>
             <span
               className={`ml-2 px-2 py-0.5 text-xs font-medium text-white rounded-full ${
-                statusColors[scratchpad.status] || 'bg-gray-500'
+                statusColors[spec.status] || 'bg-gray-500'
               }`}
             >
-              {statusLabels[scratchpad.status] || scratchpad.status}
+              {statusLabels[spec.status] || spec.status}
             </span>
           </div>
-          {scratchpad.explorationLog?.length > 0 && (
+          {spec.explorationLog?.length > 0 && (
             <div className="mt-2 text-xs text-gray-400">
-              {scratchpad.explorationLog.length} exploration{scratchpad.explorationLog.length !== 1 ? 's' : ''}
+              {spec.explorationLog.length} exploration{spec.explorationLog.length !== 1 ? 's' : ''}
             </div>
           )}
         </button>

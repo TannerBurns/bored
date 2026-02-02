@@ -139,7 +139,7 @@ export function CreateTicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col bg-board-column rounded-xl shadow-2xl border border-board-border">
+      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-board-column rounded-xl shadow-2xl border border-board-border">
         <form onSubmit={handleSubmit} className="flex flex-col max-h-[90vh]">
           {/* Header */}
           <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-board-border">

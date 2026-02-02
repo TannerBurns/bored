@@ -3,14 +3,14 @@ import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { MarkdownViewer } from '../common/MarkdownViewer';
-import { usePlannerStore } from '../../stores/plannerStore';
+import { useSpecStore } from '../../stores/specStore';
 import { getProjects, getBoards } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import type { Project, Board } from '../../types';
 
-interface CreateScratchpadModalProps {
+interface CreateSpecModalProps {
   boardId: string;
-  /** Optional - the default project this scratchpad is scoped to */
+  /** Optional - the default project this spec is scoped to */
   projectId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -18,13 +18,13 @@ interface CreateScratchpadModalProps {
 
 type AgentPref = 'cursor' | 'claude' | 'any';
 
-export function CreateScratchpadModal({
+export function CreateSpecModal({
   boardId,
   projectId: defaultProjectId,
   open,
   onOpenChange,
-}: CreateScratchpadModalProps) {
-  const { createScratchpad, isLoading } = usePlannerStore();
+}: CreateSpecModalProps) {
+  const { createSpec, isLoading } = useSpecStore();
   const [name, setName] = useState('');
   const [userInput, setUserInput] = useState('');
   const [agentPref, setAgentPref] = useState<AgentPref>('any');
@@ -112,7 +112,7 @@ export function CreateScratchpadModal({
     }
 
     try {
-      await createScratchpad({
+      await createSpec({
         boardId,
         targetBoardId: targetBoardId || undefined, // undefined means same as boardId
         projectId: selectedProjectId,
@@ -135,102 +135,101 @@ export function CreateScratchpadModal({
     }
   };
 
-  // Fullscreen editor modal
-  if (isFullscreen) {
-    return (
-      <div className="fixed inset-0 z-[70] flex items-center justify-center">
-        {/* Backdrop */}
-        <div
-          className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-          onClick={() => setIsFullscreen(false)}
-        />
+  // Fullscreen editor overlay (rendered on top of modal, not replacing it)
+  const fullscreenEditor = isFullscreen ? (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        onClick={() => setIsFullscreen(false)}
+      />
 
-        {/* Modal */}
-        <div className="relative w-full h-full max-w-5xl max-h-[95vh] m-4 bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-board-border shrink-0">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-board-text">
-                Description
-              </h2>
-              {name && (
-                <span className="text-sm text-board-text-muted truncate max-w-md">
-                  — {name}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {/* View/Edit toggle */}
-              <div className="flex bg-board-surface rounded-lg p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setIsPreviewMode(false)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors',
-                    !isPreviewMode
-                      ? 'bg-board-accent text-white'
-                      : 'text-board-text-muted hover:text-board-text'
-                  )}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsPreviewMode(true)}
-                  className={cn(
-                    'px-3 py-1.5 text-sm rounded-md transition-colors',
-                    isPreviewMode
-                      ? 'bg-board-accent text-white'
-                      : 'text-board-text-muted hover:text-board-text'
-                  )}
-                >
-                  Preview
-                </button>
-              </div>
-              {/* Close button */}
+      {/* Modal */}
+      <div className="relative w-full h-full max-w-5xl max-h-[95vh] m-4 bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-board-border shrink-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-board-text">
+              Description
+            </h2>
+            {name && (
+              <span className="text-sm text-board-text-muted truncate max-w-md">
+                — {name}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View/Edit toggle */}
+            <div className="flex bg-board-surface rounded-lg p-0.5">
               <button
                 type="button"
-                onClick={() => setIsFullscreen(false)}
-                className="p-2 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
-                aria-label="Close fullscreen"
+                onClick={() => setIsPreviewMode(false)}
+                className={cn(
+                  'px-3 py-1.5 text-sm rounded-md transition-colors',
+                  !isPreviewMode
+                    ? 'bg-board-accent text-white'
+                    : 'text-board-text-muted hover:text-board-text'
+                )}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="4 14 10 14 10 20" />
-                  <polyline points="20 10 14 10 14 4" />
-                  <line x1="14" y1="10" x2="21" y2="3" />
-                  <line x1="3" y1="21" x2="10" y2="14" />
-                </svg>
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPreviewMode(true)}
+                className={cn(
+                  'px-3 py-1.5 text-sm rounded-md transition-colors',
+                  isPreviewMode
+                    ? 'bg-board-accent text-white'
+                    : 'text-board-text-muted hover:text-board-text'
+                )}
+              >
+                Preview
               </button>
             </div>
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(false)}
+              className="p-2 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
+              aria-label="Close fullscreen"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
           </div>
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {isPreviewMode ? (
-              <div className="bg-board-surface rounded-lg p-6">
-                {userInput ? (
-                  <MarkdownViewer content={userInput} />
-                ) : (
-                  <p className="text-board-text-muted italic">Nothing to preview yet...</p>
-                )}
-              </div>
-            ) : (
-              <textarea
-                ref={textareaRef}
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                className="w-full h-full min-h-[400px] px-4 py-3 bg-board-surface-raised rounded-lg text-board-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border font-mono"
-                placeholder="Describe what you want to build in Markdown...
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {isPreviewMode ? (
+            <div className="bg-board-surface rounded-lg p-6">
+              {userInput ? (
+                <MarkdownViewer content={userInput} />
+              ) : (
+                <p className="text-board-text-muted italic">Nothing to preview yet...</p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              ref={textareaRef}
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              className="w-full h-full min-h-[400px] px-4 py-3 bg-board-surface-raised rounded-lg text-board-text text-sm resize-none focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border font-mono"
+              placeholder="Describe what you want to build in Markdown...
 
 You can use:
 - **Bold** and *italic* text
@@ -239,29 +238,29 @@ You can use:
 - 1. Numbered lists
 - `code` snippets
 - ```code blocks```"
-                autoFocus
-              />
-            )}
-          </div>
+              autoFocus
+            />
+          )}
+        </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between p-4 border-t border-board-border shrink-0">
-            <div className="text-xs text-board-text-muted">
-              <span>
-                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to exit fullscreen
-              </span>
-            </div>
-            <Button type="button" onClick={() => setIsFullscreen(false)}>
-              Done
-            </Button>
+        {/* Footer */}
+        <div className="flex items-center justify-between p-4 border-t border-board-border shrink-0">
+          <div className="text-xs text-board-text-muted">
+            <span>
+              Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to exit fullscreen
+            </span>
           </div>
+          <Button type="button" onClick={() => setIsFullscreen(false)}>
+            Done
+          </Button>
         </div>
       </div>
-    );
-  }
+    </div>
+  ) : null;
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="New Scratchpad">
+    <>
+    <Modal open={open} onOpenChange={onOpenChange} title="New Spec" size="2xl">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-board-text-secondary mb-1">
@@ -463,10 +462,12 @@ Use Markdown for formatting:
             Cancel
           </Button>
           <Button type="submit" disabled={isLoading}>
-            {isLoading ? 'Creating...' : 'Create Scratchpad'}
+            {isLoading ? 'Creating...' : 'Create Spec'}
           </Button>
         </div>
       </form>
     </Modal>
+    {fullscreenEditor}
+    </>
   );
 }

@@ -182,8 +182,14 @@ pub struct Ticket {
     /// All epic dependencies as array of IDs (for display)
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Link back to scratchpad that created this ticket
-    pub scratchpad_id: Option<String>,
+    /// Link back to spec that created this ticket
+    pub spec_id: Option<String>,
+    /// When the ticket was paused (if currently paused)
+    pub paused_at: Option<DateTime<Utc>>,
+    /// Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review")
+    pub paused_at_stage: Option<String>,
+    /// The run ID that was in progress when paused
+    pub paused_run_id: Option<String>,
 }
 
 impl Ticket {
@@ -223,9 +229,10 @@ pub struct Comment {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
+    #[default]
     Cursor,
     Claude,
 }
@@ -247,6 +254,8 @@ pub enum RunStatus {
     Finished,
     Error,
     Aborted,
+    /// The run was paused by the user - can be resumed later
+    Paused,
 }
 
 impl RunStatus {
@@ -257,6 +266,7 @@ impl RunStatus {
             RunStatus::Finished => "finished",
             RunStatus::Error => "error",
             RunStatus::Aborted => "aborted",
+            RunStatus::Paused => "paused",
         }
     }
 
@@ -267,6 +277,7 @@ impl RunStatus {
             "finished" => Some(RunStatus::Finished),
             "error" => Some(RunStatus::Error),
             "aborted" => Some(RunStatus::Aborted),
+            "paused" => Some(RunStatus::Paused),
             _ => None,
         }
     }
@@ -289,6 +300,8 @@ pub struct AgentRun {
     pub parent_run_id: Option<String>,
     /// For sub-runs: the stage name (e.g., "branch", "plan", "implement", "deslop")
     pub stage: Option<String>,
+    /// For resumed runs: the ID of the run this is resuming from
+    pub resumed_from_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -387,15 +400,18 @@ pub struct CreateTicket {
     /// All epic dependencies (for display in progress views)
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Link back to scratchpad that created this ticket
-    pub scratchpad_id: Option<String>,
+    /// Link back to spec that created this ticket
+    pub spec_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRun {
+    #[serde(default)]
     pub ticket_id: String,
+    #[serde(default)]
     pub agent_type: AgentType,
+    #[serde(default)]
     pub repo_path: String,
     /// For sub-runs: the parent run ID
     #[serde(default)]
@@ -403,6 +419,9 @@ pub struct CreateRun {
     /// For sub-runs: the stage name
     #[serde(default)]
     pub stage: Option<String>,
+    /// For resumed runs: the ID of the run this is resuming from
+    #[serde(default)]
+    pub resumed_from_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -438,8 +457,8 @@ pub struct UpdateTicket {
     /// Update all epic dependencies
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Set or clear the scratchpad_id
-    pub scratchpad_id: Option<String>,
+    /// Set or clear the spec_id
+    pub spec_id: Option<String>,
 }
 
 /// Progress information for an epic's children
@@ -603,12 +622,12 @@ pub struct UpdateTask {
     pub run_id: Option<String>,
 }
 
-// ===== Scratchpad / Planner System =====
+// ===== Spec System =====
 
-/// Status of a scratchpad in the planning workflow
+/// Status of a spec in the planning workflow
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum ScratchpadStatus {
+pub enum SpecStatus {
     /// Initial state - user has created but not started exploration
     #[default]
     Draft,
@@ -626,40 +645,48 @@ pub enum ScratchpadStatus {
     Executed,
     /// Work has been started (epics moved to Ready, agents running)
     Working,
+    /// Work is paused (can be resumed)
+    Paused,
+    /// Work has been halted (can be restarted from beginning)
+    Halted,
     /// All epics completed successfully
     Completed,
     /// An error occurred
     Failed,
 }
 
-impl ScratchpadStatus {
+impl SpecStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ScratchpadStatus::Draft => "draft",
-            ScratchpadStatus::Exploring => "exploring",
-            ScratchpadStatus::Planning => "planning",
-            ScratchpadStatus::AwaitingApproval => "awaiting_approval",
-            ScratchpadStatus::Approved => "approved",
-            ScratchpadStatus::Executing => "executing",
-            ScratchpadStatus::Executed => "executed",
-            ScratchpadStatus::Working => "working",
-            ScratchpadStatus::Completed => "completed",
-            ScratchpadStatus::Failed => "failed",
+            SpecStatus::Draft => "draft",
+            SpecStatus::Exploring => "exploring",
+            SpecStatus::Planning => "planning",
+            SpecStatus::AwaitingApproval => "awaiting_approval",
+            SpecStatus::Approved => "approved",
+            SpecStatus::Executing => "executing",
+            SpecStatus::Executed => "executed",
+            SpecStatus::Working => "working",
+            SpecStatus::Paused => "paused",
+            SpecStatus::Halted => "halted",
+            SpecStatus::Completed => "completed",
+            SpecStatus::Failed => "failed",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "draft" => Some(ScratchpadStatus::Draft),
-            "exploring" => Some(ScratchpadStatus::Exploring),
-            "planning" => Some(ScratchpadStatus::Planning),
-            "awaiting_approval" => Some(ScratchpadStatus::AwaitingApproval),
-            "approved" => Some(ScratchpadStatus::Approved),
-            "executing" => Some(ScratchpadStatus::Executing),
-            "executed" => Some(ScratchpadStatus::Executed),
-            "working" => Some(ScratchpadStatus::Working),
-            "completed" => Some(ScratchpadStatus::Completed),
-            "failed" => Some(ScratchpadStatus::Failed),
+            "draft" => Some(SpecStatus::Draft),
+            "exploring" => Some(SpecStatus::Exploring),
+            "planning" => Some(SpecStatus::Planning),
+            "awaiting_approval" => Some(SpecStatus::AwaitingApproval),
+            "approved" => Some(SpecStatus::Approved),
+            "executing" => Some(SpecStatus::Executing),
+            "executed" => Some(SpecStatus::Executed),
+            "working" => Some(SpecStatus::Working),
+            "paused" => Some(SpecStatus::Paused),
+            "halted" => Some(SpecStatus::Halted),
+            "completed" => Some(SpecStatus::Completed),
+            "failed" => Some(SpecStatus::Failed),
             _ => None,
         }
     }
@@ -674,20 +701,20 @@ pub struct Exploration {
     pub timestamp: DateTime<Utc>,
 }
 
-/// A scratchpad for the planner agent
+/// A spec for the planning agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Scratchpad {
+pub struct Spec {
     pub id: String,
-    /// The board this scratchpad belongs to (for organization/display)
+    /// The board this spec belongs to (for organization/display)
     pub board_id: String,
     /// The board where tickets will be created (defaults to board_id if not set)
     pub target_board_id: Option<String>,
-    /// The project this scratchpad is scoped to (required)
+    /// The project this spec is scoped to (required)
     pub project_id: String,
     pub name: String,
     pub user_input: String,
-    pub status: ScratchpadStatus,
+    pub status: SpecStatus,
     /// Preferred agent type for executing the plan
     pub agent_pref: Option<String>,
     /// Preferred model for the agent
@@ -698,20 +725,22 @@ pub struct Scratchpad {
     pub plan_markdown: Option<String>,
     /// Parsed plan structure (for execution)
     pub plan_json: Option<serde_json::Value>,
-    /// Settings for this scratchpad (auto_approve, etc.)
+    /// Settings for this spec (auto_approve, etc.)
     pub settings: serde_json::Value,
+    /// When work phase was started (for ETA calculation)
+    pub work_started_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
-/// Create a new scratchpad
+/// Create a new spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateScratchpad {
+pub struct CreateSpec {
     pub board_id: String,
     /// The board where tickets will be created (defaults to board_id if not set)
     pub target_board_id: Option<String>,
-    /// The project this scratchpad is scoped to (required)
+    /// The project this spec is scoped to (required)
     pub project_id: String,
     pub name: String,
     pub user_input: String,
@@ -723,13 +752,13 @@ pub struct CreateScratchpad {
     pub settings: serde_json::Value,
 }
 
-/// Update a scratchpad
+/// Update a spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateScratchpad {
+pub struct UpdateSpec {
     pub name: Option<String>,
     pub user_input: Option<String>,
-    pub status: Option<ScratchpadStatus>,
+    pub status: Option<SpecStatus>,
     pub agent_pref: Option<String>,
     pub model: Option<String>,
     pub exploration_log: Option<Vec<Exploration>>,
@@ -804,16 +833,16 @@ pub struct ProjectPlan {
 /// Status of a single ticket within an epic
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScratchpadTicketStatus {
+pub struct SpecTicketStatus {
     pub id: String,
     pub title: String,
     pub column: String,
 }
 
-/// Status of a single epic within a scratchpad
+/// Status of a single epic within a spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScratchpadEpicStatus {
+pub struct SpecEpicStatus {
     pub id: String,
     pub title: String,
     pub column: String,
@@ -822,13 +851,13 @@ pub struct ScratchpadEpicStatus {
     /// Titles of the dependency epics (for display, in same order as depends_on_ids)
     pub depends_on_titles: Vec<String>,
     /// Child tickets in this epic
-    pub tickets: Vec<ScratchpadTicketStatus>,
+    pub tickets: Vec<SpecTicketStatus>,
 }
 
-/// Progress stats for a scratchpad's epics
+/// Progress stats for a spec's epics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScratchpadProgress {
+pub struct SpecProgress {
     /// Number of epics
     pub total: usize,
     /// Epics in Done column
@@ -840,7 +869,49 @@ pub struct ScratchpadProgress {
     /// Total number of all tickets (epics + child tickets)
     pub total_tickets: usize,
     /// List of epics with their status
-    pub epics: Vec<ScratchpadEpicStatus>,
+    pub epics: Vec<SpecEpicStatus>,
+}
+
+/// ETA calculation result for a spec
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecEta {
+    pub spec_id: String,
+    /// When work phase was started
+    pub work_started_at: Option<DateTime<Utc>>,
+    /// Total number of tickets
+    pub total_tickets: usize,
+    /// Completed tickets
+    pub completed_tickets: usize,
+    /// Currently in-progress tickets
+    pub in_progress_tickets: usize,
+    /// Paused tickets
+    pub paused_tickets: usize,
+    /// Time elapsed since work started (seconds)
+    pub elapsed_seconds: i64,
+    /// Average seconds per completed ticket
+    pub avg_seconds_per_ticket: Option<f64>,
+    /// Average seconds per stage (for completed stages)
+    pub avg_seconds_per_stage: std::collections::HashMap<String, f64>,
+    /// Estimated seconds remaining
+    pub estimated_seconds_remaining: Option<i64>,
+    /// Estimated completion time (ISO 8601)
+    pub estimated_completion_time: Option<DateTime<Utc>>,
+    /// Confidence level based on sample size
+    pub confidence: EtaConfidence,
+}
+
+/// Confidence level for ETA estimates
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EtaConfidence {
+    /// Not enough data for reliable estimate
+    #[default]
+    Low,
+    /// Some data available
+    Medium,
+    /// Good sample size for reliable estimate
+    High,
 }
 
 #[cfg(test)]
@@ -915,6 +986,7 @@ mod tests {
             assert_eq!(RunStatus::Finished.as_str(), "finished");
             assert_eq!(RunStatus::Error.as_str(), "error");
             assert_eq!(RunStatus::Aborted.as_str(), "aborted");
+            assert_eq!(RunStatus::Paused.as_str(), "paused");
         }
 
         #[test]
@@ -924,6 +996,7 @@ mod tests {
             assert_eq!(RunStatus::parse("finished"), Some(RunStatus::Finished));
             assert_eq!(RunStatus::parse("error"), Some(RunStatus::Error));
             assert_eq!(RunStatus::parse("aborted"), Some(RunStatus::Aborted));
+            assert_eq!(RunStatus::parse("paused"), Some(RunStatus::Paused));
         }
 
         #[test]
@@ -1089,7 +1162,10 @@ mod tests {
                 order_in_epic: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                scratchpad_id: None,
+                spec_id: None,
+                paused_at: None,
+                paused_at_stage: None,
+                paused_run_id: None,
             }
         }
 

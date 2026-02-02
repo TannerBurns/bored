@@ -1,14 +1,58 @@
-import { useState } from 'react';
-import type { ScratchpadProgress } from '../../types';
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
+import type { SpecProgress, SpecEta } from '../../types';
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  }
+}
 
 interface EpicProgressPanelProps {
-  progress: ScratchpadProgress;
+  progress: SpecProgress;
+  specId?: string;
   isWorking: boolean;
+  isPaused?: boolean;
   isCompleted: boolean;
 }
 
-export function EpicProgressPanel({ progress, isWorking, isCompleted }: EpicProgressPanelProps) {
+export function EpicProgressPanel({ progress, specId, isWorking, isPaused = false, isCompleted }: EpicProgressPanelProps) {
   const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
+  const [eta, setEta] = useState<SpecEta | null>(null);
+  
+  // Load ETA when working
+  useEffect(() => {
+    if (!specId || (!isWorking && !isPaused)) {
+      setEta(null);
+      return;
+    }
+    
+    const loadEta = async () => {
+      try {
+        const result = await invoke<SpecEta>('get_spec_eta', { specId });
+        setEta(result);
+      } catch {
+        // ETA calculation can fail gracefully - it's informational
+        setEta(null);
+      }
+    };
+    
+    loadEta();
+    
+    // Poll for ETA updates when working
+    if (isWorking) {
+      const interval = setInterval(loadEta, 30000); // Update every 30s
+      return () => clearInterval(interval);
+    }
+  }, [specId, isWorking, isPaused]);
   
   const toggleEpic = (epicId: string) => {
     setExpandedEpics(prev => {
@@ -76,6 +120,12 @@ export function EpicProgressPanel({ progress, isWorking, isCompleted }: EpicProg
                 In Progress
               </span>
             )}
+            {isPaused && (
+              <span className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
+                <span className="w-2 h-2 bg-yellow-500 rounded-full" />
+                Paused
+              </span>
+            )}
             {isCompleted && progress.done === progress.total && (
               <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
                 <span className="text-lg">✓</span>
@@ -106,7 +156,7 @@ export function EpicProgressPanel({ progress, isWorking, isCompleted }: EpicProg
         </div>
         
         {/* Stats */}
-        <div className="flex gap-4 text-sm">
+        <div className="flex flex-wrap gap-4 text-sm">
           <div className="flex items-center gap-1">
             <span className="w-3 h-3 bg-green-500 rounded-full" />
             <span className="text-gray-600 dark:text-gray-400">Done: {progress.done}</span>
@@ -122,6 +172,35 @@ export function EpicProgressPanel({ progress, isWorking, isCompleted }: EpicProg
             </div>
           )}
         </div>
+        
+        {/* ETA Display */}
+        {eta && (isWorking || isPaused) && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 dark:text-gray-400">Estimated completion:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  {eta.estimatedSecondsRemaining != null ? formatDuration(eta.estimatedSecondsRemaining) : 'Calculating...'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${
+                  eta.confidence === 'high' ? 'bg-green-500' :
+                  eta.confidence === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
+                }`} />
+                <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                  {eta.confidence} confidence
+                </span>
+              </div>
+            </div>
+            {eta.avgSecondsPerTicket != null && (
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Based on avg. {formatDuration(eta.avgSecondsPerTicket)} per ticket 
+                ({eta.completedTickets}/{eta.totalTickets} completed)
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Execution Flow Info */}
         {isWorking && (

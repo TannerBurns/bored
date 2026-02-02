@@ -7,7 +7,7 @@ mod runs;
 mod events;
 mod comments;
 pub mod tasks;
-mod scratchpads;
+mod specs;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -15,6 +15,7 @@ use rusqlite::Connection;
 use thiserror::Error;
 
 pub use models::*;
+pub use tickets::ReadyTicketDiagnostics;
 use schema::{CREATE_TABLES, SCHEMA_VERSION};
 
 #[derive(Error, Debug)]
@@ -91,288 +92,6 @@ impl Database {
             // For fresh databases (version 0), create all tables
             if current_version == 0 {
                 conn.execute_batch(CREATE_TABLES)?;
-            }
-            
-            // Apply incremental migrations
-            if current_version < 3 && current_version > 0 {
-                tracing::info!("Applying migration v3: repo_locks and requires_git");
-                // Split migration to handle potential errors gracefully
-                // Add requires_git column if it doesn't exist
-                let _ = conn.execute(
-                    "ALTER TABLE projects ADD COLUMN requires_git INTEGER NOT NULL DEFAULT 1",
-                    [],
-                );
-                // Create repo_locks table
-                conn.execute_batch(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS repo_locks (
-                        project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                        locked_by_run_id TEXT NOT NULL,
-                        lock_expires_at TEXT NOT NULL,
-                        locked_at TEXT NOT NULL
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_repo_locks_expires ON repo_locks(lock_expires_at);
-                    "#
-                )?;
-            }
-            
-            if current_version < 4 && current_version > 0 {
-                tracing::info!("Applying migration v4: workflow_type, parent_run_id, stage");
-                // Add columns one at a time to handle potential errors gracefully
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN workflow_type TEXT NOT NULL DEFAULT 'basic'",
-                    [],
-                );
-                let _ = conn.execute(
-                    "ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT REFERENCES agent_runs(id) ON DELETE CASCADE",
-                    [],
-                );
-                let _ = conn.execute(
-                    "ALTER TABLE agent_runs ADD COLUMN stage TEXT",
-                    [],
-                );
-                let _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL",
-                    [],
-                );
-            }
-            
-            if current_version < 5 && current_version > 0 {
-                tracing::info!("Applying migration v5: model column for tickets");
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN model TEXT",
-                    [],
-                );
-            }
-            
-            if current_version < 6 && current_version > 0 {
-                tracing::info!("Applying migration v6: convert basic workflow to multi_stage");
-                let _ = conn.execute(
-                    "UPDATE tickets SET workflow_type = 'multi_stage' WHERE workflow_type = 'basic'",
-                    [],
-                );
-            }
-            
-            if current_version < 7 && current_version > 0 {
-                tracing::info!("Applying migration v7: branch_name column for tickets");
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN branch_name TEXT",
-                    [],
-                );
-            }
-            
-            if current_version < 8 && current_version > 0 {
-                tracing::info!("Applying migration v8: tasks table for task queue system");
-                conn.execute_batch(schema::MIGRATION_V8)?;
-                
-                // Create Task 1 for existing tickets based on column status
-                // 
-                // Note on UTF-8 handling: SQLite's length() and substr() functions count
-                // Unicode code points (not bytes) for TEXT columns, which is consistent with
-                // Rust's chars().count() and chars().take() used in create_ticket().
-                // Both correctly handle multi-byte UTF-8 characters like emoji.
-                tracing::info!("Creating initial tasks for existing tickets...");
-                let task_count = conn.execute(
-                    r#"INSERT INTO tasks (id, ticket_id, order_index, task_type, title, content, status, created_at)
-                       SELECT 
-                           lower(hex(randomblob(16))),
-                           t.id,
-                           0,
-                           'custom',
-                           CASE 
-                               WHEN length(t.title) > 50 THEN substr(t.title, 1, 47) || '...'
-                               ELSE t.title
-                           END,
-                           CASE WHEN t.description_md = '' THEN NULL ELSE t.description_md END,
-                           CASE 
-                               WHEN c.name IN ('Done', 'Review') THEN 'completed'
-                               WHEN c.name = 'In Progress' THEN 'in_progress'
-                               ELSE 'pending'
-                           END,
-                           t.created_at
-                       FROM tickets t
-                       JOIN columns c ON t.column_id = c.id
-                       WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE ticket_id = t.id)"#,
-                    [],
-                )?;
-                tracing::info!("Created {} initial tasks for existing tickets", task_count);
-            }
-            
-            if current_version < 9 && current_version > 0 {
-                tracing::info!("Applying migration v9: epic support columns");
-                // Add columns one at a time to handle potential errors gracefully
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN is_epic INTEGER NOT NULL DEFAULT 0",
-                    [],
-                );
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL",
-                    [],
-                );
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN order_in_epic INTEGER",
-                    [],
-                );
-                let _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL",
-                    [],
-                );
-            }
-            
-            if current_version < 10 && current_version > 0 {
-                tracing::info!("Applying migration v10: scratchpads table and epic dependencies");
-                // Create scratchpads table first (tickets references it)
-                conn.execute_batch(
-                    r#"
-                    CREATE TABLE IF NOT EXISTS scratchpads (
-                        id TEXT PRIMARY KEY NOT NULL,
-                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                        name TEXT NOT NULL,
-                        user_input TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-                        model TEXT,
-                        exploration_log TEXT,
-                        plan_markdown TEXT,
-                        plan_json TEXT,
-                        settings_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
-                    "#
-                )?;
-                
-                // Add new columns to tickets
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL",
-                    [],
-                );
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN scratchpad_id TEXT REFERENCES scratchpads(id) ON DELETE SET NULL",
-                    [],
-                );
-                let _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL",
-                    [],
-                );
-                let _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tickets_scratchpad ON tickets(scratchpad_id) WHERE scratchpad_id IS NOT NULL",
-                    [],
-                );
-            }
-            
-            if current_version < 11 && current_version > 0 {
-                tracing::info!("Applying migration v11: target_board_id for scratchpads, new status values");
-                // Add target_board_id column
-                let _ = conn.execute(
-                    "ALTER TABLE scratchpads ADD COLUMN target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL",
-                    [],
-                );
-                let _ = conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id)",
-                    [],
-                );
-            }
-            
-            if current_version < 12 && current_version > 0 {
-                tracing::info!("Applying migration v12: fix scratchpads status CHECK constraint");
-                // SQLite doesn't support ALTER TABLE to change CHECK constraints,
-                // so we need to recreate the table with the correct constraint
-                
-                // First check if target_board_id column exists (added in v11)
-                let has_target_board: bool = conn
-                    .query_row(
-                        "SELECT COUNT(*) FROM pragma_table_info('scratchpads') WHERE name = 'target_board_id'",
-                        [],
-                        |row| row.get::<_, i32>(0),
-                    )
-                    .unwrap_or(0) > 0;
-                
-                if has_target_board {
-                    // Table has target_board_id, use full column list
-                    conn.execute_batch(
-                        r#"
-                        CREATE TABLE scratchpads_new (
-                            id TEXT PRIMARY KEY NOT NULL,
-                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
-                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                            name TEXT NOT NULL,
-                            user_input TEXT NOT NULL,
-                            status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-                            agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-                            model TEXT,
-                            exploration_log TEXT,
-                            plan_markdown TEXT,
-                            plan_json TEXT,
-                            settings_json TEXT NOT NULL DEFAULT '{}',
-                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                        );
-
-                        INSERT INTO scratchpads_new (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                        SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
-
-                        DROP TABLE scratchpads;
-                        ALTER TABLE scratchpads_new RENAME TO scratchpads;
-
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
-                        "#
-                    )?;
-                } else {
-                    // Table doesn't have target_board_id yet, add it during migration
-                    conn.execute_batch(
-                        r#"
-                        CREATE TABLE scratchpads_new (
-                            id TEXT PRIMARY KEY NOT NULL,
-                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
-                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                            name TEXT NOT NULL,
-                            user_input TEXT NOT NULL,
-                            status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-                            agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-                            model TEXT,
-                            exploration_log TEXT,
-                            plan_markdown TEXT,
-                            plan_json TEXT,
-                            settings_json TEXT NOT NULL DEFAULT '{}',
-                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                        );
-
-                        INSERT INTO scratchpads_new (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                        SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
-
-                        DROP TABLE scratchpads;
-                        ALTER TABLE scratchpads_new RENAME TO scratchpads;
-
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                        CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
-                        "#
-                    )?;
-                }
-                
-                tracing::info!("Migration v12 completed successfully");
-            }
-            
-            if current_version < 13 && current_version > 0 {
-                tracing::info!("Applying migration v13: depends_on_epic_ids_json column");
-                // Add depends_on_epic_ids_json column to store all epic dependencies as JSON array
-                let _ = conn.execute(
-                    "ALTER TABLE tickets ADD COLUMN depends_on_epic_ids_json TEXT",
-                    [],
-                );
-                tracing::info!("Migration v13 completed successfully");
             }
             
             conn.execute(
@@ -549,46 +268,46 @@ impl Database {
         })
     }
 
-    /// Repair the scratchpads table CHECK constraint.
+    /// Repair the specs table CHECK constraint.
     /// This recreates the table with the correct constraint including 'executed' and 'working' status values.
-    pub fn repair_scratchpads_constraint(&self) -> Result<String, DbError> {
+    pub fn repair_specs_constraint(&self) -> Result<String, DbError> {
         self.with_conn(|conn| {
-            tracing::warn!("Repairing scratchpads table CHECK constraint");
+            tracing::warn!("Repairing specs table CHECK constraint");
             
             // Check if the table exists
             let table_exists: bool = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scratchpads'",
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='specs'",
                     [],
                     |row| row.get::<_, i32>(0),
                 )
                 .unwrap_or(0) > 0;
             
             if !table_exists {
-                return Ok("Scratchpads table does not exist, nothing to repair".to_string());
+                return Ok("Specs table does not exist, nothing to repair".to_string());
             }
             
             // Get current row count
             let row_count: i32 = conn
-                .query_row("SELECT COUNT(*) FROM scratchpads", [], |row| row.get(0))
+                .query_row("SELECT COUNT(*) FROM specs", [], |row| row.get(0))
                 .unwrap_or(0);
             
             // Check if target_board_id column exists
             let has_target_board: bool = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('scratchpads') WHERE name = 'target_board_id'",
+                    "SELECT COUNT(*) FROM pragma_table_info('specs') WHERE name = 'target_board_id'",
                     [],
                     |row| row.get::<_, i32>(0),
                 )
                 .unwrap_or(0) > 0;
             
-            tracing::info!("Scratchpads table has {} rows, target_board_id={}", row_count, has_target_board);
+            tracing::info!("Specs table has {} rows, target_board_id={}", row_count, has_target_board);
             
             // Recreate the table with the correct constraint
             if has_target_board {
                 conn.execute_batch(
                     r#"
-                    CREATE TABLE scratchpads_repaired (
+                    CREATE TABLE specs_repaired (
                         id TEXT PRIMARY KEY NOT NULL,
                         board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
                         target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
@@ -606,22 +325,22 @@ impl Database {
                         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                     );
 
-                    INSERT INTO scratchpads_repaired (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                    SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+                    INSERT INTO specs_repaired (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                    SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM specs;
 
-                    DROP TABLE scratchpads;
-                    ALTER TABLE scratchpads_repaired RENAME TO scratchpads;
+                    DROP TABLE specs;
+                    ALTER TABLE specs_repaired RENAME TO specs;
 
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                    CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
                     "#
                 )?;
             } else {
                 conn.execute_batch(
                     r#"
-                    CREATE TABLE scratchpads_repaired (
+                    CREATE TABLE specs_repaired (
                         id TEXT PRIMARY KEY NOT NULL,
                         board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
                         target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
@@ -639,28 +358,28 @@ impl Database {
                         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                     );
 
-                    INSERT INTO scratchpads_repaired (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                    SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM scratchpads;
+                    INSERT INTO specs_repaired (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
+                    SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM specs;
 
-                    DROP TABLE scratchpads;
-                    ALTER TABLE scratchpads_repaired RENAME TO scratchpads;
+                    DROP TABLE specs;
+                    ALTER TABLE specs_repaired RENAME TO specs;
 
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                    CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
                     "#
                 )?;
             }
             
-            tracing::info!("Scratchpads table repaired successfully");
-            Ok(format!("Repaired scratchpads table with {} rows", row_count))
+            tracing::info!("Specs table repaired successfully");
+            Ok(format!("Repaired specs table with {} rows", row_count))
         })
     }
 
     /// Factory reset: delete all user data from the database.
-    /// This clears all boards, tickets, projects, runs, scratchpads, etc.
-    /// and also repairs the scratchpads table schema to ensure correct constraints.
+    /// This clears all boards, tickets, projects, runs, specs, etc.
+    /// and also repairs the specs table schema to ensure correct constraints.
     pub fn factory_reset(&self) -> Result<(), DbError> {
         self.with_conn(|conn| {
             tracing::warn!("Factory reset: deleting all user data from database");
@@ -673,12 +392,12 @@ impl Database {
             conn.execute("DELETE FROM agent_runs", [])?;
             conn.execute("DELETE FROM repo_locks", [])?;
             
-            // Tickets must be deleted before scratchpads (scratchpad_id FK)
+            // Tickets must be deleted before specs (spec_id FK)
             // and before columns (column_id FK with RESTRICT)
             conn.execute("DELETE FROM tickets", [])?;
             
-            // Now scratchpads (depends on boards and projects)
-            conn.execute("DELETE FROM scratchpads", [])?;
+            // Now specs (depends on boards and projects)
+            conn.execute("DELETE FROM specs", [])?;
             
             // Columns (depends on boards)
             conn.execute("DELETE FROM columns", [])?;
@@ -691,15 +410,15 @@ impl Database {
             
             tracing::info!("Factory reset: all user data deleted");
             
-            // Now recreate the scratchpads table with the correct schema
+            // Now recreate the specs table with the correct schema
             // This ensures the CHECK constraint is correct
-            tracing::info!("Factory reset: recreating scratchpads table with correct schema");
+            tracing::info!("Factory reset: recreating specs table with correct schema");
             
-            // Drop and recreate scratchpads table with correct constraint
-            conn.execute("DROP TABLE IF EXISTS scratchpads", [])?;
+            // Drop and recreate specs table with correct constraint
+            conn.execute("DROP TABLE IF EXISTS specs", [])?;
             conn.execute_batch(
                 r#"
-                CREATE TABLE scratchpads (
+                CREATE TABLE specs (
                     id TEXT PRIMARY KEY NOT NULL,
                     board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
                     target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
@@ -717,10 +436,10 @@ impl Database {
                     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_scratchpads_board ON scratchpads(board_id);
-                CREATE INDEX IF NOT EXISTS idx_scratchpads_target_board ON scratchpads(target_board_id);
-                CREATE INDEX IF NOT EXISTS idx_scratchpads_project ON scratchpads(project_id);
-                CREATE INDEX IF NOT EXISTS idx_scratchpads_status ON scratchpads(status);
+                CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
                 "#
             )?;
             

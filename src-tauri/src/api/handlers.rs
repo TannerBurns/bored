@@ -118,7 +118,7 @@ pub async fn create_ticket(
         epic_id: None,
         depends_on_epic_id: None,
         depends_on_epic_ids: vec![],
-        scratchpad_id: None,
+        spec_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -164,7 +164,7 @@ pub async fn update_ticket(
         order_in_epic: None,
         depends_on_epic_id: None,
         depends_on_epic_ids: vec![],
-        scratchpad_id: None,
+        spec_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketUpdated {
@@ -266,6 +266,7 @@ pub async fn reserve_ticket(
         repo_path,
         parent_run_id: None,
         stage: None,
+        ..Default::default()
     })?;
 
     let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
@@ -313,6 +314,7 @@ pub async fn create_run(
         repo_path: req.repo_path,
         parent_run_id: None,
         stage: None,
+        ..Default::default()
     })?;
 
     // Lock the ticket to prevent concurrent runs
@@ -601,6 +603,7 @@ pub async fn queue_next(
                 repo_path,
                 parent_run_id: None,
                 stage: None,
+                ..Default::default()
             })?;
 
             let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);

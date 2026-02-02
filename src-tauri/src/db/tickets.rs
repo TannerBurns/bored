@@ -4,6 +4,25 @@ use crate::db::{Database, DbError, parse_datetime};
 use crate::db::models::{Ticket, CreateTicket, UpdateTicket, Priority, AgentPref, WorkflowType, CreateTask, TaskType};
 use crate::agents::AgentKind;
 
+/// Diagnostic info about tickets in the Ready column
+#[derive(Debug, Clone)]
+pub struct ReadyTicketDiagnostics {
+    /// Total tickets in Ready column
+    pub total_ready: i64,
+    /// Tickets that are paused
+    pub paused: i64,
+    /// Tickets that are currently locked (not expired)
+    pub locked: i64,
+    /// Tickets that are epics (excluded from worker pickup)
+    pub epics: i64,
+    /// Tickets with a different project than the filter
+    pub wrong_project: i64,
+    /// Tickets with incompatible agent preference
+    pub wrong_agent_pref: i64,
+    /// Tickets eligible for pickup by this worker
+    pub eligible: i64,
+}
+
 impl Database {
     pub fn get_ticket(&self, ticket_id: &str) -> Result<Ticket, DbError> {
         self.with_conn(|conn| {
@@ -11,7 +30,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#
             )?;
             
@@ -33,7 +53,8 @@ impl Database {
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
                               lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                              is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                              is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                        FROM tickets WHERE id = ?"#
                 )?;
                 stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -88,11 +109,11 @@ impl Database {
                 Some(id) => Some(id.as_str()),
                 None => existing.depends_on_epic_id.as_deref(),
             };
-            // Handle scratchpad_id: None means keep existing, Some("") means clear, Some(id) means set
-            let scratchpad_id = match &updates.scratchpad_id {
+            // Handle spec_id: None means keep existing, Some("") means clear, Some(id) means set
+            let spec_id = match &updates.spec_id {
                 Some(id) if id.is_empty() => None,
                 Some(id) => Some(id.as_str()),
-                None => existing.scratchpad_id.as_deref(),
+                None => existing.spec_id.as_deref(),
             };
             // Handle depends_on_epic_ids: empty Vec means keep existing, non-empty means set
             let depends_on_epic_ids = if updates.depends_on_epic_ids.is_empty() {
@@ -113,7 +134,7 @@ impl Database {
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
                        project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
                        column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
-                       depends_on_epic_id = ?, depends_on_epic_ids_json = ?, scratchpad_id = ?, updated_at = ?
+                       depends_on_epic_id = ?, depends_on_epic_ids_json = ?, spec_id = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -131,7 +152,7 @@ impl Database {
                     order_in_epic,
                     depends_on_epic_id,
                     depends_on_epic_ids_json,
-                    scratchpad_id,
+                    spec_id,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -142,7 +163,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#
             )?;
             stmt.query_row([ticket_id], Self::map_ticket_row)
@@ -168,7 +190,11 @@ impl Database {
     /// 
     /// This method uses atomic locking semantics: it only acquires the lock if:
     /// - The ticket is not currently locked (locked_by_run_id IS NULL), OR
+    /// - The same run already holds the lock (locked_by_run_id = run_id), OR
     /// - The existing lock has expired (lock_expires_at < now)
+    /// 
+    /// The second condition allows a paused run to re-acquire its lock when resuming,
+    /// since the lock is preserved during pause to maintain exclusive access.
     /// 
     /// Returns Ok(()) if the lock was acquired, Err(LockConflict) if another run
     /// holds a valid lock, or Err(NotFound) if the ticket doesn't exist.
@@ -182,17 +208,19 @@ impl Database {
             let now = chrono::Utc::now();
             let now_str = now.to_rfc3339();
             
-            // Atomically acquire lock only if not held by another run
+            // Atomically acquire lock only if not held by another run.
+            // Also allow the same run to re-acquire its own lock (for resume after pause).
             let affected = conn.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?, lock_expires_at = ?, updated_at = ?
                    WHERE id = ? 
-                     AND (locked_by_run_id IS NULL OR lock_expires_at < ?)"#,
+                     AND (locked_by_run_id IS NULL OR locked_by_run_id = ? OR lock_expires_at < ?)"#,
                 rusqlite::params![
                     run_id,
                     expires_at.to_rfc3339(),
                     now_str,
                     ticket_id,
+                    run_id,
                     now_str,
                 ],
             )?;
@@ -327,9 +355,7 @@ impl Database {
             
             let agent_type_str = agent_type.as_str();
             
-            // Subquery finds next ticket; outer WHERE double-checks lock status for atomicity
-            // NOTE: Epics are excluded (is_epic = 0) because workers should process child tickets,
-            // not the epic container itself. The epic orchestrates its children through lifecycle hooks.
+            // Excludes epics (workers process children) and paused tickets
             let affected = tx.execute(
                 r#"UPDATE tickets 
                    SET locked_by_run_id = ?1, lock_expires_at = ?2, updated_at = ?3
@@ -338,6 +364,7 @@ impl Database {
                        JOIN columns c ON t.column_id = c.id
                        WHERE c.name = 'Ready'
                          AND t.is_epic = 0
+                         AND t.paused_at IS NULL
                          AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
                          AND (?4 IS NULL OR t.project_id = ?4)
                          AND (
@@ -368,7 +395,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
                 [run_id],
@@ -377,6 +405,113 @@ impl Database {
             
             tx.commit()?;
             Ok(Some(ticket))
+        })
+    }
+
+    /// Get diagnostic info about why tickets might not be reserved.
+    /// Returns counts of tickets in various states for debugging.
+    pub fn get_ready_ticket_diagnostics(
+        &self,
+        project_filter: Option<&str>,
+        agent_type: AgentKind,
+    ) -> Result<ReadyTicketDiagnostics, DbError> {
+        self.with_conn(|conn| {
+            let agent_type_str = agent_type.as_str();
+            let now_str = Utc::now().to_rfc3339();
+            
+            // Count tickets in Ready column
+            let total_ready: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready'"#,
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            // Count paused tickets in Ready
+            let paused: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready' AND t.paused_at IS NOT NULL"#,
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            // Count locked tickets in Ready
+            let locked: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready' 
+                     AND t.locked_by_run_id IS NOT NULL 
+                     AND t.lock_expires_at >= ?"#,
+                [&now_str],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            // Count epics in Ready
+            let epics: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready' AND t.is_epic = 1"#,
+                [],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            // Count with wrong project
+            let wrong_project: i64 = if let Some(proj_id) = project_filter {
+                conn.query_row(
+                    r#"SELECT COUNT(*) FROM tickets t
+                       JOIN columns c ON t.column_id = c.id
+                       WHERE c.name = 'Ready' 
+                         AND t.is_epic = 0 
+                         AND t.paused_at IS NULL
+                         AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
+                         AND t.project_id != ?"#,
+                    rusqlite::params![&now_str, proj_id],
+                    |row| row.get(0),
+                ).unwrap_or(0)
+            } else {
+                0
+            };
+            
+            // Count with incompatible agent preference
+            let wrong_agent_pref: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready'
+                     AND t.is_epic = 0
+                     AND t.paused_at IS NULL
+                     AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
+                     AND t.agent_pref IS NOT NULL
+                     AND t.agent_pref != 'any'
+                     AND t.agent_pref != ?"#,
+                rusqlite::params![&now_str, agent_type_str],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            // Count eligible (what reserve_next_ticket would match)
+            let eligible: i64 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE c.name = 'Ready'
+                     AND t.is_epic = 0
+                     AND t.paused_at IS NULL
+                     AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
+                     AND (? IS NULL OR t.project_id = ?)
+                     AND (t.agent_pref IS NULL OR t.agent_pref = 'any' OR t.agent_pref = ?)"#,
+                rusqlite::params![&now_str, project_filter, project_filter, agent_type_str],
+                |row| row.get(0),
+            ).unwrap_or(0);
+            
+            Ok(ReadyTicketDiagnostics {
+                total_ready,
+                paused,
+                locked,
+                epics,
+                wrong_project,
+                wrong_agent_pref,
+                eligible,
+            })
         })
     }
 
@@ -410,8 +545,9 @@ impl Database {
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
                     created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name,
-                    is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                    is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                    paused_at, paused_at_stage, paused_run_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -432,7 +568,7 @@ impl Database {
                     order_in_epic,
                     ticket.depends_on_epic_id,
                     depends_on_epic_ids_json,
-                    ticket.scratchpad_id,
+                    ticket.spec_id,
                 ],
             )?;
 
@@ -458,7 +594,10 @@ impl Database {
                 order_in_epic,
                 depends_on_epic_id: ticket.depends_on_epic_id.clone(),
                 depends_on_epic_ids: ticket.depends_on_epic_ids.clone(),
-                scratchpad_id: ticket.scratchpad_id.clone(),
+                spec_id: ticket.spec_id.clone(),
+                paused_at: None,
+                paused_at_stage: None,
+                paused_run_id: None,
             })
         })?;
         
@@ -511,14 +650,16 @@ impl Database {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
             };
@@ -585,7 +726,12 @@ impl Database {
         let depends_on_epic_ids: Vec<String> = depends_on_epic_ids_json
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let scratchpad_id: Option<String> = row.get(21)?;
+        let spec_id: Option<String> = row.get(21)?;
+        
+        // Pause fields (columns 22, 23, 24)
+        let paused_at: Option<String> = row.get(22)?;
+        let paused_at_stage: Option<String> = row.get(23)?;
+        let paused_run_id: Option<String> = row.get(24)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -609,7 +755,10 @@ impl Database {
             order_in_epic,
             depends_on_epic_id,
             depends_on_epic_ids,
-            scratchpad_id,
+            spec_id,
+            paused_at: paused_at.map(parse_datetime),
+            paused_at_stage,
+            paused_run_id,
         })
     }
 
@@ -629,6 +778,104 @@ impl Database {
         })
     }
 
+    /// Pause a ticket's execution - saves current stage and run ID for later resume
+    pub fn pause_ticket(&self, ticket_id: &str, stage: &str, run_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now();
+            let affected = conn.execute(
+                "UPDATE tickets SET paused_at = ?, paused_at_stage = ?, paused_run_id = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![
+                    now.to_rfc3339(),
+                    stage,
+                    run_id,
+                    now.to_rfc3339(),
+                    ticket_id
+                ],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
+            }
+            Ok(())
+        })
+    }
+
+    /// Resume a paused ticket - clears pause state but preserves stage info for orchestrator
+    /// Returns the stage the ticket was paused at
+    pub fn resume_ticket(&self, ticket_id: &str) -> Result<Option<String>, DbError> {
+        self.with_conn(|conn| {
+            // First get the paused_at_stage
+            let stage: Option<String> = conn.query_row(
+                "SELECT paused_at_stage FROM tickets WHERE id = ?",
+                [ticket_id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Ticket {} not found", ticket_id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            let now = chrono::Utc::now().to_rfc3339();
+            // Preserve paused_at_stage and paused_run_id for orchestrator
+            conn.execute(
+                "UPDATE tickets SET paused_at = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![now, ticket_id],
+            )?;
+            
+            Ok(stage)
+        })
+    }
+
+    /// Clear pause state from a ticket without returning the stage
+    pub fn clear_ticket_pause(&self, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            let affected = conn.execute(
+                "UPDATE tickets SET paused_at = NULL, paused_at_stage = NULL, paused_run_id = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![now, ticket_id],
+            )?;
+            
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
+            }
+            Ok(())
+        })
+    }
+
+    /// Get all paused tickets for a spec
+    pub fn get_paused_tickets(&self, spec_id: &str) -> Result<Vec<Ticket>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, board_id, column_id, title, description_md, priority, 
+                          labels_json, created_at, updated_at, locked_by_run_id, 
+                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
+                   FROM tickets 
+                   WHERE spec_id = ? AND paused_at IS NOT NULL
+                   ORDER BY paused_at ASC"#
+            )?;
+            
+            let rows = stmt.query_map([spec_id], Self::map_ticket_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
+    /// Check if a ticket is currently paused
+    pub fn is_ticket_paused(&self, ticket_id: &str) -> Result<bool, DbError> {
+        self.with_conn(|conn| {
+            let paused_at: Option<String> = conn.query_row(
+                "SELECT paused_at FROM tickets WHERE id = ?",
+                [ticket_id],
+                |row| row.get(0),
+            ).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Ticket {} not found", ticket_id)),
+                other => DbError::Sqlite(other),
+            })?;
+            
+            Ok(paused_at.is_some())
+        })
+    }
+
     // ===== Epic Operations =====
 
     /// Get all children of an epic, ordered by order_in_epic
@@ -638,7 +885,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ?
                    ORDER BY order_in_epic ASC, created_at ASC"#
             )?;
@@ -655,7 +903,8 @@ impl Database {
                 r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority, 
                           t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id, 
                           t.lock_expires_at, t.project_id, t.agent_pref, t.workflow_type, t.model, t.branch_name,
-                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.depends_on_epic_ids_json, t.scratchpad_id
+                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.depends_on_epic_ids_json, t.spec_id,
+                          t.paused_at, t.paused_at_stage, t.paused_run_id
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.epic_id = ? AND c.name = 'Backlog'
@@ -786,7 +1035,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE depends_on_epic_id = ? AND is_epic = 1"#
             )?;
             
@@ -873,11 +1123,11 @@ impl Database {
         })
     }
 
-    /// Get all epics for a scratchpad with their final branches (for consolidation).
+    /// Get all epics for a spec with their final branches (for consolidation).
     /// Returns a list of (epic_id, epic_title, final_branch) tuples.
-    pub fn get_scratchpad_epics_with_branches(&self, scratchpad_id: &str) -> Result<Vec<(String, String, Option<String>)>, DbError> {
-        // First get all non-consolidation epics for this scratchpad
-        let epics = self.get_scratchpad_epics(scratchpad_id)?;
+    pub fn get_spec_epics_with_branches(&self, spec_id: &str) -> Result<Vec<(String, String, Option<String>)>, DbError> {
+        // First get all non-consolidation epics for this spec
+        let epics = self.get_spec_epics(spec_id)?;
         
         let mut result = Vec::new();
         for epic in epics {
@@ -917,7 +1167,8 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority,
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, scratchpad_id
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ? AND order_in_epic = ?"#
             )?;
             
@@ -962,7 +1213,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         (board.id, ready_column.id.clone(), ticket)
@@ -990,7 +1241,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(ticket.title, "Test Ticket");
@@ -1022,7 +1273,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let tickets = db.get_tickets(&board.id, None).unwrap();
@@ -1051,7 +1302,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         db.move_ticket(&ticket.id, &columns[1].id).unwrap();
@@ -1090,7 +1341,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         db.set_ticket_project(&ticket.id, Some(&project.id)).unwrap();
@@ -1121,7 +1372,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let fetched = db.get_ticket(&created.id).unwrap();
@@ -1159,7 +1410,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -1178,7 +1429,7 @@ mod tests {
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(updated.title, "Updated Title");
@@ -1205,7 +1456,7 @@ mod tests {
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         });
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
@@ -1238,7 +1489,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(ticket.project_id, Some(project.id.clone()));
@@ -1259,7 +1510,7 @@ mod tests {
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, None);
@@ -1293,7 +1544,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let updated = db.update_ticket(&ticket.id, &UpdateTicket {
@@ -1312,7 +1563,7 @@ mod tests {
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(updated.project_id, Some(project.id));
@@ -1341,7 +1592,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         db.delete_ticket(&ticket.id).unwrap();
@@ -1379,7 +1630,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1418,7 +1669,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let initial_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1453,7 +1704,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1485,7 +1736,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1500,6 +1751,50 @@ mod tests {
         // Original lock should still be in place
         let locked = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(locked.locked_by_run_id, Some("run-1".to_string()));
+    }
+
+    #[test]
+    fn lock_ticket_succeeds_when_same_run_reacquires() {
+        // This test verifies that a paused run can re-acquire its own lock when resuming.
+        // When a ticket is paused, the lock is preserved (not unlocked). When the run
+        // resumes, it needs to re-lock the ticket with a new expiration time.
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: None,
+        }).unwrap();
+        
+        let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        
+        // First lock should succeed
+        db.lock_ticket(&ticket.id, "run-1", expires).unwrap();
+        
+        // Same run re-acquiring lock should succeed (simulates resume after pause)
+        let new_expires = chrono::Utc::now() + chrono::Duration::minutes(60);
+        db.lock_ticket(&ticket.id, "run-1", new_expires).unwrap();
+        
+        // Lock should be updated with new expiration
+        let locked = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(locked.locked_by_run_id, Some("run-1".to_string()));
+        // Verify expiration was updated (new_expires > original expires)
+        assert!(locked.lock_expires_at.unwrap() > expires);
     }
 
     #[test]
@@ -1524,7 +1819,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         // Lock with an already-expired timestamp
@@ -1570,7 +1865,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1608,7 +1903,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1643,7 +1938,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1679,7 +1974,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = chrono::Utc::now() + chrono::Duration::minutes(30);
@@ -1734,7 +2029,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1799,7 +2094,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1844,7 +2139,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1882,7 +2177,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         // Create urgent ticket second
@@ -1902,7 +2197,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1937,7 +2232,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -1975,7 +2270,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -2017,7 +2312,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -2056,7 +2351,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -2090,7 +2385,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         // Create a child ticket in Ready - this SHOULD be picked up
@@ -2110,7 +2405,7 @@ mod tests {
             epic_id: Some(epic.id.clone()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let expires = Utc::now() + chrono::Duration::minutes(30);
@@ -2143,7 +2438,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert!(ticket.branch_name.is_none());
@@ -2183,7 +2478,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let before = ticket.updated_at;
@@ -2219,7 +2514,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert_eq!(ticket.branch_name, Some("feat/preset/my-branch".to_string()));
@@ -2251,7 +2546,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         // Verify Task 1 was automatically created
@@ -2285,7 +2580,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2321,7 +2616,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2356,7 +2651,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
@@ -2383,7 +2678,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 
@@ -2404,7 +2699,7 @@ mod tests {
             epic_id: Some(epic_id.to_string()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 
@@ -2557,7 +2852,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         assert!(ticket.epic_id.is_none());
@@ -2595,7 +2890,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let ticket = db.create_ticket(&CreateTicket {
@@ -2614,7 +2909,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let result = db.add_ticket_to_epic(&not_epic.id, &ticket.id);
@@ -2716,7 +3011,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let prev = db.get_previous_epic_sibling(&ticket.id).unwrap();
@@ -2799,7 +3094,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: Some(depends_on.to_string()),
             depends_on_epic_ids: vec![depends_on.to_string()],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap()
     }
 
@@ -2867,7 +3162,7 @@ mod tests {
             epic_id: Some(dep_epic.id.clone()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         let _child2 = db.create_ticket(&CreateTicket {
@@ -2886,7 +3181,7 @@ mod tests {
             epic_id: Some(dep_epic.id.clone()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            scratchpad_id: None,
+            spec_id: None,
         }).unwrap();
         
         // Create the dependent epic
@@ -2935,5 +3230,252 @@ mod tests {
         let branch = db.get_dependency_base_branch(&dependent.id).unwrap();
         // No Done children, so no branch
         assert!(branch.is_none());
+    }
+
+    // ===== Ticket Pause/Resume Tests =====
+
+    #[test]
+    fn pause_ticket_sets_pause_fields() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        db.pause_ticket(&ticket.id, "implement", "run-123").unwrap();
+        
+        let paused = db.get_ticket(&ticket.id).unwrap();
+        assert!(paused.paused_at.is_some());
+        assert_eq!(paused.paused_at_stage, Some("implement".to_string()));
+        assert_eq!(paused.paused_run_id, Some("run-123".to_string()));
+    }
+
+    #[test]
+    fn pause_ticket_not_found() {
+        let db = create_test_db();
+        let result = db.pause_ticket("nonexistent", "stage", "run");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn resume_ticket_clears_pause_and_returns_stage() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        db.pause_ticket(&ticket.id, "review", "run-456").unwrap();
+        
+        let stage = db.resume_ticket(&ticket.id).unwrap();
+        assert_eq!(stage, Some("review".to_string()));
+        
+        let resumed = db.get_ticket(&ticket.id).unwrap();
+        // paused_at is cleared so workers can pick up the ticket
+        assert!(resumed.paused_at.is_none());
+        // paused_at_stage is preserved so worker knows which stage to resume from
+        assert_eq!(resumed.paused_at_stage, Some("review".to_string()));
+        // paused_run_id is preserved so we can load stage outputs from the previous run
+        assert_eq!(resumed.paused_run_id, Some("run-456".to_string()));
+    }
+
+    #[test]
+    fn resume_ticket_returns_none_if_not_paused() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        let stage = db.resume_ticket(&ticket.id).unwrap();
+        assert!(stage.is_none());
+    }
+
+    #[test]
+    fn resume_ticket_not_found() {
+        let db = create_test_db();
+        let result = db.resume_ticket("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn clear_ticket_pause_success() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        db.pause_ticket(&ticket.id, "deslop", "run-789").unwrap();
+        
+        db.clear_ticket_pause(&ticket.id).unwrap();
+        
+        let cleared = db.get_ticket(&ticket.id).unwrap();
+        assert!(cleared.paused_at.is_none());
+        assert!(cleared.paused_at_stage.is_none());
+        assert!(cleared.paused_run_id.is_none());
+    }
+
+    #[test]
+    fn clear_ticket_pause_not_found() {
+        let db = create_test_db();
+        let result = db.clear_ticket_pause("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn is_ticket_paused_true_when_paused() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        assert!(!db.is_ticket_paused(&ticket.id).unwrap());
+        
+        db.pause_ticket(&ticket.id, "branch", "run").unwrap();
+        
+        assert!(db.is_ticket_paused(&ticket.id).unwrap());
+    }
+
+    #[test]
+    fn is_ticket_paused_not_found() {
+        let db = create_test_db();
+        let result = db.is_ticket_paused("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn get_paused_tickets_returns_only_paused() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = db.create_project(&CreateProject {
+            name: "Test".to_string(),
+            path: temp_dir_path(),
+            preferred_agent: None,
+            requires_git: false,
+        }).unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create a spec first
+        let spec = db.create_spec(&crate::db::models::CreateSpec {
+            board_id: board.id.clone(),
+            target_board_id: Some(board.id.clone()),
+            project_id: project.id.clone(),
+            name: "Test".to_string(),
+            user_input: "Test".to_string(),
+            agent_pref: None,
+            model: None,
+            settings: serde_json::json!({}),
+        }).unwrap();
+        
+        // Create tickets with spec_id
+        let t1 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "T1".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: Some(spec.id.clone()),
+        }).unwrap();
+        
+        let t2 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "T2".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: Some(spec.id.clone()),
+        }).unwrap();
+        
+        // Pause only t1
+        db.pause_ticket(&t1.id, "impl", "run-1").unwrap();
+        
+        let paused = db.get_paused_tickets(&spec.id).unwrap();
+        assert_eq!(paused.len(), 1);
+        assert_eq!(paused[0].id, t1.id);
+        
+        // Pause t2 as well
+        db.pause_ticket(&t2.id, "review", "run-2").unwrap();
+        
+        let paused2 = db.get_paused_tickets(&spec.id).unwrap();
+        assert_eq!(paused2.len(), 2);
+    }
+
+    #[test]
+    fn reserve_next_ticket_skips_paused_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        
+        // Create two tickets in Ready
+        let t1 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Ticket 1".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: None,
+        }).unwrap();
+        
+        let t2 = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: ready.id.clone(),
+            title: "Ticket 2".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: None,
+        }).unwrap();
+        
+        // Pause t1 (the higher priority one)
+        db.pause_ticket(&t1.id, "stage", "run").unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "new-run", expires).unwrap();
+        
+        // Should skip paused t1 and reserve t2
+        assert!(reserved.is_some());
+        assert_eq!(reserved.unwrap().id, t2.id);
+    }
+
+    #[test]
+    fn reserve_next_ticket_returns_none_when_all_paused() {
+        let db = create_test_db();
+        let (_, _, ticket) = setup_board_with_ready_ticket(&db);
+        
+        // Pause the only ticket
+        db.pause_ticket(&ticket.id, "stage", "run").unwrap();
+        
+        let expires = Utc::now() + chrono::Duration::minutes(30);
+        let reserved = db.reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires).unwrap();
+        
+        assert!(reserved.is_none());
     }
 }
