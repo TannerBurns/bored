@@ -59,7 +59,7 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
     };
     
     let (avg_seconds_per_ticket, avg_seconds_per_stage, confidence) = 
-        calculate_timing_stats(db, scratchpad_id, completed_tickets);
+        calculate_timing_stats(db, scratchpad_id);
     
     let (estimated_seconds_remaining, estimated_completion_time) = 
         calculate_remaining_time(
@@ -89,7 +89,6 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
 fn calculate_timing_stats(
     db: &Arc<Database>,
     scratchpad_id: &str,
-    completed_count: usize,
 ) -> (Option<f64>, HashMap<String, f64>, EtaConfidence) {
     let tickets = match db.get_scratchpad_tickets(scratchpad_id) {
         Ok(t) => t,
@@ -153,7 +152,9 @@ fn calculate_timing_stats(
         })
         .collect();
     
-    let confidence = match completed_count {
+    // Confidence is based on the number of completed runs we have timing data for,
+    // not the number of tickets in "Done" column (which may not reflect actual run data)
+    let confidence = match run_count {
         0 => EtaConfidence::Low,
         1..=2 => EtaConfidence::Low,
         3..=5 => EtaConfidence::Medium,
