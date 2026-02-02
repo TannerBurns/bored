@@ -16,7 +16,7 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
   return (
     <div
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-grabbing border-l-4',
+        'glass-intense p-3 rounded-xl cursor-grabbing border border-board-border/60 border-l-4',
         'ring-2 ring-board-accent shadow-xl glow-accent-intense',
         PRIORITY_BORDER_COLORS[ticket.priority],
         ticket.isEpic && 'ring-purple-500',

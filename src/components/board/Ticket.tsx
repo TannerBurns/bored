@@ -40,8 +40,8 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       {...listeners}
       onClick={handleClick}
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-pointer border-l-4 transition-all duration-200',
-        'hover:shadow-lg hover:-translate-y-0.5',
+        'glass-intense p-3 rounded-xl cursor-pointer border border-board-border/60 border-l-4 transition-all duration-200',
+        'hover:shadow-lg hover:-translate-y-0.5 hover:border-board-border',
         PRIORITY_BORDER_COLORS[ticket.priority],
         isDragging && 'opacity-50 ring-2 ring-board-accent shadow-xl glow-accent-intense scale-105',
         ticket.isEpic && 'ring-1 ring-purple-500/40'
