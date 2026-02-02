@@ -17,7 +17,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           'disabled:pointer-events-none disabled:opacity-50',
           'active:scale-[0.98]',
           {
-            'accent-gradient text-white shadow-md hover:shadow-lg hover:scale-[1.02] glow-accent': variant === 'primary',
+            'bg-board-accent text-white shadow-md hover:bg-board-accent-hover hover:shadow-lg hover:scale-[1.02]': variant === 'primary',
             'glass text-board-text hover:bg-board-card-hover hover:shadow-md': variant === 'secondary',
             'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text': variant === 'ghost',
             'bg-status-error/90 text-white hover:bg-status-error shadow-md hover:shadow-lg': variant === 'danger',

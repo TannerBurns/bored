@@ -280,7 +280,7 @@ export function WorkerPanel({ projects }: Props) {
           <select
             value={newWorkerProject}
             onChange={(e) => setNewWorkerProject(e.target.value)}
-            className="w-full px-3 py-2.5 glass rounded-xl text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/30 transition-all duration-200"
+            className="w-full px-3 py-2.5 rounded-xl text-sm text-board-text bg-board-surface border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/30 transition-all duration-200"
           >
             <option value="">All projects (no filter)</option>
             {projects.map((project) => (
