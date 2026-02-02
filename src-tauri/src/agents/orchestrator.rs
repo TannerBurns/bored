@@ -503,6 +503,7 @@ Do NOT start implementing any code changes. Just create the branch.
                 model: self.ticket.model.clone(),
                 agent_kind: self.agent_kind,
                 claude_api_config: self.claude_api_config.clone(),
+                timeout_secs: self.stage_timeout_secs,
             };
             
             let validation_result = validate_plan_for_clarification(&validation_config, &plan).await;
