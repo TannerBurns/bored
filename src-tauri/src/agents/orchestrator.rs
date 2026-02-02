@@ -1055,37 +1055,13 @@ Do NOT start implementing any code changes. Just create the branch.
             }
         }
         
-        tracing::info!(
-            "Running final verification code review after {} iterations",
-            max_iterations
+        // We've completed max_iterations without finding 0 issues.
+        // Don't run an extra verification - respect the max_iterations setting.
+        tracing::warn!(
+            "Code review reached max iterations ({}) for ticket {} without resolving all issues",
+            max_iterations,
+            self.ticket.id
         );
-        
-        let final_review_prompt = generate_command_prompt("code-review", &self.repo_path);
-        let final_result = self.run_stage("code-review", &final_review_prompt).await?;
-        let final_output = final_result.captured_stdout.unwrap_or_default();
-        let final_issue_count = parse_code_review_issues(&final_output);
-        
-        match final_issue_count {
-            Some(0) => {
-                tracing::info!(
-                    "Final verification passed: no issues remaining after {} iterations",
-                    max_iterations
-                );
-            }
-            Some(count) => {
-                tracing::warn!(
-                    "Code review reached max iterations ({}) with {} issues still remaining for ticket {}",
-                    max_iterations,
-                    count,
-                    self.ticket.id
-                );
-            }
-            None => {
-                tracing::warn!(
-                    "Could not parse final verification issue count, assuming complete"
-                );
-            }
-        }
         
         Ok(())
     }
