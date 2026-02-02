@@ -395,13 +395,19 @@ Just implement the core functionality as described in the plan.
 
 /// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
 pub fn generate_command_prompt(command: &str, repo_path: &std::path::Path) -> String {
-    // Try to read the command file content
-    let cursor_cmd_path = repo_path.join(".cursor/rules").join(format!("{}.md", command));
-    let claude_cmd_path = repo_path.join(".claude/commands").join(format!("{}.md", command));
+    // Try to read the command file content from various locations
+    let locations = [
+        repo_path.join(".cursor/rules").join(format!("{}.md", command)),
+        repo_path.join(".claude/commands").join(format!("{}.md", command)),
+        // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts/commands")
+            .join(format!("{}.md", command)),
+    ];
     
-    let cmd_content = std::fs::read_to_string(&cursor_cmd_path)
-        .or_else(|_| std::fs::read_to_string(&claude_cmd_path))
-        .ok();
+    let cmd_content = locations
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok());
     
     if let Some(content) = cmd_content {
         format!(
