@@ -209,9 +209,13 @@ impl Worker {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Worker {} failed to check scratchpad {} status: {}",
+                        "Worker {} failed to check scratchpad {} status: {}, unlocking ticket to be safe",
                         self.id, scratchpad_id, e
                     );
+                    // Unlock the ticket to prevent it from being permanently locked
+                    // The ticket was locked at reserve_next_ticket(), so we must release it
+                    self.db.unlock_ticket(&ticket.id)?;
+                    return Ok(false);
                 }
             }
         }
