@@ -136,6 +136,7 @@ export function CreateSpecModal({
   };
 
   // Fullscreen editor overlay (rendered on top of modal, not replacing it)
+  // Uses same visual design as FullscreenEditorModal for consistency
   const fullscreenEditor = isFullscreen ? (
     <div className="fixed inset-0 z-[70] flex items-center justify-center">
       {/* Backdrop */}
@@ -204,10 +205,8 @@ export function CreateSpecModal({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
@@ -244,10 +243,10 @@ You can use:
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-center p-4 border-t border-board-border shrink-0">
+        <div className="flex items-center justify-between p-4 border-t border-board-border shrink-0">
           <div className="text-xs text-board-text-muted">
             <span>
-              Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> or click outside to exit fullscreen
+              Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close
             </span>
           </div>
         </div>
@@ -462,9 +461,9 @@ Use Markdown for formatting:
             {isLoading ? 'Creating...' : 'Create Spec'}
           </Button>
         </div>
+        {fullscreenEditor}
       </form>
     </Modal>
-    {fullscreenEditor}
     </>
   );
 }
