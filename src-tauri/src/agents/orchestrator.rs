@@ -99,9 +99,6 @@ pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "deslop",
     "cleanup",
     "unit-tests",
-    "cleanup",
-    "review-changes",
-    "cleanup",
     "review-changes",
     "add-and-commit",
 ];
@@ -709,8 +706,7 @@ Do NOT start implementing any code changes. Just create the branch.
         
         // Stage 3+: QA Commands
         // Each command is checked individually to allow resumption from any point
-        let qa_commands = &["deslop", "cleanup", "unit-tests", "cleanup", 
-                           "review-changes", "cleanup", "review-changes", "add-and-commit"];
+        let qa_commands = &["deslop", "cleanup", "unit-tests", "review-changes", "add-and-commit"];
         
         for cmd in qa_commands {
             // Skip commands that come before the resume point
