@@ -252,10 +252,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         >
           Timeline
           {activeTab === 'timeline' && (
-            <div 
-              className="absolute bottom-0 left-0 right-0 h-0.5"
-              style={{ background: 'var(--app-accent-gradient)' }}
-            />
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
           )}
         </button>
         <button
@@ -269,10 +266,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         >
           Logs
           {activeTab === 'logs' && (
-            <div 
-              className="absolute bottom-0 left-0 right-0 h-0.5"
-              style={{ background: 'var(--app-accent-gradient)' }}
-            />
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
           )}
         </button>
       </div>

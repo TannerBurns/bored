@@ -160,7 +160,7 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
           </div>
           <div className="h-3 glass-subtle rounded-full overflow-hidden">
             <div 
-              className="h-full accent-gradient transition-all duration-500"
+              className="h-full bg-board-accent transition-all duration-500"
               style={{ width: `${percentComplete}%` }}
             />
           </div>

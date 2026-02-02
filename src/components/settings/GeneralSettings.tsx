@@ -98,7 +98,7 @@ export function GeneralSettings() {
                 className={cn(
                   'group relative flex flex-col items-center gap-3 p-5 rounded-xl transition-all duration-200',
                   isSelected
-                    ? 'glass-intense ring-2 ring-board-accent glow-accent'
+                    ? 'glass-intense ring-2 ring-board-accent'
                     : 'glass hover:glass-intense hover:shadow-md'
                 )}
               >
@@ -147,7 +147,7 @@ export function GeneralSettings() {
             onClick={() => setPlannerAutoApprove(!plannerAutoApprove)}
             className={cn(
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-board-accent focus:ring-offset-2',
-              plannerAutoApprove ? 'accent-gradient' : 'glass'
+              plannerAutoApprove ? 'bg-board-accent' : 'glass'
             )}
           >
             <span
@@ -228,7 +228,7 @@ export function GeneralSettings() {
                   className={cn(
                     'flex flex-col items-center gap-1 p-3 rounded-xl transition-all duration-200',
                     isSelected
-                      ? 'glass-intense ring-2 ring-board-accent glow-accent'
+                      ? 'glass-intense ring-2 ring-board-accent'
                       : 'glass hover:glass-intense'
                   )}
                 >
@@ -331,14 +331,14 @@ export function GeneralSettings() {
                 className={cn(
                   'group relative flex flex-col items-center gap-3 p-5 rounded-xl transition-all duration-200',
                   isSelected
-                    ? 'glass-intense ring-2 ring-board-accent glow-accent'
+                    ? 'glass-intense ring-2 ring-board-accent'
                     : 'glass hover:glass-intense hover:shadow-md'
                 )}
               >
                 <div className={cn(
                   'p-3 rounded-full transition-all duration-200',
                   isSelected 
-                    ? 'accent-gradient text-white shadow-md' 
+                    ? 'bg-board-accent text-white shadow-md' 
                     : 'glass text-board-text-secondary group-hover:text-board-text'
                 )}>
                   <option.Icon className="w-6 h-6" />

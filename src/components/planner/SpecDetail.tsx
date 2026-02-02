@@ -543,10 +543,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
               </span>
             )}
             {activeTab === tab.id && (
-              <div 
-                className="absolute bottom-0 left-0 right-0 h-0.5"
-                style={{ background: 'var(--app-accent-gradient)' }}
-              />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
             )}
           </button>
         ))}

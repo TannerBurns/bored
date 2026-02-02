@@ -384,7 +384,7 @@ function App() {
             activeNav === 'boards' && boards.length > 0 ? (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 accent-gradient text-white rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all duration-200 flex items-center gap-2 shadow-md glow-accent"
+                className="px-4 py-2 bg-board-accent text-white rounded-xl hover:bg-board-accent-hover hover:shadow-lg hover:scale-[1.02] transition-all duration-200 flex items-center gap-2 shadow-md"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -435,7 +435,7 @@ function App() {
                   </p>
                   <button
                     onClick={() => setIsCreateBoardModalOpen(true)}
-                    className="px-6 py-3 accent-gradient text-white rounded-xl hover:shadow-lg hover:scale-[1.02] transition-all duration-200 font-medium shadow-md glow-accent"
+                    className="px-6 py-3 bg-board-accent text-white rounded-xl hover:bg-board-accent-hover hover:shadow-lg hover:scale-[1.02] transition-all duration-200 font-medium shadow-md"
                   >
                     Create Your First Board
                   </button>
@@ -648,7 +648,7 @@ function App() {
                   onClick={() => setSettingsTab(tab.id as typeof settingsTab)}
                   className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${
                     settingsTab === tab.id
-                      ? 'accent-gradient text-white shadow-md glow-accent'
+                      ? 'bg-board-accent text-white shadow-md'
                       : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
                   }`}
                 >

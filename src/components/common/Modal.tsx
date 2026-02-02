@@ -41,11 +41,8 @@ export function Modal({ open, onOpenChange, title, description, children, size =
             sizeClasses[size]
           )}
         >
-          {/* Gradient border accent at top */}
-          <div 
-            className="absolute top-0 left-6 right-6 h-px opacity-60"
-            style={{ background: 'var(--app-accent-gradient)' }}
-          />
+          {/* Accent border at top */}
+          <div className="absolute top-0 left-6 right-6 h-px bg-board-accent/40" />
           
           <Dialog.Title className="text-lg font-semibold text-board-text">
             {title}

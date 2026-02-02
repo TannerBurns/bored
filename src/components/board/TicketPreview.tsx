@@ -25,7 +25,7 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
     >
       <div className="flex items-center gap-2 mb-2">
         {ticket.isEpic && (
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium accent-gradient text-white shadow-sm">
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-purple-500 text-white shadow-sm">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="10"

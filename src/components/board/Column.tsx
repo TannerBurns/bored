@@ -44,11 +44,8 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
             {hasWipLimit && `/${wipLimit}`}
           </span>
         </div>
-        {/* Gradient accent line */}
-        <div 
-          className="absolute bottom-0 left-3 right-3 h-px opacity-30"
-          style={{ background: 'var(--app-accent-gradient)' }}
-        />
+        {/* Accent underline */}
+        <div className="absolute bottom-0 left-3 right-3 h-px bg-board-accent/30" />
       </div>
       
       <div

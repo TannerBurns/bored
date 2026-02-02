@@ -171,10 +171,7 @@ export function EventTimeline({ runId, pollInterval = 2000 }: EventTimelineProps
         <div key={event.id} className="relative pl-7 pb-4">
           {/* Vertical gradient line */}
           {index < events.length - 1 && (
-            <div 
-              className="absolute left-[9px] top-5 bottom-0 w-px opacity-50"
-              style={{ background: 'var(--app-accent-gradient)' }}
-            />
+            <div className="absolute left-[9px] top-5 bottom-0 w-px bg-board-accent/50" />
           )}
           
           {/* Event dot with glow */}

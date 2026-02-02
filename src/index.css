@@ -207,9 +207,9 @@ body {
   min-height: 100vh;
 }
 
-/* Accent gradient for buttons and highlights */
+/* Accent solid color for buttons and highlights */
 .accent-gradient {
-  background: var(--app-accent-gradient);
+  background: var(--app-accent-start);
 }
 
 /* Glow effects */

@@ -70,7 +70,7 @@ export function Sidebar({
             <path d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z" fill="white"/>
           </svg>
           {/* Subtle glow effect behind logo */}
-          <div className="absolute inset-0 blur-xl opacity-40 rounded-full" style={{ background: 'var(--app-accent-gradient)' }} />
+          <div className="absolute inset-0 blur-xl opacity-40 rounded-full bg-board-accent" />
         </div>
         <span className="bg-clip-text text-transparent bg-gradient-to-r from-board-text to-board-text-secondary">
           Bored
@@ -127,7 +127,7 @@ export function Sidebar({
                         'flex-1 text-left px-3 py-2 rounded-lg transition-all duration-200',
                         'flex items-center gap-2 text-sm',
                         isActive
-                          ? 'accent-gradient text-white shadow-md glow-accent'
+                          ? 'bg-board-accent text-white shadow-md'
                           : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text hover:translate-x-0.5'
                       )}
                     >
@@ -255,7 +255,7 @@ export function Sidebar({
                   'w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200',
                   'flex items-center gap-2 font-medium',
                   activeItem === item.id
-                    ? 'accent-gradient text-white shadow-md glow-accent'
+                    ? 'bg-board-accent text-white shadow-md'
                     : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text hover:translate-x-0.5'
                 )}
               >

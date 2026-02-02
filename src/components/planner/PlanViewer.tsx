@@ -122,7 +122,7 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
                     {phases.map(({ phase, epics: phaseEpics }) => (
                       <div key={phase} className="flex items-start gap-3">
                         <div className="flex-shrink-0 w-20 text-right">
-                          <span className="inline-block accent-gradient text-white text-xs font-medium px-2.5 py-1 rounded-full shadow-sm">
+                          <span className="inline-block bg-board-accent text-white text-xs font-medium px-2.5 py-1 rounded-full shadow-sm">
                             Phase {phase}
                           </span>
                         </div>
@@ -178,7 +178,7 @@ export function PlanViewer({ markdown, planJson }: PlanViewerProps) {
               >
                 <div className="p-4 glass-subtle border-b border-board-border">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="accent-gradient text-white text-xs font-medium px-2.5 py-0.5 rounded-full shadow-sm">
+                    <span className="bg-board-accent text-white text-xs font-medium px-2.5 py-0.5 rounded-full shadow-sm">
                       Epic {epicIdx + 1}
                     </span>
                     {(() => {
