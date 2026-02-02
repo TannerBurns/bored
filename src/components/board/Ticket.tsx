@@ -1,7 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
-import { PRIORITY_BORDER_COLORS } from '../../lib/constants';
+import { PRIORITY_BORDER_COLORS, PRIORITY_RING_COLORS, PRIORITY_RING_HOVER_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType } from '../../types';
 
 interface TicketProps {
@@ -40,11 +40,13 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       {...listeners}
       onClick={handleClick}
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-pointer border-l-4 ring-1 ring-violet-400/50 transition-all duration-200',
-        'hover:shadow-lg hover:-translate-y-0.5 hover:ring-violet-500/80 hover:ring-2',
+        'glass-intense p-3 rounded-xl cursor-pointer border-l-4 ring-1 transition-all duration-200',
+        'hover:shadow-lg hover:-translate-y-0.5 hover:ring-2',
         PRIORITY_BORDER_COLORS[ticket.priority],
+        PRIORITY_RING_COLORS[ticket.priority],
+        PRIORITY_RING_HOVER_COLORS[ticket.priority],
         isDragging && 'opacity-50 ring-2 ring-board-accent shadow-xl glow-accent-intense scale-105',
-        ticket.isEpic && 'ring-purple-500/40'
+        ticket.isEpic && 'ring-purple-500/60'
       )}
     >
       <div className="flex items-center gap-2 mb-2">

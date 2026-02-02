@@ -1,5 +1,5 @@
 import { cn } from '../../lib/utils';
-import { PRIORITY_BORDER_COLORS } from '../../lib/constants';
+import { PRIORITY_BORDER_COLORS, PRIORITY_RING_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType } from '../../types';
 
 interface TicketPreviewProps {
@@ -16,9 +16,10 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
   return (
     <div
       className={cn(
-        'glass-intense p-3 rounded-xl cursor-grabbing border-l-4',
-        'ring-2 ring-board-accent shadow-xl glow-accent-intense',
+        'glass-intense p-3 rounded-xl cursor-grabbing border-l-4 ring-2',
+        'shadow-xl glow-accent-intense',
         PRIORITY_BORDER_COLORS[ticket.priority],
+        PRIORITY_RING_COLORS[ticket.priority],
         ticket.isEpic && 'ring-purple-500',
         isDragging && 'opacity-95'
       )}
