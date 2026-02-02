@@ -42,10 +42,12 @@ pub fn calculate_eta(db: &Arc<Database>, scratchpad_id: &str) -> Result<Scratchp
             .map(|s| s.as_str())
             .unwrap_or("Unknown");
         
-        if ticket.paused_at.is_some() {
-            paused_tickets += 1;
-        } else if column_name == "Done" {
+        // Column status is the primary criterion - a ticket in Done is completed
+        // regardless of paused_at timestamp (e.g., if manually moved to Done while paused)
+        if column_name == "Done" {
             completed_tickets += 1;
+        } else if ticket.paused_at.is_some() {
+            paused_tickets += 1;
         } else if column_name == "In Progress" || column_name == "Review" {
             in_progress_tickets += 1;
         }
