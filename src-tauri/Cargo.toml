@@ -28,8 +28,8 @@ tokio = { version = "1", features = ["full"] }
 
 # HTTP server for local API
 axum = "0.7"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
