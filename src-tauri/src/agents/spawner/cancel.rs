@@ -3,24 +3,20 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Handle to cancel a running process
 #[derive(Clone)]
 pub struct CancelHandle {
     cancelled: Arc<AtomicBool>,
 }
 
 impl CancelHandle {
-    /// Create a new cancel handle
     pub fn new(cancelled: Arc<AtomicBool>) -> Self {
         Self { cancelled }
     }
 
-    /// Signal the process to cancel
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
-    /// Check if this handle has been cancelled
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }

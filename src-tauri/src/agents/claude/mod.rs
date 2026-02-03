@@ -1,14 +1,4 @@
-//! Claude CLI integration module.
-//!
-//! This module provides functions for building Claude CLI commands,
-//! managing hooks, and checking availability.
-//!
-//! Submodules:
-//! - `command`: Command building
-//! - `availability`: CLI availability checking
-//! - `hooks`: Hook configuration generation and installation
-//! - `settings`: Settings path utilities
-//! - `commands`: Command template management
+//! Claude CLI integration: commands, hooks, and availability checking.
 
 
 // Submodules

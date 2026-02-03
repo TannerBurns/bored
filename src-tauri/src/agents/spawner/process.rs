@@ -11,14 +11,12 @@ use super::cancel::CancelHandle;
 use super::error::SpawnError;
 use super::stream::read_stream_with_capture;
 
-/// Handle to a running agent process
 pub struct AgentProcess {
     child: Child,
     cancelled: Arc<AtomicBool>,
 }
 
 impl AgentProcess {
-    /// Start a new agent process
     pub fn spawn(
         command: &str,
         args: &[&str],
@@ -51,12 +49,10 @@ impl AgentProcess {
         })
     }
 
-    /// Get a handle to cancel this process
     pub fn cancel_handle(&self) -> CancelHandle {
         CancelHandle::new(self.cancelled.clone())
     }
 
-    /// Wait for the process to complete, streaming output
     pub fn wait_with_output(
         self,
         timeout: Option<Duration>,
@@ -66,8 +62,6 @@ impl AgentProcess {
         Ok((exit_code, outcome))
     }
 
-    /// Wait for the process to complete, streaming output and optionally capturing stdout
-    /// Returns (exit_code, outcome, captured_stdout, captured_stderr)
     #[allow(clippy::type_complexity)]
     pub fn wait_with_capture(
         mut self,

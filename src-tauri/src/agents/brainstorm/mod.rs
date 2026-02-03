@@ -1,14 +1,4 @@
 //! Brainstorm agent for conversational spec refinement with codebase exploration.
-//!
-//! This agent facilitates a chat-style conversation to refine requirements.
-//! It explores the codebase during the conversation to ask informed questions
-//! and understand how the feature fits into the existing architecture.
-//! Works with both Cursor and Claude CLIs.
-//!
-//! Submodules:
-//! - `config`: Configuration types and error definitions
-//! - `prompts`: Prompt building functions
-//! - `parsing`: Response parsing functions
 
 use std::sync::Arc;
 use tokio::sync::broadcast;

@@ -1,4 +1,4 @@
-//! Error handling for worker operations, including worktree failures.
+//! Error handling for worker operations.
 
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -10,10 +10,7 @@ use super::super::diagnostic;
 use super::super::worktree::WorktreeError;
 use super::super::{AgentKind, ClaudeApiConfig};
 
-/// Handle worktree creation failure by spawning a diagnostic agent and moving ticket to Blocked.
-///
-/// This provides the user with helpful troubleshooting guidance and moves the ticket
-/// to Blocked so they know intervention is needed.
+/// Spawns a diagnostic agent and moves ticket to Blocked.
 pub async fn handle_worktree_failure(
     db: Arc<Database>,
     app_handle: Option<AppHandle>,
@@ -33,7 +30,6 @@ pub async fn handle_worktree_failure(
         error.diagnostic_type()
     );
 
-    // Build diagnostic context from the error
     let mut context = diagnostic::classify_worktree_error(error);
     context.repo_path = repo_path.to_path_buf();
     context.additional_context = Some(format!(
@@ -42,10 +38,8 @@ pub async fn handle_worktree_failure(
         ticket.title
     ));
 
-    // Move ticket to Blocked column
     move_ticket_to_blocked(&db, &app_handle, ticket, &worker_id);
 
-    // First, try to spawn a diagnostic agent
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();
     let ticket_model = ticket.model.clone();
@@ -54,7 +48,6 @@ pub async fn handle_worktree_failure(
     let context_clone = context.clone();
     let worker_id = worker_id.to_string();
 
-    // Try to spawn diagnostic agent (fire-and-forget in the background)
     tokio::spawn(async move {
         tracing::info!(
             "Worker {} spawning diagnostic agent for ticket {}",

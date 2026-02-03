@@ -6,9 +6,6 @@ use std::time::Duration;
 
 use crate::db::Database;
 
-/// Start a heartbeat task that periodically extends the ticket lock.
-///
-/// Returns a handle that can be used to abort the heartbeat when the work is complete.
 pub fn start_heartbeat(
     db: Arc<Database>,
     ticket_id: String,

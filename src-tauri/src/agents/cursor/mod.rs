@@ -1,14 +1,4 @@
-//! Cursor CLI integration module.
-//!
-//! This module provides functions for building Cursor CLI commands,
-//! managing hooks, and checking availability.
-//!
-//! Submodules:
-//! - `command`: Command building
-//! - `availability`: CLI availability checking
-//! - `hooks`: Hook configuration generation and installation
-//! - `settings`: Settings path utilities
-//! - `commands`: Command template management
+//! Cursor CLI integration: commands, hooks, and availability checking.
 
 
 // Submodules

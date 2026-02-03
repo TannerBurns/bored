@@ -1,18 +1,4 @@
-//! Agent process spawning and execution.
-//!
-//! This module handles spawning agent CLI processes, streaming their output,
-//! and handling cancellation and timeouts.
-//!
-//! Submodules:
-//! - `config`: Configuration constants
-//! - `error`: Error types
-//! - `cancel`: Cancellation handle
-//! - `process`: Agent process management
-//! - `stream`: Output stream reading
-//! - `executor`: Main execution functions with retry logic
-//! - `utils`: Utility functions
-
-// Submodules
+//! Agent process spawning and execution with cancellation, timeouts, and retry logic.
 mod cancel;
 mod config;
 mod error;
