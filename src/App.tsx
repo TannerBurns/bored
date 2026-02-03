@@ -193,9 +193,9 @@ function App() {
     loadData();
   }, [storeSetBoards, storeSetCurrentBoard]);
 
-  // Load recent runs when the runs tab is active
+  // Load recent runs when the agents tab is active
   useEffect(() => {
-    if (activeNav !== 'runs') return;
+    if (activeNav !== 'agents') return;
     
     const loadRecentRuns = async () => {
       try {
@@ -212,9 +212,9 @@ function App() {
     return () => clearInterval(interval);
   }, [activeNav]);
 
-  // Refresh projects when workers tab is active (picks up newly added projects)
+  // Refresh projects when agents tab is active (picks up newly added projects for workers)
   useEffect(() => {
-    if (activeNav !== 'workers') return;
+    if (activeNav !== 'agents') return;
     
     const refreshProjects = async () => {
       try {
