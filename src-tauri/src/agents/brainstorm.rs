@@ -1,7 +1,9 @@
-//! Brainstorm agent for conversational spec refinement.
+//! Brainstorm agent for conversational spec refinement with codebase exploration.
 //!
-//! This agent facilitates a chat-style conversation to refine requirements
-//! before exploration and planning. It works with both Cursor and Claude CLIs.
+//! This agent facilitates a chat-style conversation to refine requirements.
+//! It explores the codebase during the conversation to ask informed questions
+//! and understand how the feature fits into the existing architecture.
+//! Works with both Cursor and Claude CLIs.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -105,43 +107,64 @@ impl BrainstormAgent {
     /// Build the initial prompt for starting a conversation
     fn build_initial_prompt(&self) -> String {
         format!(
-            r#"# Brainstorming Session
+            r#"# Spec Discovery Session
 
-You are helping refine a software specification through conversation. Your goal is to ask clarifying questions to understand the user's requirements better before they start building.
+You are helping create a detailed software specification through an interactive conversation.
+Your job is to:
+1. **Explore the codebase** to understand the existing architecture, patterns, and conventions
+2. **Ask informed questions** based on both the user's request AND what you find in the code
+3. **Gather enough context** to create a comprehensive spec for implementation
 
 ## User's Initial Request
 {}
 
-## Instructions
-1. Ask ONE clarifying question at a time to better understand the requirements
-2. Prefer multiple-choice questions when possible (A, B, C options)
-3. Focus on:
-   - Scope and boundaries of the feature
-   - Technical constraints or preferences
-   - Edge cases and error handling
-   - Integration points with existing systems
-   - Priority and MVP vs. full feature
+## Your Task
 
-4. Keep questions concise and focused
-5. After 3-5 good questions (or when you have enough clarity), you can signal completion
+### Step 1: Explore the Codebase
+Before asking questions, explore the repository to understand:
+- Project structure and organization
+- Existing patterns and conventions (state management, component structure, API patterns)
+- Related existing code that this feature might integrate with or extend
+- Dependencies and tools already in use
+- Any existing similar functionality
+
+### Step 2: Ask Informed Questions
+Based on your exploration AND the user's request, ask ONE clarifying question at a time.
+Your questions should be informed by what you found in the codebase. For example:
+- "I see you're using Zustand for state management. Should this feature follow that pattern?"
+- "I found an existing auth module at src/auth. Should we integrate with it or build separately?"
+- "Your API uses RESTful patterns. Should this new endpoint follow the same conventions?"
+
+Focus on:
+- How this feature fits with existing architecture
+- Reuse opportunities vs. new implementations
+- Integration points you discovered
+- Scope decisions informed by existing code complexity
+- Edge cases based on similar existing features
+
+### Step 3: Prefer Actionable Options
+When possible, offer multiple-choice options based on what you found:
+- A) Extend the existing X module
+- B) Create a new standalone implementation
+- C) Refactor X to support both use cases
 
 ## Response Format
-For questions, just respond naturally with your question.
+For questions, respond naturally with your question. Include brief context about what you found in the codebase that informed the question.
 
-When you have enough information to proceed, output a JSON block:
+When you have enough information (usually 3-6 exchanges), output a JSON block:
 ```json
 {{
   "spec_complete": true,
   "structured_spec": {{
     "requirements": "Clear summary of what needs to be built",
-    "decisions": ["Decision 1", "Decision 2"],
-    "constraints": ["Constraint 1", "Constraint 2"],
-    "technical_notes": "Optional technical approach notes"
+    "decisions": ["Decision 1 based on user input", "Decision 2 from discussion"],
+    "constraints": ["Constraint from codebase", "Constraint from user"],
+    "technical_notes": "Implementation approach based on codebase exploration - mention specific files, patterns, and integration points discovered"
   }}
 }}
 ```
 
-Start by asking your first clarifying question about the user's request."#,
+Start by exploring the codebase, then ask your first informed question."#,
             self.config.user_input
         )
     }
@@ -160,9 +183,10 @@ Start by asking your first clarifying question about the user's request."#,
         }
 
         format!(
-            r#"# Brainstorming Session (Continued)
+            r#"# Spec Discovery Session (Continued)
 
-You are helping refine a software specification through conversation.
+You are helping create a detailed software specification through interactive conversation.
+You have access to explore the codebase to inform your questions and final spec.
 
 ## User's Initial Request
 {}
@@ -170,16 +194,28 @@ You are helping refine a software specification through conversation.
 ## Conversation History
 {}
 
-## Instructions
-1. Continue the conversation based on the user's latest response
-2. Ask ONE clarifying question at a time if you need more information
-3. Prefer multiple-choice questions when possible (A, B, C options)
-4. When you have enough clarity (usually after 3-5 good exchanges), signal completion
+## Your Task
+1. Consider the user's latest response
+2. If needed, explore more of the codebase to inform your next question
+3. Ask ONE more clarifying question OR signal completion if you have enough info
+
+### Guidelines for Questions
+- Base questions on BOTH user responses AND codebase exploration
+- Reference specific files, patterns, or code you found when relevant
+- Offer concrete options when possible (A/B/C choices based on codebase findings)
+- Focus on implementation-relevant decisions
+
+### When to Complete
+You have enough information when you understand:
+- What the user wants to build (scope and features)
+- How it fits with existing code (integration points)
+- Key technical decisions (patterns to follow, reuse vs. new code)
+- Any constraints or requirements
 
 ## Response Format
-For questions, just respond naturally with your next question.
+For questions: Respond naturally, include context from codebase when relevant.
 
-When you have enough information to proceed, output a JSON block:
+When ready to complete (usually 3-6 exchanges), output:
 ```json
 {{
   "spec_complete": true,
@@ -187,12 +223,12 @@ When you have enough information to proceed, output a JSON block:
     "requirements": "Clear summary of what needs to be built",
     "decisions": ["Decision 1", "Decision 2"],
     "constraints": ["Constraint 1", "Constraint 2"],
-    "technical_notes": "Optional technical approach notes"
+    "technical_notes": "Implementation approach with specific files, patterns, and integration points from codebase exploration"
   }}
 }}
 ```
 
-Respond based on the conversation so far."#,
+Continue based on the user's latest response."#,
             self.config.user_input, conversation_history
         )
     }
@@ -239,7 +275,7 @@ Respond based on the conversation so far."#,
             if let Some(json_end) = response[json_start..].find("```\n").or_else(|| {
                 response[json_start + 7..].find("```").map(|i| i + 7)
             }) {
-                let json_str = &response[json_start + 7..json_start + json_end].trim();
+                let json_str = response[json_start + 7..json_start + json_end].trim();
 
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
                     if parsed.get("spec_complete").and_then(|v| v.as_bool()) == Some(true) {

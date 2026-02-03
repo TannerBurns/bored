@@ -658,23 +658,38 @@ pub async fn send_conversation_message(
         Ok(response) => {
             // Check if conversation is complete
             if response.is_complete {
-                // Update spec with structured requirements and transition to exploring
+                // Update spec with structured requirements
+                // The conversation already included codebase exploration, so we can
+                // transition directly to awaiting_approval (ready for plan generation)
                 if let Some(structured) = &response.structured_spec {
-                    // Append the structured requirements to user_input
+                    // Build enhanced user_input with all the refined requirements
                     let enhanced_input = format!(
                         "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}",
                         spec.user_input,
                         structured.requirements,
                         structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
                         structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
-                        structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes\n{}", n)).unwrap_or_default()
+                        structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default()
                     );
+
+                    // Store the exploration findings in the exploration_log 
+                    // (since exploration happened during conversation)
+                    let exploration_entry = crate::db::Exploration {
+                        query: "Codebase exploration during spec discovery".to_string(),
+                        response: structured.technical_notes.clone().unwrap_or_else(|| 
+                            "Exploration completed during conversational spec discovery.".to_string()
+                        ),
+                        timestamp: chrono::Utc::now(),
+                    };
 
                     db.update_spec(
                         &spec_id,
                         &UpdateSpec {
                             user_input: Some(enhanced_input),
-                            status: Some(SpecStatus::Draft), // Move to draft for exploration
+                            exploration_log: Some(vec![exploration_entry]),
+                            // Transition to draft - user can now start planning directly
+                            // (exploration already happened during conversation)
+                            status: Some(SpecStatus::Draft),
                             ..Default::default()
                         },
                     )
@@ -684,6 +699,11 @@ pub async fn send_conversation_message(
                     let _ = event_tx.send(LiveEvent::ConversationComplete {
                         spec_id: spec_id.clone(),
                         structured_spec: serde_json::to_value(structured).unwrap_or_default(),
+                    });
+
+                    // Broadcast spec update so UI refreshes
+                    let _ = event_tx.send(LiveEvent::SpecUpdated {
+                        spec_id: spec_id.clone(),
                     });
                 }
             }

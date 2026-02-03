@@ -16,6 +16,7 @@ export function ConversationView({ spec, onComplete, onSkip }: ConversationViewP
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
+  const prevStatusRef = useRef(spec.status);
 
   // Load existing messages and start conversation if needed
   useEffect(() => {
@@ -81,9 +82,13 @@ export function ConversationView({ spec, onComplete, onSkip }: ConversationViewP
     }
   };
 
-  // Check if conversation is complete (spec moved out of conversing status)
+  // Check if conversation is complete (spec transitioned out of conversing status)
   useEffect(() => {
-    if (spec.status !== 'conversing' && spec.status !== 'draft') {
+    const prevStatus = prevStatusRef.current;
+    prevStatusRef.current = spec.status;
+
+    // If we were conversing and now we're not, the conversation is complete
+    if (prevStatus === 'conversing' && spec.status !== 'conversing') {
       onComplete?.();
     }
   }, [spec.status, onComplete]);
@@ -93,16 +98,16 @@ export function ConversationView({ spec, onComplete, onSkip }: ConversationViewP
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-4 border-b border-board-border/30">
         <div>
-          <h3 className="text-lg font-semibold text-board-text">Brainstorming Session</h3>
+          <h3 className="text-lg font-semibold text-board-text">Spec Discovery</h3>
           <p className="text-sm text-board-text-muted mt-1">
-            Let's refine your requirements before building the plan
+            The agent will explore the codebase and ask questions to refine the spec
           </p>
         </div>
         <button
           onClick={handleSkip}
           className="text-sm text-board-text-muted hover:text-board-text px-3 py-1.5 rounded-lg glass-subtle transition-all duration-200"
         >
-          Skip to Exploration
+          Skip to Planning
         </button>
       </div>
 
