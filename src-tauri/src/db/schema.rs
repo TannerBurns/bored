@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 3;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -57,6 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_columns_board ON columns(board_id);
 
 -- Specs table (for spec/planning agent)
 -- Note: Must be created before tickets table since tickets references specs(id)
+-- Versioned fields (status, exploration_log, plan_*, work_started_at) are in spec_versions table
 CREATE TABLE IF NOT EXISTS specs (
     id TEXT PRIMARY KEY NOT NULL,
     board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
@@ -64,14 +65,9 @@ CREATE TABLE IF NOT EXISTS specs (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     user_input TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
     agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
     model TEXT,
-    exploration_log TEXT,
-    plan_markdown TEXT,
-    plan_json TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
-    work_started_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -79,7 +75,24 @@ CREATE TABLE IF NOT EXISTS specs (
 CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
 CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
 CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
-CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
+
+-- Spec versions table (versioned exploration/plan data for each spec)
+CREATE TABLE IF NOT EXISTS spec_versions (
+    id TEXT PRIMARY KEY NOT NULL,
+    spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+    version_number INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'conversing' CHECK(status IN ('conversing', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
+    exploration_log TEXT DEFAULT '[]',
+    plan_markdown TEXT,
+    plan_json TEXT,
+    work_started_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(spec_id, version_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spec_versions_spec ON spec_versions(spec_id);
+CREATE INDEX IF NOT EXISTS idx_spec_versions_status ON spec_versions(status);
 
 -- Tickets table
 -- Note: locked_by_run_id intentionally omits FK constraint to avoid circular
@@ -110,8 +123,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
     -- All epic dependencies as JSON array of IDs (for display purposes)
     depends_on_epic_ids_json TEXT,
-    -- Link back to spec that created this ticket
-    spec_id TEXT REFERENCES specs(id) ON DELETE SET NULL,
+    -- Link back to spec version that created this ticket
+    spec_version_id TEXT REFERENCES spec_versions(id) ON DELETE SET NULL,
     -- Pause state for tickets
     paused_at TEXT,
     paused_at_stage TEXT,
@@ -124,7 +137,7 @@ CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_tickets_spec ON tickets(spec_id) WHERE spec_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tickets_spec_version ON tickets(spec_version_id) WHERE spec_version_id IS NOT NULL;
 
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
@@ -209,6 +222,18 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
+
+-- Conversation messages table (for spec brainstorming)
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id TEXT PRIMARY KEY NOT NULL,
+    spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_spec ON conversation_messages(spec_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_created ON conversation_messages(spec_id, created_at);
 "#;
 
 /// Default columns for a new board

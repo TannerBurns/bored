@@ -81,8 +81,8 @@ export interface Ticket {
   orderInEpic?: number;
   /** Cross-epic dependency: which epic must complete before this epic can start */
   dependsOnEpicId?: string;
-  /** Link back to spec that created this ticket */
-  specId?: string;
+  /** Link back to spec version that created this ticket */
+  specVersionId?: string;
   /** When the ticket was paused (if currently paused) */
   pausedAt?: Date;
   /** Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review") */
@@ -271,10 +271,9 @@ export interface EpicProgress {
   done: number;
 }
 
-// ===== Spec Types =====
-
-export type SpecStatus = 
-  | 'draft'
+/** Status of a spec version in the planning workflow */
+export type SpecVersionStatus = 
+  | 'conversing'  // In brainstorming conversation (default for new versions)
   | 'exploring'
   | 'planning'
   | 'awaiting_approval'
@@ -286,6 +285,9 @@ export type SpecStatus =
   | 'halted'    // Work halted (can be restarted from beginning)
   | 'completed'
   | 'failed';
+
+/** Alias for backward compatibility */
+export type SpecStatus = SpecVersionStatus;
 
 /** Status of a single ticket within an epic */
 export interface SpecTicketStatus {
@@ -330,7 +332,7 @@ export interface Exploration {
   timestamp: Date;
 }
 
-/** A spec for the planning agent */
+/** A spec for the planning agent (top-level entity with shared conversation) */
 export interface Spec {
   id: string;
   /** The board this spec belongs to (for organization) */
@@ -341,23 +343,40 @@ export interface Spec {
   projectId: string;
   name: string;
   userInput: string;
-  status: SpecStatus;
   /** Preferred agent type for executing the plan */
   agentPref?: 'cursor' | 'claude' | 'any';
   /** Preferred model for the agent */
   model?: string;
+  /** Settings for this spec (auto_approve, etc.) */
+  settings: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** A version of a spec (contains versioned exploration/plan data) */
+export interface SpecVersion {
+  id: string;
+  specId: string;
+  versionNumber: number;
+  status: SpecVersionStatus;
   /** Log of exploration queries and responses */
   explorationLog: Exploration[];
   /** Generated plan in markdown format (for display) */
   planMarkdown?: string;
   /** Parsed plan structure (for execution) */
   planJson?: ProjectPlan;
-  /** Settings for this spec (auto_approve, etc.) */
-  settings: Record<string, unknown>;
   /** When work phase was started (for ETA calculation) */
   workStartedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Spec with its latest version (convenience type for API responses) */
+export interface SpecWithVersion extends Spec {
+  /** The latest version of this spec */
+  latestVersion?: SpecVersion;
+  /** Total number of versions */
+  versionCount: number;
 }
 
 /** Confidence level for ETA estimates */
@@ -434,4 +453,21 @@ export interface PlanTicket {
 export interface ProjectPlan {
   overview: string;
   epics: PlanEpic[];
+}
+
+export type ConversationRole = 'user' | 'assistant' | 'system';
+
+export interface ConversationMessage {
+  id: string;
+  specId: string;
+  role: ConversationRole;
+  content: string;
+  createdAt: Date;
+}
+
+export interface StructuredSpec {
+  requirements: string;
+  decisions: string[];
+  constraints: string[];
+  technicalNotes?: string;
 }

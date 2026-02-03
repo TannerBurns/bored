@@ -216,19 +216,19 @@ impl Worker {
 
         tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
 
-        // Check if the ticket's parent spec is paused or halted
-        if let Some(ref spec_id) = ticket.spec_id {
-            match self.db.get_spec(spec_id) {
-                Ok(spec) => {
-                    use crate::db::SpecStatus;
-                    match spec.status {
-                        SpecStatus::Paused | SpecStatus::Halted => {
+        // Check if the ticket's parent spec version is paused or halted
+        if let Some(ref spec_version_id) = ticket.spec_version_id {
+            match self.db.get_spec_version(spec_version_id) {
+                Ok(version) => {
+                    use crate::db::SpecVersionStatus;
+                    match version.status {
+                        SpecVersionStatus::Paused | SpecVersionStatus::Halted => {
                             tracing::info!(
-                                "Worker {} skipping ticket {} because spec {} is {:?}",
+                                "Worker {} skipping ticket {} because spec version {} is {:?}",
                                 self.id,
                                 ticket.id,
-                                spec_id,
-                                spec.status
+                                spec_version_id,
+                                version.status
                             );
                             self.db.unlock_ticket(&ticket.id)?;
                             return Ok(false);
@@ -238,9 +238,9 @@ impl Worker {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "Worker {} failed to check spec {} status: {}, unlocking ticket to be safe",
+                        "Worker {} failed to check spec version {} status: {}, unlocking ticket to be safe",
                         self.id,
-                        spec_id,
+                        spec_version_id,
                         e
                     );
                     self.db.unlock_ticket(&ticket.id)?;

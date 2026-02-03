@@ -362,7 +362,20 @@ fn main() {
             commands::specs::pause_spec_work,
             commands::specs::resume_spec_work,
             commands::specs::halt_spec_work,
+            commands::specs::reset_plan_execution,
             commands::specs::get_spec_eta,
+            commands::specs::get_version_progress,
+            // Spec version commands
+            commands::specs::get_spec_versions,
+            commands::specs::get_latest_spec_version,
+            commands::specs::get_spec_with_version,
+            commands::specs::get_specs_with_versions,
+            commands::specs::get_all_specs_with_versions,
+            commands::specs::create_new_spec_version,
+            // Conversation (brainstorming) commands
+            commands::conversations::get_conversation_messages,
+            commands::conversations::send_conversation_message,
+            commands::conversations::start_conversation,
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,

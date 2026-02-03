@@ -3,3 +3,7 @@ export { SpecDetail } from './SpecDetail';
 export { PlanViewer } from './PlanViewer';
 export { CreateSpecModal } from './CreateSpecModal';
 export { WorkPlanGraph } from './WorkPlanGraph';
+export { ConversationView } from './ConversationView';
+export { MessageList } from './MessageList';
+export { MessageInput } from './MessageInput';
+export { VersionsList } from './VersionsList';

@@ -112,7 +112,7 @@ export function CreateSpecModal({
     }
 
     try {
-      await createSpec({
+      const newSpec = await createSpec({
         boardId,
         targetBoardId: targetBoardId || undefined, // undefined means same as boardId
         projectId: selectedProjectId,
@@ -122,6 +122,7 @@ export function CreateSpecModal({
         model: model || undefined,
       });
       
+      // Reset form and close immediately - ConversationView will handle starting the conversation
       setName('');
       setUserInput('');
       setAgentPref('any');
@@ -130,6 +131,10 @@ export function CreateSpecModal({
       setIsPreviewMode(false);
       setIsFullscreen(false);
       onOpenChange(false);
+      
+      // Note: ConversationView will start the brainstorming session when it mounts
+      // We removed the startConversation call here to avoid race conditions
+      void newSpec; // Suppress unused variable warning
     } catch (err) {
       setError(String(err));
     }
@@ -445,6 +450,34 @@ Use Markdown for formatting:
             </select>
             <p className="mt-1 text-xs text-board-text-muted">
               Select AI model for agent runs
+            </p>
+          </div>
+        </div>
+
+        {/* Main branch note */}
+        <div className="flex items-start gap-3 p-3 glass-subtle rounded-lg">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-board-text-muted mt-0.5 shrink-0"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-board-text">
+              Planning based on the <code className="px-1.5 py-0.5 bg-board-surface rounded text-board-accent">main</code> branch
+            </p>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              The AI will explore your codebase starting from the main branch of the selected project. After creation, you'll brainstorm with the AI to refine your requirements.
             </p>
           </div>
         </div>

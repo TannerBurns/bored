@@ -88,7 +88,7 @@ pub async fn create_ticket(
         epic_id: ticket.epic_id,
         depends_on_epic_id: None,
         depends_on_epic_ids: vec![],
-        spec_id: None,
+        spec_version_id: None,
     };
     db.create_ticket(&create).map_err(|e| e.to_string())
 }
@@ -136,10 +136,10 @@ pub async fn move_ticket(
             }
         }
         // If this is an epic with a spec, check for spec completion
-        else if updated_ticket.is_epic && updated_ticket.spec_id.is_some() {
+        else if updated_ticket.is_epic && updated_ticket.spec_version_id.is_some() {
             if let Err(e) = crate::lifecycle::epic::check_spec_completion_by_id(
                 &db_arc,
-                updated_ticket.spec_id.as_ref().unwrap(),
+                updated_ticket.spec_version_id.as_ref().unwrap(),
             ) {
                 tracing::warn!("Failed to check spec completion: {}", e);
             }
@@ -194,7 +194,7 @@ pub async fn update_ticket(
         order_in_epic: None,
         depends_on_epic_id: None,
         depends_on_epic_ids: vec![],
-        spec_id: None,
+        spec_version_id: None,
     };
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())
@@ -230,10 +230,10 @@ pub async fn update_ticket(
                     {
                         tracing::warn!("Failed to handle child completion on update: {}", e);
                     }
-                } else if updated_ticket.is_epic && updated_ticket.spec_id.is_some() {
+                } else if updated_ticket.is_epic && updated_ticket.spec_version_id.is_some() {
                     if let Err(e) = crate::lifecycle::epic::check_spec_completion_by_id(
                         &db_arc,
-                        updated_ticket.spec_id.as_ref().unwrap(),
+                        updated_ticket.spec_version_id.as_ref().unwrap(),
                     ) {
                         tracing::warn!("Failed to check spec completion on update: {}", e);
                     }

@@ -95,6 +95,30 @@ pub enum LiveEvent {
         /// Timestamp
         timestamp: String,
     },
+    // Conversation events (spec brainstorming)
+    ConversationMessageAdded {
+        spec_id: String,
+        message_id: String,
+        role: String,
+        content: String,
+    },
+    ConversationComplete {
+        spec_id: String,
+        structured_spec: serde_json::Value,
+    },
+    /// Real-time log entry from brainstorm agent output
+    BrainstormLogEntry {
+        spec_id: String,
+        /// Log message content (agent's thinking/tool use)
+        message: String,
+        /// Timestamp
+        timestamp: String,
+    },
+    /// Brainstorm agent is generating the spec (no more questions)
+    BrainstormGeneratingSpec {
+        spec_id: String,
+        version_number: i32,
+    },
 }
 
 /// Shared application state for the API server
