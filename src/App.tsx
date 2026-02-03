@@ -73,7 +73,7 @@ const navItems = [
     ),
   },
   { 
-    id: 'runs', 
+    id: 'agents', 
     label: 'Agents',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -85,23 +85,6 @@ const navItems = [
       </svg>
     ),
   },
-  { 
-    id: 'workers', 
-    label: 'Workers',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 1v4" />
-        <path d="M12 19v4" />
-        <path d="M4.22 4.22l2.83 2.83" />
-        <path d="M16.95 16.95l2.83 2.83" />
-        <path d="M1 12h4" />
-        <path d="M19 12h4" />
-        <path d="M4.22 19.78l2.83-2.83" />
-        <path d="M16.95 7.05l2.83-2.83" />
-      </svg>
-    ),
-  },
 ];
 
 function App() {
@@ -110,6 +93,7 @@ function App() {
   const [recentRuns, setRecentRuns] = useState<AgentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
+  const [agentsTab, setAgentsTab] = useState<'runs' | 'workers'>('runs');
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
@@ -578,108 +562,171 @@ function App() {
           </div>
         )}
 
-        {activeNav === 'runs' && (
-          <div className="glass rounded-2xl p-6 overflow-auto">
-            <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
-            <p className="text-board-text-secondary mb-4">
-              View active and completed agent runs.
-            </p>
-            
-            {/* Active Runs Section */}
-            {tickets.filter((t) => t.lockedByRunId).length > 0 && (
-              <div className="mb-6">
-                <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
-                  Active Runs
-                </h4>
-                <div className="space-y-2">
-                  {tickets
-                    .filter((t) => t.lockedByRunId)
-                    .map((ticket) => (
-                      <div
-                        key={ticket.id}
-                        className="p-3 glass-intense rounded-xl flex items-center justify-between glow-warning"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-board-text truncate">{ticket.title}</span>
-                            <span className="text-xs text-board-text-muted font-mono shrink-0">
-                              #{ticket.id.slice(0, 8)}
+        {activeNav === 'agents' && (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Agents Tabs */}
+            <div className="flex gap-1 mb-4">
+              {[
+                { 
+                  id: 'runs', 
+                  label: 'Runs',
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                  ),
+                  badge: tickets.filter((t) => t.lockedByRunId).length || undefined,
+                },
+                { 
+                  id: 'workers', 
+                  label: 'Workers',
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M12 1v4" />
+                      <path d="M12 19v4" />
+                      <path d="M4.22 4.22l2.83 2.83" />
+                      <path d="M16.95 16.95l2.83 2.83" />
+                      <path d="M1 12h4" />
+                      <path d="M19 12h4" />
+                      <path d="M4.22 19.78l2.83-2.83" />
+                      <path d="M16.95 7.05l2.83-2.83" />
+                    </svg>
+                  ),
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setAgentsTab(tab.id as typeof agentsTab)}
+                  className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 flex items-center gap-2 ${
+                    agentsTab === tab.id
+                      ? 'bg-board-accent text-white shadow-md'
+                      : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                  {tab.badge && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                      agentsTab === tab.id 
+                        ? 'bg-white/20' 
+                        : 'bg-status-warning/20 text-status-warning'
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Runs Tab Content */}
+            {agentsTab === 'runs' && (
+              <div className="flex-1 overflow-auto glass rounded-2xl p-6">
+                {/* Active Runs Section */}
+                {tickets.filter((t) => t.lockedByRunId).length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
+                      Active Runs
+                    </h4>
+                    <div className="space-y-2">
+                      {tickets
+                        .filter((t) => t.lockedByRunId)
+                        .map((ticket) => (
+                          <div
+                            key={ticket.id}
+                            className="p-3 glass-intense rounded-xl flex items-center justify-between glow-warning"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-board-text truncate">{ticket.title}</span>
+                                <span className="text-xs text-board-text-muted font-mono shrink-0">
+                                  #{ticket.id.slice(0, 8)}
+                                </span>
+                              </div>
+                              <span className="text-sm text-board-text-muted">
+                                Running with {ticket.agentPref || 'agent'}
+                              </span>
+                            </div>
+                            <span className="text-status-warning text-sm flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
+                              In Progress
                             </span>
                           </div>
-                          <span className="text-sm text-board-text-muted">
-                            Running with {ticket.agentPref || 'agent'}
-                          </span>
-                        </div>
-                        <span className="text-status-warning text-sm flex items-center gap-1">
-                          <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
-                          In Progress
-                        </span>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Recent Runs Section */}
+                <div>
+                  <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-3">
+                    Recent Runs
+                  </h4>
+                  <div className="space-y-2">
+                    {recentRuns.length === 0 ? (
+                      <div className="glass-subtle rounded-xl p-8 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-board-text-muted mb-3">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                        <p className="text-board-text-muted text-sm">No runs yet</p>
+                        <p className="text-board-text-muted text-xs mt-1">Start a run from a ticket to see activity</p>
                       </div>
-                    ))}
+                    ) : (
+                      recentRuns.map((run) => {
+                        const ticket = tickets.find((t) => t.id === run.ticketId);
+                        const statusConfig = {
+                          running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
+                          queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
+                          finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
+                          error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
+                          aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
+                          paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
+                        };
+                        const status = statusConfig[run.status] || statusConfig.error;
+                        const startedAt = new Date(run.startedAt);
+                        const endedAt = run.endedAt ? new Date(run.endedAt) : null;
+                        const timeAgo = getTimeAgo(startedAt);
+                        const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
+                        
+                        return (
+                          <div
+                            key={run.id}
+                            className="p-3 glass-intense rounded-xl flex items-center justify-between hover:shadow-md transition-all duration-200"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-board-text truncate">
+                                  {ticket?.title || 'Unknown Ticket'}
+                                </span>
+                                <span className="text-xs text-board-text-muted font-mono shrink-0">
+                                  #{run.ticketId.slice(0, 8)}
+                                </span>
+                              </div>
+                              <span className="text-sm text-board-text-muted">
+                                {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} &middot; {timeAgo}
+                                {duration && ` · ${duration}`}
+                              </span>
+                            </div>
+                            <span className={`${status.color} text-sm flex items-center gap-1 shrink-0`}>
+                              <span className={`inline-block w-2 h-2 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
+                              {status.label}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             )}
-            
-            {/* Recent Runs Section */}
-            <div>
-              <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
-                Recent Runs
-              </h4>
-              <div className="space-y-2">
-                {recentRuns.length === 0 ? (
-                  <p className="text-board-text-muted text-sm glass-subtle rounded-xl p-4 text-center">No runs yet. Start a run from a ticket to see activity.</p>
-                ) : (
-                  recentRuns.map((run) => {
-                    const ticket = tickets.find((t) => t.id === run.ticketId);
-                    const statusConfig = {
-                      running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
-                      queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
-                      finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
-                      error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
-                      aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
-                      paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
-                    };
-                    const status = statusConfig[run.status] || statusConfig.error;
-                    const startedAt = new Date(run.startedAt);
-                    const endedAt = run.endedAt ? new Date(run.endedAt) : null;
-                    const timeAgo = getTimeAgo(startedAt);
-                    const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
-                    
-                    return (
-                      <div
-                        key={run.id}
-                        className="p-3 glass-intense rounded-xl flex items-center justify-between hover:shadow-md transition-all duration-200"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-board-text truncate">
-                              {ticket?.title || 'Unknown Ticket'}
-                            </span>
-                            <span className="text-xs text-board-text-muted font-mono shrink-0">
-                              #{run.ticketId.slice(0, 8)}
-                            </span>
-                          </div>
-                          <span className="text-sm text-board-text-muted">
-                            {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} &middot; {timeAgo}
-                            {duration && ` · ${duration}`}
-                          </span>
-                        </div>
-                        <span className={`${status.color} text-sm flex items-center gap-1 shrink-0`}>
-                          <span className={`inline-block w-2 h-2 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
-                          {status.label}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeNav === 'workers' && (
-          <div className="flex-1 overflow-auto glass rounded-2xl">
-            <WorkerPanel projects={projects} />
+            {/* Workers Tab Content */}
+            {agentsTab === 'workers' && (
+              <div className="flex-1 overflow-auto glass rounded-2xl">
+                <WorkerPanel projects={projects} />
+              </div>
+            )}
           </div>
         )}
 

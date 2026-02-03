@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { cn } from '../../lib/utils';
 import type { Task } from '../../types';
@@ -71,6 +71,22 @@ export function FullscreenTaskModal({
     }
   }, [isEditMode]);
 
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      await onSave(editTitle, editContent);
+      setIsEditMode(false);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [editTitle, editContent, onSave]);
+
+  const handleCancel = useCallback(() => {
+    setIsEditMode(false);
+    setEditTitle(task.title || '');
+    setEditContent(task.content || '');
+  }, [task.title, task.content]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     if (!isOpen) return;
@@ -92,7 +108,7 @@ export function FullscreenTaskModal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isEditMode, task, onClose]);
+  }, [isOpen, isEditMode, onClose, handleSave, handleCancel]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -105,22 +121,6 @@ export function FullscreenTaskModal({
       document.body.style.overflow = '';
     };
   }, [isOpen]);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(editTitle, editContent);
-      setIsEditMode(false);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setIsEditMode(false);
-    setEditTitle(task.title || '');
-    setEditContent(task.content || '');
-  };
 
   const handleReset = async () => {
     if (!onReset) return;
