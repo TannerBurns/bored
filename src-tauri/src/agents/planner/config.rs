@@ -67,3 +67,51 @@ pub enum PlannerError {
     #[error("JSON serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planner_error_database_message() {
+        let err = PlannerError::Database("connection failed".to_string());
+        assert_eq!(err.to_string(), "Database error: connection failed");
+    }
+
+    #[test]
+    fn planner_error_spec_not_found_message() {
+        let err = PlannerError::SpecNotFound("spec-123".to_string());
+        assert_eq!(err.to_string(), "Spec not found: spec-123");
+    }
+
+    #[test]
+    fn planner_error_invalid_state_message() {
+        let err = PlannerError::InvalidState("already processing".to_string());
+        assert_eq!(err.to_string(), "Invalid state: already processing");
+    }
+
+    #[test]
+    fn planner_error_exploration_failed_message() {
+        let err = PlannerError::ExplorationFailed("timeout".to_string());
+        assert_eq!(err.to_string(), "Exploration failed: timeout");
+    }
+
+    #[test]
+    fn planner_error_plan_generation_failed_message() {
+        let err = PlannerError::PlanGenerationFailed("invalid JSON".to_string());
+        assert_eq!(err.to_string(), "Plan generation failed: invalid JSON");
+    }
+
+    #[test]
+    fn planner_error_execution_failed_message() {
+        let err = PlannerError::ExecutionFailed("db write error".to_string());
+        assert_eq!(err.to_string(), "Plan execution failed: db write error");
+    }
+
+    #[test]
+    fn planner_error_json_error_from() {
+        let json_err = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
+        let err: PlannerError = json_err.into();
+        assert!(err.to_string().contains("JSON serialization error"));
+    }
+}

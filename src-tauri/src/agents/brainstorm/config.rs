@@ -41,3 +41,40 @@ pub enum BrainstormError {
     #[error("Failed to parse response: {0}")]
     ParseError(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brainstorm_error_database_message() {
+        let err = BrainstormError::Database("connection failed".to_string());
+        assert_eq!(err.to_string(), "Database error: connection failed");
+    }
+
+    #[test]
+    fn brainstorm_error_agent_failed_message() {
+        let err = BrainstormError::AgentFailed("timeout".to_string());
+        assert_eq!(err.to_string(), "Agent execution failed: timeout");
+    }
+
+    #[test]
+    fn brainstorm_error_parse_error_message() {
+        let err = BrainstormError::ParseError("invalid JSON".to_string());
+        assert_eq!(err.to_string(), "Failed to parse response: invalid JSON");
+    }
+
+    #[test]
+    fn brainstorm_response_fields() {
+        let response = BrainstormResponse {
+            message: "Test message".to_string(),
+            is_complete: true,
+            has_questions: false,
+            structured_spec: None,
+        };
+        assert_eq!(response.message, "Test message");
+        assert!(response.is_complete);
+        assert!(!response.has_questions);
+        assert!(response.structured_spec.is_none());
+    }
+}
