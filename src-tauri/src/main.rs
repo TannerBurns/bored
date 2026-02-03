@@ -117,6 +117,32 @@ fn main() {
             tracing::info!("Agent Kanban starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
 
+            // Create window first to show loading screen while initialization continues
+            let window_url = if cfg!(debug_assertions) {
+                WebviewUrl::External("http://localhost:1420".parse().unwrap())
+            } else {
+                WebviewUrl::App("index.html".into())
+            };
+
+            let _main_window = WebviewWindowBuilder::new(app, "main", window_url)
+                .title("Bored")
+                .inner_size(1200.0, 800.0)
+                .resizable(true)
+                .on_navigation(|url| {
+                    let allowed = is_allowed_url(url);
+                    if !allowed {
+                        tracing::warn!(
+                            "Blocked navigation to external URL: {} - use system browser instead",
+                            url
+                        );
+                    }
+                    allowed
+                })
+                .build()
+                .expect("Failed to create main window");
+
+            tracing::info!("Main window created, continuing initialization...");
+
             if let Err(e) = setup_hook_scripts(app) {
                 tracing::warn!("Failed to setup hook scripts: {}", e);
             }
@@ -124,20 +150,21 @@ fn main() {
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
 
-            // Cleanup orphaned tasks from interrupted runs
-            // This handles cases where the app crashed or was killed while a run was in progress
-            match database.cleanup_orphaned_in_progress_tasks() {
-                Ok(count) if count > 0 => {
-                    tracing::info!(
-                        "Startup cleanup: reset {} orphaned in-progress task(s)",
-                        count
-                    );
+            let db_for_cleanup = database.clone();
+            tauri::async_runtime::spawn(async move {
+                match db_for_cleanup.cleanup_orphaned_in_progress_tasks() {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(
+                            "Startup cleanup: reset {} orphaned in-progress task(s)",
+                            count
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("Startup cleanup failed: {}", e);
+                    }
+                    _ => {}
                 }
-                Err(e) => {
-                    tracing::warn!("Startup cleanup failed: {}", e);
-                }
-                _ => {}
-            }
+            });
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
@@ -225,30 +252,6 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 api::start_spool_processor(db_for_spool, spool_dir).await;
             });
-
-            // Create the main window with navigation guard
-            let window_url = if cfg!(debug_assertions) {
-                WebviewUrl::External("http://localhost:1420".parse().unwrap())
-            } else {
-                WebviewUrl::App("index.html".into())
-            };
-
-            let _main_window = WebviewWindowBuilder::new(app, "main", window_url)
-                .title("Bored")
-                .inner_size(1200.0, 800.0)
-                .resizable(true)
-                .on_navigation(|url| {
-                    let allowed = is_allowed_url(url);
-                    if !allowed {
-                        tracing::warn!(
-                            "Blocked navigation to external URL: {} - use system browser instead",
-                            url
-                        );
-                    }
-                    allowed
-                })
-                .build()
-                .expect("Failed to create main window");
 
             tracing::info!("Agent Kanban initialized successfully");
 

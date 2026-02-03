@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '../../lib/utils';
+import { BoredLogo } from '../common/BoredLogo';
 import type { Board } from '../../types';
 
 interface NavItem {
@@ -56,23 +57,11 @@ export function Sidebar({
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-board-text flex items-center gap-2 group">
           <div className="relative">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="28"
-              height="28"
-              viewBox="0 0 512 512"
+            <BoredLogo 
+              size={28} 
+              variant="gradient" 
               className="flex-shrink-0 transition-transform duration-300 group-hover:scale-110"
-            >
-              <defs>
-                <linearGradient id="logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: 'var(--app-accent-start)' }} />
-                  <stop offset="100%" style={{ stopColor: 'var(--app-accent-end)' }} />
-                </linearGradient>
-              </defs>
-              <rect x="51" y="51" width="410" height="410" rx="82" fill="url(#logo-gradient)" />
-              <path d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z" fill="white"/>
-            </svg>
-            {/* Subtle glow effect behind logo */}
+            />
             <div className="absolute inset-0 -z-10 blur-xl opacity-40 rounded-full bg-board-accent" />
           </div>
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-board-text to-board-text-secondary">
