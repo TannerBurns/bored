@@ -1,19 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSpecStore } from '../../stores/specStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Button } from '../common/Button';
-import { MarkdownViewer } from '../common/MarkdownViewer';
-import { PlanViewer } from './PlanViewer';
-import { LiveLogPanel } from './LiveLogPanel';
-import { EpicProgressPanel } from './EpicProgressPanel';
 import { ConversationView } from './ConversationView';
+import { VersionsList } from './VersionsList';
 import { logger } from '../../lib/logger';
 import { cn } from '../../lib/utils';
-import type { Spec, Exploration, SpecStatus, SpecProgress } from '../../types';
+import type { SpecWithVersion, SpecVersionStatus } from '../../types';
 
 interface SpecDetailProps {
-  spec: Spec;
+  spec: SpecWithVersion;
   onClose: () => void;
 }
 
@@ -55,7 +52,7 @@ const statusMessages: Record<string, { title: string; subtitle: string; variant?
   },
 };
 
-function ProgressIndicator({ status }: { status: SpecStatus }) {
+function ProgressIndicator({ status }: { status: SpecVersionStatus }) {
   const message = statusMessages[status];
   if (!message) return null;
 
@@ -101,96 +98,25 @@ function ProgressIndicator({ status }: { status: SpecStatus }) {
   );
 }
 
-function ExplorationLog({ explorations }: { explorations: Exploration[] }) {
-  if (explorations.length === 0) {
-    return (
-      <div className="text-board-text-muted text-center py-8 glass-subtle rounded-xl">
-        No explorations yet
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {explorations.map((exploration, idx) => (
-        <div key={idx} className="glass rounded-xl overflow-hidden">
-          <div className="glass-subtle px-4 py-3 border-b border-board-border">
-            <h4 className="font-medium text-board-text">
-              Query {idx + 1}
-            </h4>
-            <p className="text-sm text-board-text-muted mt-1">
-              {exploration.query}
-            </p>
-          </div>
-          <div className="p-4">
-            <MarkdownViewer content={exploration.response} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function SpecDetail({ spec, onClose }: SpecDetailProps) {
-  const { approvePlan, deleteSpec, getSpec, setCurrentSpec, setStatus, liveLogs, pauseWork, resumeWork, haltWork } = useSpecStore();
+  const { 
+    deleteSpec, getSpec, setCurrentSpec, setStatus,
+    activeTab, setActiveTab,
+  } = useSpecStore();
   const { plannerAutoApprove, plannerMaxExplorations, plannerModel, plannerTimeoutMinutes, plannerMaxRetries } = useSettingsStore();
-  const [activeTab, setActiveTab] = useState<'input' | 'exploration' | 'logs' | 'plan' | 'progress'>('input');
   
-  // Filter logs for this spec
-  const specLogs = liveLogs.filter(log => log.specId === spec.id);
+  // Extract version data (or use sensible defaults if no version exists yet)
+  const version = spec.latestVersion;
+  const status = version?.status ?? 'conversing';
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [isStartingWork, setIsStartingWork] = useState(false);
-  const [isPausing, setIsPausing] = useState(false);
-  const [isResuming, setIsResuming] = useState(false);
-  const [isHalting, setIsHalting] = useState(false);
-  const [progress, setProgress] = useState<SpecProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
-  // Load progress when status is working, paused, halted, or completed
-  useEffect(() => {
-    const loadProgress = async () => {
-      if (['working', 'paused', 'halted', 'completed', 'executed'].includes(spec.status)) {
-        try {
-          const prog = await invoke<SpecProgress>('get_spec_progress', { specId: spec.id });
-          setProgress(prog);
-          
-          // Auto-correct status if marked as 'completed' but epics aren't done
-          if (spec.status === 'completed' && prog.total > 0 && prog.done < prog.total) {
-            logger.info('Auto-correcting spec status from completed to executed', { 
-              specId: spec.id, 
-              done: prog.done, 
-              total: prog.total 
-            });
-            await setStatus(spec.id, 'executed');
-          }
-          
-          // Auto-correct status if all epics are done but status is not 'completed'
-          // This handles edge cases where the backend completion check wasn't triggered
-          if (prog.total > 0 && prog.done === prog.total && 
-              ['working', 'paused', 'halted', 'executed'].includes(spec.status)) {
-            logger.info('Auto-correcting spec status to completed - all epics done', { 
-              specId: spec.id, 
-              done: prog.done, 
-              total: prog.total,
-              previousStatus: spec.status
-            });
-            await setStatus(spec.id, 'completed');
-          }
-        } catch (err) {
-          logger.error('Failed to load progress', err);
-        }
-      }
-    };
-    loadProgress();
-    
-    // Poll for progress updates when working
-    if (spec.status === 'working') {
-      const interval = setInterval(loadProgress, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [spec.id, spec.status, setStatus]);
+
+  // Refresh spec data
+  const handleRefresh = async () => {
+    const updated = await getSpec(spec.id);
+    setCurrentSpec(updated);
+  };
 
   const handleStartPlanner = async () => {
     setIsStarting(true);
@@ -218,8 +144,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
         },
       });
       
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
+      await handleRefresh();
       logger.info('Planner started successfully', { specId: spec.id });
     } catch (err) {
       logger.error('Failed to start planner', err);
@@ -229,53 +154,11 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
-  const handleExecutePlan = async () => {
-    setIsExecuting(true);
-    setError(null);
-    try {
-      await invoke('execute_plan', { specId: spec.id });
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
-      logger.info('Plan executed', { specId: spec.id });
-    } catch (err) {
-      logger.error('Failed to execute plan', err);
-      setError(String(err));
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  const handleStartWork = async () => {
-    setIsStartingWork(true);
-    setError(null);
-    try {
-      await invoke('start_spec_work', { specId: spec.id });
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
-      logger.info('Work started', { specId: spec.id });
-    } catch (err) {
-      logger.error('Failed to start work', err);
-      setError(String(err));
-    } finally {
-      setIsStartingWork(false);
-    }
-  };
-
-  const handleApprove = async () => {
-    try {
-      await approvePlan(spec.id);
-    } catch (err) {
-      logger.error('Failed to approve plan:', err);
-      setError(String(err));
-    }
-  };
-
   const handleRetry = async () => {
     // Reset status to draft so we can start again
     try {
       await setStatus(spec.id, 'draft');
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
+      await handleRefresh();
       setError(null);
       // Now start the planner again
       await handleStartPlanner();
@@ -285,17 +168,14 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
-  const handleDelete = async (deleteTickets = false) => {
-    const ticketCount = progress?.totalTickets || 0;
-    const message = deleteTickets && ticketCount > 0
-      ? `Are you sure you want to delete this spec AND all ${ticketCount} associated tickets (epics and their children)? This cannot be undone.`
-      : 'Are you sure you want to delete this spec? The tickets created from it will remain.';
+  const handleDelete = async () => {
+    const message = 'Are you sure you want to delete this spec? This cannot be undone.';
     
     if (!confirm(message)) return;
     
     setIsDeleting(true);
     try {
-      await deleteSpec(spec.id, deleteTickets);
+      await deleteSpec(spec.id);
       onClose();
     } catch (err) {
       logger.error('Failed to delete spec:', err);
@@ -305,145 +185,23 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
-  const handlePause = async () => {
-    setIsPausing(true);
-    setError(null);
-    try {
-      await pauseWork(spec.id);
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
-      logger.info('Work paused', { specId: spec.id });
-    } catch (err) {
-      logger.error('Failed to pause work', err);
-      setError(String(err));
-    } finally {
-      setIsPausing(false);
-    }
-  };
+  const isConversing = status === 'conversing';
+  const canRetry = status === 'failed';
+  const isProcessing = ['exploring', 'planning', 'executing'].includes(status);
 
-  const handleResume = async () => {
-    setIsResuming(true);
-    setError(null);
-    try {
-      await resumeWork(spec.id);
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
-      logger.info('Work resumed', { specId: spec.id });
-    } catch (err) {
-      logger.error('Failed to resume work', err);
-      setError(String(err));
-    } finally {
-      setIsResuming(false);
-    }
-  };
-
-  const handleHalt = async () => {
-    if (!confirm('Are you sure you want to halt all work? This will stop all active runs and reset tickets to their initial state.')) {
-      return;
-    }
-    setIsHalting(true);
-    setError(null);
-    try {
-      await haltWork(spec.id);
-      const updated = await getSpec(spec.id);
-      setCurrentSpec(updated);
-      logger.info('Work halted', { specId: spec.id });
-    } catch (err) {
-      logger.error('Failed to halt work', err);
-      setError(String(err));
-    } finally {
-      setIsHalting(false);
-    }
-  };
-
-  const isConversing = spec.status === 'conversing';
-  const canStart = spec.status === 'draft';
-  const canRetry = spec.status === 'failed';
-  const canApprove = spec.status === 'awaiting_approval' && spec.planMarkdown;
-  const canExecute = spec.status === 'approved' && spec.planJson;
-  const canStartWork = spec.status === 'executed' 
-    || spec.status === 'halted'
-    || (spec.status === 'completed' && progress !== null && progress.done < progress.total);
-  const isWorking = spec.status === 'working';
-  const isPaused = spec.status === 'paused';
-  const isHalted = spec.status === 'halted';
-  const isCompleted = spec.status === 'completed';
-  const isProcessing = ['exploring', 'planning', 'executing'].includes(spec.status);
-
-  // Handle conversation completion
   const handleConversationComplete = async () => {
-    const updated = await getSpec(spec.id);
-    setCurrentSpec(updated);
+    await handleRefresh();
   };
 
-  // If in conversing status, show conversation view
-  if (isConversing) {
-    return (
-      <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
-          <div>
-            <h2 className="text-lg font-semibold text-board-text">
-              {spec.name}
-            </h2>
-            <p className="text-sm text-board-text-muted capitalize flex items-center gap-2">
-              Status: 
-              <span className="glass-subtle px-2 py-0.5 rounded-full text-xs">
-                Brainstorming
-              </span>
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={onClose} variant="secondary">
-              Close
-            </Button>
-          </div>
-        </div>
-
-        {/* Conversation View */}
-        <div className="flex-1 overflow-hidden p-4">
-          <ConversationView
-            spec={spec}
-            onComplete={handleConversationComplete}
-            onSkip={handleConversationComplete}
-          />
-        </div>
-      </div>
-    );
-  }
-  
-  // Pause/resume controls
-  const canPause = isWorking;
-  const canResume = isPaused;
-  const canHalt = isWorking || isPaused;
-  
-  // Auto-switch to logs tab when processing starts
-  useEffect(() => {
-    if (isProcessing) {
-      setActiveTab('logs');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing]);
-
-  const tabs: { id: string; label: string; badge?: string | number; pulse?: boolean }[] = [
-    { id: 'input', label: 'User Input' },
-    { id: 'logs', label: 'Live Logs', badge: specLogs.length > 0 ? specLogs.length : undefined, pulse: isProcessing },
-    { id: 'exploration', label: `Exploration (${spec.explorationLog?.length || 0})` },
-    { id: 'plan', label: 'Plan' },
+  // Primary tabs: Chat and Versions
+  const primaryTabs: { id: 'chat' | 'versions'; label: string; badge?: string | number; pulse?: boolean }[] = [
+    { id: 'chat', label: 'Chat', pulse: isConversing },
+    { id: 'versions', label: 'Versions' },
   ];
-  
-  if ((isWorking || isPaused || isCompleted || canStartWork) && progress) {
-    tabs.push({
-      id: 'progress',
-      label: 'Progress',
-      badge: `${progress.done}/${progress.total}`,
-      pulse: isWorking,
-    });
-  }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* Header - simplified to only spec-level actions */}
       <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
         <div>
           <h2 className="text-lg font-semibold text-board-text">
@@ -452,20 +210,11 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
           <p className="text-sm text-board-text-muted capitalize flex items-center gap-2">
             Status: 
             <span className="glass-subtle px-2 py-0.5 rounded-full text-xs">
-              {spec.status.replace('_', ' ')}
+              {status.replace('_', ' ')}
             </span>
           </p>
         </div>
         <div className="flex gap-2">
-          {canStart && (
-            <Button 
-              onClick={handleStartPlanner} 
-              variant="primary"
-              disabled={isStarting}
-            >
-              {isStarting ? 'Starting...' : 'Start Exploring'}
-            </Button>
-          )}
           {canRetry && (
             <Button 
               onClick={handleRetry} 
@@ -475,83 +224,13 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
               {isStarting ? 'Retrying...' : 'Retry'}
             </Button>
           )}
-          {canApprove && (
-            <Button onClick={handleApprove} variant="primary">
-              Approve Plan
-            </Button>
-          )}
-          {canExecute && (
-            <Button 
-              onClick={handleExecutePlan} 
-              variant="primary"
-              disabled={isExecuting}
-            >
-              {isExecuting ? 'Executing...' : 'Execute Plan'}
-            </Button>
-          )}
-          {canStartWork && (
-            <Button 
-              onClick={handleStartWork} 
-              variant="primary"
-              disabled={isStartingWork}
-            >
-              {isStartingWork ? 'Starting...' : isHalted ? 'Restart Work' : 'Start Work'}
-            </Button>
-          )}
-          {/* Pause/Resume/Halt controls */}
-          {canPause && (
-            <Button
-              onClick={handlePause}
-              variant="secondary"
-              disabled={isPausing}
-            >
-              {isPausing ? 'Pausing...' : 'Pause'}
-            </Button>
-          )}
-          {canResume && (
-            <Button
-              onClick={handleResume}
-              variant="primary"
-              disabled={isResuming}
-            >
-              {isResuming ? 'Resuming...' : 'Resume'}
-            </Button>
-          )}
-          {canHalt && (
-            <Button
-              onClick={handleHalt}
-              variant="danger"
-              disabled={isHalting}
-            >
-              {isHalting ? 'Halting...' : 'Halt'}
-            </Button>
-          )}
-          {/* Delete dropdown */}
-          <div className="relative group">
-            <Button 
-              onClick={() => handleDelete(false)} 
-              variant="danger" 
-              disabled={isDeleting || isProcessing}
-            >
-              {isDeleting ? 'Deleting...' : 'Delete'}
-            </Button>
-            {progress && progress.totalTickets > 0 && !isDeleting && !isProcessing && (
-              <div className="absolute right-0 top-full mt-1 w-48 glass-intense rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
-                <button
-                  onClick={() => handleDelete(false)}
-                  className="w-full px-3 py-2 text-left text-sm text-board-text hover:bg-board-card-hover transition-colors"
-                >
-                  Delete spec only
-                </button>
-                <button
-                  onClick={() => handleDelete(true)}
-                  className="w-full px-3 py-2 text-left text-sm text-status-error hover:bg-status-error/10 transition-colors border-t border-board-border"
-                >
-                  Delete with {progress.totalTickets} tickets
-                </button>
-              </div>
-            )}
-          </div>
+          <Button 
+            onClick={handleDelete} 
+            variant="danger" 
+            disabled={isDeleting || isProcessing}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
           <Button onClick={onClose} variant="secondary">
             Close
           </Button>
@@ -565,15 +244,15 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
         </div>
       )}
 
-      {/* Progress Indicator */}
-      <ProgressIndicator status={spec.status} />
+      {/* Progress Indicator - only show when not on chat tab */}
+      {activeTab !== 'chat' && <ProgressIndicator status={status} />}
 
-      {/* Tabs with glass styling */}
+      {/* Primary Tabs: Chat + Versions */}
       <div className="flex border-b border-board-border px-4 gap-1">
-        {tabs.map((tab) => (
+        {primaryTabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            onClick={() => setActiveTab(tab.id)}
             className={cn(
               'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative flex items-center gap-2 rounded-t-lg',
               activeTab === tab.id
@@ -598,50 +277,22 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === 'input' && (
-          <div className="glass rounded-xl p-6">
-            <h3 className="text-lg font-medium text-board-text mb-4">Original Request</h3>
-            <p className="whitespace-pre-wrap text-board-text-secondary">{spec.userInput}</p>
+      <div className="flex-1 overflow-hidden">
+        {/* Chat Tab */}
+        {activeTab === 'chat' && (
+          <div className="h-full p-4">
+            <ConversationView
+              spec={spec}
+              onComplete={handleConversationComplete}
+            />
           </div>
         )}
-        
-        {activeTab === 'logs' && (
-          <LiveLogPanel 
-            logs={specLogs} 
-            isProcessing={isProcessing}
-            currentPhase={
-              spec.status === 'exploring' ? 'exploration' :
-              spec.status === 'planning' ? 'planning' : undefined
-            }
-          />
-        )}
 
-        {activeTab === 'exploration' && (
-          <ExplorationLog explorations={spec.explorationLog || []} />
-        )}
-
-        {activeTab === 'plan' && (
-          spec.planMarkdown ? (
-            <PlanViewer
-              markdown={spec.planMarkdown}
-              planJson={spec.planJson}
-            />
-          ) : (
-            <div className="text-board-text-muted text-center py-8 glass-subtle rounded-xl">
-              No plan generated yet
-            </div>
-          )
-        )}
-        
-        {activeTab === 'progress' && progress && (
-          <EpicProgressPanel 
-            progress={progress}
-            specId={spec.id}
-            isWorking={isWorking}
-            isPaused={isPaused}
-            isCompleted={isCompleted}
-          />
+        {/* Versions Tab */}
+        {activeTab === 'versions' && (
+          <div className="h-full p-4">
+            <VersionsList specId={spec.id} userInput={spec.userInput} onRefresh={handleRefresh} />
+          </div>
         )}
       </div>
     </div>

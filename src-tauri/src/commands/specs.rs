@@ -11,8 +11,8 @@ use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::db::{
-    ConversationMessage, ConversationRole, CreateConversationMessage, CreateSpec, Database,
-    Exploration, Spec, SpecProgress, SpecStatus, UpdateSpec,
+    CreateSpec, Database, Exploration, Spec, SpecProgress, SpecVersion, SpecVersionStatus,
+    SpecWithVersion, UpdateSpec,
 };
 use crate::lifecycle::epic::{check_spec_completion_by_id, on_epic_moved_to_ready};
 
@@ -89,12 +89,8 @@ pub async fn update_spec(
         &UpdateSpec {
             name,
             user_input,
-            status: None,
             agent_pref,
             model,
-            exploration_log: None,
-            plan_markdown: None,
-            plan_json: None,
             settings: None,
         },
     )
@@ -121,17 +117,104 @@ pub async fn delete_spec_with_tickets(
     Ok(count)
 }
 
+/// Reset plan execution - delete all tickets for a spec version and reset status to approved
+/// This allows the user to re-execute the plan to recreate tickets
+#[tauri::command]
+pub async fn reset_plan_execution(
+    spec_id: String,
+    version_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<usize, String> {
+    tracing::info!("Resetting plan execution for spec {} version {}", spec_id, version_id);
+
+    // Get the specific version
+    let version = db
+        .get_spec_version(&version_id)
+        .map_err(|e| e.to_string())?;
+
+    // Verify version belongs to the spec
+    if version.spec_id != spec_id {
+        return Err("Version does not belong to this spec".to_string());
+    }
+
+    // Only allow reset from awaiting_approval, approved, executed, working, paused, halted, or completed states
+    let can_reset = matches!(
+        version.status,
+        SpecVersionStatus::AwaitingApproval
+            | SpecVersionStatus::Approved
+            | SpecVersionStatus::Executed
+            | SpecVersionStatus::Working
+            | SpecVersionStatus::Paused
+            | SpecVersionStatus::Halted
+            | SpecVersionStatus::Completed
+    );
+
+    if !can_reset {
+        return Err(format!(
+            "Cannot reset: spec version is in '{}' status.",
+            version.status.as_str()
+        ));
+    }
+
+    // Delete all tickets for this version
+    let deleted_count = db
+        .delete_spec_version_tickets(&version_id)
+        .map_err(|e| e.to_string())?;
+
+    tracing::info!(
+        "Deleted {} tickets for spec version {}",
+        deleted_count,
+        version_id
+    );
+
+    // Reset status to approved so user can execute again
+    db.set_spec_version_status(&version_id, SpecVersionStatus::Approved)
+        .map_err(|e| e.to_string())?;
+
+    // Emit update event
+    let _ = event_tx.send(LiveEvent::SpecUpdated {
+        spec_id: spec_id.clone(),
+    });
+
+    Ok(deleted_count)
+}
+
+/// Set status on the latest spec version
 #[tauri::command]
 pub async fn set_spec_status(
     id: String,
     status: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
-    let status = SpecStatus::parse(&status).ok_or_else(|| format!("Invalid status: {}", status))?;
+    let status =
+        SpecVersionStatus::parse(&status).ok_or_else(|| format!("Invalid status: {}", status))?;
 
-    db.set_spec_status(&id, status).map_err(|e| e.to_string())
+    // Get the latest version for this spec
+    let version = db
+        .get_latest_spec_version(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.set_spec_version_status(&version.id, status)
+        .map_err(|e| e.to_string())
 }
 
+/// Set status on a specific spec version
+#[tauri::command]
+pub async fn set_spec_version_status(
+    version_id: String,
+    status: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    let status =
+        SpecVersionStatus::parse(&status).ok_or_else(|| format!("Invalid status: {}", status))?;
+
+    db.set_spec_version_status(&version_id, status)
+        .map_err(|e| e.to_string())
+}
+
+/// Append exploration to the latest spec version
 #[tauri::command]
 pub async fn append_spec_exploration(
     id: String,
@@ -145,10 +228,35 @@ pub async fn append_spec_exploration(
         timestamp: chrono::Utc::now(),
     };
 
-    db.append_spec_exploration(&id, &exploration)
+    // Get the latest version for this spec
+    let version = db
+        .get_latest_spec_version(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.append_spec_version_exploration(&version.id, &exploration)
         .map_err(|e| e.to_string())
 }
 
+/// Append exploration to a specific spec version
+#[tauri::command]
+pub async fn append_spec_version_exploration(
+    version_id: String,
+    query: String,
+    response: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    let exploration = Exploration {
+        query,
+        response,
+        timestamp: chrono::Utc::now(),
+    };
+
+    db.append_spec_version_exploration(&version_id, &exploration)
+        .map_err(|e| e.to_string())
+}
+
+/// Set plan on the latest spec version
 #[tauri::command]
 pub async fn set_spec_plan(
     id: String,
@@ -156,34 +264,141 @@ pub async fn set_spec_plan(
     json: Option<serde_json::Value>,
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
-    db.set_spec_plan(&id, &markdown, json.as_ref())
+    // Get the latest version for this spec
+    let version = db
+        .get_latest_spec_version(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.set_spec_version_plan(&version.id, &markdown, json.as_ref())
         .map_err(|e| e.to_string())
 }
 
+/// Set plan on a specific spec version
+#[tauri::command]
+pub async fn set_spec_version_plan(
+    version_id: String,
+    markdown: String,
+    json: Option<serde_json::Value>,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
+    db.set_spec_version_plan(&version_id, &markdown, json.as_ref())
+        .map_err(|e| e.to_string())
+}
+
+/// Approve plan for the latest spec version
 #[tauri::command]
 pub async fn approve_plan(id: String, db: State<'_, Arc<Database>>) -> Result<(), String> {
     tracing::info!("Approving plan for spec {}", id);
 
-    // Check that spec exists and is in awaiting_approval status
-    let spec = db.get_spec(&id).map_err(|e| e.to_string())?;
+    // Get the latest version
+    let version = db
+        .get_latest_spec_version(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
 
-    if spec.status != SpecStatus::AwaitingApproval {
+    if version.status != SpecVersionStatus::AwaitingApproval {
         return Err(format!(
-            "Cannot approve plan: spec is in '{}' status, expected 'awaiting_approval'",
-            spec.status.as_str()
+            "Cannot approve plan: spec version is in '{}' status, expected 'awaiting_approval'",
+            version.status.as_str()
         ));
     }
 
-    db.set_spec_status(&id, SpecStatus::Approved)
+    db.set_spec_version_status(&version.id, SpecVersionStatus::Approved)
         .map_err(|e| e.to_string())
 }
 
+/// Get tickets for the latest spec version
 #[tauri::command]
 pub async fn get_spec_tickets(
     id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<crate::db::Ticket>, String> {
-    db.get_spec_tickets(&id).map_err(|e| e.to_string())
+    // Get the latest version
+    let version = db
+        .get_latest_spec_version(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.get_spec_version_tickets(&version.id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get tickets for a specific spec version
+#[tauri::command]
+pub async fn get_spec_version_tickets(
+    version_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<crate::db::Ticket>, String> {
+    db.get_spec_version_tickets(&version_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get all versions for a spec
+#[tauri::command]
+pub async fn get_spec_versions(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<SpecVersion>, String> {
+    db.get_spec_versions(&spec_id).map_err(|e| e.to_string())
+}
+
+/// Get the latest version for a spec
+#[tauri::command]
+pub async fn get_latest_spec_version(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Option<SpecVersion>, String> {
+    db.get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get a spec with its latest version
+#[tauri::command]
+pub async fn get_spec_with_version(
+    id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<SpecWithVersion, String> {
+    db.get_spec_with_version(&id).map_err(|e| e.to_string())
+}
+
+/// Get specs with their latest versions for a board
+#[tauri::command]
+pub async fn get_specs_with_versions(
+    board_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<SpecWithVersion>, String> {
+    db.get_specs_with_versions(&board_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get all specs with their latest versions
+#[tauri::command]
+pub async fn get_all_specs_with_versions(
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<SpecWithVersion>, String> {
+    db.get_all_specs_with_versions()
+        .map_err(|e| e.to_string())
+}
+
+/// Create a new version for a spec (for iterating after previous version)
+#[tauri::command]
+pub async fn create_new_spec_version(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<SpecVersion, String> {
+    tracing::info!("Creating new version for spec {}", spec_id);
+
+    let version = db
+        .create_new_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?;
+
+    let _ = event_tx.send(LiveEvent::SpecUpdated {
+        spec_id: spec_id.clone(),
+    });
+
+    Ok(version)
 }
 
 /// Input for starting the planner
@@ -305,7 +520,7 @@ pub async fn execute_plan(
     Ok(result.epic_ids)
 }
 
-/// Start work on a spec's epics - moves root epics (no dependencies) to Ready
+/// Start work on a spec version's epics - moves root epics (no dependencies) to Ready
 #[tauri::command]
 pub async fn start_spec_work(
     spec_id: String,
@@ -314,26 +529,32 @@ pub async fn start_spec_work(
 ) -> Result<Vec<String>, String> {
     tracing::info!("Starting work for spec {}", spec_id);
 
-    // Get spec and validate state
+    // Get spec and its latest version
     let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
+    let version = db
+        .get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
 
     // Must be in Executed or Halted status (epics created but work not started/was stopped)
     // Also allow from Completed status if not all epics are actually done (handles edge case from old code)
-    let can_start = spec.status == SpecStatus::Executed
-        || spec.status == SpecStatus::Halted
-        || (spec.status == SpecStatus::Completed
-            && !db.are_all_spec_epics_done(&spec_id).unwrap_or(true));
+    let can_start = version.status == SpecVersionStatus::Executed
+        || version.status == SpecVersionStatus::Halted
+        || (version.status == SpecVersionStatus::Completed
+            && !db
+                .are_all_spec_version_epics_done(&version.id)
+                .unwrap_or(true));
 
     if !can_start {
         return Err(format!(
-            "Cannot start work: spec is in '{}' status, expected 'executed' or 'halted'",
-            spec.status.as_str()
+            "Cannot start work: spec version is in '{}' status, expected 'executed' or 'halted'",
+            version.status.as_str()
         ));
     }
 
-    // Get root epics (no dependencies)
+    // Get root epics (no dependencies) for the latest version
     let root_epics = db
-        .get_spec_root_epics(&spec_id)
+        .get_spec_version_root_epics(&version.id)
         .map_err(|e| e.to_string())?;
 
     if root_epics.is_empty() {
@@ -367,12 +588,13 @@ pub async fn start_spec_work(
         tracing::info!("Started epic {} for spec {}", epic.id, spec_id);
     }
 
-    // Update spec status to Working and set work_started_at timestamp (for ETA calculation)
-    db.start_spec_work(&spec_id).map_err(|e| e.to_string())?;
+    // Update spec version status to Working and set work_started_at timestamp (for ETA calculation)
+    db.start_spec_version_work(&version.id)
+        .map_err(|e| e.to_string())?;
 
     // Check if all epics are already done (edge case: all work completed before start)
     // This handles scenarios where epics were moved to Done manually or through other paths
-    if let Err(e) = check_spec_completion_by_id(&db.inner().clone(), &spec_id) {
+    if let Err(e) = check_spec_completion_by_id(&db.inner().clone(), &version.id) {
         tracing::warn!("Failed to check spec completion after start: {}", e);
     }
 
@@ -384,16 +606,32 @@ pub async fn start_spec_work(
     Ok(started_epic_ids)
 }
 
-/// Get progress stats for a spec's epics
+/// Get progress stats for the latest spec version's epics
 #[tauri::command]
 pub async fn get_spec_progress(
     spec_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<SpecProgress, String> {
-    db.get_spec_progress(&spec_id).map_err(|e| e.to_string())
+    let version = db
+        .get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.get_spec_version_progress(&version.id)
+        .map_err(|e| e.to_string())
 }
 
-/// Pause work on a spec - also pauses all currently running tickets
+/// Get progress stats for a specific spec version's epics
+#[tauri::command]
+pub async fn get_version_progress(
+    version_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<SpecProgress, String> {
+    db.get_spec_version_progress(&version_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Pause work on a spec version - also pauses all currently running tickets
 #[tauri::command]
 pub async fn pause_spec_work(
     spec_id: String,
@@ -403,8 +641,16 @@ pub async fn pause_spec_work(
 ) -> Result<(), String> {
     tracing::info!("Pausing work for spec {}", spec_id);
 
-    // First, find all running tickets in this spec and pause them
-    let tickets = db.get_spec_tickets(&spec_id).map_err(|e| e.to_string())?;
+    // Get latest version
+    let version = db
+        .get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    // First, find all running tickets in this spec version and pause them
+    let tickets = db
+        .get_spec_version_tickets(&version.id)
+        .map_err(|e| e.to_string())?;
 
     for ticket in tickets {
         if let Some(ref run_id) = ticket.locked_by_run_id {
@@ -460,8 +706,9 @@ pub async fn pause_spec_work(
         }
     }
 
-    // Now update the spec status
-    db.pause_spec_work(&spec_id).map_err(|e| e.to_string())?;
+    // Now update the spec version status
+    db.pause_spec_version_work(&version.id)
+        .map_err(|e| e.to_string())?;
 
     let _ = event_tx.send(LiveEvent::SpecUpdated {
         spec_id: spec_id.clone(),
@@ -470,7 +717,7 @@ pub async fn pause_spec_work(
     Ok(())
 }
 
-/// Resume work on a paused spec - also moves paused tickets to Ready for pickup
+/// Resume work on a paused spec version - also moves paused tickets to Ready for pickup
 #[tauri::command]
 pub async fn resume_spec_work(
     spec_id: String,
@@ -479,6 +726,12 @@ pub async fn resume_spec_work(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
 ) -> Result<(), String> {
     tracing::info!("Resuming work for spec {}", spec_id);
+
+    // Get latest version
+    let version = db
+        .get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
 
     // Get the spec to find its board
     let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
@@ -491,8 +744,10 @@ pub async fn resume_spec_work(
         .find(|c| c.name == "Ready")
         .ok_or_else(|| "Ready column not found".to_string())?;
 
-    // Get all tickets in the spec that have pause state (paused_run_id set means they were paused mid-run)
-    let tickets = db.get_spec_tickets(&spec_id).map_err(|e| e.to_string())?;
+    // Get all tickets in the spec version that have pause state (paused_run_id set means they were paused mid-run)
+    let tickets = db
+        .get_spec_version_tickets(&version.id)
+        .map_err(|e| e.to_string())?;
 
     for ticket in tickets {
         if ticket.paused_run_id.is_some() {
@@ -529,8 +784,9 @@ pub async fn resume_spec_work(
         }
     }
 
-    // Now update the spec status and clear paused_at from tickets
-    db.resume_spec_work(&spec_id).map_err(|e| e.to_string())?;
+    // Now update the spec version status and clear paused_at from tickets
+    db.resume_spec_version_work(&version.id)
+        .map_err(|e| e.to_string())?;
 
     let _ = event_tx.send(LiveEvent::SpecUpdated {
         spec_id: spec_id.clone(),
@@ -539,7 +795,7 @@ pub async fn resume_spec_work(
     Ok(())
 }
 
-/// Halt work on a spec - stops and resets to Halted status
+/// Halt work on a spec version - stops and resets to Halted status
 #[tauri::command]
 pub async fn halt_spec_work(
     spec_id: String,
@@ -548,7 +804,14 @@ pub async fn halt_spec_work(
 ) -> Result<(), String> {
     tracing::info!("Halting work for spec {}", spec_id);
 
-    db.halt_spec_work(&spec_id).map_err(|e| e.to_string())?;
+    // Get latest version
+    let version = db
+        .get_latest_spec_version(&spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
+
+    db.halt_spec_version_work(&version.id)
+        .map_err(|e| e.to_string())?;
 
     let _ = event_tx.send(LiveEvent::SpecUpdated {
         spec_id: spec_id.clone(),
@@ -564,287 +827,4 @@ pub async fn get_spec_eta(
     db: State<'_, Arc<Database>>,
 ) -> Result<crate::db::SpecEta, String> {
     crate::agents::eta::calculate_eta(&db.inner().clone(), &spec_id)
-}
-
-// ===== Conversation Commands =====
-
-/// Get all conversation messages for a spec
-#[tauri::command]
-pub async fn get_conversation_messages(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Vec<ConversationMessage>, String> {
-    db.get_conversation_messages(&spec_id)
-        .map_err(|e| e.to_string())
-}
-
-/// Send a user message in a conversation and trigger brainstorm agent response
-#[tauri::command]
-pub async fn send_conversation_message(
-    spec_id: String,
-    content: String,
-    db: State<'_, Arc<Database>>,
-    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
-) -> Result<ConversationMessage, String> {
-    tracing::info!("Sending conversation message for spec {}", spec_id);
-
-    // Get spec to validate it exists and is in conversing state
-    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
-
-    if spec.status != SpecStatus::Conversing {
-        return Err(format!(
-            "Cannot send message: spec is in '{}' status, expected 'conversing'",
-            spec.status.as_str()
-        ));
-    }
-
-    // Save the user message
-    let user_msg = db
-        .create_conversation_message(&CreateConversationMessage {
-            spec_id: spec_id.clone(),
-            role: ConversationRole::User,
-            content: content.clone(),
-        })
-        .map_err(|e| e.to_string())?;
-
-    // Broadcast the user message
-    let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
-        spec_id: spec_id.clone(),
-        message_id: user_msg.id.clone(),
-        role: "user".to_string(),
-        content: content.clone(),
-    });
-
-    // Get project for the spec
-    let project = db
-        .get_project(&spec.project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
-
-    // Get Claude API config if using Claude
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
-
-    // Get all messages for context
-    let messages = db
-        .get_conversation_messages(&spec_id)
-        .map_err(|e| e.to_string())?;
-
-    // Run brainstorm agent to get response
-    let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
-        spec_id: spec_id.clone(),
-        user_input: spec.user_input.clone(),
-        repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
-        claude_api_config,
-        agent_kind: match spec.agent_pref.as_deref() {
-            Some("cursor") => AgentKind::Cursor,
-            _ => AgentKind::Claude,
-        },
-        model: spec.model.clone(),
-        timeout_secs: 120,
-    };
-
-    let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
-        db.inner().clone(),
-        brainstorm_config,
-        event_tx.inner().clone(),
-    );
-
-    match brainstorm_agent.process_message(&messages).await {
-        Ok(response) => {
-            // Check if conversation is complete
-            if response.is_complete {
-                // Update spec with structured requirements
-                // The conversation already included codebase exploration, so we can
-                // transition directly to awaiting_approval (ready for plan generation)
-                if let Some(structured) = &response.structured_spec {
-                    // Build enhanced user_input with all the refined requirements
-                    let enhanced_input = format!(
-                        "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}",
-                        spec.user_input,
-                        structured.requirements,
-                        structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
-                        structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
-                        structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default()
-                    );
-
-                    // Store the exploration findings in the exploration_log 
-                    // (since exploration happened during conversation)
-                    let exploration_entry = crate::db::Exploration {
-                        query: "Codebase exploration during spec discovery".to_string(),
-                        response: structured.technical_notes.clone().unwrap_or_else(|| 
-                            "Exploration completed during conversational spec discovery.".to_string()
-                        ),
-                        timestamp: chrono::Utc::now(),
-                    };
-
-                    db.update_spec(
-                        &spec_id,
-                        &UpdateSpec {
-                            user_input: Some(enhanced_input),
-                            exploration_log: Some(vec![exploration_entry]),
-                            // Transition to draft - user can now start planning directly
-                            // (exploration already happened during conversation)
-                            status: Some(SpecStatus::Draft),
-                            ..Default::default()
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-
-                    // Broadcast completion event
-                    let _ = event_tx.send(LiveEvent::ConversationComplete {
-                        spec_id: spec_id.clone(),
-                        structured_spec: serde_json::to_value(structured).unwrap_or_default(),
-                    });
-
-                    // Broadcast spec update so UI refreshes
-                    let _ = event_tx.send(LiveEvent::SpecUpdated {
-                        spec_id: spec_id.clone(),
-                    });
-                }
-            }
-        }
-        Err(e) => {
-            tracing::error!("Brainstorm agent error: {}", e);
-            // Save error as system message
-            let _ = db.create_conversation_message(&CreateConversationMessage {
-                spec_id: spec_id.clone(),
-                role: ConversationRole::System,
-                content: format!("Error: {}", e),
-            });
-        }
-    }
-
-    Ok(user_msg)
-}
-
-/// Start a conversation for a spec (transitions from draft to conversing)
-#[tauri::command]
-pub async fn start_conversation(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
-) -> Result<ConversationMessage, String> {
-    tracing::info!("Starting conversation for spec {}", spec_id);
-
-    // Get spec and validate it's in draft state
-    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
-
-    if spec.status != SpecStatus::Draft {
-        return Err(format!(
-            "Cannot start conversation: spec is in '{}' status, expected 'draft'",
-            spec.status.as_str()
-        ));
-    }
-
-    // Update status to conversing
-    db.set_spec_status(&spec_id, SpecStatus::Conversing)
-        .map_err(|e| e.to_string())?;
-
-    // Create initial system message
-    let system_msg = db
-        .create_conversation_message(&CreateConversationMessage {
-            spec_id: spec_id.clone(),
-            role: ConversationRole::System,
-            content: "Starting brainstorming session...".to_string(),
-        })
-        .map_err(|e| e.to_string())?;
-
-    // Broadcast the system message
-    let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
-        spec_id: spec_id.clone(),
-        message_id: system_msg.id.clone(),
-        role: "system".to_string(),
-        content: system_msg.content.clone(),
-    });
-
-    // Get project for the spec
-    let project = db
-        .get_project(&spec.project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
-
-    // Get Claude API config
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
-
-    // Run brainstorm agent to generate initial questions
-    let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
-        spec_id: spec_id.clone(),
-        user_input: spec.user_input.clone(),
-        repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
-        claude_api_config,
-        agent_kind: match spec.agent_pref.as_deref() {
-            Some("cursor") => AgentKind::Cursor,
-            _ => AgentKind::Claude,
-        },
-        model: spec.model.clone(),
-        timeout_secs: 120,
-    };
-
-    let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
-        db.inner().clone(),
-        brainstorm_config,
-        event_tx.inner().clone(),
-    );
-
-    // Generate initial clarifying questions
-    match brainstorm_agent.start_conversation().await {
-        Ok(_) => {}
-        Err(e) => {
-            tracing::error!("Failed to start conversation: {}", e);
-            // Save error as system message
-            let _ = db.create_conversation_message(&CreateConversationMessage {
-                spec_id: spec_id.clone(),
-                role: ConversationRole::System,
-                content: format!("Error starting conversation: {}", e),
-            });
-        }
-    }
-
-    // Broadcast spec update
-    let _ = event_tx.send(LiveEvent::SpecUpdated {
-        spec_id: spec_id.clone(),
-    });
-
-    Ok(system_msg)
-}
-
-/// Skip conversation and go directly to exploration (for users who don't want brainstorming)
-#[tauri::command]
-pub async fn skip_conversation(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-) -> Result<(), String> {
-    tracing::info!("Skipping conversation for spec {}", spec_id);
-
-    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
-
-    if spec.status != SpecStatus::Draft && spec.status != SpecStatus::Conversing {
-        return Err(format!(
-            "Cannot skip conversation: spec is in '{}' status",
-            spec.status.as_str()
-        ));
-    }
-
-    // Just keep the spec in draft - user can start exploration directly
-    if spec.status == SpecStatus::Conversing {
-        db.set_spec_status(&spec_id, SpecStatus::Draft)
-            .map_err(|e| e.to_string())?;
-    }
-
-    let _ = event_tx.send(LiveEvent::SpecUpdated {
-        spec_id: spec_id.clone(),
-    });
-
-    Ok(())
 }

@@ -18,7 +18,7 @@ import { useSpecSync } from './hooks/useSpecSync';
 import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { logger } from './lib/logger';
-import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, Spec } from './types';
+import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, SpecWithVersion } from './types';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -98,7 +98,8 @@ function App() {
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
-  const [selectedSpec, setSelectedSpec] = useState<Spec | null>(null);
+  const [selectedSpec, setSelectedSpec] = useState<SpecWithVersion | null>(null);
+  const [isSpecListCollapsed, setIsSpecListCollapsed] = useState(false);
   const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
 
   const { theme } = useSettingsStore();
@@ -489,40 +490,91 @@ function App() {
 
         {activeNav === 'specs' && (
           <div className="flex-1 overflow-hidden flex gap-4">
-            {/* Spec List */}
-            <div className="w-80 glass rounded-2xl overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-board-border flex items-center justify-between glass-subtle">
-                <h3 className="font-semibold text-board-text">Specs</h3>
-                <button
-                  onClick={() => setIsCreateSpecModalOpen(true)}
-                  disabled={!currentBoard}
-                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={currentBoard ? 'Create new spec' : 'Select a board first'}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+            {/* Spec List - Collapsible */}
+            <div className={`${isSpecListCollapsed ? 'w-12' : 'w-80'} glass rounded-2xl overflow-hidden flex flex-col transition-all duration-300`}>
+              <div className={`p-4 border-b border-board-border flex items-center glass-subtle ${isSpecListCollapsed ? 'justify-center' : 'justify-between'}`}>
+                {!isSpecListCollapsed && <h3 className="font-semibold text-board-text">Specs</h3>}
+                <div className={`flex items-center gap-1`}>
+                  {!isSpecListCollapsed && (
+                    <button
+                      onClick={() => setIsCreateSpecModalOpen(true)}
+                      disabled={!currentBoard}
+                      className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={currentBoard ? 'Create new spec' : 'Select a board first'}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsSpecListCollapsed(!isSpecListCollapsed)}
+                    className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200"
+                    title={isSpecListCollapsed ? 'Expand specs list' : 'Collapse specs list'}
                   >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                </button>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={`transition-transform duration-300 ${isSpecListCollapsed ? 'rotate-180' : ''}`}
+                    >
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
-                <SpecList
-                  onSelect={(spec) => {
-                    selectSpec(spec);
-                    setSelectedSpec(spec);
-                  }}
-                />
-              </div>
+              {!isSpecListCollapsed && (
+                <div className="flex-1 overflow-y-auto">
+                  <SpecList
+                    onSelect={(spec) => {
+                      selectSpec(spec);
+                      setSelectedSpec(spec);
+                    }}
+                  />
+                </div>
+              )}
+              {isSpecListCollapsed && (
+                <div className="flex-1 flex flex-col items-center pt-2">
+                  <button
+                    onClick={() => setIsCreateSpecModalOpen(true)}
+                    disabled={!currentBoard}
+                    className="p-2 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={currentBoard ? 'Create new spec' : 'Select a board first'}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
             
             {/* Spec Detail */}

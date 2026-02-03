@@ -372,7 +372,3 @@ export async function sendConversationMessage(
 export async function startConversation(specId: string): Promise<ConversationMessage> {
   return invoke('start_conversation', { specId });
 }
-
-export async function skipConversation(specId: string): Promise<void> {
-  return invoke('skip_conversation', { specId });
-}

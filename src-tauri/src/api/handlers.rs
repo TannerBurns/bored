@@ -119,7 +119,7 @@ pub async fn create_ticket(
         epic_id: None,
         depends_on_epic_id: None,
         depends_on_epic_ids: vec![],
-        spec_id: None,
+        spec_version_id: None,
     })?;
 
     state.broadcast(LiveEvent::TicketCreated {
@@ -167,7 +167,7 @@ pub async fn update_ticket(
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         },
     )?;
 

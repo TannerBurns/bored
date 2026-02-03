@@ -1,122 +1,143 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ConversationMessage, Spec } from '../../types';
+import type { SpecWithVersion, SpecVersionStatus } from '../../types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
-import { sendConversationMessage, skipConversation, startConversation, getConversationMessages } from '../../lib/tauri';
+import { sendConversationMessage, startConversation, getConversationMessages } from '../../lib/tauri';
+import { useSpecStore } from '../../stores/specStore';
 
 interface ConversationViewProps {
-  spec: Spec;
+  spec: SpecWithVersion;
   onComplete?: () => void;
-  onSkip?: () => void;
 }
 
-export function ConversationView({ spec, onComplete, onSkip }: ConversationViewProps) {
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+export function ConversationView({ spec, onComplete }: ConversationViewProps) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
-  const prevStatusRef = useRef(spec.status);
+  
+  const { 
+    conversationMessages, 
+    setConversationMessages, 
+    isAgentThinking, 
+    setAgentThinking,
+    clearConversation,
+    brainstormLogs,
+    isGeneratingSpec,
+    generatingVersionNumber,
+  } = useSpecStore();
+  
+  // Track previous spec id to clear state when switching specs
+  const prevSpecIdRef = useRef(spec.id);
+  
+  const status: SpecVersionStatus = spec.latestVersion?.status ?? 'conversing';
+  const prevStatusRef = useRef(status);
 
-  // Load existing messages and start conversation if needed
+  // Clear conversation state when switching to a different spec
+  useEffect(() => {
+    if (prevSpecIdRef.current !== spec.id) {
+      clearConversation();
+      hasStarted.current = false;
+      prevSpecIdRef.current = spec.id;
+    }
+  }, [spec.id, clearConversation]);
+
+  // Load messages and start conversation on mount
   useEffect(() => {
     const loadMessages = async () => {
       try {
         const existingMessages = await getConversationMessages(spec.id);
-        setMessages(existingMessages);
+        setConversationMessages(existingMessages);
 
-        // Start conversation if no messages yet and spec is in draft
-        if (existingMessages.length === 0 && spec.status === 'draft' && !hasStarted.current) {
+        if (existingMessages.length === 0 && status === 'conversing' && !hasStarted.current) {
           hasStarted.current = true;
-          setIsLoading(true);
-          await startConversation(spec.id);
-          const newMessages = await getConversationMessages(spec.id);
-          setMessages(newMessages);
+          // Set thinking state BEFORE starting the conversation
+          setAgentThinking(true);
+          
+          try {
+            await startConversation(spec.id);
+            // Messages will arrive via SSE, but also fetch to be safe
+            const newMessages = await getConversationMessages(spec.id);
+            setConversationMessages(newMessages);
+          } finally {
+            setAgentThinking(false);
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load messages');
-      } finally {
-        setIsLoading(false);
+        setAgentThinking(false);
       }
     };
 
     loadMessages();
-  }, [spec.id, spec.status]);
+    
+    // Don't clear on unmount - preserve logs and messages for when user returns
+    // Cleanup only happens when spec changes or conversation completes
+  }, [spec.id, status, setConversationMessages, setAgentThinking]);
 
   const handleSendMessage = async (content: string) => {
     if (!content.trim() || isSending) return;
 
     setIsSending(true);
+    setAgentThinking(true);
     setError(null);
 
-    // Optimistically add user message
-    const tempMessage: ConversationMessage = {
-      id: `temp-${Date.now()}`,
-      specId: spec.id,
-      role: 'user',
-      content: content.trim(),
-      createdAt: new Date(),
-    };
-    setMessages((prev) => [...prev, tempMessage]);
-
     try {
+      // Don't add optimistically - SSE will add the message
+      // This prevents duplicates from optimistic + SSE + fetch
       await sendConversationMessage(spec.id, content.trim());
-      // Reload messages to get the actual message IDs and assistant response
-      const updatedMessages = await getConversationMessages(spec.id);
-      setMessages(updatedMessages);
+      // SSE will handle adding the messages in real-time
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
-      // Remove optimistic message on error
-      setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
+      setAgentThinking(false);
     } finally {
       setIsSending(false);
     }
   };
 
-  const handleSkip = async () => {
-    try {
-      await skipConversation(spec.id);
-      onSkip?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to skip conversation');
-    }
-  };
-
-  // Check if conversation is complete (spec transitioned out of conversing status)
+  // Detect status change to trigger completion
   useEffect(() => {
     const prevStatus = prevStatusRef.current;
-    prevStatusRef.current = spec.status;
+    prevStatusRef.current = status;
 
-    // If we were conversing and now we're not, the conversation is complete
-    if (prevStatus === 'conversing' && spec.status !== 'conversing') {
+    if (prevStatus === 'conversing' && status !== 'conversing') {
       onComplete?.();
     }
-  }, [spec.status, onComplete]);
+  }, [status, onComplete]);
+
+  // Filter out system messages like "Starting brainstorming session..."
+  const filteredMessages = conversationMessages.filter(
+    m => !(m.role === 'system' && m.content.toLowerCase().includes('starting'))
+  );
+
+  // Parse user input to get just the original request (before any refinement separator)
+  const getOriginalRequest = (userInput: string): string => {
+    const separator = '\n\n---\n';
+    const sepIndex = userInput.indexOf(separator);
+    return sepIndex === -1 ? userInput : userInput.substring(0, sepIndex).trim();
+  };
+
+  // Prepend the original user request as the first message
+  const displayMessages = [
+    {
+      id: 'initial-request',
+      specId: spec.id,
+      role: 'user' as const,
+      content: getOriginalRequest(spec.userInput),
+      createdAt: spec.createdAt,
+    },
+    ...filteredMessages,
+  ];
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 pb-4 border-b border-board-border/30">
-        <div>
-          <h3 className="text-lg font-semibold text-board-text">Spec Discovery</h3>
-          <p className="text-sm text-board-text-muted mt-1">
-            The agent will explore the codebase and ask questions to refine the spec
-          </p>
+      {/* Compact Header */}
+      <div className="mb-2 pb-2 border-b border-board-border/30">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-board-text">Spec Discovery</span>
+          <span className="text-xs text-board-text-muted">
+            — AI explores the codebase and refines requirements
+          </span>
         </div>
-        <button
-          onClick={handleSkip}
-          className="text-sm text-board-text-muted hover:text-board-text px-3 py-1.5 rounded-lg glass-subtle transition-all duration-200"
-        >
-          Skip to Planning
-        </button>
-      </div>
-
-      {/* Initial request summary */}
-      <div className="glass-subtle rounded-xl p-4 mb-4">
-        <div className="text-xs text-board-text-muted uppercase tracking-wide mb-2">
-          Your Request
-        </div>
-        <div className="text-board-text whitespace-pre-wrap">{spec.userInput}</div>
       </div>
 
       {/* Error display */}
@@ -129,8 +150,12 @@ export function ConversationView({ spec, onComplete, onSkip }: ConversationViewP
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <MessageList
-          messages={messages}
-          isLoading={isLoading || isSending}
+          messages={displayMessages}
+          isThinking={isAgentThinking}
+          streamingLogs={brainstormLogs}
+          isGeneratingSpec={isGeneratingSpec}
+          generatingVersionNumber={generatingVersionNumber}
+          isPlanning={status === 'planning'}
         />
       </div>
 
@@ -138,8 +163,8 @@ export function ConversationView({ spec, onComplete, onSkip }: ConversationViewP
       <div className="mt-4 pt-4 border-t border-board-border/30">
         <MessageInput
           onSend={handleSendMessage}
-          disabled={isSending || isLoading}
-          placeholder="Type your response..."
+          disabled={isSending || isAgentThinking || isGeneratingSpec}
+          placeholder={isGeneratingSpec ? "Spec is being generated..." : "Type your response..."}
         />
       </div>
     </div>

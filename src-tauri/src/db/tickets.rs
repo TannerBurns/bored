@@ -32,7 +32,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#
             )?;
@@ -59,7 +59,7 @@ impl Database {
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
                               lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                              is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                              is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                        FROM tickets WHERE id = ?"#
                 )?;
@@ -115,11 +115,11 @@ impl Database {
                 Some(id) => Some(id.as_str()),
                 None => existing.depends_on_epic_id.as_deref(),
             };
-            // Handle spec_id: None means keep existing, Some("") means clear, Some(id) means set
-            let spec_id = match &updates.spec_id {
+            // Handle spec_version_id: None means keep existing, Some("") means clear, Some(id) means set
+            let spec_version_id = match &updates.spec_version_id {
                 Some(id) if id.is_empty() => None,
                 Some(id) => Some(id.as_str()),
-                None => existing.spec_id.as_deref(),
+                None => existing.spec_version_id.as_deref(),
             };
             // Handle depends_on_epic_ids: empty Vec means keep existing, non-empty means set
             let depends_on_epic_ids = if updates.depends_on_epic_ids.is_empty() {
@@ -140,7 +140,7 @@ impl Database {
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
                        project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
                        column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
-                       depends_on_epic_id = ?, depends_on_epic_ids_json = ?, spec_id = ?, updated_at = ?
+                       depends_on_epic_id = ?, depends_on_epic_ids_json = ?, spec_version_id = ?, updated_at = ?
                    WHERE id = ?"#,
                 rusqlite::params![
                     title,
@@ -158,7 +158,7 @@ impl Database {
                     order_in_epic,
                     depends_on_epic_id,
                     depends_on_epic_ids_json,
-                    spec_id,
+                    spec_version_id,
                     now.to_rfc3339(),
                     ticket_id,
                 ],
@@ -169,7 +169,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#
             )?;
@@ -393,7 +393,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE locked_by_run_id = ?1
                    LIMIT 1"#,
@@ -558,7 +558,7 @@ impl Database {
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
                     created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name,
-                    is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                    is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                     paused_at, paused_at_stage, paused_run_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
                 rusqlite::params![
@@ -581,7 +581,7 @@ impl Database {
                     order_in_epic,
                     ticket.depends_on_epic_id,
                     depends_on_epic_ids_json,
-                    ticket.spec_id,
+                    ticket.spec_version_id,
                 ],
             )?;
 
@@ -607,7 +607,7 @@ impl Database {
                 order_in_epic,
                 depends_on_epic_id: ticket.depends_on_epic_id.clone(),
                 depends_on_epic_ids: ticket.depends_on_epic_ids.clone(),
-                spec_id: ticket.spec_id.clone(),
+                spec_version_id: ticket.spec_version_id.clone(),
                 paused_at: None,
                 paused_at_stage: None,
                 paused_run_id: None,
@@ -674,7 +674,7 @@ impl Database {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
                 }
@@ -682,7 +682,7 @@ impl Database {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
                             lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                            is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
                 }
@@ -729,7 +729,7 @@ impl Database {
         })
     }
 
-    fn map_ticket_row(row: &rusqlite::Row) -> rusqlite::Result<Ticket> {
+    pub(super) fn map_ticket_row(row: &rusqlite::Row) -> rusqlite::Result<Ticket> {
         let labels_json: String = row.get(6)?;
         let labels: Vec<String> = serde_json::from_str(&labels_json).unwrap_or_default();
 
@@ -756,7 +756,7 @@ impl Database {
         let depends_on_epic_ids: Vec<String> = depends_on_epic_ids_json
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let spec_id: Option<String> = row.get(21)?;
+        let spec_version_id: Option<String> = row.get(21)?;
 
         // Pause fields (columns 22, 23, 24)
         let paused_at: Option<String> = row.get(22)?;
@@ -785,7 +785,7 @@ impl Database {
             order_in_epic,
             depends_on_epic_id,
             depends_on_epic_ids,
-            spec_id,
+            spec_version_id,
             paused_at: paused_at.map(parse_datetime),
             paused_at_stage,
             paused_run_id,
@@ -876,20 +876,20 @@ impl Database {
     }
 
     /// Get all paused tickets for a spec
-    pub fn get_paused_tickets(&self, spec_id: &str) -> Result<Vec<Ticket>, DbError> {
+    pub fn get_paused_tickets(&self, spec_version_id: &str) -> Result<Vec<Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets 
-                   WHERE spec_id = ? AND paused_at IS NOT NULL
+                   WHERE spec_version_id = ? AND paused_at IS NOT NULL
                    ORDER BY paused_at ASC"#
             )?;
             
-            let rows = stmt.query_map([spec_id], Self::map_ticket_row)?;
+            let rows = stmt.query_map([spec_version_id], Self::map_ticket_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
@@ -923,7 +923,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ?
                    ORDER BY order_in_epic ASC, created_at ASC"#
@@ -941,7 +941,7 @@ impl Database {
                 r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority, 
                           t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id, 
                           t.lock_expires_at, t.project_id, t.agent_pref, t.workflow_type, t.model, t.branch_name,
-                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.depends_on_epic_ids_json, t.spec_id,
+                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.depends_on_epic_ids_json, t.spec_version_id,
                           t.paused_at, t.paused_at_stage, t.paused_run_id
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
@@ -1089,7 +1089,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE depends_on_epic_id = ? AND is_epic = 1"#
             )?;
@@ -1189,10 +1189,10 @@ impl Database {
     /// Returns a list of (epic_id, epic_title, final_branch) tuples.
     pub fn get_spec_epics_with_branches(
         &self,
-        spec_id: &str,
+        spec_version_id: &str,
     ) -> Result<Vec<(String, String, Option<String>)>, DbError> {
         // First get all non-consolidation epics for this spec
-        let epics = self.get_spec_epics(spec_id)?;
+        let epics = self.get_spec_version_epics(spec_version_id)?;
 
         let mut result = Vec::new();
         for epic in epics {
@@ -1232,7 +1232,7 @@ impl Database {
                 r#"SELECT id, board_id, column_id, title, description_md, priority,
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
-                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_id,
+                          is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ? AND order_in_epic = ?"#
             )?;
@@ -1279,7 +1279,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1309,7 +1309,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1342,7 +1342,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -1373,7 +1373,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1416,7 +1416,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1450,7 +1450,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1490,7 +1490,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1513,7 +1513,7 @@ mod tests {
                     order_in_epic: None,
                     depends_on_epic_id: None,
                     depends_on_epic_ids: vec![],
-                    spec_id: None,
+                    spec_version_id: None,
                 },
             )
             .unwrap();
@@ -1544,7 +1544,7 @@ mod tests {
                 order_in_epic: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             },
         );
         assert!(matches!(result, Err(DbError::NotFound(_))));
@@ -1581,7 +1581,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1606,7 +1606,7 @@ mod tests {
                     order_in_epic: None,
                     depends_on_epic_id: None,
                     depends_on_epic_ids: vec![],
-                    spec_id: None,
+                    spec_version_id: None,
                 },
             )
             .unwrap();
@@ -1645,7 +1645,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1668,7 +1668,7 @@ mod tests {
                     order_in_epic: None,
                     depends_on_epic_id: None,
                     depends_on_epic_ids: vec![],
-                    spec_id: None,
+                    spec_version_id: None,
                 },
             )
             .unwrap();
@@ -1700,7 +1700,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1740,7 +1740,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1781,7 +1781,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1819,7 +1819,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1853,7 +1853,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1897,7 +1897,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1940,7 +1940,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -1988,7 +1988,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2028,7 +2028,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2068,7 +2068,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2112,7 +2112,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2170,7 +2170,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -2245,7 +2245,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -2297,7 +2297,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -2341,7 +2341,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2363,7 +2363,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2401,7 +2401,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -2445,7 +2445,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2493,7 +2493,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2537,7 +2537,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap();
 
@@ -2578,7 +2578,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2600,7 +2600,7 @@ mod tests {
                 epic_id: Some(epic.id.clone()),
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2641,7 +2641,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2687,7 +2687,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2725,7 +2725,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2765,7 +2765,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2801,7 +2801,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2839,7 +2839,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2876,7 +2876,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -2904,7 +2904,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }
@@ -2932,7 +2932,7 @@ mod tests {
             epic_id: Some(epic_id.to_string()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }
@@ -3087,7 +3087,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3127,7 +3127,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3148,7 +3148,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3256,7 +3256,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3345,7 +3345,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: Some(depends_on.to_string()),
             depends_on_epic_ids: vec![depends_on.to_string()],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }
@@ -3415,7 +3415,7 @@ mod tests {
                 epic_id: Some(dep_epic.id.clone()),
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3436,7 +3436,7 @@ mod tests {
                 epic_id: Some(dep_epic.id.clone()),
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3601,7 +3601,7 @@ mod tests {
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
 
-        // Create a spec first
+        // Create a spec first (this also creates version 1)
         let spec = db
             .create_spec(&crate::db::models::CreateSpec {
                 board_id: board.id.clone(),
@@ -3615,7 +3615,10 @@ mod tests {
             })
             .unwrap();
 
-        // Create tickets with spec_id
+        // Get the version ID (create_spec creates version 1)
+        let version = db.get_latest_spec_version(&spec.id).unwrap().unwrap();
+
+        // Create tickets with spec_version_id
         let t1 = db
             .create_ticket(&CreateTicket {
                 board_id: board.id.clone(),
@@ -3633,7 +3636,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: Some(spec.id.clone()),
+                spec_version_id: Some(version.id.clone()),
             })
             .unwrap();
 
@@ -3654,21 +3657,21 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: Some(spec.id.clone()),
+                spec_version_id: Some(version.id.clone()),
             })
             .unwrap();
 
         // Pause only t1
         db.pause_ticket(&t1.id, "impl", "run-1").unwrap();
 
-        let paused = db.get_paused_tickets(&spec.id).unwrap();
+        let paused = db.get_paused_tickets(&version.id).unwrap();
         assert_eq!(paused.len(), 1);
         assert_eq!(paused[0].id, t1.id);
 
         // Pause t2 as well
         db.pause_ticket(&t2.id, "review", "run-2").unwrap();
 
-        let paused2 = db.get_paused_tickets(&spec.id).unwrap();
+        let paused2 = db.get_paused_tickets(&version.id).unwrap();
         assert_eq!(paused2.len(), 2);
     }
 
@@ -3697,7 +3700,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 
@@ -3718,7 +3721,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
 

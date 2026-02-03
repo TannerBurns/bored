@@ -10,10 +10,17 @@ use std::sync::Arc;
 use crate::db::{Database, EtaConfidence, SpecEta};
 
 /// Calculate ETA for a spec based on timing data from completed tickets
+/// Takes spec_id and uses the latest version for timing data
 pub fn calculate_eta(db: &Arc<Database>, spec_id: &str) -> Result<SpecEta, String> {
     let spec = db.get_spec(spec_id).map_err(|e| e.to_string())?;
+    let version = db
+        .get_latest_spec_version(spec_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No version found for spec".to_string())?;
 
-    let tickets = db.get_spec_tickets(spec_id).map_err(|e| e.to_string())?;
+    let tickets = db
+        .get_spec_version_tickets(&version.id)
+        .map_err(|e| e.to_string())?;
 
     let child_tickets: Vec<_> = tickets.iter().filter(|t| !t.is_epic).collect();
 
@@ -51,14 +58,14 @@ pub fn calculate_eta(db: &Arc<Database>, spec_id: &str) -> Result<SpecEta, Strin
     }
 
     let now = Utc::now();
-    let elapsed_seconds = if let Some(ref started) = spec.work_started_at {
+    let elapsed_seconds = if let Some(ref started) = version.work_started_at {
         (now - *started).num_seconds()
     } else {
         0
     };
 
     let (avg_seconds_per_ticket, avg_seconds_per_stage, confidence) =
-        calculate_timing_stats(db, spec_id);
+        calculate_timing_stats(db, &version.id);
 
     let (estimated_seconds_remaining, estimated_completion_time) = calculate_remaining_time(
         total_tickets,
@@ -70,7 +77,7 @@ pub fn calculate_eta(db: &Arc<Database>, spec_id: &str) -> Result<SpecEta, Strin
 
     Ok(SpecEta {
         spec_id: spec_id.to_string(),
-        work_started_at: spec.work_started_at,
+        work_started_at: version.work_started_at,
         total_tickets,
         completed_tickets,
         in_progress_tickets,
@@ -86,9 +93,9 @@ pub fn calculate_eta(db: &Arc<Database>, spec_id: &str) -> Result<SpecEta, Strin
 
 fn calculate_timing_stats(
     db: &Arc<Database>,
-    spec_id: &str,
+    version_id: &str,
 ) -> (Option<f64>, HashMap<String, f64>, EtaConfidence) {
-    let tickets = match db.get_spec_tickets(spec_id) {
+    let tickets = match db.get_spec_version_tickets(version_id) {
         Ok(t) => t,
         Err(_) => return (None, HashMap::new(), EtaConfidence::Low),
     };

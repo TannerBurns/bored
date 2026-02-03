@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use crate::api::state::LiveEvent;
 use crate::db::{
     AgentPref, CreateTicket, Database, Exploration, PlanEpic, Priority, ProjectPlan, Spec,
-    SpecStatus, WorkflowType,
+    SpecVersion, SpecVersionStatus, WorkflowType,
 };
 
 #[cfg(test)]
@@ -51,7 +51,8 @@ pub struct PlannerConfigWithEvents {
 #[derive(Debug)]
 pub struct PlannerResult {
     pub spec_id: String,
-    pub status: SpecStatus,
+    pub version_id: String,
+    pub status: SpecVersionStatus,
     pub epic_ids: Vec<String>,
     pub ticket_ids: Vec<String>,
 }
@@ -118,22 +119,35 @@ impl PlannerAgent {
 
     /// Run the full planner workflow: explore -> plan -> (optionally) execute
     pub async fn run(&self) -> Result<PlannerResult, PlannerError> {
-        // Get spec
+        // Get spec and its latest version
         let spec = self
             .db
             .get_spec(&self.config.spec_id)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
-        tracing::info!("Starting planner for spec {}: {:?}", spec.id, spec.status);
+        let version = self
+            .db
+            .get_latest_spec_version(&self.config.spec_id)
+            .map_err(|e| PlannerError::Database(e.to_string()))?
+            .ok_or_else(|| PlannerError::SpecNotFound("No version found".to_string()))?;
+
+        tracing::info!(
+            "Starting planner for spec {} version {}: {:?}",
+            spec.id,
+            version.id,
+            version.status
+        );
 
         // Run exploration and planning with error recovery
-        match self.run_explore_and_plan(&spec).await {
+        match self.run_explore_and_plan(&spec, &version).await {
             Ok(exploration_result) => {
                 // Generate plan using exploration context
-                if let Err(e) = self.generate_plan(&spec, &exploration_result).await {
+                if let Err(e) = self.generate_plan(&spec, &version, &exploration_result).await {
                     // Set status to failed so UI stops showing spinner
                     tracing::error!("Plan generation failed, setting status to failed: {}", e);
-                    let _ = self.db.set_spec_status(&spec.id, SpecStatus::Failed);
+                    let _ = self
+                        .db
+                        .set_spec_version_status(&version.id, SpecVersionStatus::Failed);
                     self.broadcast(LiveEvent::SpecUpdated {
                         spec_id: spec.id.clone(),
                     });
@@ -143,7 +157,9 @@ impl PlannerAgent {
             Err(e) => {
                 // Set status to failed so UI stops showing spinner
                 tracing::error!("Exploration failed, setting status to failed: {}", e);
-                let _ = self.db.set_spec_status(&spec.id, SpecStatus::Failed);
+                let _ = self
+                    .db
+                    .set_spec_version_status(&version.id, SpecVersionStatus::Failed);
                 self.broadcast(LiveEvent::SpecUpdated {
                     spec_id: spec.id.clone(),
                 });
@@ -154,7 +170,7 @@ impl PlannerAgent {
         // Check if auto-approve is enabled
         if self.config.auto_approve {
             self.db
-                .set_spec_status(&spec.id, SpecStatus::Approved)
+                .set_spec_version_status(&version.id, SpecVersionStatus::Approved)
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
 
             self.broadcast(LiveEvent::PlanApproved {
@@ -168,15 +184,80 @@ impl PlannerAgent {
         // Return awaiting approval
         Ok(PlannerResult {
             spec_id: spec.id,
-            status: SpecStatus::AwaitingApproval,
+            version_id: version.id,
+            status: SpecVersionStatus::AwaitingApproval,
+            epic_ids: vec![],
+            ticket_ids: vec![],
+        })
+    }
+
+    /// Run plan generation only, skipping exploration (for use after conversational spec discovery)
+    /// The exploration_context should contain the technical notes gathered during conversation
+    pub async fn run_plan_only(&self, exploration_context: &str) -> Result<PlannerResult, PlannerError> {
+        // Get spec and its latest version
+        let spec = self
+            .db
+            .get_spec(&self.config.spec_id)
+            .map_err(|e| PlannerError::Database(e.to_string()))?;
+
+        let version = self
+            .db
+            .get_latest_spec_version(&self.config.spec_id)
+            .map_err(|e| PlannerError::Database(e.to_string()))?
+            .ok_or_else(|| PlannerError::SpecNotFound("No version found".to_string()))?;
+
+        tracing::info!(
+            "Running plan-only for spec {} version {} (skipping exploration)",
+            spec.id,
+            version.id
+        );
+
+        // Generate plan using provided exploration context
+        match self.generate_plan(&spec, &version, exploration_context).await {
+            Ok(()) => {}
+            Err(e) => {
+                tracing::error!("Plan generation failed, setting status to failed: {}", e);
+                let _ = self
+                    .db
+                    .set_spec_version_status(&version.id, SpecVersionStatus::Failed);
+                self.broadcast(LiveEvent::SpecUpdated {
+                    spec_id: spec.id.clone(),
+                });
+                return Err(e);
+            }
+        }
+
+        // Check if auto-approve is enabled
+        if self.config.auto_approve {
+            self.db
+                .set_spec_version_status(&version.id, SpecVersionStatus::Approved)
+                .map_err(|e| PlannerError::Database(e.to_string()))?;
+
+            self.broadcast(LiveEvent::PlanApproved {
+                spec_id: spec.id.clone(),
+            });
+
+            // Execute the plan
+            return self.execute_plan().await;
+        }
+
+        // Return awaiting approval
+        Ok(PlannerResult {
+            spec_id: spec.id,
+            version_id: version.id,
+            status: SpecVersionStatus::AwaitingApproval,
             epic_ids: vec![],
             ticket_ids: vec![],
         })
     }
 
     /// Run the exploration phase, returning the exploration result
-    async fn run_explore_and_plan(&self, spec: &Spec) -> Result<String, PlannerError> {
-        self.run_exploration(spec).await
+    async fn run_explore_and_plan(
+        &self,
+        spec: &Spec,
+        version: &SpecVersion,
+    ) -> Result<String, PlannerError> {
+        self.run_exploration(spec, version).await
     }
 
     /// Run an agent with the given prompt (with retry support)
@@ -305,10 +386,10 @@ impl PlannerAgent {
     }
 
     /// Run the exploration phase
-    async fn run_exploration(&self, spec: &Spec) -> Result<String, PlannerError> {
+    async fn run_exploration(&self, spec: &Spec, version: &SpecVersion) -> Result<String, PlannerError> {
         // Update status to exploring
         self.db
-            .set_spec_status(&spec.id, SpecStatus::Exploring)
+            .set_spec_version_status(&version.id, SpecVersionStatus::Exploring)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::SpecUpdated {
@@ -316,8 +397,9 @@ impl PlannerAgent {
         });
 
         tracing::info!(
-            "Starting exploration phase for spec {} (max {} queries)",
+            "Starting exploration phase for spec {} version {} (max {} queries)",
             spec.id,
+            version.id,
             self.config.max_explorations
         );
 
@@ -344,7 +426,7 @@ impl PlannerAgent {
         };
 
         self.db
-            .append_spec_exploration(&spec.id, &exploration)
+            .append_spec_version_exploration(&version.id, &exploration)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::ExplorationProgress {
@@ -354,8 +436,9 @@ impl PlannerAgent {
         });
 
         tracing::info!(
-            "Exploration completed for spec {}, response length: {} chars",
+            "Exploration completed for spec {} version {}, response length: {} chars",
             spec.id,
+            version.id,
             response.len()
         );
 
@@ -366,18 +449,19 @@ impl PlannerAgent {
     async fn generate_plan(
         &self,
         spec: &Spec,
+        version: &SpecVersion,
         exploration_context: &str,
     ) -> Result<(), PlannerError> {
         // Update status to planning
         self.db
-            .set_spec_status(&spec.id, SpecStatus::Planning)
+            .set_spec_version_status(&version.id, SpecVersionStatus::Planning)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::SpecUpdated {
             spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Generating plan for spec {}", spec.id);
+        tracing::info!("Generating plan for spec {} version {}", spec.id, version.id);
 
         // Generate planning prompt
         let prompt =
@@ -408,12 +492,12 @@ impl PlannerAgent {
 
         // Save the plan
         self.db
-            .set_spec_plan(&spec.id, &markdown, Some(&plan_json))
+            .set_spec_version_plan(&version.id, &markdown, Some(&plan_json))
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         // Update status to awaiting approval
         self.db
-            .set_spec_status(&spec.id, SpecStatus::AwaitingApproval)
+            .set_spec_version_status(&version.id, SpecVersionStatus::AwaitingApproval)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::PlanGenerated {
@@ -434,18 +518,26 @@ impl PlannerAgent {
             .get_spec(&self.config.spec_id)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
+        let version = self
+            .db
+            .get_latest_spec_version(&self.config.spec_id)
+            .map_err(|e| PlannerError::Database(e.to_string()))?
+            .ok_or_else(|| PlannerError::SpecNotFound("No version found".to_string()))?;
+
         // Verify status is approved (or stuck in executing from a previous failed attempt)
-        if spec.status != SpecStatus::Approved && spec.status != SpecStatus::Executing {
+        if version.status != SpecVersionStatus::Approved
+            && version.status != SpecVersionStatus::Executing
+        {
             return Err(PlannerError::InvalidState(format!(
-                "Cannot execute plan: status is {:?}, expected Approved",
-                spec.status
+                "Cannot execute plan: version status is {:?}, expected Approved",
+                version.status
             )));
         }
 
         // Update status to executing (if not already)
-        if spec.status != SpecStatus::Executing {
+        if version.status != SpecVersionStatus::Executing {
             self.db
-                .set_spec_status(&spec.id, SpecStatus::Executing)
+                .set_spec_version_status(&version.id, SpecVersionStatus::Executing)
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
         }
 
@@ -453,15 +545,17 @@ impl PlannerAgent {
             spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Executing plan for spec {}", spec.id);
+        tracing::info!("Executing plan for spec {} version {}", spec.id, version.id);
 
         // Execute the plan creation with error recovery
-        match self.execute_plan_inner(&spec).await {
+        match self.execute_plan_inner(&spec, &version).await {
             Ok(result) => Ok(result),
             Err(e) => {
                 // Reset status to approved so user can retry
                 tracing::error!("Plan execution failed, resetting status to approved: {}", e);
-                let _ = self.db.set_spec_status(&spec.id, SpecStatus::Approved);
+                let _ = self
+                    .db
+                    .set_spec_version_status(&version.id, SpecVersionStatus::Approved);
                 self.broadcast(LiveEvent::SpecUpdated {
                     spec_id: spec.id.clone(),
                 });
@@ -471,9 +565,13 @@ impl PlannerAgent {
     }
 
     /// Inner implementation of execute_plan for error recovery
-    async fn execute_plan_inner(&self, spec: &Spec) -> Result<PlannerResult, PlannerError> {
-        // Get the plan JSON
-        let plan_json = spec
+    async fn execute_plan_inner(
+        &self,
+        spec: &Spec,
+        version: &SpecVersion,
+    ) -> Result<PlannerResult, PlannerError> {
+        // Get the plan JSON from the version
+        let plan_json = version
             .plan_json
             .clone()
             .ok_or_else(|| PlannerError::InvalidState("No plan JSON found".to_string()))?;
@@ -563,7 +661,7 @@ impl PlannerAgent {
                     epic_id: None,
                     depends_on_epic_id,
                     depends_on_epic_ids,
-                    spec_id: Some(spec.id.clone()),
+                    spec_version_id: Some(version.id.clone()),
                 })
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
 
@@ -600,7 +698,7 @@ impl PlannerAgent {
                         epic_id: Some(epic.id.clone()),
                         depends_on_epic_id: None,
                         depends_on_epic_ids: vec![],
-                        spec_id: Some(spec.id.clone()),
+                        spec_version_id: Some(version.id.clone()),
                     })
                     .map_err(|e| PlannerError::Database(e.to_string()))?;
 
@@ -610,7 +708,7 @@ impl PlannerAgent {
 
         // Update status to executed (ready to start work)
         self.db
-            .set_spec_status(&spec.id, SpecStatus::Executed)
+            .set_spec_version_status(&version.id, SpecVersionStatus::Executed)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
         self.broadcast(LiveEvent::PlanExecutionCompleted {
@@ -619,14 +717,17 @@ impl PlannerAgent {
         });
 
         tracing::info!(
-            "Plan execution completed: {} epics, {} tickets created. Ready to start work.",
+            "Plan execution completed for spec {} version {}: {} epics, {} tickets created. Ready to start work.",
+            spec.id,
+            version.id,
             epic_ids.len(),
             ticket_ids.len()
         );
 
         Ok(PlannerResult {
             spec_id: spec.id.clone(),
-            status: SpecStatus::Executed,
+            version_id: version.id.clone(),
+            status: SpecVersionStatus::Executed,
             epic_ids,
             ticket_ids,
         })

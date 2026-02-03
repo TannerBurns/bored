@@ -15,9 +15,8 @@ use crate::db::{
 };
 
 use super::spawner;
-use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
+use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig, LogCallback, LogLine, LogStream};
 
-/// Configuration for the brainstorm agent
 #[derive(Debug, Clone)]
 pub struct BrainstormConfig {
     pub spec_id: String,
@@ -31,18 +30,17 @@ pub struct BrainstormConfig {
     pub timeout_secs: u64,
 }
 
-/// Response from the brainstorm agent
 #[derive(Debug)]
 pub struct BrainstormResponse {
-    /// The assistant's response message
     pub message: String,
     /// Whether the conversation is complete (spec is refined enough)
     pub is_complete: bool,
+    /// Whether the response contains questions (false = only observations)
+    pub has_questions: bool,
     /// Structured spec if conversation is complete
     pub structured_spec: Option<StructuredSpec>,
 }
 
-/// Error type for brainstorm operations
 #[derive(Debug, thiserror::Error)]
 pub enum BrainstormError {
     #[error("Database error: {0}")]
@@ -55,7 +53,6 @@ pub enum BrainstormError {
     ParseError(String),
 }
 
-/// The brainstorm agent
 pub struct BrainstormAgent {
     db: Arc<Database>,
     config: BrainstormConfig,
@@ -74,37 +71,30 @@ impl BrainstormAgent {
             event_tx,
         }
     }
-
-    /// Start a new conversation with initial clarifying questions
+    
     pub async fn start_conversation(&self) -> Result<BrainstormResponse, BrainstormError> {
         let prompt = self.build_initial_prompt();
-
+        
         let response = self.run_agent(&prompt).await?;
         let parsed = self.parse_response(&response)?;
-
-        // Save the assistant's response
         self.save_assistant_message(&parsed.message).await?;
 
         Ok(parsed)
     }
 
-    /// Process a user message and generate a response
     pub async fn process_message(
         &self,
         messages: &[ConversationMessage],
     ) -> Result<BrainstormResponse, BrainstormError> {
         let prompt = self.build_conversation_prompt(messages);
-
+        
         let response = self.run_agent(&prompt).await?;
         let parsed = self.parse_response(&response)?;
-
-        // Save the assistant's response
         self.save_assistant_message(&parsed.message).await?;
 
         Ok(parsed)
     }
 
-    /// Build the initial prompt for starting a conversation
     fn build_initial_prompt(&self) -> String {
         format!(
             r#"# Spec Discovery Session
@@ -112,8 +102,9 @@ impl BrainstormAgent {
 You are helping create a detailed software specification through an interactive conversation.
 Your job is to:
 1. **Explore the codebase** to understand the existing architecture, patterns, and conventions
-2. **Ask informed questions** based on both the user's request AND what you find in the code
-3. **Gather enough context** to create a comprehensive spec for implementation
+2. **Share observations** about what you found that's relevant to the user's request
+3. **Ask informed questions** based on both the user's request AND what you find in the code
+4. **Gather enough context** to create a comprehensive spec for implementation
 
 ## User's Initial Request
 {}
@@ -121,37 +112,33 @@ Your job is to:
 ## Your Task
 
 ### Step 1: Explore the Codebase
-Before asking questions, explore the repository to understand:
+Explore the repository to understand:
 - Project structure and organization
 - Existing patterns and conventions (state management, component structure, API patterns)
 - Related existing code that this feature might integrate with or extend
 - Dependencies and tools already in use
 - Any existing similar functionality
 
-### Step 2: Ask Informed Questions
-Based on your exploration AND the user's request, ask ONE clarifying question at a time.
-Your questions should be informed by what you found in the codebase. For example:
-- "I see you're using Zustand for state management. Should this feature follow that pattern?"
-- "I found an existing auth module at src/auth. Should we integrate with it or build separately?"
-- "Your API uses RESTful patterns. Should this new endpoint follow the same conventions?"
+### Step 2: Respond with Observations and Questions
+Your response MUST follow this format:
 
-Focus on:
-- How this feature fits with existing architecture
-- Reuse opportunities vs. new implementations
-- Integration points you discovered
-- Scope decisions informed by existing code complexity
-- Edge cases based on similar existing features
+## Observations
+Share what you discovered from exploring the codebase that's relevant to the request:
+- Key architectural patterns you found
+- Existing code/modules that relate to this feature
+- Integration points discovered
+- Potential approaches based on existing patterns
 
-### Step 3: Prefer Actionable Options
-When possible, offer multiple-choice options based on what you found:
-- A) Extend the existing X module
-- B) Create a new standalone implementation
-- C) Refactor X to support both use cases
+## Questions
+Ask clarifying questions to refine the spec. Each question should:
+- Be informed by what you found in the codebase
+- Offer multiple-choice options when possible (A, B, C)
+- Focus on scope, integration, and implementation decisions
 
-## Response Format
-For questions, respond naturally with your question. Include brief context about what you found in the codebase that informed the question.
+If you have NO questions (you have enough information from your exploration and the user's request is clear), leave the Questions section empty and instead output a completion JSON block.
 
-When you have enough information (usually 3-6 exchanges), output a JSON block:
+### When Complete
+When you have enough information (usually 3-6 exchanges, or immediately if the request is clear and you have no questions), output:
 ```json
 {{
   "spec_complete": true,
@@ -164,12 +151,11 @@ When you have enough information (usually 3-6 exchanges), output a JSON block:
 }}
 ```
 
-Start by exploring the codebase, then ask your first informed question."#,
+Start by exploring the codebase, then share your observations and ask your first question."#,
             self.config.user_input
         )
     }
 
-    /// Build a prompt that includes conversation history
     fn build_conversation_prompt(&self, messages: &[ConversationMessage]) -> String {
         let mut conversation_history = String::new();
 
@@ -186,7 +172,7 @@ Start by exploring the codebase, then ask your first informed question."#,
             r#"# Spec Discovery Session (Continued)
 
 You are helping create a detailed software specification through interactive conversation.
-You have access to explore the codebase to inform your questions and final spec.
+You have access to explore the codebase to inform your responses.
 
 ## User's Initial Request
 {}
@@ -196,14 +182,25 @@ You have access to explore the codebase to inform your questions and final spec.
 
 ## Your Task
 1. Consider the user's latest response
-2. If needed, explore more of the codebase to inform your next question
-3. Ask ONE more clarifying question OR signal completion if you have enough info
+2. If needed, explore more of the codebase to inform your response
+3. Respond with observations and questions, OR signal completion if you have enough info
 
-### Guidelines for Questions
-- Base questions on BOTH user responses AND codebase exploration
-- Reference specific files, patterns, or code you found when relevant
-- Offer concrete options when possible (A/B/C choices based on codebase findings)
-- Focus on implementation-relevant decisions
+## Response Format
+Your response MUST follow this format:
+
+## Observations
+Share any new insights from the user's response or additional codebase exploration:
+- What you learned from the user's answer
+- Any additional code/patterns discovered
+- Updated understanding of requirements
+
+## Questions
+Ask follow-up questions if needed:
+- Each question should be informed by the conversation and codebase
+- Offer multiple-choice options when possible (A, B, C)
+- Focus on remaining unknowns
+
+If you have NO questions (you have enough information), leave the Questions section empty and output the completion JSON block instead.
 
 ### When to Complete
 You have enough information when you understand:
@@ -212,10 +209,7 @@ You have enough information when you understand:
 - Key technical decisions (patterns to follow, reuse vs. new code)
 - Any constraints or requirements
 
-## Response Format
-For questions: Respond naturally, include context from codebase when relevant.
-
-When ready to complete (usually 3-6 exchanges), output:
+When ready to complete, output:
 ```json
 {{
   "spec_complete": true,
@@ -233,7 +227,6 @@ Continue based on the user's latest response."#,
         )
     }
 
-    /// Run the agent and get the response
     async fn run_agent(&self, prompt: &str) -> Result<String, BrainstormError> {
         let run_config = AgentRunConfig {
             kind: self.config.agent_kind,
@@ -248,8 +241,31 @@ Continue based on the user's latest response."#,
             claude_api_config: self.config.claude_api_config.clone(),
         };
 
+        // Create a log callback that broadcasts log entries in real-time
+        let tx_clone = self.event_tx.clone();
+        let spec_id = self.config.spec_id.clone();
+        
+        let log_callback: Option<Arc<LogCallback>> = Some(Arc::new(Box::new(
+            move |line: LogLine| {
+                // Emit both stdout and stderr for streaming logs
+                // Filter out empty lines and very short lines
+                let content = line.content.trim();
+                if content.len() > 3 {
+                    tracing::debug!("Brainstorm log [{}]: {}", 
+                        match line.stream { LogStream::Stdout => "out", LogStream::Stderr => "err" },
+                        &content[..content.len().min(80)]
+                    );
+                    let _ = tx_clone.send(LiveEvent::BrainstormLogEntry {
+                        spec_id: spec_id.clone(),
+                        message: content.to_string(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
+            },
+        )));
+
         // run_agent is synchronous, so we need to run it in a blocking task
-        let result = tokio::task::spawn_blocking(move || spawner::run_agent(run_config, None))
+        let result = tokio::task::spawn_blocking(move || spawner::run_agent(run_config, log_callback))
             .await
             .map_err(|e| BrainstormError::AgentFailed(format!("Task join error: {}", e)))?
             .map_err(|e| BrainstormError::AgentFailed(e.to_string()))?;
@@ -268,9 +284,7 @@ Continue based on the user's latest response."#,
         Ok(text)
     }
 
-    /// Parse the agent's response to detect completion or extract the message
     fn parse_response(&self, response: &str) -> Result<BrainstormResponse, BrainstormError> {
-        // Check for JSON completion block
         if let Some(json_start) = response.find("```json") {
             if let Some(json_end) = response[json_start..].find("```\n").or_else(|| {
                 response[json_start + 7..].find("```").map(|i| i + 7)
@@ -299,6 +313,7 @@ Continue based on the user's latest response."#,
                             return Ok(BrainstormResponse {
                                 message: final_message,
                                 is_complete: true,
+                                has_questions: false,
                                 structured_spec: Some(structured_spec),
                             });
                         }
@@ -349,6 +364,7 @@ Continue based on the user's latest response."#,
                             return Ok(BrainstormResponse {
                                 message: final_message,
                                 is_complete: true,
+                                has_questions: false,
                                 structured_spec: Some(structured_spec),
                             });
                         }
@@ -357,15 +373,38 @@ Continue based on the user's latest response."#,
             }
         }
 
-        // No completion signal, treat entire response as the message
+        // No completion signal - check if response has questions
+        let has_questions = Self::response_has_questions(response);
+        
         Ok(BrainstormResponse {
             message: response.trim().to_string(),
             is_complete: false,
+            has_questions,
             structured_spec: None,
         })
     }
+    
+    /// Check if a response contains questions (looks for "## Questions" section with content)
+    fn response_has_questions(response: &str) -> bool {
+        // Look for "## Questions" header
+        if let Some(questions_start) = response.find("## Questions") {
+            let after_header = &response[questions_start + 12..]; // Skip "## Questions"
+            
+            // Find the next section header or end
+            let section_end = after_header.find("\n## ").unwrap_or(after_header.len());
+            let questions_section = after_header[..section_end].trim();
+            
+            // Check if there's actual content (not just whitespace or "None")
+            !questions_section.is_empty() 
+                && !questions_section.eq_ignore_ascii_case("none")
+                && !questions_section.eq_ignore_ascii_case("n/a")
+                && questions_section.len() > 5 // At least some substantive content
+        } else {
+            // No "## Questions" section found - check for question marks in the response
+            response.contains('?')
+        }
+    }
 
-    /// Save an assistant message to the database
     async fn save_assistant_message(&self, content: &str) -> Result<(), BrainstormError> {
         let msg = self
             .db
@@ -376,7 +415,6 @@ Continue based on the user's latest response."#,
             })
             .map_err(|e| BrainstormError::Database(e.to_string()))?;
 
-        // Broadcast the message
         let _ = self.event_tx.send(LiveEvent::ConversationMessageAdded {
             spec_id: self.config.spec_id.clone(),
             message_id: msg.id,
@@ -491,5 +529,423 @@ mod tests {
 
         assert!(response.is_complete);
         assert!(response.structured_spec.is_some());
+    }
+
+    #[test]
+    fn parse_response_with_incomplete_json_treated_as_message() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        // JSON that doesn't have spec_complete: true
+        let response_text = r#"```json
+{
+  "spec_complete": false,
+  "message": "Need more info"
+}
+```"#;
+
+        let response = agent.parse_response(response_text).unwrap();
+        assert!(!response.is_complete);
+        assert!(response.structured_spec.is_none());
+    }
+
+    #[test]
+    fn parse_response_extracts_message_before_json() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response_text = r#"I've gathered all the information needed for the spec.
+
+```json
+{
+  "spec_complete": true,
+  "structured_spec": {
+    "requirements": "Build feature X",
+    "decisions": [],
+    "constraints": []
+  }
+}
+```"#;
+
+        let response = agent.parse_response(response_text).unwrap();
+        assert!(response.is_complete);
+        assert!(response.message.contains("gathered all the information"));
+    }
+
+    #[test]
+    fn parse_response_provides_default_message_when_no_text_before_json() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response_text = r#"```json
+{
+  "spec_complete": true,
+  "structured_spec": {
+    "requirements": "Build feature X",
+    "decisions": [],
+    "constraints": []
+  }
+}
+```"#;
+
+        let response = agent.parse_response(response_text).unwrap();
+        assert!(response.is_complete);
+        assert!(response.message.contains("enough information"));
+    }
+
+    #[test]
+    fn parse_response_with_technical_notes() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response_text = r#"```json
+{
+  "spec_complete": true,
+  "structured_spec": {
+    "requirements": "Build auth",
+    "decisions": ["Use JWT"],
+    "constraints": ["Must be fast"],
+    "technicalNotes": "Consider using middleware pattern"
+  }
+}
+```"#;
+
+        let response = agent.parse_response(response_text).unwrap();
+        assert!(response.is_complete);
+        let spec = response.structured_spec.unwrap();
+        assert_eq!(spec.technical_notes, Some("Consider using middleware pattern".to_string()));
+    }
+
+    #[test]
+    fn build_initial_prompt_includes_user_input() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "Build a login page".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let prompt = agent.build_initial_prompt();
+        assert!(prompt.contains("Build a login page"));
+        assert!(prompt.contains("Spec Discovery Session"));
+    }
+
+    #[test]
+    fn build_conversation_prompt_includes_history() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "Build auth".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let messages = vec![
+            ConversationMessage {
+                id: "1".to_string(),
+                spec_id: "test".to_string(),
+                role: ConversationRole::User,
+                content: "I want OAuth support".to_string(),
+                created_at: chrono::Utc::now(),
+            },
+            ConversationMessage {
+                id: "2".to_string(),
+                spec_id: "test".to_string(),
+                role: ConversationRole::Assistant,
+                content: "Which providers?".to_string(),
+                created_at: chrono::Utc::now(),
+            },
+        ];
+
+        let prompt = agent.build_conversation_prompt(&messages);
+        assert!(prompt.contains("I want OAuth support"));
+        assert!(prompt.contains("Which providers?"));
+        assert!(prompt.contains("User:"));
+        assert!(prompt.contains("Assistant:"));
+    }
+
+    #[test]
+    fn response_has_questions_with_questions_section() {
+        let response = r#"## Observations
+I found some interesting patterns in the codebase.
+
+## Questions
+What authentication method would you prefer?
+A) OAuth
+B) JWT
+C) Session-based"#;
+
+        assert!(BrainstormAgent::response_has_questions(response));
+    }
+
+    #[test]
+    fn response_has_questions_empty_questions_section() {
+        let response = r#"## Observations
+I found all the information needed from the codebase exploration.
+
+## Questions
+"#;
+
+        assert!(!BrainstormAgent::response_has_questions(response));
+    }
+
+    #[test]
+    fn response_has_questions_no_questions_section_but_has_question_mark() {
+        let response = "What do you think about this approach?";
+        assert!(BrainstormAgent::response_has_questions(response));
+    }
+
+    #[test]
+    fn response_has_questions_observations_only() {
+        let response = r#"## Observations
+I found all the information needed from the codebase exploration.
+The existing auth module uses JWT tokens.
+The API follows RESTful conventions."#;
+
+        assert!(!BrainstormAgent::response_has_questions(response));
+    }
+
+    #[test]
+    fn parse_response_sets_has_questions_true() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response = agent
+            .parse_response("## Observations\nFound patterns.\n\n## Questions\nWhich approach?")
+            .unwrap();
+
+        assert!(!response.is_complete);
+        assert!(response.has_questions);
+    }
+
+    #[test]
+    fn parse_response_sets_has_questions_false_for_observations_only() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response = agent
+            .parse_response("## Observations\nFound all the patterns needed. No further questions.")
+            .unwrap();
+
+        assert!(!response.is_complete);
+        assert!(!response.has_questions);
+    }
+
+    #[test]
+    fn build_conversation_prompt_handles_empty_history() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "Build auth".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let prompt = agent.build_conversation_prompt(&[]);
+        assert!(prompt.contains("Build auth"));
+        assert!(prompt.contains("Conversation History"));
+    }
+
+    #[test]
+    fn build_conversation_prompt_includes_system_messages() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "Build feature".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let messages = vec![
+            ConversationMessage {
+                id: "1".to_string(),
+                spec_id: "test".to_string(),
+                role: ConversationRole::System,
+                content: "Starting session...".to_string(),
+                created_at: chrono::Utc::now(),
+            },
+            ConversationMessage {
+                id: "2".to_string(),
+                spec_id: "test".to_string(),
+                role: ConversationRole::User,
+                content: "I want X".to_string(),
+                created_at: chrono::Utc::now(),
+            },
+        ];
+
+        let prompt = agent.build_conversation_prompt(&messages);
+        assert!(prompt.contains("System:"));
+        assert!(prompt.contains("Starting session..."));
+        assert!(prompt.contains("User:"));
+        assert!(prompt.contains("I want X"));
+    }
+
+    #[test]
+    fn parse_response_with_nested_json_in_notes() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let agent = BrainstormAgent::new(
+            db,
+            BrainstormConfig {
+                spec_id: "test".to_string(),
+                user_input: "test".to_string(),
+                repo_path: PathBuf::from("/tmp"),
+                api_url: "http://localhost".to_string(),
+                api_token: "token".to_string(),
+                claude_api_config: None,
+                agent_kind: AgentKind::Claude,
+                model: None,
+                timeout_secs: 60,
+            },
+            tx,
+        );
+
+        let response_text = r#"```json
+{
+  "spec_complete": true,
+  "structured_spec": {
+    "requirements": "Build API",
+    "decisions": ["RESTful design"],
+    "constraints": ["Must handle {nested} braces"],
+    "technicalNotes": "Use pattern: { key: value }"
+  }
+}
+```"#;
+
+        let response = agent.parse_response(response_text).unwrap();
+        assert!(response.is_complete);
+        let spec = response.structured_spec.unwrap();
+        assert!(spec.constraints[0].contains("{nested}"));
     }
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Spec, CreateSpecInput, UpdateSpecInput, Ticket, SpecEta } from '../types';
+import type { Spec, SpecVersion, SpecWithVersion, CreateSpecInput, UpdateSpecInput, Ticket, SpecEta, ConversationMessage } from '../types';
 import { logger } from '../lib/logger';
 
 /** A single log entry from the planner agent */
@@ -14,13 +14,31 @@ export interface SpecLogEntry {
 }
 
 interface SpecState {
-  specs: Spec[];
-  currentSpec: Spec | null;
+  specs: SpecWithVersion[];
+  currentSpec: SpecWithVersion | null;
+  /** All versions of the current spec */
+  currentVersions: SpecVersion[];
+  /** The selected version of the current spec */
+  selectedVersion: SpecVersion | null;
+  /** ID of the selected version (for tab linking) */
+  selectedVersionId: string | null;
+  /** Currently active tab in the spec detail view */
+  activeTab: 'chat' | 'versions';
   specTickets: Ticket[];
   /** Real-time log entries from agent output */
   liveLogs: SpecLogEntry[];
   /** ETA information for the current spec */
   currentEta: SpecEta | null;
+  /** Conversation messages for current spec brainstorming */
+  conversationMessages: ConversationMessage[];
+  /** Whether the agent is currently thinking/responding */
+  isAgentThinking: boolean;
+  /** Real-time log entries from brainstorm agent */
+  brainstormLogs: string[];
+  /** Whether the spec is being generated (no more questions) */
+  isGeneratingSpec: boolean;
+  /** Version number being generated */
+  generatingVersionNumber: number | null;
   isLoading: boolean;
   isExploring: boolean;
   isPlanning: boolean;
@@ -29,26 +47,33 @@ interface SpecState {
   // Actions
   loadSpecs: (boardId: string) => Promise<void>;
   loadAllSpecs: () => Promise<void>;
-  getSpec: (id: string) => Promise<Spec>;
+  getSpec: (id: string) => Promise<SpecWithVersion>;
   createSpec: (input: CreateSpecInput) => Promise<Spec>;
   updateSpec: (id: string, updates: UpdateSpecInput) => Promise<Spec>;
   deleteSpec: (id: string, deleteTickets?: boolean) => Promise<void>;
-  selectSpec: (spec: Spec | null) => void;
+  selectSpec: (spec: SpecWithVersion | null) => void;
   
-  // Status management
+  // Version management
+  loadVersions: (specId: string) => Promise<void>;
+  selectVersion: (version: SpecVersion | null) => void;
+  selectVersionById: (versionId: string) => void;
+  setActiveTab: (tab: 'chat' | 'versions') => void;
+  createNewVersion: (specId: string) => Promise<SpecVersion>;
+  
+  // Status management (operates on latest version)
   setStatus: (id: string, status: string) => Promise<void>;
   
-  // Exploration
+  // Exploration (operates on latest version)
   appendExploration: (id: string, query: string, response: string) => Promise<void>;
   
-  // Plan management
+  // Plan management (operates on latest version)
   setPlan: (id: string, markdown: string, json?: unknown) => Promise<void>;
   approvePlan: (id: string) => Promise<void>;
   
-  // Get tickets created from spec
+  // Get tickets created from spec (latest version)
   loadSpecTickets: (id: string) => Promise<void>;
   
-  // Pause/Resume/Halt controls
+  // Pause/Resume/Halt controls (operates on latest version)
   pauseWork: (id: string) => Promise<void>;
   resumeWork: (id: string) => Promise<void>;
   haltWork: (id: string) => Promise<void>;
@@ -60,9 +85,20 @@ interface SpecState {
   addLogEntry: (entry: Omit<SpecLogEntry, 'id'>) => void;
   clearLogs: (specId?: string) => void;
   
+  // Conversation management
+  setConversationMessages: (messages: ConversationMessage[]) => void;
+  addConversationMessage: (message: ConversationMessage) => void;
+  setAgentThinking: (thinking: boolean) => void;
+  clearConversation: () => void;
+  
+  // Brainstorm log management
+  addBrainstormLog: (message: string) => void;
+  clearBrainstormLogs: () => void;
+  setGeneratingSpec: (generating: boolean, versionNumber?: number) => void;
+  
   // State setters
-  setSpecs: (specs: Spec[]) => void;
-  setCurrentSpec: (spec: Spec | null) => void;
+  setSpecs: (specs: SpecWithVersion[]) => void;
+  setCurrentSpec: (spec: SpecWithVersion | null) => void;
   setLoading: (loading: boolean) => void;
   setExploring: (exploring: boolean) => void;
   setPlanning: (planning: boolean) => void;
@@ -72,9 +108,18 @@ interface SpecState {
 export const useSpecStore = create<SpecState>((set, get) => ({
   specs: [],
   currentSpec: null,
+  currentVersions: [],
+  selectedVersion: null,
+  selectedVersionId: null,
+  activeTab: 'chat',
   specTickets: [],
   liveLogs: [],
   currentEta: null,
+  conversationMessages: [],
+  isAgentThinking: false,
+  brainstormLogs: [],
+  isGeneratingSpec: false,
+  generatingVersionNumber: null,
   isLoading: false,
   isExploring: false,
   isPlanning: false,
@@ -83,7 +128,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   loadSpecs: async (boardId: string) => {
     set({ isLoading: true, error: null });
     try {
-      const specs = await invoke<Spec[]>('get_specs', { boardId });
+      const specs = await invoke<SpecWithVersion[]>('get_specs_with_versions', { boardId });
       const { currentSpec } = get();
       
       // Check if currentSpec is still in the loaded list
@@ -92,11 +137,16 @@ export const useSpecStore = create<SpecState>((set, get) => ({
         specs.some(s => s.id === currentSpec.id);
       
       if (currentSpec && !currentStillExists) {
-        set({ specs, currentSpec: null, isLoading: false });
+        set({ specs, currentSpec: null, currentVersions: [], selectedVersion: null, isLoading: false });
       } else if (currentSpec && currentStillExists) {
         // Update currentSpec with fresh data from the list
         const updated = specs.find(s => s.id === currentSpec.id);
-        set({ specs, currentSpec: updated || null, isLoading: false });
+        set({ 
+          specs, 
+          currentSpec: updated || null,
+          selectedVersion: updated?.latestVersion || null,
+          isLoading: false 
+        });
       } else {
         set({ specs, isLoading: false });
       }
@@ -109,7 +159,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   loadAllSpecs: async () => {
     set({ isLoading: true, error: null });
     try {
-      const specs = await invoke<Spec[]>('get_all_specs');
+      const specs = await invoke<SpecWithVersion[]>('get_all_specs_with_versions');
       const { currentSpec } = get();
       
       // Check if currentSpec is still in the loaded list
@@ -118,11 +168,16 @@ export const useSpecStore = create<SpecState>((set, get) => ({
         specs.some(s => s.id === currentSpec.id);
       
       if (currentSpec && !currentStillExists) {
-        set({ specs, currentSpec: null, isLoading: false });
+        set({ specs, currentSpec: null, currentVersions: [], selectedVersion: null, isLoading: false });
       } else if (currentSpec && currentStillExists) {
         // Update currentSpec with fresh data from the list
         const updated = specs.find(s => s.id === currentSpec.id);
-        set({ specs, currentSpec: updated || null, isLoading: false });
+        set({ 
+          specs, 
+          currentSpec: updated || null, 
+          selectedVersion: updated?.latestVersion || null,
+          isLoading: false 
+        });
       } else {
         set({ specs, isLoading: false });
       }
@@ -134,7 +189,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
 
   getSpec: async (id: string) => {
     try {
-      const spec = await invoke<Spec>('get_spec', { id });
+      const spec = await invoke<SpecWithVersion>('get_spec_with_version', { id });
       return spec;
     } catch (error) {
       logger.error('Failed to get spec', error);
@@ -145,7 +200,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   createSpec: async (input: CreateSpecInput) => {
     set({ isLoading: true, error: null });
     try {
-      const spec = await invoke<Spec>('create_spec', {
+      const baseSpec = await invoke<Spec>('create_spec', {
         input: {
           boardId: input.boardId,
           targetBoardId: input.targetBoardId,
@@ -157,15 +212,20 @@ export const useSpecStore = create<SpecState>((set, get) => ({
         },
       });
       
+      // Fetch the full spec with version data
+      const spec = await invoke<SpecWithVersion>('get_spec_with_version', { id: baseSpec.id });
+      
       const { specs } = get();
       set({ 
         specs: [spec, ...specs],
         currentSpec: spec,
+        currentVersions: spec.latestVersion ? [spec.latestVersion] : [],
+        selectedVersion: spec.latestVersion || null,
         isLoading: false 
       });
       
       logger.info('Created spec', { id: spec.id, name: spec.name });
-      return spec;
+      return baseSpec;
     } catch (error) {
       logger.error('Failed to create spec', error);
       set({ error: String(error), isLoading: false });
@@ -175,7 +235,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
 
   updateSpec: async (id: string, updates: UpdateSpecInput) => {
     try {
-      const spec = await invoke<Spec>('update_spec', {
+      const baseSpec = await invoke<Spec>('update_spec', {
         id,
         name: updates.name,
         userInput: updates.userInput,
@@ -183,13 +243,17 @@ export const useSpecStore = create<SpecState>((set, get) => ({
         model: updates.model,
       });
       
+      // Fetch the updated spec with version data
+      const spec = await invoke<SpecWithVersion>('get_spec_with_version', { id });
+      
       const { specs, currentSpec } = get();
       set({
         specs: specs.map(s => s.id === id ? spec : s),
         currentSpec: currentSpec?.id === id ? spec : currentSpec,
+        selectedVersion: currentSpec?.id === id ? spec.latestVersion || null : get().selectedVersion,
       });
       
-      return spec;
+      return baseSpec;
     } catch (error) {
       logger.error('Failed to update spec', error);
       throw error;
@@ -217,8 +281,63 @@ export const useSpecStore = create<SpecState>((set, get) => ({
     }
   },
 
-  selectSpec: (spec: Spec | null) => {
-    set({ currentSpec: spec });
+  selectSpec: (spec: SpecWithVersion | null) => {
+    set({ 
+      currentSpec: spec,
+      currentVersions: spec?.latestVersion ? [spec.latestVersion] : [],
+      selectedVersion: spec?.latestVersion || null,
+      selectedVersionId: spec?.latestVersion?.id ?? null,
+      activeTab: 'chat',
+    });
+  },
+
+  // Version management
+  loadVersions: async (specId: string) => {
+    try {
+      const versions = await invoke<SpecVersion[]>('get_spec_versions', { specId });
+      set({ currentVersions: versions });
+    } catch (error) {
+      logger.error('Failed to load spec versions', error);
+      throw error;
+    }
+  },
+
+  selectVersion: (version: SpecVersion | null) => {
+    set({ selectedVersion: version, selectedVersionId: version?.id ?? null });
+  },
+
+  selectVersionById: (versionId: string) => {
+    const { currentVersions } = get();
+    const version = currentVersions.find(v => v.id === versionId) || null;
+    set({ selectedVersion: version, selectedVersionId: versionId, activeTab: 'versions' });
+  },
+
+  setActiveTab: (tab: 'chat' | 'versions') => {
+    set({ activeTab: tab });
+  },
+
+  createNewVersion: async (specId: string) => {
+    try {
+      const version = await invoke<SpecVersion>('create_new_spec_version', { specId });
+      
+      // Refresh spec and versions
+      const spec = await get().getSpec(specId);
+      const versions = await invoke<SpecVersion[]>('get_spec_versions', { specId });
+      
+      const { specs } = get();
+      set({
+        specs: specs.map(s => s.id === specId ? spec : s),
+        currentSpec: spec,
+        currentVersions: versions,
+        selectedVersion: version,
+      });
+      
+      logger.info('Created new spec version', { specId, versionNumber: version.versionNumber });
+      return version;
+    } catch (error) {
+      logger.error('Failed to create new spec version', error);
+      throw error;
+    }
   },
 
   setStatus: async (id: string, status: string) => {
@@ -391,6 +510,51 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       set({ liveLogs: [] });
     }
   },
+
+  // Conversation management
+  setConversationMessages: (messages) => set({ conversationMessages: messages }),
+  
+  addConversationMessage: (message) => {
+    set((state) => {
+      // Don't add duplicates
+      if (state.conversationMessages.some(m => m.id === message.id)) {
+        return state;
+      }
+      // Only stop thinking when an assistant message arrives (not user messages)
+      const shouldStopThinking = message.role === 'assistant';
+      return {
+        conversationMessages: [...state.conversationMessages, message],
+        // Clear thinking state when assistant responds, but DON'T clear logs
+        // Logs should persist so user can see what the agent was thinking
+        isAgentThinking: shouldStopThinking ? false : state.isAgentThinking,
+      };
+    });
+  },
+  
+  setAgentThinking: (thinking) => set({ isAgentThinking: thinking }),
+  
+  clearConversation: () => set({ 
+    conversationMessages: [], 
+    isAgentThinking: false,
+    brainstormLogs: [],
+    isGeneratingSpec: false,
+    generatingVersionNumber: null,
+  }),
+  
+  // Brainstorm log management
+  addBrainstormLog: (message) => {
+    set((state) => ({
+      brainstormLogs: [...state.brainstormLogs.slice(-19), message], // Keep last 20
+    }));
+  },
+  
+  clearBrainstormLogs: () => set({ brainstormLogs: [] }),
+  
+  setGeneratingSpec: (generating, versionNumber) => set({ 
+    isGeneratingSpec: generating,
+    generatingVersionNumber: versionNumber ?? null,
+    isAgentThinking: generating, // Also set thinking state
+  }),
 
   // State setters
   setSpecs: (specs) => set({ specs }),

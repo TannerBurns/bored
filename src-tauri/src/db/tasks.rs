@@ -542,7 +542,7 @@ mod tests {
                 epic_id: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
             })
             .unwrap();
         ticket.id

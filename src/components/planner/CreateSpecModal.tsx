@@ -4,7 +4,7 @@ import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useSpecStore } from '../../stores/specStore';
-import { getProjects, getBoards, startConversation } from '../../lib/tauri';
+import { getProjects, getBoards } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import type { Project, Board } from '../../types';
 
@@ -36,7 +36,6 @@ export function CreateSpecModal({
   const [targetBoardId, setTargetBoardId] = useState<string>(''); // Empty means same as boardId
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enableBrainstorm, setEnableBrainstorm] = useState(true);
   
   // Markdown editor state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -123,16 +122,7 @@ export function CreateSpecModal({
         model: model || undefined,
       });
       
-      // Start brainstorming session if enabled
-      if (enableBrainstorm && newSpec) {
-        try {
-          await startConversation(newSpec.id);
-        } catch (convErr) {
-          console.error('Failed to start conversation:', convErr);
-          // Don't fail the whole flow, spec is created
-        }
-      }
-      
+      // Reset form and close immediately - ConversationView will handle starting the conversation
       setName('');
       setUserInput('');
       setAgentPref('any');
@@ -140,8 +130,11 @@ export function CreateSpecModal({
       setTargetBoardId('');
       setIsPreviewMode(false);
       setIsFullscreen(false);
-      setEnableBrainstorm(true);
       onOpenChange(false);
+      
+      // Note: ConversationView will start the brainstorming session when it mounts
+      // We removed the startConversation call here to avoid race conditions
+      void newSpec; // Suppress unused variable warning
     } catch (err) {
       setError(String(err));
     }
@@ -461,21 +454,30 @@ Use Markdown for formatting:
           </div>
         </div>
 
-        {/* Brainstorm toggle */}
-        <div className="flex items-center gap-3 p-3 glass-subtle rounded-lg">
-          <input
-            type="checkbox"
-            id="enableBrainstorm"
-            checked={enableBrainstorm}
-            onChange={(e) => setEnableBrainstorm(e.target.checked)}
-            className="w-4 h-4 rounded border-board-border text-board-accent focus:ring-board-accent"
-          />
+        {/* Main branch note */}
+        <div className="flex items-start gap-3 p-3 glass-subtle rounded-lg">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-board-text-muted mt-0.5 shrink-0"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
           <div>
-            <label htmlFor="enableBrainstorm" className="block text-sm font-medium text-board-text cursor-pointer">
-              Start with brainstorming session
-            </label>
-            <p className="text-xs text-board-text-muted">
-              Chat with AI to refine requirements before exploration
+            <p className="text-sm font-medium text-board-text">
+              Planning based on the <code className="px-1.5 py-0.5 bg-board-surface rounded text-board-accent">main</code> branch
+            </p>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              The AI will explore your codebase starting from the main branch of the selected project. After creation, you'll brainstorm with the AI to refine your requirements.
             </p>
           </div>
         </div>

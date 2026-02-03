@@ -6,6 +6,7 @@ pub mod models;
 mod projects;
 mod runs;
 pub mod schema;
+mod spec_versions;
 mod specs;
 pub mod tasks;
 mod tickets;
@@ -116,16 +117,16 @@ impl Database {
                 )?;
                 
                 // Recreate specs table with 'conversing' status in CHECK constraint
-                // First check if we need to migrate (if table exists and doesn't have conversing status)
-                let specs_exists: bool = conn
+                // First check if we need to migrate (if table exists with the OLD format that has 'status' column)
+                let specs_has_old_format: bool = conn
                     .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='specs'",
+                        "SELECT COUNT(*) FROM pragma_table_info('specs') WHERE name='status'",
                         [],
                         |row| row.get::<_, i32>(0),
                     )
                     .unwrap_or(0) > 0;
                 
-                if specs_exists {
+                if specs_has_old_format {
                     conn.execute_batch(
                         r#"
                         CREATE TABLE specs_v2 (
@@ -158,6 +159,164 @@ impl Database {
                         "#
                     )?;
                 }
+            }
+
+            // Migration from version 2 to 3: Introduce spec versioning
+            if current_version < 3 {
+                // Check if migration is needed (specs table has old format with 'status' column)
+                let specs_has_old_format: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('specs') WHERE name='status'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if specs_has_old_format {
+                    tracing::info!("Running migration to version 3: spec versioning");
+                
+                // Step 1: Create spec_versions table
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS spec_versions (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+                        version_number INTEGER NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'conversing' CHECK(status IN ('conversing', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
+                        exploration_log TEXT DEFAULT '[]',
+                        plan_markdown TEXT,
+                        plan_json TEXT,
+                        work_started_at TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        UNIQUE(spec_id, version_number)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_spec_versions_spec ON spec_versions(spec_id);
+                    CREATE INDEX IF NOT EXISTS idx_spec_versions_status ON spec_versions(status);
+                    "#
+                )?;
+                
+                // Step 2: Migrate existing specs to spec_versions
+                // For each spec, create a version 1 with the spec's current versioned data
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO spec_versions (id, spec_id, version_number, status, exploration_log, plan_markdown, plan_json, work_started_at, created_at, updated_at)
+                    SELECT 
+                        lower(hex(randomblob(16))),
+                        id,
+                        1,
+                        CASE 
+                            WHEN status = 'draft' THEN 'conversing'
+                            ELSE status 
+                        END,
+                        COALESCE(exploration_log, '[]'),
+                        plan_markdown,
+                        plan_json,
+                        work_started_at,
+                        created_at,
+                        updated_at
+                    FROM specs;
+                    "#
+                )?;
+                
+                // Step 3: Add spec_version_id column to tickets and migrate data
+                conn.execute_batch(
+                    r#"
+                    ALTER TABLE tickets ADD COLUMN spec_version_id TEXT REFERENCES spec_versions(id) ON DELETE SET NULL;
+                    
+                    UPDATE tickets 
+                    SET spec_version_id = (
+                        SELECT sv.id 
+                        FROM spec_versions sv 
+                        WHERE sv.spec_id = tickets.spec_id 
+                        AND sv.version_number = 1
+                    )
+                    WHERE spec_id IS NOT NULL;
+                    
+                    CREATE INDEX IF NOT EXISTS idx_tickets_spec_version ON tickets(spec_version_id) WHERE spec_version_id IS NOT NULL;
+                    "#
+                )?;
+                
+                // Step 4: Recreate specs table without versioned fields
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE specs_v3 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        name TEXT NOT NULL,
+                        user_input TEXT NOT NULL,
+                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                        model TEXT,
+                        settings_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    INSERT INTO specs_v3 (id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at)
+                    SELECT id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at FROM specs;
+
+                    DROP TABLE specs;
+                    ALTER TABLE specs_v3 RENAME TO specs;
+
+                    CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                    CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                    "#
+                )?;
+                
+                // Step 5: Drop old spec_id column from tickets (SQLite doesn't support DROP COLUMN before 3.35)
+                // We'll recreate the table without the old column
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE tickets_v3 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE RESTRICT,
+                        title TEXT NOT NULL,
+                        description_md TEXT NOT NULL DEFAULT '',
+                        priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
+                        labels_json TEXT NOT NULL DEFAULT '[]',
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        locked_by_run_id TEXT,
+                        lock_expires_at TEXT,
+                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                        agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
+                        workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
+                        model TEXT,
+                        branch_name TEXT,
+                        is_epic INTEGER NOT NULL DEFAULT 0,
+                        epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                        order_in_epic INTEGER,
+                        depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                        depends_on_epic_ids_json TEXT,
+                        spec_version_id TEXT REFERENCES spec_versions(id) ON DELETE SET NULL,
+                        paused_at TEXT,
+                        paused_at_stage TEXT,
+                        paused_run_id TEXT
+                    );
+
+                    INSERT INTO tickets_v3 (id, board_id, column_id, title, description_md, priority, labels_json, created_at, updated_at, locked_by_run_id, lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name, is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id, paused_at, paused_at_stage, paused_run_id)
+                    SELECT id, board_id, column_id, title, description_md, priority, labels_json, created_at, updated_at, locked_by_run_id, lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name, is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id, paused_at, paused_at_stage, paused_run_id FROM tickets;
+
+                    DROP TABLE tickets;
+                    ALTER TABLE tickets_v3 RENAME TO tickets;
+
+                    CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
+                    CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
+                    CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_tickets_spec_version ON tickets(spec_version_id) WHERE spec_version_id IS NOT NULL;
+                    "#
+                )?;
+                
+                tracing::info!("Migration to version 3 complete: spec versioning enabled");
+                } // end if specs_has_old_format
             }
 
             conn.execute(
@@ -336,11 +495,11 @@ impl Database {
         })
     }
 
-    /// Repair the specs table CHECK constraint.
-    /// This recreates the table with the correct constraint including 'executed' and 'working' status values.
+    /// Repair the specs table schema.
+    /// This recreates the table with the correct schema (versioned fields moved to spec_versions).
     pub fn repair_specs_constraint(&self) -> Result<String, DbError> {
         self.with_conn(|conn| {
-            tracing::warn!("Repairing specs table CHECK constraint");
+            tracing::warn!("Repairing specs table schema");
             
             // Check if the table exists
             let table_exists: bool = conn
@@ -360,85 +519,36 @@ impl Database {
                 .query_row("SELECT COUNT(*) FROM specs", [], |row| row.get(0))
                 .unwrap_or(0);
             
-            // Check if target_board_id column exists
-            let has_target_board: bool = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('specs') WHERE name = 'target_board_id'",
-                    [],
-                    |row| row.get::<_, i32>(0),
-                )
-                .unwrap_or(0) > 0;
+            tracing::info!("Specs table has {} rows", row_count);
             
-            tracing::info!("Specs table has {} rows, target_board_id={}", row_count, has_target_board);
-            
-            // Recreate the table with the correct constraint
-            if has_target_board {
-                conn.execute_batch(
-                    r#"
-                    CREATE TABLE specs_repaired (
-                        id TEXT PRIMARY KEY NOT NULL,
-                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-                        target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
-                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                        name TEXT NOT NULL,
-                        user_input TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-                        model TEXT,
-                        exploration_log TEXT,
-                        plan_markdown TEXT,
-                        plan_json TEXT,
-                        settings_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                    );
+            // Recreate the table with the new schema (no versioned fields)
+            conn.execute_batch(
+                r#"
+                CREATE TABLE specs_repaired (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                    target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    user_input TEXT NOT NULL,
+                    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                    model TEXT,
+                    settings_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
 
-                    INSERT INTO specs_repaired (id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                    SELECT id, board_id, target_board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM specs;
+                INSERT INTO specs_repaired (id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at)
+                SELECT id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at FROM specs;
 
-                    DROP TABLE specs;
-                    ALTER TABLE specs_repaired RENAME TO specs;
+                DROP TABLE specs;
+                ALTER TABLE specs_repaired RENAME TO specs;
 
-                    CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
-                    "#
-                )?;
-            } else {
-                conn.execute_batch(
-                    r#"
-                    CREATE TABLE specs_repaired (
-                        id TEXT PRIMARY KEY NOT NULL,
-                        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-                        target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
-                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-                        name TEXT NOT NULL,
-                        user_input TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
-                        agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
-                        model TEXT,
-                        exploration_log TEXT,
-                        plan_markdown TEXT,
-                        plan_json TEXT,
-                        settings_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                    );
-
-                    INSERT INTO specs_repaired (id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at)
-                    SELECT id, board_id, project_id, name, user_input, status, agent_pref, model, exploration_log, plan_markdown, plan_json, settings_json, created_at, updated_at FROM specs;
-
-                    DROP TABLE specs;
-                    ALTER TABLE specs_repaired RENAME TO specs;
-
-                    CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
-                    "#
-                )?;
-            }
+                CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                "#
+            )?;
             
             tracing::info!("Specs table repaired successfully");
             Ok(format!("Repaired specs table with {} rows", row_count))
@@ -447,7 +557,7 @@ impl Database {
 
     /// Factory reset: delete all user data from the database.
     /// This clears all boards, tickets, projects, runs, specs, etc.
-    /// and also repairs the specs table schema to ensure correct constraints.
+    /// and also repairs the table schemas to ensure correct constraints.
     pub fn factory_reset(&self) -> Result<(), DbError> {
         self.with_conn(|conn| {
             tracing::warn!("Factory reset: deleting all user data from database");
@@ -460,9 +570,15 @@ impl Database {
             conn.execute("DELETE FROM agent_runs", [])?;
             conn.execute("DELETE FROM repo_locks", [])?;
             
-            // Tickets must be deleted before specs (spec_id FK)
+            // Tickets must be deleted before spec_versions (spec_version_id FK)
             // and before columns (column_id FK with RESTRICT)
             conn.execute("DELETE FROM tickets", [])?;
+            
+            // Spec versions (depends on specs)
+            conn.execute("DELETE FROM spec_versions", [])?;
+            
+            // Conversation messages (depends on specs)
+            conn.execute("DELETE FROM conversation_messages", [])?;
             
             // Now specs (depends on boards and projects)
             conn.execute("DELETE FROM specs", [])?;
@@ -478,11 +594,11 @@ impl Database {
             
             tracing::info!("Factory reset: all user data deleted");
             
-            // Now recreate the specs table with the correct schema
-            // This ensures the CHECK constraint is correct
-            tracing::info!("Factory reset: recreating specs table with correct schema");
+            // Recreate tables with correct schema
+            tracing::info!("Factory reset: recreating tables with correct schema");
             
-            // Drop and recreate specs table with correct constraint
+            // Drop and recreate specs table
+            conn.execute("DROP TABLE IF EXISTS spec_versions", [])?;
             conn.execute("DROP TABLE IF EXISTS specs", [])?;
             conn.execute_batch(
                 r#"
@@ -493,12 +609,8 @@ impl Database {
                     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     user_input TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'completed', 'failed')),
                     agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
                     model TEXT,
-                    exploration_log TEXT,
-                    plan_markdown TEXT,
-                    plan_json TEXT,
                     settings_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -507,7 +619,23 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
                 CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
                 CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
-                CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
+
+                CREATE TABLE spec_versions (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+                    version_number INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'conversing' CHECK(status IN ('conversing', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
+                    exploration_log TEXT DEFAULT '[]',
+                    plan_markdown TEXT,
+                    plan_json TEXT,
+                    work_started_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    UNIQUE(spec_id, version_number)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_spec_versions_spec ON spec_versions(spec_id);
+                CREATE INDEX IF NOT EXISTS idx_spec_versions_status ON spec_versions(status);
                 "#
             )?;
             

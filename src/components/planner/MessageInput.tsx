@@ -10,7 +10,6 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';

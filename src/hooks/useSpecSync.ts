@@ -12,7 +12,11 @@ interface SpecLiveEvent {
     | 'plan_approved'
     | 'plan_execution_started'
     | 'plan_execution_completed'
-    | 'planner_log_entry';
+    | 'planner_log_entry'
+    | 'conversation_message_added'
+    | 'conversation_complete'
+    | 'brainstorm_log_entry'
+    | 'brainstorm_generating_spec';
   spec_id?: string;
   board_id?: string;
   query?: string;
@@ -23,6 +27,14 @@ interface SpecLiveEvent {
   level?: string;
   message?: string;
   timestamp?: string;
+  // For conversation_message_added
+  message_id?: string;
+  role?: string;
+  content?: string;
+  // For conversation_complete
+  structured_spec?: unknown;
+  // For brainstorm_generating_spec
+  version_number?: number;
 }
 
 interface UseSpecSyncOptions {
@@ -47,9 +59,7 @@ export function useSpecSync(
 
   const {
     getSpec,
-    currentSpec,
     loadAllSpecs,
-    specs,
     setSpecs,
     setCurrentSpec,
     setExploring,
@@ -57,11 +67,19 @@ export function useSpecSync(
     loadSpecTickets,
     addLogEntry,
     clearLogs,
+    addConversationMessage,
+    setAgentThinking,
+    addBrainstormLog,
+    clearBrainstormLogs,
+    setGeneratingSpec,
   } = useSpecStore();
 
   const handleEvent = useCallback(
     async (event: SpecLiveEvent) => {
       const { spec_id } = event;
+      // Access current state directly to avoid stale closure issues
+      const getCurrentSpec = () => useSpecStore.getState().currentSpec;
+      const getSpecs = () => useSpecStore.getState().specs;
 
       switch (event.type) {
         case 'spec_created':
@@ -77,16 +95,17 @@ export function useSpecSync(
               
               // Update in specs list
               setSpecs(
-                specs.map((s) => (s.id === spec_id ? updated : s))
+                getSpecs().map((s) => (s.id === spec_id ? updated : s))
               );
               
               // Update current if it's the one being viewed
-              if (currentSpec?.id === spec_id) {
+              if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
                 
-                // Update exploring/planning flags based on status
-                setExploring(updated.status === 'exploring');
-                setPlanning(updated.status === 'planning');
+                // Update exploring/planning flags based on status (from latest version)
+                const status = updated.latestVersion?.status;
+                setExploring(status === 'exploring');
+                setPlanning(status === 'planning');
               }
             } catch (error) {
               logger.error('Failed to refresh spec', { spec_id, error });
@@ -96,14 +115,14 @@ export function useSpecSync(
 
         case 'spec_deleted':
           loadAllSpecs();
-          if (currentSpec?.id === spec_id) {
+          if (getCurrentSpec()?.id === spec_id) {
             setCurrentSpec(null);
           }
           break;
 
         case 'exploration_progress':
           // Update exploring status
-          if (currentSpec?.id === spec_id) {
+          if (getCurrentSpec()?.id === spec_id) {
             setExploring(event.status === 'running');
             // Clear logs when starting a new exploration
             if (event.status === 'running' && spec_id) {
@@ -119,9 +138,9 @@ export function useSpecSync(
             try {
               const updated = await getSpec(spec_id);
               setSpecs(
-                specs.map((s) => (s.id === spec_id ? updated : s))
+                getSpecs().map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentSpec?.id === spec_id) {
+              if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
                 setPlanning(false);
               }
@@ -137,9 +156,9 @@ export function useSpecSync(
             try {
               const updated = await getSpec(spec_id);
               setSpecs(
-                specs.map((s) => (s.id === spec_id ? updated : s))
+                getSpecs().map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentSpec?.id === spec_id) {
+              if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
               }
             } catch (error) {
@@ -159,9 +178,9 @@ export function useSpecSync(
             try {
               const updated = await getSpec(spec_id);
               setSpecs(
-                specs.map((s) => (s.id === spec_id ? updated : s))
+                getSpecs().map((s) => (s.id === spec_id ? updated : s))
               );
-              if (currentSpec?.id === spec_id) {
+              if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
                 loadSpecTickets(spec_id);
               }
@@ -184,20 +203,73 @@ export function useSpecSync(
             });
           }
           break;
+          
+        case 'conversation_message_added':
+          // Add new conversation message in real-time
+          if (spec_id && event.message_id && event.role && event.content !== undefined) {
+            addConversationMessage({
+              id: event.message_id,
+              specId: spec_id,
+              role: event.role as 'user' | 'assistant' | 'system',
+              content: event.content,
+              createdAt: new Date(),
+            });
+          }
+          break;
+          
+        case 'conversation_complete':
+          // Conversation finished, refresh spec to get updated status
+          if (spec_id) {
+            setAgentThinking(false);
+            setGeneratingSpec(false);
+            clearBrainstormLogs();
+            try {
+              const updated = await getSpec(spec_id);
+              setSpecs(getSpecs().map((s) => (s.id === spec_id ? updated : s)));
+              if (getCurrentSpec()?.id === spec_id) {
+                setCurrentSpec(updated);
+              }
+            } catch (error) {
+              logger.error('Failed to refresh spec after conversation complete', error);
+            }
+          }
+          break;
+          
+        case 'brainstorm_log_entry':
+          // Add real-time log from brainstorm agent
+          if (spec_id && event.message) {
+            if (getCurrentSpec()?.id === spec_id) {
+              addBrainstormLog(event.message);
+            }
+          }
+          break;
+          
+        case 'brainstorm_generating_spec':
+          // Agent is generating the spec (no more questions)
+          if (spec_id) {
+            if (getCurrentSpec()?.id === spec_id) {
+              setGeneratingSpec(true, event.version_number);
+              clearBrainstormLogs();
+            }
+          }
+          break;
       }
     },
     [
-      currentSpec,
       getSpec,
       loadAllSpecs,
       loadSpecTickets,
-      specs,
       setCurrentSpec,
       setExploring,
       setPlanning,
       setSpecs,
       addLogEntry,
       clearLogs,
+      addConversationMessage,
+      setAgentThinking,
+      addBrainstormLog,
+      clearBrainstormLogs,
+      setGeneratingSpec,
     ]
   );
 
@@ -205,7 +277,7 @@ export function useSpecSync(
     if (!apiUrl || !token) return;
 
     // Filter to only spec-related events
-    const typeFilter = 'spec_created,spec_updated,spec_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry';
+    const typeFilter = 'spec_created,spec_updated,spec_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry,conversation_message_added,conversation_complete,brainstorm_log_entry,brainstorm_generating_spec';
     
     const params = new URLSearchParams({ token, types: typeFilter });
     const url = `${apiUrl}/v1/stream/filtered?${params}`;

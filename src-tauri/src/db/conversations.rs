@@ -6,19 +6,19 @@ use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
 impl Database {
-    /// Create a new conversation message
     pub fn create_conversation_message(
         &self,
         input: &CreateConversationMessage,
     ) -> Result<ConversationMessage, DbError> {
         self.with_conn(|conn| {
             let id = Uuid::new_v4().to_string();
-            let now = chrono::Utc::now().to_rfc3339();
+            let created_at = chrono::Utc::now();
+            let created_at_str = created_at.to_rfc3339();
 
             conn.execute(
                 r#"INSERT INTO conversation_messages (id, spec_id, role, content, created_at)
                    VALUES (?1, ?2, ?3, ?4, ?5)"#,
-                params![id, input.spec_id, input.role.as_str(), input.content, now],
+                params![id, input.spec_id, input.role.as_str(), input.content, created_at_str],
             )?;
 
             Ok(ConversationMessage {
@@ -26,12 +26,12 @@ impl Database {
                 spec_id: input.spec_id.clone(),
                 role: input.role.clone(),
                 content: input.content.clone(),
-                created_at: chrono::Utc::now(),
+                created_at,
             })
         })
     }
 
-    /// Get all conversation messages for a spec, ordered by creation time
+    /// Returns messages ordered by creation time (ascending).
     pub fn get_conversation_messages(
         &self,
         spec_id: &str,
@@ -61,7 +61,6 @@ impl Database {
         })
     }
 
-    /// Get a single conversation message by ID
     pub fn get_conversation_message(&self, id: &str) -> Result<ConversationMessage, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
@@ -89,7 +88,6 @@ impl Database {
         })
     }
 
-    /// Delete all conversation messages for a spec
     pub fn delete_conversation_messages(&self, spec_id: &str) -> Result<usize, DbError> {
         self.with_conn(|conn| {
             let deleted = conn.execute(
@@ -100,7 +98,6 @@ impl Database {
         })
     }
 
-    /// Get the count of messages in a conversation
     pub fn get_conversation_message_count(&self, spec_id: &str) -> Result<i32, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
@@ -112,7 +109,6 @@ impl Database {
         })
     }
 
-    /// Get the last message in a conversation
     pub fn get_last_conversation_message(
         &self,
         spec_id: &str,
@@ -308,5 +304,48 @@ mod tests {
         let last = db.get_last_conversation_message(&spec_id).unwrap().unwrap();
         assert_eq!(last.content, "Last");
         assert_eq!(last.role, ConversationRole::Assistant);
+    }
+
+    #[test]
+    fn get_message_not_found_returns_error() {
+        let db = create_test_db();
+        let result = db.get_conversation_message("nonexistent-id");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, super::DbError::NotFound(_)));
+    }
+
+    #[test]
+    fn get_messages_empty_spec_returns_empty_vec() {
+        let db = create_test_db();
+        let (spec_id, _) = setup_spec(&db);
+        let messages = db.get_conversation_messages(&spec_id).unwrap();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn create_message_with_system_role() {
+        let db = create_test_db();
+        let (spec_id, _) = setup_spec(&db);
+
+        let msg = db
+            .create_conversation_message(&CreateConversationMessage {
+                spec_id: spec_id.clone(),
+                role: ConversationRole::System,
+                content: "Starting brainstorming session...".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(msg.role, ConversationRole::System);
+        let fetched = db.get_conversation_message(&msg.id).unwrap();
+        assert_eq!(fetched.role, ConversationRole::System);
+    }
+
+    #[test]
+    fn delete_messages_returns_zero_for_empty_conversation() {
+        let db = create_test_db();
+        let (spec_id, _) = setup_spec(&db);
+        let count = db.delete_conversation_messages(&spec_id).unwrap();
+        assert_eq!(count, 0);
     }
 }

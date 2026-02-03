@@ -4,7 +4,7 @@
 //! Also handles cross-epic dependencies (depends_on_epic_id).
 
 use super::TicketState;
-use crate::db::{AuthorType, CreateComment, Database, DbError, SpecStatus, Ticket, UpdateTicket};
+use crate::db::{AuthorType, CreateComment, Database, DbError, Ticket, UpdateTicket};
 use std::sync::Arc;
 
 /// Result of epic advancement
@@ -120,22 +120,22 @@ pub fn on_epic_moved_to_ready(
 /// Populate consolidation epic ticket descriptions with branch merge instructions.
 /// Called when a consolidation epic moves to Ready (all dependencies complete).
 fn populate_consolidation_tickets(db: &Arc<Database>, epic: &Ticket) -> Result<(), DbError> {
-    let Some(ref spec_id) = epic.spec_id else {
+    let Some(ref spec_version_id) = epic.spec_version_id else {
         tracing::warn!(
-            "Consolidation epic {} has no spec_id, cannot populate branch info",
+            "Consolidation epic {} has no spec_version_id, cannot populate branch info",
             epic.id
         );
         return Ok(());
     };
 
-    // Get all epics from the spec with their final branches
-    let epics_with_branches = db.get_spec_epics_with_branches(spec_id)?;
+    // Get all epics from the spec version with their final branches
+    let epics_with_branches = db.get_spec_epics_with_branches(spec_version_id)?;
 
     if epics_with_branches.is_empty() {
         tracing::warn!(
-            "Consolidation epic {}: no epics with branches found in spec {}",
+            "Consolidation epic {}: no epics with branches found in spec version {}",
             epic.id,
-            spec_id
+            spec_version_id
         );
         return Ok(());
     }
@@ -147,8 +147,8 @@ fn populate_consolidation_tickets(db: &Arc<Database>, epic: &Ticket) -> Result<(
         .push("Create a consolidation branch and merge all epic work sequentially.\n".to_string());
     merge_steps.push("### Steps:\n".to_string());
     merge_steps.push(format!(
-        "1. Create new branch from main: `spec/{}/consolidated`\n",
-        spec_id
+        "1. Create new branch from main: `spec-version/{}/consolidated`\n",
+        spec_version_id
     ));
 
     let mut step = 2;
@@ -335,25 +335,27 @@ pub fn advance_dependent_epics(
     Ok(advanced)
 }
 
-/// Check if all epics for a spec are complete
-/// If so, update the spec status to Completed
+/// Check if all epics for a spec version are complete
+/// If so, update the spec version status to Completed
 fn check_spec_completion(db: &Arc<Database>, completed_epic: &Ticket) -> Result<(), DbError> {
-    // Only check if epic belongs to a spec
-    let Some(ref spec_id) = completed_epic.spec_id else {
+    // Only check if epic belongs to a spec version
+    let Some(ref spec_version_id) = completed_epic.spec_version_id else {
         return Ok(());
     };
 
-    check_spec_completion_by_id(db, spec_id)
+    check_spec_completion_by_id(db, spec_version_id)
 }
 
-/// Check if all epics for a spec are complete by spec ID
-/// If so, update the spec status to Completed
+/// Check if all epics for a spec version are complete by version ID
+/// If so, update the spec version status to Completed
 /// This is public so it can be called from start_spec_work and other places
-pub fn check_spec_completion_by_id(db: &Arc<Database>, spec_id: &str) -> Result<(), DbError> {
-    // Check if all spec epics are done
-    if db.are_all_spec_epics_done(spec_id)? {
-        // Get spec to check current status
-        let spec = db.get_spec(spec_id)?;
+pub fn check_spec_completion_by_id(db: &Arc<Database>, spec_version_id: &str) -> Result<(), DbError> {
+    use crate::db::SpecVersionStatus;
+    
+    // Check if all spec version epics are done
+    if db.are_all_spec_version_epics_done(spec_version_id)? {
+        // Get spec version to check current status
+        let version = db.get_spec_version(spec_version_id)?;
 
         // Update if currently in a status that indicates work was in progress
         // This handles edge cases like:
@@ -361,18 +363,18 @@ pub fn check_spec_completion_by_id(db: &Arc<Database>, spec_id: &str) -> Result<
         // - Paused: work was paused but all epics completed
         // - Halted: work was halted but all epics completed
         // - Executed: work never started but epics were moved to Done manually
-        match spec.status {
-            SpecStatus::Working
-            | SpecStatus::Paused
-            | SpecStatus::Halted
-            | SpecStatus::Executed => {
-                db.set_spec_status(spec_id, SpecStatus::Completed)?;
+        match version.status {
+            SpecVersionStatus::Working
+            | SpecVersionStatus::Paused
+            | SpecVersionStatus::Halted
+            | SpecVersionStatus::Executed => {
+                db.set_spec_version_status(spec_version_id, SpecVersionStatus::Completed)?;
 
                 tracing::info!(
-                    "Spec {} completed (from status '{}') - all {} epics done",
-                    spec_id,
-                    spec.status.as_str(),
-                    db.get_spec_epics(spec_id)?.len()
+                    "Spec version {} completed (from status '{}') - all {} epics done",
+                    spec_version_id,
+                    version.status.as_str(),
+                    db.get_spec_version_epics(spec_version_id)?.len()
                 );
             }
             _ => {
@@ -454,7 +456,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }
@@ -482,7 +484,7 @@ mod tests {
             epic_id: Some(epic_id.to_string()),
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }
@@ -617,7 +619,7 @@ mod tests {
             epic_id: None,
             depends_on_epic_id: Some(depends_on.to_string()),
             depends_on_epic_ids: vec![depends_on.to_string()],
-            spec_id: None,
+            spec_version_id: None,
         })
         .unwrap()
     }

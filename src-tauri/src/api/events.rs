@@ -110,6 +110,8 @@ fn event_matches_filter(
             LiveEvent::PlannerLogEntry { .. } => "planner_log_entry",
             LiveEvent::ConversationMessageAdded { .. } => "conversation_message_added",
             LiveEvent::ConversationComplete { .. } => "conversation_complete",
+            LiveEvent::BrainstormLogEntry { .. } => "brainstorm_log_entry",
+            LiveEvent::BrainstormGeneratingSpec { .. } => "brainstorm_generating_spec",
         };
 
         if !types.iter().any(|t| t == event_type) {

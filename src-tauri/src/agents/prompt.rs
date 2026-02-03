@@ -820,7 +820,7 @@ mod tests {
             order_in_epic: None,
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
-            spec_id: None,
+            spec_version_id: None,
             paused_at: None,
             paused_at_stage: None,
             paused_run_id: None,

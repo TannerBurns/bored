@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSpecStore } from './specStore';
-import type { Spec } from '../types';
+import type { SpecWithVersion, SpecVersion } from '../types';
 
 // Mock @tauri-apps/api/core
 vi.mock('@tauri-apps/api/core', () => ({
@@ -9,22 +9,33 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import { invoke } from '@tauri-apps/api/core';
 
-const mockSpec: Spec = {
+const mockVersion: SpecVersion = {
+  id: 'version-1',
+  specId: 'scratch-1',
+  versionNumber: 1,
+  status: 'conversing',
+  explorationLog: [],
+  planMarkdown: undefined,
+  planJson: undefined,
+  workStartedAt: undefined,
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+};
+
+const mockSpec: SpecWithVersion = {
   id: 'scratch-1',
   boardId: 'board-1',
   targetBoardId: 'board-1',
   projectId: 'project-1',
   name: 'Test Spec',
   userInput: 'Build a feature',
-  status: 'draft',
   agentPref: 'claude',
   model: 'opus',
-  explorationLog: [],
-  planMarkdown: undefined,
-  planJson: undefined,
   settings: {},
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
+  latestVersion: mockVersion,
+  versionCount: 1,
 };
 
 describe('useSpecStore', () => {
@@ -33,6 +44,8 @@ describe('useSpecStore', () => {
     useSpecStore.setState({
       specs: [],
       currentSpec: null,
+      currentVersions: [],
+      selectedVersion: null,
       specTickets: [],
       liveLogs: [],
       currentEta: null,
@@ -49,7 +62,7 @@ describe('useSpecStore', () => {
 
       await useSpecStore.getState().loadSpecs('board-1');
 
-      expect(invoke).toHaveBeenCalledWith('get_specs', { boardId: 'board-1' });
+      expect(invoke).toHaveBeenCalledWith('get_specs_with_versions', { boardId: 'board-1' });
       expect(useSpecStore.getState().specs).toHaveLength(1);
       expect(useSpecStore.getState().specs[0].id).toBe('scratch-1');
       expect(useSpecStore.getState().isLoading).toBe(false);
@@ -66,13 +79,14 @@ describe('useSpecStore', () => {
   });
 
   describe('getSpec', () => {
-    it('fetches a single spec', async () => {
+    it('fetches a single spec with version', async () => {
       vi.mocked(invoke).mockResolvedValueOnce(mockSpec);
 
       const result = await useSpecStore.getState().getSpec('scratch-1');
 
-      expect(invoke).toHaveBeenCalledWith('get_spec', { id: 'scratch-1' });
+      expect(invoke).toHaveBeenCalledWith('get_spec_with_version', { id: 'scratch-1' });
       expect(result.id).toBe('scratch-1');
+      expect(result.latestVersion?.status).toBe('conversing');
     });
 
     it('throws on failure', async () => {
@@ -86,7 +100,11 @@ describe('useSpecStore', () => {
 
   describe('createSpec', () => {
     it('creates and adds spec to state', async () => {
-      vi.mocked(invoke).mockResolvedValueOnce(mockSpec);
+      // Mock the base spec response (from create_spec) and full spec response (from get_spec_with_version)
+      const baseSpec = { id: mockSpec.id, boardId: mockSpec.boardId, projectId: mockSpec.projectId, name: mockSpec.name, userInput: mockSpec.userInput, settings: {} };
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(baseSpec) // create_spec
+        .mockResolvedValueOnce(mockSpec); // get_spec_with_version
 
       const result = await useSpecStore.getState().createSpec({
         boardId: 'board-1',
@@ -106,6 +124,7 @@ describe('useSpecStore', () => {
       expect(result.id).toBe('scratch-1');
       expect(useSpecStore.getState().specs).toHaveLength(1);
       expect(useSpecStore.getState().currentSpec?.id).toBe('scratch-1');
+      expect(useSpecStore.getState().currentSpec?.latestVersion?.status).toBe('conversing');
     });
 
     it('sets error on failure', async () => {
@@ -158,37 +177,39 @@ describe('useSpecStore', () => {
 
   describe('approvePlan', () => {
     it('approves plan and refreshes spec', async () => {
-      const approvedSpec = { ...mockSpec, status: 'approved' as const };
+      const approvedVersion = { ...mockVersion, status: 'approved' as const };
+      const approvedSpec = { ...mockSpec, latestVersion: approvedVersion };
       useSpecStore.setState({
         specs: [mockSpec],
         currentSpec: mockSpec,
       });
       vi.mocked(invoke)
         .mockResolvedValueOnce(undefined) // approve_plan
-        .mockResolvedValueOnce(approvedSpec); // get_spec refresh
+        .mockResolvedValueOnce(approvedSpec); // get_spec_with_version refresh
 
       await useSpecStore.getState().approvePlan('scratch-1');
 
       expect(invoke).toHaveBeenCalledWith('approve_plan', { id: 'scratch-1' });
-      expect(useSpecStore.getState().currentSpec?.status).toBe('approved');
+      expect(useSpecStore.getState().currentSpec?.latestVersion?.status).toBe('approved');
     });
   });
 
   describe('pauseWork', () => {
     it('pauses work and refreshes state', async () => {
-      const pausedSpec = { ...mockSpec, status: 'paused' as const };
+      const pausedVersion = { ...mockVersion, status: 'paused' as const };
+      const pausedSpec = { ...mockSpec, latestVersion: pausedVersion };
       useSpecStore.setState({
         specs: [mockSpec],
         currentSpec: mockSpec,
       });
       vi.mocked(invoke)
         .mockResolvedValueOnce(undefined) // pause_spec_work
-        .mockResolvedValueOnce(pausedSpec); // get_spec refresh
+        .mockResolvedValueOnce(pausedSpec); // get_spec_with_version refresh
 
       await useSpecStore.getState().pauseWork('scratch-1');
 
       expect(invoke).toHaveBeenCalledWith('pause_spec_work', { specId: 'scratch-1' });
-      expect(useSpecStore.getState().currentSpec?.status).toBe('paused');
+      expect(useSpecStore.getState().currentSpec?.latestVersion?.status).toBe('paused');
     });
 
     it('throws on failure', async () => {
@@ -202,20 +223,22 @@ describe('useSpecStore', () => {
 
   describe('resumeWork', () => {
     it('resumes work and refreshes state', async () => {
-      const pausedSpec = { ...mockSpec, status: 'paused' as const };
-      const workingSpec = { ...mockSpec, status: 'working' as const };
+      const pausedVersion = { ...mockVersion, status: 'paused' as const };
+      const workingVersion = { ...mockVersion, status: 'working' as const };
+      const pausedSpec = { ...mockSpec, latestVersion: pausedVersion };
+      const workingSpec = { ...mockSpec, latestVersion: workingVersion };
       useSpecStore.setState({
         specs: [pausedSpec],
         currentSpec: pausedSpec,
       });
       vi.mocked(invoke)
         .mockResolvedValueOnce(undefined) // resume_spec_work
-        .mockResolvedValueOnce(workingSpec); // get_spec refresh
+        .mockResolvedValueOnce(workingSpec); // get_spec_with_version refresh
 
       await useSpecStore.getState().resumeWork('scratch-1');
 
       expect(invoke).toHaveBeenCalledWith('resume_spec_work', { specId: 'scratch-1' });
-      expect(useSpecStore.getState().currentSpec?.status).toBe('working');
+      expect(useSpecStore.getState().currentSpec?.latestVersion?.status).toBe('working');
     });
 
     it('throws on failure', async () => {
@@ -229,20 +252,22 @@ describe('useSpecStore', () => {
 
   describe('haltWork', () => {
     it('halts work and refreshes state', async () => {
-      const workingSpec = { ...mockSpec, status: 'working' as const };
-      const haltedSpec = { ...mockSpec, status: 'halted' as const };
+      const workingVersion = { ...mockVersion, status: 'working' as const };
+      const haltedVersion = { ...mockVersion, status: 'halted' as const };
+      const workingSpec = { ...mockSpec, latestVersion: workingVersion };
+      const haltedSpec = { ...mockSpec, latestVersion: haltedVersion };
       useSpecStore.setState({
         specs: [workingSpec],
         currentSpec: workingSpec,
       });
       vi.mocked(invoke)
         .mockResolvedValueOnce(undefined) // halt_spec_work
-        .mockResolvedValueOnce(haltedSpec); // get_spec refresh
+        .mockResolvedValueOnce(haltedSpec); // get_spec_with_version refresh
 
       await useSpecStore.getState().haltWork('scratch-1');
 
       expect(invoke).toHaveBeenCalledWith('halt_spec_work', { specId: 'scratch-1' });
-      expect(useSpecStore.getState().currentSpec?.status).toBe('halted');
+      expect(useSpecStore.getState().currentSpec?.latestVersion?.status).toBe('halted');
     });
 
     it('throws on failure', async () => {

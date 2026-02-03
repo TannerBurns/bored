@@ -182,8 +182,8 @@ pub struct Ticket {
     /// All epic dependencies as array of IDs (for display)
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Link back to spec that created this ticket
-    pub spec_id: Option<String>,
+    /// Link back to spec version that created this ticket
+    pub spec_version_id: Option<String>,
     /// When the ticket was paused (if currently paused)
     pub paused_at: Option<DateTime<Utc>>,
     /// Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review")
@@ -400,8 +400,8 @@ pub struct CreateTicket {
     /// All epic dependencies (for display in progress views)
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Link back to spec that created this ticket
-    pub spec_id: Option<String>,
+    /// Link back to spec version that created this ticket
+    pub spec_version_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -457,8 +457,8 @@ pub struct UpdateTicket {
     /// Update all epic dependencies
     #[serde(default)]
     pub depends_on_epic_ids: Vec<String>,
-    /// Set or clear the spec_id
-    pub spec_id: Option<String>,
+    /// Set or clear the spec_version_id
+    pub spec_version_id: Option<String>,
 }
 
 /// Progress information for an epic's children
@@ -628,14 +628,13 @@ pub struct UpdateTask {
 
 // ===== Spec System =====
 
-/// Status of a spec in the planning workflow
+/// Status of a spec version in the planning workflow
+/// Note: Versions start at Conversing - Draft status has been removed
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum SpecStatus {
-    /// Initial state - user has created but not started exploration
-    #[default]
-    Draft,
+pub enum SpecVersionStatus {
     /// In brainstorming conversation - refining requirements
+    #[default]
     Conversing,
     /// Agent is exploring the codebase
     Exploring,
@@ -661,44 +660,45 @@ pub enum SpecStatus {
     Failed,
 }
 
-impl SpecStatus {
+impl SpecVersionStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            SpecStatus::Draft => "draft",
-            SpecStatus::Conversing => "conversing",
-            SpecStatus::Exploring => "exploring",
-            SpecStatus::Planning => "planning",
-            SpecStatus::AwaitingApproval => "awaiting_approval",
-            SpecStatus::Approved => "approved",
-            SpecStatus::Executing => "executing",
-            SpecStatus::Executed => "executed",
-            SpecStatus::Working => "working",
-            SpecStatus::Paused => "paused",
-            SpecStatus::Halted => "halted",
-            SpecStatus::Completed => "completed",
-            SpecStatus::Failed => "failed",
+            SpecVersionStatus::Conversing => "conversing",
+            SpecVersionStatus::Exploring => "exploring",
+            SpecVersionStatus::Planning => "planning",
+            SpecVersionStatus::AwaitingApproval => "awaiting_approval",
+            SpecVersionStatus::Approved => "approved",
+            SpecVersionStatus::Executing => "executing",
+            SpecVersionStatus::Executed => "executed",
+            SpecVersionStatus::Working => "working",
+            SpecVersionStatus::Paused => "paused",
+            SpecVersionStatus::Halted => "halted",
+            SpecVersionStatus::Completed => "completed",
+            SpecVersionStatus::Failed => "failed",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "draft" => Some(SpecStatus::Draft),
-            "conversing" => Some(SpecStatus::Conversing),
-            "exploring" => Some(SpecStatus::Exploring),
-            "planning" => Some(SpecStatus::Planning),
-            "awaiting_approval" => Some(SpecStatus::AwaitingApproval),
-            "approved" => Some(SpecStatus::Approved),
-            "executing" => Some(SpecStatus::Executing),
-            "executed" => Some(SpecStatus::Executed),
-            "working" => Some(SpecStatus::Working),
-            "paused" => Some(SpecStatus::Paused),
-            "halted" => Some(SpecStatus::Halted),
-            "completed" => Some(SpecStatus::Completed),
-            "failed" => Some(SpecStatus::Failed),
+            "conversing" => Some(SpecVersionStatus::Conversing),
+            "exploring" => Some(SpecVersionStatus::Exploring),
+            "planning" => Some(SpecVersionStatus::Planning),
+            "awaiting_approval" => Some(SpecVersionStatus::AwaitingApproval),
+            "approved" => Some(SpecVersionStatus::Approved),
+            "executing" => Some(SpecVersionStatus::Executing),
+            "executed" => Some(SpecVersionStatus::Executed),
+            "working" => Some(SpecVersionStatus::Working),
+            "paused" => Some(SpecVersionStatus::Paused),
+            "halted" => Some(SpecVersionStatus::Halted),
+            "completed" => Some(SpecVersionStatus::Completed),
+            "failed" => Some(SpecVersionStatus::Failed),
             _ => None,
         }
     }
 }
+
+/// Alias for backward compatibility
+pub type SpecStatus = SpecVersionStatus;
 
 /// A single exploration query and its result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -709,7 +709,8 @@ pub struct Exploration {
     pub timestamp: DateTime<Utc>,
 }
 
-/// A spec for the planning agent
+/// A spec for the planning agent (top-level entity with shared conversation)
+/// Versioned fields (status, exploration_log, plan, work_started_at) are in SpecVersion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Spec {
@@ -722,23 +723,46 @@ pub struct Spec {
     pub project_id: String,
     pub name: String,
     pub user_input: String,
-    pub status: SpecStatus,
     /// Preferred agent type for executing the plan
     pub agent_pref: Option<String>,
     /// Preferred model for the agent
     pub model: Option<String>,
+    /// Settings for this spec (auto_approve, etc.)
+    pub settings: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A version of a spec (contains versioned exploration/plan data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecVersion {
+    pub id: String,
+    pub spec_id: String,
+    pub version_number: i32,
+    pub status: SpecVersionStatus,
     /// Log of exploration queries and responses
     pub exploration_log: Vec<Exploration>,
     /// Generated plan in markdown format (for display)
     pub plan_markdown: Option<String>,
     /// Parsed plan structure (for execution)
     pub plan_json: Option<serde_json::Value>,
-    /// Settings for this spec (auto_approve, etc.)
-    pub settings: serde_json::Value,
     /// When work phase was started (for ETA calculation)
     pub work_started_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Spec with its latest version (convenience struct for API responses)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecWithVersion {
+    #[serde(flatten)]
+    pub spec: Spec,
+    /// The latest version of this spec
+    pub latest_version: Option<SpecVersion>,
+    /// Total number of versions
+    pub version_count: i32,
 }
 
 /// Create a new spec
@@ -760,19 +784,33 @@ pub struct CreateSpec {
     pub settings: serde_json::Value,
 }
 
-/// Update a spec
+/// Update a spec (non-versioned fields only)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSpec {
     pub name: Option<String>,
     pub user_input: Option<String>,
-    pub status: Option<SpecStatus>,
     pub agent_pref: Option<String>,
     pub model: Option<String>,
+    pub settings: Option<serde_json::Value>,
+}
+
+/// Create a new spec version
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSpecVersion {
+    pub spec_id: String,
+}
+
+/// Update a spec version
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSpecVersion {
+    pub status: Option<SpecVersionStatus>,
     pub exploration_log: Option<Vec<Exploration>>,
     pub plan_markdown: Option<String>,
     pub plan_json: Option<serde_json::Value>,
-    pub settings: Option<serde_json::Value>,
+    pub work_started_at: Option<DateTime<Utc>>,
 }
 
 /// An epic in a generated plan
@@ -920,8 +958,6 @@ pub enum EtaConfidence {
     High,
 }
 
-// ===== Conversation System (Spec Brainstorming) =====
-
 /// Role in a conversation message
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -961,7 +997,6 @@ pub struct ConversationMessage {
     pub created_at: DateTime<Utc>,
 }
 
-/// Create a new conversation message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateConversationMessage {
@@ -970,17 +1005,12 @@ pub struct CreateConversationMessage {
     pub content: String,
 }
 
-/// Structured spec result from conversation completion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredSpec {
-    /// The refined user requirements
     pub requirements: String,
-    /// Key decisions made during conversation
     pub decisions: Vec<String>,
-    /// Any constraints or limitations identified
     pub constraints: Vec<String>,
-    /// Technical approach notes
     pub technical_notes: Option<String>,
 }
 
@@ -1077,6 +1107,184 @@ mod tests {
         #[test]
         fn parse_invalid_returns_none() {
             assert_eq!(RunStatus::parse("unknown"), None);
+        }
+    }
+
+    mod spec_version_status_tests {
+        use super::*;
+
+        #[test]
+        fn as_str_returns_lowercase() {
+            assert_eq!(SpecVersionStatus::Conversing.as_str(), "conversing");
+            assert_eq!(SpecVersionStatus::Exploring.as_str(), "exploring");
+            assert_eq!(SpecVersionStatus::Planning.as_str(), "planning");
+            assert_eq!(SpecVersionStatus::AwaitingApproval.as_str(), "awaiting_approval");
+            assert_eq!(SpecVersionStatus::Approved.as_str(), "approved");
+            assert_eq!(SpecVersionStatus::Executing.as_str(), "executing");
+            assert_eq!(SpecVersionStatus::Executed.as_str(), "executed");
+            assert_eq!(SpecVersionStatus::Working.as_str(), "working");
+            assert_eq!(SpecVersionStatus::Paused.as_str(), "paused");
+            assert_eq!(SpecVersionStatus::Halted.as_str(), "halted");
+            assert_eq!(SpecVersionStatus::Completed.as_str(), "completed");
+            assert_eq!(SpecVersionStatus::Failed.as_str(), "failed");
+        }
+
+        #[test]
+        fn parse_valid_values() {
+            assert_eq!(SpecVersionStatus::parse("conversing"), Some(SpecVersionStatus::Conversing));
+            assert_eq!(SpecVersionStatus::parse("exploring"), Some(SpecVersionStatus::Exploring));
+            assert_eq!(SpecVersionStatus::parse("planning"), Some(SpecVersionStatus::Planning));
+            assert_eq!(SpecVersionStatus::parse("awaiting_approval"), Some(SpecVersionStatus::AwaitingApproval));
+            assert_eq!(SpecVersionStatus::parse("approved"), Some(SpecVersionStatus::Approved));
+            assert_eq!(SpecVersionStatus::parse("executing"), Some(SpecVersionStatus::Executing));
+            assert_eq!(SpecVersionStatus::parse("executed"), Some(SpecVersionStatus::Executed));
+            assert_eq!(SpecVersionStatus::parse("working"), Some(SpecVersionStatus::Working));
+            assert_eq!(SpecVersionStatus::parse("paused"), Some(SpecVersionStatus::Paused));
+            assert_eq!(SpecVersionStatus::parse("halted"), Some(SpecVersionStatus::Halted));
+            assert_eq!(SpecVersionStatus::parse("completed"), Some(SpecVersionStatus::Completed));
+            assert_eq!(SpecVersionStatus::parse("failed"), Some(SpecVersionStatus::Failed));
+        }
+
+        #[test]
+        fn parse_invalid_returns_none() {
+            assert_eq!(SpecVersionStatus::parse(""), None);
+            assert_eq!(SpecVersionStatus::parse("invalid"), None);
+            assert_eq!(SpecVersionStatus::parse("CONVERSING"), None);
+            assert_eq!(SpecVersionStatus::parse("draft"), None);
+        }
+
+        #[test]
+        fn default_is_conversing() {
+            assert_eq!(SpecVersionStatus::default(), SpecVersionStatus::Conversing);
+        }
+
+        #[test]
+        fn roundtrip_as_str_parse() {
+            for status in [
+                SpecVersionStatus::Conversing,
+                SpecVersionStatus::Exploring,
+                SpecVersionStatus::Planning,
+                SpecVersionStatus::AwaitingApproval,
+                SpecVersionStatus::Approved,
+                SpecVersionStatus::Executing,
+                SpecVersionStatus::Executed,
+                SpecVersionStatus::Working,
+                SpecVersionStatus::Paused,
+                SpecVersionStatus::Halted,
+                SpecVersionStatus::Completed,
+                SpecVersionStatus::Failed,
+            ] {
+                assert_eq!(SpecVersionStatus::parse(status.as_str()), Some(status));
+            }
+        }
+    }
+
+    mod conversation_role_tests {
+        use super::*;
+
+        #[test]
+        fn as_str_returns_lowercase() {
+            assert_eq!(ConversationRole::User.as_str(), "user");
+            assert_eq!(ConversationRole::Assistant.as_str(), "assistant");
+            assert_eq!(ConversationRole::System.as_str(), "system");
+        }
+
+        #[test]
+        fn parse_valid_values() {
+            assert_eq!(ConversationRole::parse("user"), Some(ConversationRole::User));
+            assert_eq!(ConversationRole::parse("assistant"), Some(ConversationRole::Assistant));
+            assert_eq!(ConversationRole::parse("system"), Some(ConversationRole::System));
+        }
+
+        #[test]
+        fn parse_invalid_returns_none() {
+            assert_eq!(ConversationRole::parse(""), None);
+            assert_eq!(ConversationRole::parse("invalid"), None);
+            assert_eq!(ConversationRole::parse("USER"), None);
+        }
+
+        #[test]
+        fn roundtrip_as_str_parse() {
+            for role in [
+                ConversationRole::User,
+                ConversationRole::Assistant,
+                ConversationRole::System,
+            ] {
+                assert_eq!(ConversationRole::parse(role.as_str()), Some(role));
+            }
+        }
+    }
+
+    mod structured_spec_tests {
+        use super::*;
+
+        #[test]
+        fn serialize_with_technical_notes() {
+            let spec = StructuredSpec {
+                requirements: "Build auth system".to_string(),
+                decisions: vec!["Use JWT".to_string(), "Support OAuth".to_string()],
+                constraints: vec!["Must be fast".to_string()],
+                technical_notes: Some("Use middleware pattern".to_string()),
+            };
+            let json = serde_json::to_value(&spec).unwrap();
+            assert_eq!(json["requirements"], "Build auth system");
+            assert_eq!(json["decisions"].as_array().unwrap().len(), 2);
+            assert_eq!(json["technicalNotes"], "Use middleware pattern");
+        }
+
+        #[test]
+        fn serialize_without_technical_notes() {
+            let spec = StructuredSpec {
+                requirements: "Build feature".to_string(),
+                decisions: vec![],
+                constraints: vec![],
+                technical_notes: None,
+            };
+            let json = serde_json::to_value(&spec).unwrap();
+            assert_eq!(json["requirements"], "Build feature");
+            assert!(json["technicalNotes"].is_null());
+        }
+
+        #[test]
+        fn deserialize_with_technical_notes() {
+            let json = r#"{
+                "requirements": "Build auth",
+                "decisions": ["Use JWT"],
+                "constraints": ["Must be fast"],
+                "technicalNotes": "Consider caching"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, "Build auth");
+            assert_eq!(spec.decisions.len(), 1);
+            assert_eq!(spec.technical_notes, Some("Consider caching".to_string()));
+        }
+
+        #[test]
+        fn deserialize_without_technical_notes() {
+            let json = r#"{
+                "requirements": "Build feature",
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, "Build feature");
+            assert!(spec.technical_notes.is_none());
+        }
+
+        #[test]
+        fn roundtrip_serialization() {
+            let spec = StructuredSpec {
+                requirements: "Complex feature".to_string(),
+                decisions: vec!["A".to_string(), "B".to_string()],
+                constraints: vec!["X".to_string()],
+                technical_notes: Some("Notes here".to_string()),
+            };
+            let json = serde_json::to_string(&spec).unwrap();
+            let parsed: StructuredSpec = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed.requirements, spec.requirements);
+            assert_eq!(parsed.decisions, spec.decisions);
+            assert_eq!(parsed.constraints, spec.constraints);
+            assert_eq!(parsed.technical_notes, spec.technical_notes);
         }
     }
 
@@ -1250,7 +1458,7 @@ mod tests {
                 order_in_epic: None,
                 depends_on_epic_id: None,
                 depends_on_epic_ids: vec![],
-                spec_id: None,
+                spec_version_id: None,
                 paused_at: None,
                 paused_at_stage: None,
                 paused_run_id: None,
