@@ -171,20 +171,20 @@ export function ProjectsList() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-board-text">Projects</h3>
+        <h3 className="text-sm font-medium text-board-text">Projects</h3>
         {addMode === 'none' && (
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <button
               onClick={() => setAddMode('existing')}
-              className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover transition-colors"
+              className="px-2 py-1 bg-board-accent text-white text-xs rounded-lg hover:bg-board-accent-hover transition-colors"
             >
               + Add Existing
             </button>
             <button
               onClick={() => setAddMode('create')}
-              className="px-3 py-1.5 bg-board-surface-raised text-board-text text-sm rounded-lg border border-board-border hover:bg-board-card-hover transition-colors"
+              className="px-2 py-1 bg-board-surface-raised text-board-text text-xs rounded-lg border border-board-border hover:bg-board-card-hover transition-colors"
             >
               + Create New
             </button>
@@ -193,27 +193,27 @@ export function ProjectsList() {
       </div>
 
       {error && (
-        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-4 py-2 rounded-lg">
+        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-3 py-1.5 rounded-lg text-xs">
           {error}
         </div>
       )}
 
       {/* Add existing project form */}
       {addMode === 'existing' && (
-        <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-          <div className="text-sm font-medium text-board-text-secondary mb-2">Add Existing Project</div>
+        <div className="glass rounded-lg p-3 space-y-2">
+          <div className="text-xs font-medium text-board-text-secondary">Add Existing Project</div>
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Name</label>
+            <label className="block text-xs text-board-text-secondary mb-1">Name</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="My Project"
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/20"
             />
           </div>
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Path</label>
+            <label className="block text-xs text-board-text-secondary mb-1">Path</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -223,11 +223,11 @@ export function ProjectsList() {
                   setGitStatus('unknown');
                 }}
                 placeholder="/path/to/project"
-                className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20 font-mono text-sm"
+                className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/20 font-mono text-xs"
               />
               <button
                 onClick={handleBrowse}
-                className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
               >
                 Browse
               </button>
@@ -236,27 +236,27 @@ export function ProjectsList() {
 
           {/* Git status indicator */}
           {newPath && gitStatus !== 'unknown' && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {gitStatus === 'checking' && (
-                <div className="text-sm text-board-text-muted flex items-center gap-2">
+                <div className="text-xs text-board-text-muted flex items-center gap-1.5">
                   <span className="animate-spin">⟳</span>
                   Checking git status...
                 </div>
               )}
               {gitStatus === 'initialized' && (
-                <div className="text-sm text-status-success flex items-center gap-2">
+                <div className="text-xs text-status-success flex items-center gap-1.5">
                   ✓ Git repository detected
                 </div>
               )}
               {gitStatus === 'not_initialized' && (
-                <div className="space-y-2">
-                  <div className="bg-status-warning/10 border border-status-warning/30 text-status-warning px-3 py-2 rounded-lg text-sm">
-                    This folder is not a git repository. Git is required for agent worktrees.
+                <div className="space-y-1.5">
+                  <div className="bg-status-warning/10 border border-status-warning/30 text-status-warning px-2 py-1.5 rounded-lg text-xs">
+                    Not a git repo. Git is required for agent worktrees.
                   </div>
                   <button
                     onClick={handleInitGit}
                     disabled={initializingGit}
-                    className="px-3 py-1.5 bg-status-warning text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
+                    className="px-2 py-1 bg-status-warning text-white text-xs rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
                   >
                     {initializingGit ? 'Initializing...' : 'Initialize Git'}
                   </button>
@@ -266,8 +266,8 @@ export function ProjectsList() {
           )}
 
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
-              Preferred Agent (optional)
+            <label className="block text-xs text-board-text-secondary mb-1">
+              Preferred Agent
             </label>
             <select
               value={preferredAgent}
@@ -276,7 +276,7 @@ export function ProjectsList() {
                   e.target.value as 'cursor' | 'claude' | 'any' | ''
                 )
               }
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none"
             >
               <option value="">No preference</option>
               <option value="cursor">Cursor</option>
@@ -284,17 +284,17 @@ export function ProjectsList() {
               <option value="any">Any</option>
             </select>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
-              className="px-3 py-1.5 text-board-text-muted hover:text-board-text transition-colors"
+              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleAdd}
               disabled={!newName.trim() || !newPath.trim() || gitStatus !== 'initialized'}
-              className="px-3 py-1.5 bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 text-xs bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Add Project
             </button>
@@ -304,47 +304,44 @@ export function ProjectsList() {
 
       {/* Create new project form */}
       {addMode === 'create' && (
-        <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-          <div className="text-sm font-medium text-board-text-secondary mb-2">Create New Project</div>
+        <div className="glass rounded-lg p-3 space-y-2">
+          <div className="text-xs font-medium text-board-text-secondary">Create New Project</div>
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Parent Directory</label>
+            <label className="block text-xs text-board-text-secondary mb-1">Parent Directory</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={parentPath}
                 onChange={(e) => setParentPath(e.target.value)}
                 placeholder="/path/to/parent/folder"
-                className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20 font-mono text-sm"
+                className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs"
               />
               <button
                 onClick={handleBrowseParent}
-                className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
               >
                 Browse
               </button>
             </div>
-            <p className="text-xs text-board-text-muted mt-1">
-              The new project folder will be created inside this directory
-            </p>
           </div>
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Project Name</label>
+            <label className="block text-xs text-board-text-secondary mb-1">Project Name</label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="my-new-project"
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none"
             />
             {parentPath && newName && (
-              <p className="text-xs text-board-text-muted mt-1">
-                Will create: <code className="bg-board-surface-raised px-1 rounded">{parentPath}/{newName}</code>
+              <p className="text-xs text-board-text-muted mt-0.5">
+                <code className="bg-board-surface-raised px-1 rounded">{parentPath}/{newName}</code>
               </p>
             )}
           </div>
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
-              Preferred Agent (optional)
+            <label className="block text-xs text-board-text-secondary mb-1">
+              Preferred Agent
             </label>
             <select
               value={preferredAgent}
@@ -353,7 +350,7 @@ export function ProjectsList() {
                   e.target.value as 'cursor' | 'claude' | 'any' | ''
                 )
               }
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/20"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none"
             >
               <option value="">No preference</option>
               <option value="cursor">Cursor</option>
@@ -361,17 +358,17 @@ export function ProjectsList() {
               <option value="any">Any</option>
             </select>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
-              className="px-3 py-1.5 text-board-text-muted hover:text-board-text transition-colors"
+              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleCreateNew}
               disabled={!parentPath.trim() || !newName.trim() || creatingProject}
-              className="px-3 py-1.5 bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-2 py-1 text-xs bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {creatingProject ? 'Creating...' : 'Create & Initialize'}
             </button>
@@ -380,40 +377,40 @@ export function ProjectsList() {
       )}
 
       {/* Projects list */}
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {projects.map((project) => (
           <div
             key={project.id}
-            className="flex items-center justify-between bg-board-surface rounded-xl p-4 border border-board-border"
+            className="flex items-center justify-between glass rounded-lg px-3 py-2"
           >
             <div className="flex-1 min-w-0">
-              <div className="font-medium truncate text-board-text">{project.name}</div>
-              <div className="text-sm text-board-text-muted font-mono truncate">
+              <div className="text-sm font-medium truncate text-board-text">{project.name}</div>
+              <div className="text-xs text-board-text-muted font-mono truncate">
                 {project.path}
               </div>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap gap-1 mt-1">
                 {project.cursorHooksInstalled && (
-                  <span className="text-xs bg-board-accent/20 text-board-accent px-2 py-0.5 rounded-full">
-                    Cursor hooks
+                  <span className="text-xs bg-board-accent/20 text-board-accent px-1.5 py-0.5 rounded">
+                    Cursor
                   </span>
                 )}
                 {project.claudeHooksInstalled && (
-                  <span className="text-xs bg-status-success/20 text-status-success px-2 py-0.5 rounded-full">
-                    Claude hooks
+                  <span className="text-xs bg-status-success/20 text-status-success px-1.5 py-0.5 rounded">
+                    Claude
                   </span>
                 )}
                 {project.preferredAgent && (
-                  <span className="text-xs bg-board-surface-raised text-board-text-secondary px-2 py-0.5 rounded-full">
-                    Prefers: {project.preferredAgent}
+                  <span className="text-xs bg-board-surface-raised text-board-text-secondary px-1.5 py-0.5 rounded">
+                    {project.preferredAgent}
                   </span>
                 )}
                 {!project.allowShellCommands && (
-                  <span className="text-xs bg-status-warning/20 text-status-warning px-2 py-0.5 rounded-full">
-                    Shell disabled
+                  <span className="text-xs bg-status-warning/20 text-status-warning px-1.5 py-0.5 rounded">
+                    No shell
                   </span>
                 )}
                 {!project.allowFileWrites && (
-                  <span className="text-xs bg-status-warning/20 text-status-warning px-2 py-0.5 rounded-full">
+                  <span className="text-xs bg-status-warning/20 text-status-warning px-1.5 py-0.5 rounded">
                     Read-only
                   </span>
                 )}
@@ -421,7 +418,7 @@ export function ProjectsList() {
             </div>
             <button
               onClick={() => handleDelete(project.id, project.name)}
-              className="ml-4 px-2 py-1 text-status-error hover:bg-status-error/10 rounded-lg transition-colors"
+              className="ml-3 px-1.5 py-0.5 text-xs text-status-error hover:bg-status-error/10 rounded transition-colors"
             >
               Delete
             </button>
@@ -429,9 +426,9 @@ export function ProjectsList() {
         ))}
 
         {projects.length === 0 && addMode === 'none' && (
-          <div className="text-center py-8 text-board-text-muted">
-            <p className="mb-2">No projects added yet.</p>
-            <p className="text-sm">
+          <div className="text-center py-4 text-board-text-muted">
+            <p className="text-sm">No projects added yet.</p>
+            <p className="text-xs mt-0.5">
               Add a project to register repositories for agent work.
             </p>
           </div>

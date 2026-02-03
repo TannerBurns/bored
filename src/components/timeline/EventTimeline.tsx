@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { getRunEvents, type AgentEvent } from '../../lib/tauri';
+import { cn } from '../../lib/utils';
 
 interface EventTimelineProps {
   runId: string;
@@ -23,46 +24,46 @@ function formatTimeAgo(dateString: string): string {
 function getEventIcon(eventType: string): string {
   switch (eventType) {
     case 'command_requested':
-      return '\u2318'; // Command symbol
+      return '⌘';
     case 'command_executed':
-      return '\u2713'; // Check mark
+      return '✓';
     case 'file_read':
-      return '\uD83D\uDCD6'; // Open book
+      return '📖';
     case 'file_edited':
-      return '\u270F\uFE0F'; // Pencil
+      return '✏️';
     case 'run_started':
-      return '\u25B6\uFE0F'; // Play
+      return '▶️';
     case 'run_stopped':
-      return '\u23F9'; // Stop
+      return '⏹';
     case 'error':
-      return '\u274C'; // X mark
+      return '❌';
     case 'prompt_submitted':
-      return '\uD83D\uDCAC'; // Speech bubble
+      return '💬';
     default:
-      return '\u2022'; // Bullet
+      return '•';
   }
 }
 
 function getEventColor(eventType: string): string {
   switch (eventType) {
     case 'command_requested':
-      return 'border-blue-500';
+      return 'border-status-info ring-status-info/30';
     case 'command_executed':
-      return 'border-green-500';
+      return 'border-status-success ring-status-success/30';
     case 'file_edited':
-      return 'border-yellow-500';
+      return 'border-status-warning ring-status-warning/30';
     case 'file_read':
-      return 'border-cyan-500';
+      return 'border-cyan-500 ring-cyan-500/30';
     case 'error':
-      return 'border-red-500';
+      return 'border-status-error ring-status-error/30';
     case 'run_stopped':
-      return 'border-gray-500';
+      return 'border-board-text-muted ring-board-text-muted/30';
     case 'run_started':
-      return 'border-green-400';
+      return 'border-status-success ring-status-success/30';
     case 'prompt_submitted':
-      return 'border-purple-500';
+      return 'border-purple-500 ring-purple-500/30';
     default:
-      return 'border-gray-600';
+      return 'border-board-text-muted ring-board-text-muted/30';
   }
 }
 
@@ -78,7 +79,7 @@ function PayloadDisplay({ payload }: { payload: AgentEvent['payload'] }) {
   // Command display
   if (typeof structured.command === 'string') {
     return (
-      <code className="text-xs bg-gray-800 px-2 py-1 rounded block mt-1 overflow-x-auto whitespace-pre-wrap break-all">
+      <code className="text-xs glass-subtle px-2 py-1 rounded-lg block mt-1 overflow-x-auto whitespace-pre-wrap break-all">
         {structured.command}
       </code>
     );
@@ -88,8 +89,8 @@ function PayloadDisplay({ payload }: { payload: AgentEvent['payload'] }) {
   if (typeof structured.filePath === 'string') {
     const tool = typeof structured.tool === 'string' ? structured.tool : 'file';
     return (
-      <span className="text-xs text-gray-400">
-        {tool}: <code className="bg-gray-800 px-1 rounded">{structured.filePath}</code>
+      <span className="text-xs text-board-text-muted">
+        {tool}: <code className="glass-subtle px-1.5 py-0.5 rounded">{structured.filePath}</code>
       </span>
     );
   }
@@ -97,7 +98,7 @@ function PayloadDisplay({ payload }: { payload: AgentEvent['payload'] }) {
   // Reason display
   if (typeof structured.reason === 'string') {
     return (
-      <span className="text-xs text-gray-400">
+      <span className="text-xs text-board-text-muted">
         Reason: {structured.reason}
       </span>
     );
@@ -106,7 +107,7 @@ function PayloadDisplay({ payload }: { payload: AgentEvent['payload'] }) {
   // Status display
   if (typeof structured.status === 'string') {
     return (
-      <span className="text-xs text-gray-400">
+      <span className="text-xs text-board-text-muted">
         Status: {structured.status}
       </span>
     );
@@ -142,23 +143,23 @@ export function EventTimeline({ runId, pollInterval = 2000 }: EventTimelineProps
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-board-accent border-t-transparent"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-400">
-        <p>Error loading events</p>
-        <p className="text-xs text-gray-500 mt-1">{error}</p>
+      <div className="text-center py-8 glass-subtle rounded-xl">
+        <p className="text-status-error">Error loading events</p>
+        <p className="text-xs text-board-text-muted mt-1">{error}</p>
       </div>
     );
   }
 
   if (events.length === 0) {
     return (
-      <div className="text-center py-8 text-gray-500">
+      <div className="text-center py-8 text-board-text-muted glass-subtle rounded-xl">
         No events yet
       </div>
     );
@@ -167,25 +168,28 @@ export function EventTimeline({ runId, pollInterval = 2000 }: EventTimelineProps
   return (
     <div className="space-y-0">
       {events.map((event, index) => (
-        <div key={event.id} className="relative pl-6 pb-4">
-          {/* Vertical line */}
+        <div key={event.id} className="relative pl-7 pb-4">
+          {/* Vertical gradient line */}
           {index < events.length - 1 && (
-            <div className="absolute left-2 top-4 bottom-0 w-px bg-gray-700"></div>
+            <div className="absolute left-[9px] top-5 bottom-0 w-px bg-board-accent/50" />
           )}
           
-          {/* Event dot */}
+          {/* Event dot with glow */}
           <div 
-            className={`absolute left-0 top-1 w-4 h-4 rounded-full border-2 bg-gray-900 ${getEventColor(event.eventType)} flex items-center justify-center text-xs`}
+            className={cn(
+              'absolute left-0 top-1 w-5 h-5 rounded-full border-2 glass-intense flex items-center justify-center text-xs ring-2',
+              getEventColor(event.eventType)
+            )}
           />
           
           {/* Event content */}
-          <div className="bg-gray-800 rounded p-3">
+          <div className="glass rounded-xl p-3 hover:shadow-md transition-all duration-200">
             <div className="flex items-center gap-2 mb-1">
               <span>{getEventIcon(event.eventType)}</span>
-              <span className="font-medium text-sm capitalize">
+              <span className="font-medium text-sm text-board-text capitalize">
                 {formatEventType(event.eventType)}
               </span>
-              <span className="text-xs text-gray-500 ml-auto">
+              <span className="text-xs text-board-text-muted ml-auto glass-subtle px-1.5 py-0.5 rounded">
                 {formatTimeAgo(event.createdAt)}
               </span>
             </div>

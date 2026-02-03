@@ -18,6 +18,7 @@ interface SidebarProps {
   onCreateBoard: () => void;
   onRenameBoard: (board: Board) => void;
   onDeleteBoard: (board: Board) => void;
+  onSettingsClick?: () => void;
 }
 
 export function Sidebar({
@@ -30,6 +31,7 @@ export function Sidebar({
   onCreateBoard,
   onRenameBoard,
   onDeleteBoard,
+  onSettingsClick,
 }: SidebarProps) {
   const [menuOpenForBoard, setMenuOpenForBoard] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -47,21 +49,66 @@ export function Sidebar({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [menuOpenForBoard]);
+
   return (
-    <aside className="w-64 bg-board-column border-r border-board-border p-4 flex flex-col">
-      <h1 className="text-xl font-bold text-board-text mb-6 flex items-center gap-2">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 512 512"
-          className="flex-shrink-0"
-        >
-          <rect x="51" y="51" width="410" height="410" rx="82" className="fill-board-accent"/>
-          <path d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z" fill="white"/>
-        </svg>
-        Bored
-      </h1>
+    <aside className="w-64 glass-intense border-r border-board-border p-4 flex flex-col">
+      {/* Logo with settings icon */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold text-board-text flex items-center gap-2 group">
+          <div className="relative">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="28"
+              height="28"
+              viewBox="0 0 512 512"
+              className="flex-shrink-0 transition-transform duration-300 group-hover:scale-110"
+            >
+              <defs>
+                <linearGradient id="logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style={{ stopColor: 'var(--app-accent-start)' }} />
+                  <stop offset="100%" style={{ stopColor: 'var(--app-accent-end)' }} />
+                </linearGradient>
+              </defs>
+              <rect x="51" y="51" width="410" height="410" rx="82" fill="url(#logo-gradient)" />
+              <path d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z" fill="white"/>
+            </svg>
+            {/* Subtle glow effect behind logo */}
+            <div className="absolute inset-0 -z-10 blur-xl opacity-40 rounded-full bg-board-accent" />
+          </div>
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-board-text to-board-text-secondary">
+            Bored
+          </span>
+        </h1>
+        {/* Settings icon button */}
+        {onSettingsClick && (
+          <button
+            onClick={onSettingsClick}
+            className={cn(
+              'p-2 rounded-lg transition-all duration-200',
+              activeItem === 'settings'
+                ? 'bg-board-accent text-white shadow-md'
+                : 'text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+            )}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {/* Boards Section */}
       <div className="mb-4">
@@ -71,7 +118,7 @@ export function Sidebar({
           </span>
           <button
             onClick={onCreateBoard}
-            className="p-1 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded transition-colors"
+            className="p-1.5 text-board-text-muted hover:text-board-text rounded-lg transition-all duration-200 hover:bg-board-card-hover hover:shadow-sm"
             aria-label="Create new board"
             title="Create new board"
           >
@@ -93,7 +140,7 @@ export function Sidebar({
         </div>
         <ul className="space-y-1">
           {boards.length === 0 ? (
-            <li className="text-sm text-board-text-muted px-3 py-2">
+            <li className="text-sm text-board-text-muted px-3 py-2 glass-subtle rounded-lg">
               No boards yet
             </li>
           ) : (
@@ -110,11 +157,11 @@ export function Sidebar({
                         onItemClick('boards');
                       }}
                       className={cn(
-                        'flex-1 text-left px-3 py-2 rounded-lg transition-all duration-150',
+                        'flex-1 text-left px-3 py-2 rounded-lg transition-all duration-200',
                         'flex items-center gap-2 text-sm',
                         isActive
-                          ? 'bg-board-accent text-white shadow-sm'
-                          : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text'
+                          ? 'bg-board-accent text-white shadow-md'
+                          : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text hover:translate-x-0.5'
                       )}
                     >
                       <svg
@@ -144,7 +191,7 @@ export function Sidebar({
                         setMenuOpenForBoard(isMenuOpen ? null : board.id);
                       }}
                       className={cn(
-                        'p-1 rounded transition-colors',
+                        'p-1 rounded-lg transition-all duration-200',
                         'text-board-text-muted hover:text-board-text hover:bg-board-card-hover',
                         'opacity-0 group-hover:opacity-100',
                         isMenuOpen && 'opacity-100'
@@ -165,11 +212,11 @@ export function Sidebar({
                     </button>
                   </div>
                   
-                  {/* Dropdown menu */}
+                  {/* Dropdown menu with glass effect */}
                   {isMenuOpen && (
                     <div
                       ref={menuRef}
-                      className="absolute right-0 top-full mt-1 z-50 bg-board-column border border-board-border rounded-lg shadow-lg py-1 min-w-[120px]"
+                      className="absolute right-0 top-full mt-1 z-50 glass-intense rounded-xl shadow-lg py-1 min-w-[140px] border border-board-border overflow-hidden"
                     >
                       <button
                         onClick={() => {
@@ -199,7 +246,7 @@ export function Sidebar({
                           setMenuOpenForBoard(null);
                           onDeleteBoard(board);
                         }}
-                        className="w-full text-left px-3 py-2 text-sm text-status-error hover:bg-board-card-hover transition-colors flex items-center gap-2"
+                        className="w-full text-left px-3 py-2 text-sm text-status-error hover:bg-status-error/10 transition-colors flex items-center gap-2"
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -229,7 +276,7 @@ export function Sidebar({
         </ul>
       </div>
 
-      <div className="border-t border-board-border my-2" />
+      <div className="border-t border-board-border my-2 opacity-50" />
 
       <nav className="flex-1">
         <ul className="space-y-1">
@@ -238,11 +285,11 @@ export function Sidebar({
               <button
                 onClick={() => onItemClick(item.id)}
                 className={cn(
-                  'w-full text-left px-3 py-2.5 rounded-lg transition-all duration-150',
+                  'w-full text-left px-3 py-2.5 rounded-lg transition-all duration-200',
                   'flex items-center gap-2 font-medium',
                   activeItem === item.id
-                    ? 'bg-board-accent text-white shadow-sm'
-                    : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text'
+                    ? 'bg-board-accent text-white shadow-md'
+                    : 'text-board-text-secondary hover:bg-board-card-hover hover:text-board-text hover:translate-x-0.5'
                 )}
               >
                 {item.icon}
@@ -252,7 +299,7 @@ export function Sidebar({
           ))}
         </ul>
       </nav>
-      <div className="pt-4 border-t border-board-border">
+      <div className="pt-4 border-t border-board-border border-opacity-50">
         <p className="text-xs text-board-text-muted">v0.1.0</p>
       </div>
     </aside>

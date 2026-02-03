@@ -1,9 +1,10 @@
 import { cn } from '../../lib/utils';
-import { PRIORITY_BORDER_COLORS } from '../../lib/constants';
+import { PRIORITY_BORDER_COLORS, PRIORITY_RING_COLORS } from '../../lib/constants';
 import type { Ticket as TicketType } from '../../types';
 
 interface TicketPreviewProps {
   ticket: TicketType;
+  isDragging?: boolean;
 }
 
 /**
@@ -11,19 +12,21 @@ interface TicketPreviewProps {
  * Unlike Ticket, this component does not use useSortable since DragOverlay
  * renders outside of SortableContext.
  */
-export function TicketPreview({ ticket }: TicketPreviewProps) {
+export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
   return (
     <div
       className={cn(
-        'bg-board-card p-3 rounded-md cursor-grabbing border-l-4',
-        'ring-2 ring-board-accent shadow-lg',
+        'glass-intense p-3 rounded-xl cursor-grabbing border-l-4 ring-2',
+        'shadow-xl glow-accent-intense',
         PRIORITY_BORDER_COLORS[ticket.priority],
-        ticket.isEpic && 'ring-purple-500'
+        PRIORITY_RING_COLORS[ticket.priority],
+        ticket.isEpic && 'ring-purple-500',
+        isDragging && 'opacity-95'
       )}
     >
       <div className="flex items-center gap-2 mb-2">
         {ticket.isEpic && (
-          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded font-medium">
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-purple-500 text-white shadow-sm">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="10"
@@ -41,7 +44,7 @@ export function TicketPreview({ ticket }: TicketPreviewProps) {
           </span>
         )}
         {ticket.epicId && (
-          <span className="text-xs text-purple-400/70">
+          <span className="text-xs text-purple-400/70 flex items-center">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="10"
@@ -52,7 +55,7 @@ export function TicketPreview({ ticket }: TicketPreviewProps) {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="inline mr-1"
+              className="mr-1"
             >
               <polyline points="9 18 15 12 9 6" />
             </svg>
@@ -60,30 +63,33 @@ export function TicketPreview({ ticket }: TicketPreviewProps) {
           </span>
         )}
       </div>
-      <h4 className="font-medium text-white text-sm mb-2">{ticket.title}</h4>
+      <h4 className="font-medium text-board-text text-sm mb-2">{ticket.title}</h4>
       
       {ticket.labels.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {ticket.labels.slice(0, 3).map((label) => (
             <span
               key={label}
-              className="text-xs px-2 py-0.5 bg-board-column rounded-full text-gray-300"
+              className="text-xs px-2 py-0.5 bg-violet-500/20 text-violet-300 rounded-full font-medium"
             >
               {label}
             </span>
           ))}
           {ticket.labels.length > 3 && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-board-text-muted">
               +{ticket.labels.length - 3}
             </span>
           )}
         </div>
       )}
       
-      <div className="flex items-center justify-between text-xs text-gray-500">
-        <span>{ticket.agentPref || 'any'}</span>
+      <div className="flex items-center justify-between text-xs text-board-text-muted">
+        <span className="bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-medium">{ticket.agentPref || 'any'}</span>
         {ticket.lockedByRunId && (
-          <span className="text-yellow-500">Running</span>
+          <span className="text-status-warning font-medium flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
+            Running
+          </span>
         )}
       </div>
     </div>

@@ -189,58 +189,58 @@ export function CursorSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-board-text">Cursor Integration</h2>
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-board-text">Cursor Integration</h2>
 
       {error && (
-        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-4 py-3 rounded-xl">
+        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-3 py-2 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-status-success/10 border border-status-success/30 text-status-success px-4 py-3 rounded-xl">
+        <div className="bg-status-success/10 border border-status-success/30 text-status-success px-3 py-2 rounded-lg text-sm">
           {success}
         </div>
       )}
 
       {/* Status Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Status</h3>
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Status</h3>
         
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${status?.isAvailable ? 'bg-status-success' : 'bg-status-error'}`} />
-            <span className="text-board-text-muted">Cursor CLI:</span>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${status?.isAvailable ? 'bg-status-success' : 'bg-status-error'}`} />
+            <span className="text-board-text-muted">CLI:</span>
             <span className="text-board-text">{status?.isAvailable ? 'Available' : 'Not found'}</span>
           </div>
           
           {status?.version && (
-            <div>
+            <div className="flex items-center gap-1.5">
               <span className="text-board-text-muted">Version:</span>
-              <span className="ml-2 text-board-text">{status.version}</span>
+              <span className="text-board-text">{status.version}</span>
             </div>
           )}
           
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${status?.globalHooksInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${status?.globalHooksInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
             <span className="text-board-text-muted">Global hooks:</span>
             <span className="text-board-text">{status?.globalHooksInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
           
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
-            <span className="text-board-text-muted">User commands:</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+            <span className="text-board-text-muted">Commands:</span>
             <span className="text-board-text">{userCommandsInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
         </div>
       </div>
 
       {/* Hook Script Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Hook Script</h3>
-        <p className="text-sm text-board-text-muted">
-          The hook script intercepts Cursor agent events and sends them to Agent Kanban.
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Hook Script</h3>
+        <p className="text-xs text-board-text-muted">
+          Intercepts Cursor agent events and sends them to Agent Kanban.
         </p>
         
         <div className="flex items-center gap-2">
@@ -248,12 +248,12 @@ export function CursorSettings() {
             type="text"
             value={status?.hookScriptPath || 'Not available'}
             readOnly
-            className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm font-mono text-board-text-secondary border border-board-border"
+            className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg text-xs font-mono text-board-text-secondary border border-board-border"
           />
           <button
             onClick={handleCopyPath}
             disabled={!status?.hookScriptPath}
-            className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50 text-board-text"
+            className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50 text-board-text"
           >
             Copy
           </button>
@@ -261,47 +261,47 @@ export function CursorSettings() {
       </div>
 
       {/* Install Hooks Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
-        <h3 className="font-medium text-board-text">Install Hooks</h3>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <h3 className="text-sm font-medium text-board-text">Install Hooks</h3>
         
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+        <div className="flex gap-3 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="location"
               checked={installLocation === 'global'}
               onChange={() => setInstallLocation('global')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
-            <span>Global (all projects)</span>
+            <span>Global</span>
           </label>
           
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="location"
               checked={installLocation === 'project'}
               onChange={() => setInstallLocation('project')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
             <span>Project-specific</span>
           </label>
         </div>
 
         {installLocation === 'project' && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {projects.length > 0 && (
               <div>
-                <label className="block text-sm text-board-text-secondary mb-1.5">Select registered project</label>
+                <label className="block text-xs text-board-text-secondary mb-1">Select project</label>
                 <select
                   value={selectedProjectId}
                   onChange={(e) => {
                     setSelectedProjectId(e.target.value);
                     setProjectPath('');
                   }}
-                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
+                  className="w-full px-2 py-1.5 text-sm bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
                 >
-                  <option value="">-- Select a project --</option>
+                  <option value="">-- Select --</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.path})
@@ -312,8 +312,8 @@ export function CursorSettings() {
             )}
 
             <div>
-              <label className="block text-sm text-board-text-secondary mb-1.5">
-                {projects.length > 0 ? 'Or enter custom path' : 'Project path'}
+              <label className="block text-xs text-board-text-secondary mb-1">
+                {projects.length > 0 ? 'Or enter path' : 'Project path'}
               </label>
               <div className="flex gap-2">
                 <input
@@ -324,11 +324,11 @@ export function CursorSettings() {
                     setProjectPath(e.target.value);
                     setSelectedProjectId('');
                   }}
-                  className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+                  className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
                 />
                 <button
                   onClick={handleBrowse}
-                  className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                  className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
                 >
                   Browse
                 </button>
@@ -337,11 +337,11 @@ export function CursorSettings() {
           </div>
         )}
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex gap-2">
           <button
             onClick={handleInstallHooks}
             disabled={installing || !status?.hookScriptPath}
-            className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-1.5 text-sm bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {installing ? 'Installing...' : 'Install Hooks'}
           </button>
@@ -349,7 +349,7 @@ export function CursorSettings() {
           <button
             onClick={handleCopyConfig}
             disabled={!status?.hookScriptPath}
-            className="px-4 py-2 bg-board-surface-raised border border-board-border text-board-text rounded-lg hover:bg-board-card-hover disabled:opacity-50 transition-colors"
+            className="px-3 py-1.5 text-sm bg-board-surface-raised border border-board-border text-board-text rounded-lg hover:bg-board-card-hover disabled:opacity-50 transition-colors"
           >
             Copy Config
           </button>
@@ -357,18 +357,18 @@ export function CursorSettings() {
       </div>
 
       {/* Command Templates Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
-        <h3 className="font-medium text-board-text">Install Commands</h3>
-        <p className="text-sm text-board-text-muted">
-          Install workflow command templates to enable the QA sequence: deslop, cleanup, unit-tests, review-changes, add-and-commit.
+      <div className="glass rounded-lg p-3 space-y-3">
+        <h3 className="text-sm font-medium text-board-text">Install Commands</h3>
+        <p className="text-xs text-board-text-muted">
+          Install workflow command templates for the QA sequence.
         </p>
 
         {availableCommands.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1">
             {availableCommands.map((cmd) => (
               <span
                 key={cmd}
-                className="px-2 py-1 bg-board-surface-raised rounded-lg text-xs text-board-text-secondary border border-board-border"
+                className="px-1.5 py-0.5 bg-board-surface-raised rounded text-xs text-board-text-secondary border border-board-border"
               >
                 /{cmd.replace('.md', '')}
               </span>
@@ -376,36 +376,36 @@ export function CursorSettings() {
           </div>
         )}
         
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+        <div className="flex gap-3 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="commandLocation"
               checked={commandInstallLocation === 'global'}
               onChange={() => setCommandInstallLocation('global')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
-            <span>Global (all projects)</span>
-            <span className={`w-2 h-2 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+            <span>Global</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
           </label>
           
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="commandLocation"
               checked={commandInstallLocation === 'project'}
               onChange={() => setCommandInstallLocation('project')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
             <span>Project-specific</span>
           </label>
         </div>
 
         {commandInstallLocation === 'project' && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {projects.length > 0 && (
               <div>
-                <label className="block text-sm text-board-text-secondary mb-1.5">Select registered project</label>
+                <label className="block text-xs text-board-text-secondary mb-1">Select project</label>
                 <div className="flex items-center gap-2">
                   <select
                     value={commandProjectId}
@@ -413,9 +413,9 @@ export function CursorSettings() {
                       setCommandProjectId(e.target.value);
                       setCommandProjectPath('');
                     }}
-                    className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
+                    className="flex-1 px-2 py-1.5 text-sm bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
                   >
-                    <option value="">-- Select a project --</option>
+                    <option value="">-- Select --</option>
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.path})
@@ -423,15 +423,15 @@ export function CursorSettings() {
                     ))}
                   </select>
                   {commandProjectId && (
-                    <span className={`w-2 h-2 rounded-full ${projectCommandStatus[commandProjectId] ? 'bg-status-success' : 'bg-status-warning'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${projectCommandStatus[commandProjectId] ? 'bg-status-success' : 'bg-status-warning'}`} />
                   )}
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-sm text-board-text-secondary mb-1.5">
-                {projects.length > 0 ? 'Or enter custom path' : 'Project path'}
+              <label className="block text-xs text-board-text-secondary mb-1">
+                {projects.length > 0 ? 'Or enter path' : 'Project path'}
               </label>
               <div className="flex gap-2">
                 <input
@@ -442,11 +442,11 @@ export function CursorSettings() {
                     setCommandProjectPath(e.target.value);
                     setCommandProjectId('');
                   }}
-                  className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+                  className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
                 />
                 <button
                   onClick={handleBrowse}
-                  className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                  className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
                 >
                   Browse
                 </button>
@@ -458,36 +458,36 @@ export function CursorSettings() {
         <button
           onClick={handleInstallCommands}
           disabled={installingCommands || (commandInstallLocation === 'project' && !commandProjectId && !commandProjectPath)}
-          className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-1.5 text-sm bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {installingCommands ? 'Installing...' : 'Install Commands'}
         </button>
       </div>
 
       {/* Manual Setup Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Manual Setup</h3>
-        <p className="text-sm text-board-text-muted">
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Manual Setup</h3>
+        <p className="text-xs text-board-text-muted">
           If automatic installation doesn't work, manually create/edit:
         </p>
-        <ul className="text-sm text-board-text-muted list-disc list-inside space-y-1">
+        <ul className="text-xs text-board-text-muted list-disc list-inside space-y-0.5">
           <li>
-            Global: <code className="bg-board-surface-raised px-1.5 py-0.5 rounded text-board-text-secondary">~/.cursor/hooks.json</code>
+            Global: <code className="bg-board-surface-raised px-1 py-0.5 rounded text-board-text-secondary">~/.cursor/hooks.json</code>
           </li>
           <li>
-            Project: <code className="bg-board-surface-raised px-1.5 py-0.5 rounded text-board-text-secondary">.cursor/hooks.json</code> in your project
+            Project: <code className="bg-board-surface-raised px-1 py-0.5 rounded text-board-text-secondary">.cursor/hooks.json</code>
           </li>
         </ul>
         
         <details 
-          className="text-sm"
+          className="text-xs"
           open={configVisible}
           onToggle={(e) => setConfigVisible((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer text-board-accent hover:text-board-accent-hover">
             View example configuration
           </summary>
-          <pre className="mt-2 p-3 bg-board-bg rounded-lg overflow-x-auto text-xs text-board-text-secondary border border-board-border">
+          <pre className="mt-1.5 p-2 bg-board-bg rounded-lg overflow-x-auto text-xs text-board-text-secondary border border-board-border">
             {configJson || `{
   "hooks": {
     "beforeShellExecution": {
@@ -509,14 +509,14 @@ export function CursorSettings() {
       </div>
 
       {/* Beta Limitations Warning */}
-      <div className="bg-status-warning/10 border border-status-warning/30 rounded-xl p-4">
-        <h3 className="font-medium text-status-warning">Beta Limitations</h3>
-        <p className="text-sm text-board-text-secondary mt-1">
-          Some Cursor hooks are informational only and don't support blocking:
+      <div className="bg-status-warning/10 border border-status-warning/30 rounded-lg px-3 py-2">
+        <h3 className="text-sm font-medium text-status-warning">Beta Limitations</h3>
+        <p className="text-xs text-board-text-secondary mt-0.5">
+          Some hooks are informational only:
         </p>
-        <ul className="text-sm text-board-text-secondary list-disc list-inside mt-2 space-y-1">
-          <li><code className="bg-status-warning/10 px-1.5 py-0.5 rounded text-status-warning">beforeSubmitPrompt</code> - can't modify or block</li>
-          <li><code className="bg-status-warning/10 px-1.5 py-0.5 rounded text-status-warning">afterFileEdit</code> - can't block, only log</li>
+        <ul className="text-xs text-board-text-secondary list-disc list-inside mt-1 space-y-0.5">
+          <li><code className="bg-status-warning/10 px-1 rounded text-status-warning">beforeSubmitPrompt</code> - can't block</li>
+          <li><code className="bg-status-warning/10 px-1 rounded text-status-warning">afterFileEdit</code> - can't block</li>
         </ul>
       </div>
     </div>

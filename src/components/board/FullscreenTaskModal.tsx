@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { cn } from '../../lib/utils';
 import type { Task } from '../../types';
@@ -26,6 +26,11 @@ const STATUS_LABELS: Record<Task['status'], string> = {
   failed: 'Failed',
 };
 
+/**
+ * Fullscreen modal for viewing and editing tasks.
+ * Uses the same visual design as FullscreenEditorModal but supports
+ * both title and content fields, plus reset functionality.
+ */
 export function FullscreenTaskModal({
   task,
   isOpen,
@@ -41,18 +46,46 @@ export function FullscreenTaskModal({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
+  // Can only edit pending tasks
+  const canEdit = task.status === 'pending';
+  // Can reset failed or completed tasks
+  const canReset = (task.status === 'failed' || task.status === 'completed') && onReset;
+
   // Sync edit content when task changes
   useEffect(() => {
     setEditTitle(task.title || '');
     setEditContent(task.content || '');
   }, [task]);
 
-  // Focus textarea when entering edit mode
+  // Reset edit mode when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setIsEditMode(false);
+    }
+  }, [isOpen]);
+
+  // Focus title input when entering edit mode
   useEffect(() => {
     if (isEditMode && titleRef.current) {
       titleRef.current.focus();
     }
   }, [isEditMode]);
+
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      await onSave(editTitle, editContent);
+      setIsEditMode(false);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [editTitle, editContent, onSave]);
+
+  const handleCancel = useCallback(() => {
+    setIsEditMode(false);
+    setEditTitle(task.title || '');
+    setEditContent(task.content || '');
+  }, [task.title, task.content]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -61,10 +94,7 @@ export function FullscreenTaskModal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isEditMode) {
-          // Cancel edit mode
-          setIsEditMode(false);
-          setEditTitle(task.title || '');
-          setEditContent(task.content || '');
+          handleCancel();
         } else {
           onClose();
         }
@@ -78,7 +108,7 @@ export function FullscreenTaskModal({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isEditMode, task, onClose]);
+  }, [isOpen, isEditMode, onClose, handleSave, handleCancel]);
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -91,27 +121,6 @@ export function FullscreenTaskModal({
       document.body.style.overflow = '';
     };
   }, [isOpen]);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(editTitle, editContent);
-      setIsEditMode(false);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setIsEditMode(false);
-    setEditTitle(task.title || '');
-    setEditContent(task.content || '');
-  };
-
-  // Can only edit pending tasks
-  const canEdit = task.status === 'pending';
-  // Can reset failed or completed tasks
-  const canReset = (task.status === 'failed' || task.status === 'completed') && onReset;
 
   const handleReset = async () => {
     if (!onReset) return;
@@ -147,19 +156,19 @@ export function FullscreenTaskModal({
             <h2 className="text-lg font-semibold text-board-text">
               Task #{task.orderIndex + 1}
             </h2>
-            <span className="text-sm text-board-accent">
-              {TASK_TYPE_LABELS[task.taskType]}
+            <span className="text-sm text-board-text-muted truncate max-w-md">
+              — {TASK_TYPE_LABELS[task.taskType]}
             </span>
             <span
               className={cn(
-                'text-xs px-2 py-0.5 rounded',
+                'text-xs px-2 py-0.5 rounded-full text-white',
                 task.status === 'completed'
-                  ? 'bg-status-success/20 text-status-success'
+                  ? 'bg-status-success'
                   : task.status === 'in_progress'
-                  ? 'bg-status-warning/20 text-status-warning'
+                  ? 'bg-status-warning'
                   : task.status === 'failed'
-                  ? 'bg-status-error/20 text-status-error'
-                  : 'bg-board-surface-raised text-board-text-muted'
+                  ? 'bg-status-error'
+                  : 'bg-board-text-muted'
               )}
             >
               {STATUS_LABELS[task.status]}
@@ -291,17 +300,9 @@ export function FullscreenTaskModal({
               <span>
                 Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Cmd+Enter</kbd> to save, <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to cancel
               </span>
-            ) : canEdit ? (
-              <span>
-                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Click Edit to modify
-              </span>
-            ) : canReset ? (
-              <span>
-                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Task {task.status === 'failed' ? 'failed' : 'completed'}, click Reset to retry
-              </span>
             ) : (
               <span>
-                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close • Task is {STATUS_LABELS[task.status].toLowerCase()}
+                Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to close
               </span>
             )}
           </div>

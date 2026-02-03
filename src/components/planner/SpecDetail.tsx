@@ -8,6 +8,7 @@ import { PlanViewer } from './PlanViewer';
 import { LiveLogPanel } from './LiveLogPanel';
 import { EpicProgressPanel } from './EpicProgressPanel';
 import { logger } from '../../lib/logger';
+import { cn } from '../../lib/utils';
 import type { Spec, Exploration, SpecStatus, SpecProgress } from '../../types';
 
 interface SpecDetailProps {
@@ -56,46 +57,38 @@ function ProgressIndicator({ status }: { status: SpecStatus }) {
   const isError = message.variant === 'error';
   const isWarning = message.variant === 'warning';
 
-  const bgColor = isError 
-    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-    : isWarning
-    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-    : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
-  
-  const titleColor = isError 
-    ? 'text-red-700 dark:text-red-300'
-    : isWarning
-    ? 'text-yellow-700 dark:text-yellow-300'
-    : 'text-blue-700 dark:text-blue-300';
-  
-  const subtitleColor = isError 
-    ? 'text-red-600 dark:text-red-400'
-    : isWarning
-    ? 'text-yellow-600 dark:text-yellow-400'
-    : 'text-blue-600 dark:text-blue-400';
-
   return (
-    <div className={`mx-4 mt-4 flex items-center gap-3 p-4 rounded-lg border ${bgColor}`}>
+    <div className={cn(
+      'mx-4 mt-4 flex items-center gap-3 p-4 rounded-xl glass',
+      isError && 'ring-1 ring-status-error/50 glow-error',
+      isWarning && 'ring-1 ring-status-warning/50 glow-warning',
+      !isError && !isWarning && 'ring-1 ring-status-info/50'
+    )}>
       {isError ? (
-        <div className="h-5 w-5 flex-shrink-0 text-red-500">
+        <div className="h-5 w-5 flex-shrink-0 text-status-error">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
         </div>
       ) : isWarning ? (
-        <div className="h-5 w-5 flex-shrink-0 text-yellow-500">
+        <div className="h-5 w-5 flex-shrink-0 text-status-warning">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 112 0v4a1 1 0 11-2 0V9zm1-4a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
           </svg>
         </div>
       ) : (
-        <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full flex-shrink-0" />
+        <div className="animate-spin h-5 w-5 border-2 border-status-info border-t-transparent rounded-full flex-shrink-0" />
       )}
       <div>
-        <p className={`font-medium ${titleColor}`}>
+        <p className={cn(
+          'font-medium',
+          isError && 'text-status-error',
+          isWarning && 'text-status-warning',
+          !isError && !isWarning && 'text-status-info'
+        )}>
           {message.title}
         </p>
-        <p className={`text-sm ${subtitleColor}`}>
+        <p className="text-sm text-board-text-muted">
           {message.subtitle}
         </p>
       </div>
@@ -106,21 +99,21 @@ function ProgressIndicator({ status }: { status: SpecStatus }) {
 function ExplorationLog({ explorations }: { explorations: Exploration[] }) {
   if (explorations.length === 0) {
     return (
-      <div className="text-gray-500 text-center py-8">
+      <div className="text-board-text-muted text-center py-8 glass-subtle rounded-xl">
         No explorations yet
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {explorations.map((exploration, idx) => (
-        <div key={idx} className="border dark:border-gray-700 rounded-lg overflow-hidden">
-          <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2">
-            <h4 className="font-medium text-gray-900 dark:text-white">
+        <div key={idx} className="glass rounded-xl overflow-hidden">
+          <div className="glass-subtle px-4 py-3 border-b border-board-border">
+            <h4 className="font-medium text-board-text">
               Query {idx + 1}
             </h4>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+            <p className="text-sm text-board-text-muted mt-1">
               {exploration.query}
             </p>
           </div>
@@ -384,16 +377,35 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isProcessing]);
 
+  const tabs: { id: string; label: string; badge?: string | number; pulse?: boolean }[] = [
+    { id: 'input', label: 'User Input' },
+    { id: 'logs', label: 'Live Logs', badge: specLogs.length > 0 ? specLogs.length : undefined, pulse: isProcessing },
+    { id: 'exploration', label: `Exploration (${spec.explorationLog?.length || 0})` },
+    { id: 'plan', label: 'Plan' },
+  ];
+  
+  if ((isWorking || isPaused || isCompleted || canStartWork) && progress) {
+    tabs.push({
+      id: 'progress',
+      label: 'Progress',
+      badge: `${progress.done}/${progress.total}`,
+      pulse: isWorking,
+    });
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
+      <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-semibold text-board-text">
             {spec.name}
           </h2>
-          <p className="text-sm text-gray-500 capitalize">
-            Status: {spec.status.replace('_', ' ')}
+          <p className="text-sm text-board-text-muted capitalize flex items-center gap-2">
+            Status: 
+            <span className="glass-subtle px-2 py-0.5 rounded-full text-xs">
+              {spec.status.replace('_', ' ')}
+            </span>
           </p>
         </div>
         <div className="flex gap-2">
@@ -460,9 +472,8 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
           {canHalt && (
             <Button
               onClick={handleHalt}
-              variant="secondary"
+              variant="danger"
               disabled={isHalting}
-              className="text-red-500 hover:text-red-600"
             >
               {isHalting ? 'Halting...' : 'Halt'}
             </Button>
@@ -471,23 +482,22 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
           <div className="relative group">
             <Button 
               onClick={() => handleDelete(false)} 
-              variant="secondary" 
+              variant="danger" 
               disabled={isDeleting || isProcessing}
-              className="text-red-500 hover:text-red-600 border-red-300 hover:border-red-400"
             >
               {isDeleting ? 'Deleting...' : 'Delete'}
             </Button>
             {progress && progress.totalTickets > 0 && !isDeleting && !isProcessing && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <div className="absolute right-0 top-full mt-1 w-48 glass-intense rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 overflow-hidden">
                 <button
                   onClick={() => handleDelete(false)}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
+                  className="w-full px-3 py-2 text-left text-sm text-board-text hover:bg-board-card-hover transition-colors"
                 >
                   Delete spec only
                 </button>
                 <button
                   onClick={() => handleDelete(true)}
-                  className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-b-lg border-t border-gray-200 dark:border-gray-700"
+                  className="w-full px-3 py-2 text-left text-sm text-status-error hover:bg-status-error/10 transition-colors border-t border-board-border"
                 >
                   Delete with {progress.totalTickets} tickets
                 </button>
@@ -502,93 +512,49 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+        <div className="mx-4 mt-4 p-3 glass rounded-xl ring-1 ring-status-error/50 glow-error">
+          <p className="text-sm text-status-error">{error}</p>
         </div>
       )}
 
       {/* Progress Indicator */}
       <ProgressIndicator status={spec.status} />
 
-      {/* Tabs */}
-      <div className="flex border-b dark:border-gray-700">
-        <button
-          onClick={() => setActiveTab('input')}
-          className={`px-4 py-2 text-sm font-medium ${
-            activeTab === 'input'
-              ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          User Input
-        </button>
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`px-4 py-2 text-sm font-medium flex items-center gap-1.5 ${
-            activeTab === 'logs'
-              ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          Live Logs
-          {isProcessing && (
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          )}
-          {specLogs.length > 0 && (
-            <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 rounded">
-              {specLogs.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('exploration')}
-          className={`px-4 py-2 text-sm font-medium ${
-            activeTab === 'exploration'
-              ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          Exploration ({spec.explorationLog?.length || 0})
-        </button>
-        <button
-          onClick={() => setActiveTab('plan')}
-          className={`px-4 py-2 text-sm font-medium ${
-            activeTab === 'plan'
-              ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          Plan
-        </button>
-        {(isWorking || isPaused || isCompleted || canStartWork) && progress && (
+      {/* Tabs with glass styling */}
+      <div className="flex border-b border-board-border px-4 gap-1">
+        {tabs.map((tab) => (
           <button
-            onClick={() => setActiveTab('progress')}
-            className={`px-4 py-2 text-sm font-medium flex items-center gap-1.5 ${
-              activeTab === 'progress'
-                ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-            }`}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            className={cn(
+              'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative flex items-center gap-2 rounded-t-lg',
+              activeTab === tab.id
+                ? 'text-board-accent'
+                : 'text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+            )}
           >
-            Progress
-            {isWorking && (
-              <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            {tab.label}
+            {tab.pulse && (
+              <span className="inline-block w-2 h-2 bg-status-success rounded-full animate-pulse" />
             )}
-            {isPaused && (
-              <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full" />
+            {tab.badge && (
+              <span className="text-xs glass-subtle px-1.5 py-0.5 rounded-full">
+                {tab.badge}
+              </span>
             )}
-            <span className="text-xs bg-gray-200 dark:bg-gray-700 px-1.5 rounded">
-              {progress.done}/{progress.total}
-            </span>
+            {activeTab === tab.id && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
+            )}
           </button>
-        )}
+        ))}
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'input' && (
-          <div className="prose dark:prose-invert max-w-none">
-            <h3>Original Request</h3>
-            <p className="whitespace-pre-wrap">{spec.userInput}</p>
+          <div className="glass rounded-xl p-6">
+            <h3 className="text-lg font-medium text-board-text mb-4">Original Request</h3>
+            <p className="whitespace-pre-wrap text-board-text-secondary">{spec.userInput}</p>
           </div>
         )}
         
@@ -614,7 +580,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
               planJson={spec.planJson}
             />
           ) : (
-            <div className="text-gray-500 text-center py-8">
+            <div className="text-board-text-muted text-center py-8 glass-subtle rounded-xl">
               No plan generated yet
             </div>
           )

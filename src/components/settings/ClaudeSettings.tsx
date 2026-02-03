@@ -262,89 +262,89 @@ export function ClaudeSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-board-text">Claude Code Integration</h2>
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-board-text">Claude Code Integration</h2>
 
       {error && (
-        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-4 py-3 rounded-xl">
+        <div className="bg-status-error/10 border border-status-error/30 text-status-error px-3 py-2 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-status-success/10 border border-status-success/30 text-status-success px-4 py-3 rounded-xl">
+        <div className="bg-status-success/10 border border-status-success/30 text-status-success px-3 py-2 rounded-lg text-sm">
           {success}
         </div>
       )}
 
       {/* Status Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Status</h3>
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Status</h3>
         
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${status?.isAvailable ? 'bg-status-success' : 'bg-status-error'}`} />
-            <span className="text-board-text-muted">Claude CLI:</span>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${status?.isAvailable ? 'bg-status-success' : 'bg-status-error'}`} />
+            <span className="text-board-text-muted">CLI:</span>
             <span className="text-board-text">{status?.isAvailable ? 'Available' : 'Not found'}</span>
           </div>
           
           {status?.version && (
-            <div>
+            <div className="flex items-center gap-1.5">
               <span className="text-board-text-muted">Version:</span>
-              <span className="ml-2 text-board-text">{status.version}</span>
+              <span className="text-board-text">{status.version}</span>
             </div>
           )}
           
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${status?.userHooksInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${status?.userHooksInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
             <span className="text-board-text-muted">User hooks:</span>
             <span className="text-board-text">{status?.userHooksInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
           
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
-            <span className="text-board-text-muted">User commands:</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+            <span className="text-board-text-muted">Commands:</span>
             <span className="text-board-text">{userCommandsInstalled ? 'Installed' : 'Not installed'}</span>
           </div>
         </div>
       </div>
 
       {/* API Configuration Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
-        <h3 className="font-medium text-board-text">API Configuration</h3>
-        <p className="text-sm text-board-text-muted">
-          Configure custom API credentials for Claude Code. Leave fields empty to use system defaults.
+      <div className="glass rounded-lg p-3 space-y-3">
+        <h3 className="text-sm font-medium text-board-text">API Configuration</h3>
+        <p className="text-xs text-board-text-muted">
+          Configure custom API credentials. Leave empty to use system defaults.
         </p>
         
-        <div className="grid gap-4">
+        <div className="grid gap-2">
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
+            <label className="block text-xs text-board-text-secondary mb-1">
               Auth Token (ANTHROPIC_AUTH_TOKEN)
             </label>
             <input
               type="password"
-              placeholder="OAuth token for Claude Code"
+              placeholder="OAuth token"
               value={apiAuthToken}
               onChange={(e) => setApiAuthToken(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
           </div>
           
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
+            <label className="block text-xs text-board-text-secondary mb-1">
               API Key (ANTHROPIC_API_KEY)
             </label>
             <input
               type="password"
-              placeholder="API key for direct API access"
+              placeholder="API key"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
           </div>
           
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
+            <label className="block text-xs text-board-text-secondary mb-1">
               Base URL (ANTHROPIC_BASE_URL)
             </label>
             <input
@@ -352,41 +352,38 @@ export function ClaudeSettings() {
               placeholder="https://api.anthropic.com"
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
           </div>
           
           <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">
+            <label className="block text-xs text-board-text-secondary mb-1">
               Model Override
             </label>
             <input
               type="text"
-              placeholder="e.g., claude-opus-4-5 (bypasses model mapping)"
+              placeholder="e.g., claude-opus-4-5"
               value={apiModelOverride}
               onChange={(e) => setApiModelOverride(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
-            <p className="text-xs text-board-text-muted mt-1">
-              When set, this value is used directly for --model without any mapping
-            </p>
           </div>
         </div>
         
         <button
           onClick={handleSaveApiSettings}
           disabled={savingApiSettings}
-          className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-1.5 text-sm bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {savingApiSettings ? 'Saving...' : 'Save API Settings'}
         </button>
       </div>
 
       {/* Hook Script Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Hook Script</h3>
-        <p className="text-sm text-board-text-muted">
-          The hook script intercepts Claude Code lifecycle events and sends them to Agent Kanban.
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Hook Script</h3>
+        <p className="text-xs text-board-text-muted">
+          Intercepts Claude Code lifecycle events.
         </p>
         
         <div className="flex items-center gap-2">
@@ -394,12 +391,12 @@ export function ClaudeSettings() {
             type="text"
             value={status?.hookScriptPath || 'Not available'}
             readOnly
-            className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm font-mono text-board-text-secondary border border-board-border"
+            className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg text-xs font-mono text-board-text-secondary border border-board-border"
           />
           <button
             onClick={handleCopyPath}
             disabled={!status?.hookScriptPath}
-            className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50 text-board-text"
+            className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50 text-board-text"
           >
             Copy
           </button>
@@ -407,47 +404,47 @@ export function ClaudeSettings() {
       </div>
 
       {/* Install Hooks Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
-        <h3 className="font-medium text-board-text">Install Hooks</h3>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <h3 className="text-sm font-medium text-board-text">Install Hooks</h3>
         
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+        <div className="flex gap-3 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="claude-location"
               checked={installLocation === 'user'}
               onChange={() => setInstallLocation('user')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
-            <span>User settings (~/.claude/)</span>
+            <span>User (~/.claude/)</span>
           </label>
           
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="claude-location"
               checked={installLocation === 'project'}
               onChange={() => setInstallLocation('project')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
             <span>Project-specific</span>
           </label>
         </div>
 
         {installLocation === 'project' && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {projects.length > 0 && (
               <div>
-                <label className="block text-sm text-board-text-secondary mb-1.5">Select registered project</label>
+                <label className="block text-xs text-board-text-secondary mb-1">Select project</label>
                 <select
                   value={selectedProjectId}
                   onChange={(e) => {
                     setSelectedProjectId(e.target.value);
                     setProjectPath('');
                   }}
-                  className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
+                  className="w-full px-2 py-1.5 text-sm bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
                 >
-                  <option value="">-- Select a project --</option>
+                  <option value="">-- Select --</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.path})
@@ -458,8 +455,8 @@ export function ClaudeSettings() {
             )}
 
             <div>
-              <label className="block text-sm text-board-text-secondary mb-1.5">
-                {projects.length > 0 ? 'Or enter custom path' : 'Project path'}
+              <label className="block text-xs text-board-text-secondary mb-1">
+                {projects.length > 0 ? 'Or enter path' : 'Project path'}
               </label>
               <div className="flex gap-2">
                 <input
@@ -470,11 +467,11 @@ export function ClaudeSettings() {
                     setProjectPath(e.target.value);
                     setSelectedProjectId('');
                   }}
-                  className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+                  className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
                 />
                 <button
                   onClick={handleBrowse}
-                  className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                  className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
                 >
                   Browse
                 </button>
@@ -483,11 +480,11 @@ export function ClaudeSettings() {
           </div>
         )}
 
-        <div className="flex gap-2 pt-2">
+        <div className="flex gap-2">
           <button
             onClick={handleInstallHooks}
             disabled={installing || !status?.hookScriptPath}
-            className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-1.5 text-sm bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {installing ? 'Installing...' : 'Install Hooks'}
           </button>
@@ -495,7 +492,7 @@ export function ClaudeSettings() {
           <button
             onClick={handleCopyConfig}
             disabled={!status?.hookScriptPath}
-            className="px-4 py-2 bg-board-surface-raised border border-board-border text-board-text rounded-lg hover:bg-board-card-hover disabled:opacity-50 transition-colors"
+            className="px-3 py-1.5 text-sm bg-board-surface-raised border border-board-border text-board-text rounded-lg hover:bg-board-card-hover disabled:opacity-50 transition-colors"
           >
             Copy Config
           </button>
@@ -503,18 +500,18 @@ export function ClaudeSettings() {
       </div>
 
       {/* Command Templates Section */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-4 border border-board-border">
-        <h3 className="font-medium text-board-text">Install Commands</h3>
-        <p className="text-sm text-board-text-muted">
-          Install workflow command templates to enable the QA sequence. Claude agents read and follow these files during the workflow.
+      <div className="glass rounded-lg p-3 space-y-3">
+        <h3 className="text-sm font-medium text-board-text">Install Commands</h3>
+        <p className="text-xs text-board-text-muted">
+          Install workflow command templates for the QA sequence.
         </p>
 
         {availableCommands.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1">
             {availableCommands.map((cmd) => (
               <span
                 key={cmd}
-                className="px-2 py-1 bg-board-surface-raised rounded-lg text-xs text-board-text-secondary border border-board-border"
+                className="px-1.5 py-0.5 bg-board-surface-raised rounded text-xs text-board-text-secondary border border-board-border"
               >
                 {cmd}
               </span>
@@ -522,36 +519,36 @@ export function ClaudeSettings() {
           </div>
         )}
         
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+        <div className="flex gap-3 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="commandLocation"
               checked={commandInstallLocation === 'user'}
               onChange={() => setCommandInstallLocation('user')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
-            <span>User (all projects)</span>
-            <span className={`w-2 h-2 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
+            <span>User</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${userCommandsInstalled ? 'bg-status-success' : 'bg-status-warning'}`} />
           </label>
           
-          <label className="flex items-center gap-2 cursor-pointer text-board-text">
+          <label className="flex items-center gap-1.5 cursor-pointer text-board-text">
             <input
               type="radio"
               name="commandLocation"
               checked={commandInstallLocation === 'project'}
               onChange={() => setCommandInstallLocation('project')}
-              className="text-board-accent focus:ring-board-accent"
+              className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
             />
             <span>Project-specific</span>
           </label>
         </div>
 
         {commandInstallLocation === 'project' && (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {projects.length > 0 && (
               <div>
-                <label className="block text-sm text-board-text-secondary mb-1.5">Select registered project</label>
+                <label className="block text-xs text-board-text-secondary mb-1">Select project</label>
                 <div className="flex items-center gap-2">
                   <select
                     value={commandProjectId}
@@ -559,9 +556,9 @@ export function ClaudeSettings() {
                       setCommandProjectId(e.target.value);
                       setCommandProjectPath('');
                     }}
-                    className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
+                    className="flex-1 px-2 py-1.5 text-sm bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none text-board-text"
                   >
-                    <option value="">-- Select a project --</option>
+                    <option value="">-- Select --</option>
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.path})
@@ -569,15 +566,15 @@ export function ClaudeSettings() {
                     ))}
                   </select>
                   {commandProjectId && (
-                    <span className={`w-2 h-2 rounded-full ${projectCommandStatus[commandProjectId] ? 'bg-status-success' : 'bg-status-warning'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${projectCommandStatus[commandProjectId] ? 'bg-status-success' : 'bg-status-warning'}`} />
                   )}
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-sm text-board-text-secondary mb-1.5">
-                {projects.length > 0 ? 'Or enter custom path' : 'Project path'}
+              <label className="block text-xs text-board-text-secondary mb-1">
+                {projects.length > 0 ? 'Or enter path' : 'Project path'}
               </label>
               <div className="flex gap-2">
                 <input
@@ -588,11 +585,11 @@ export function ClaudeSettings() {
                     setCommandProjectPath(e.target.value);
                     setCommandProjectId('');
                   }}
-                  className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-sm text-board-text"
+                  className="flex-1 px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
                 />
                 <button
                   onClick={handleBrowse}
-                  className="px-3 py-2 bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
+                  className="px-2 py-1.5 text-xs bg-board-surface-raised border border-board-border rounded-lg hover:bg-board-card-hover transition-colors text-board-text"
                 >
                   Browse
                 </button>
@@ -604,39 +601,39 @@ export function ClaudeSettings() {
         <button
           onClick={handleInstallCommands}
           disabled={installingCommands || (commandInstallLocation === 'project' && !commandProjectId && !commandProjectPath)}
-          className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-1.5 text-sm bg-board-accent text-white rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {installingCommands ? 'Installing...' : 'Install Commands'}
         </button>
       </div>
 
       {/* Settings File Locations */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Settings File Locations</h3>
-        <ul className="text-sm text-board-text-muted space-y-2">
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Settings File Locations</h3>
+        <ul className="text-xs text-board-text-muted space-y-1">
           <li>
-            <strong className="text-board-text-secondary">User settings:</strong>
-            <code className="ml-2 bg-board-bg px-2 py-0.5 rounded text-board-text-secondary">~/.claude/settings.json</code>
+            <span className="text-board-text-secondary">User:</span>
+            <code className="ml-1 bg-board-bg px-1 rounded text-board-text-secondary">~/.claude/settings.json</code>
           </li>
           <li>
-            <strong className="text-board-text-secondary">Project settings:</strong>
-            <code className="ml-2 bg-board-bg px-2 py-0.5 rounded text-board-text-secondary">.claude/settings.json</code>
+            <span className="text-board-text-secondary">Project:</span>
+            <code className="ml-1 bg-board-bg px-1 rounded text-board-text-secondary">.claude/settings.json</code>
           </li>
           <li>
-            <strong className="text-board-text-secondary">Local (gitignored):</strong>
-            <code className="ml-2 bg-board-bg px-2 py-0.5 rounded text-board-text-secondary">.claude/settings.local.json</code>
+            <span className="text-board-text-secondary">Local:</span>
+            <code className="ml-1 bg-board-bg px-1 rounded text-board-text-secondary">.claude/settings.local.json</code>
           </li>
         </ul>
         
         <details 
-          className="text-sm"
+          className="text-xs"
           open={configVisible}
           onToggle={(e) => setConfigVisible((e.target as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer text-board-accent hover:text-board-accent-hover">
             View example configuration
           </summary>
-          <pre className="mt-2 p-3 bg-board-bg rounded-lg overflow-x-auto text-xs text-board-text-secondary border border-board-border">
+          <pre className="mt-1.5 p-2 bg-board-bg rounded-lg overflow-x-auto text-xs text-board-text-secondary border border-board-border">
             {configJson || `{
   "hooks": {
     "UserPromptSubmit": [...],
@@ -650,52 +647,52 @@ export function ClaudeSettings() {
       </div>
 
       {/* Hook Behavior */}
-      <div className="bg-status-info/10 border border-status-info/30 rounded-xl p-4">
-        <h3 className="font-medium text-status-info">Hook Behavior</h3>
-        <ul className="text-sm text-board-text-secondary mt-2 space-y-1">
-          <li><strong>Exit 0:</strong> Success, continue normally</li>
-          <li><strong>Exit 2:</strong> Blocking error, stderr fed to Claude as context</li>
-          <li><strong>UserPromptSubmit:</strong> stdout is injected as context</li>
+      <div className="bg-status-info/10 border border-status-info/30 rounded-lg px-3 py-2">
+        <h3 className="text-sm font-medium text-status-info">Hook Behavior</h3>
+        <ul className="text-xs text-board-text-secondary mt-1 space-y-0.5">
+          <li><strong>Exit 0:</strong> Continue normally</li>
+          <li><strong>Exit 2:</strong> Blocking error, stderr to Claude</li>
+          <li><strong>UserPromptSubmit:</strong> stdout injected as context</li>
         </ul>
       </div>
 
       {/* Supported Hooks Table */}
-      <div className="bg-board-surface rounded-xl p-4 space-y-3 border border-board-border">
-        <h3 className="font-medium text-board-text">Supported Hooks</h3>
+      <div className="glass rounded-lg p-3 space-y-2">
+        <h3 className="text-sm font-medium text-board-text">Supported Hooks</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-board-text-muted border-b border-board-border">
-                <th className="pb-2">Hook</th>
-                <th className="pb-2">Trigger</th>
-                <th className="pb-2">Can Block?</th>
+                <th className="pb-1.5">Hook</th>
+                <th className="pb-1.5">Trigger</th>
+                <th className="pb-1.5">Block?</th>
               </tr>
             </thead>
             <tbody className="text-board-text-secondary">
               <tr className="border-b border-board-border/50">
-                <td className="py-2"><code className="bg-board-bg px-1.5 py-0.5 rounded text-board-text-secondary">UserPromptSubmit</code></td>
-                <td className="py-2">User submits prompt</td>
-                <td className="py-2">Yes (exit 2)</td>
+                <td className="py-1.5"><code className="bg-board-bg px-1 rounded">UserPromptSubmit</code></td>
+                <td className="py-1.5">User submits</td>
+                <td className="py-1.5">Yes</td>
               </tr>
               <tr className="border-b border-board-border/50">
-                <td className="py-2"><code className="bg-board-bg px-1.5 py-0.5 rounded text-board-text-secondary">PreToolUse</code></td>
-                <td className="py-2">Before tool execution</td>
-                <td className="py-2">Yes (exit 2)</td>
+                <td className="py-1.5"><code className="bg-board-bg px-1 rounded">PreToolUse</code></td>
+                <td className="py-1.5">Before tool</td>
+                <td className="py-1.5">Yes</td>
               </tr>
               <tr className="border-b border-board-border/50">
-                <td className="py-2"><code className="bg-board-bg px-1.5 py-0.5 rounded text-board-text-secondary">PostToolUse</code></td>
-                <td className="py-2">After successful tool</td>
-                <td className="py-2">No</td>
+                <td className="py-1.5"><code className="bg-board-bg px-1 rounded">PostToolUse</code></td>
+                <td className="py-1.5">After tool</td>
+                <td className="py-1.5">No</td>
               </tr>
               <tr className="border-b border-board-border/50">
-                <td className="py-2"><code className="bg-board-bg px-1.5 py-0.5 rounded text-board-text-secondary">PostToolUseFailure</code></td>
-                <td className="py-2">After failed tool</td>
-                <td className="py-2">No</td>
+                <td className="py-1.5"><code className="bg-board-bg px-1 rounded">PostToolUseFailure</code></td>
+                <td className="py-1.5">Tool failed</td>
+                <td className="py-1.5">No</td>
               </tr>
               <tr>
-                <td className="py-2"><code className="bg-board-bg px-1.5 py-0.5 rounded text-board-text-secondary">Stop</code></td>
-                <td className="py-2">Session ends</td>
-                <td className="py-2">Yes (exit 2)</td>
+                <td className="py-1.5"><code className="bg-board-bg px-1 rounded">Stop</code></td>
+                <td className="py-1.5">Session ends</td>
+                <td className="py-1.5">Yes</td>
               </tr>
             </tbody>
           </table>

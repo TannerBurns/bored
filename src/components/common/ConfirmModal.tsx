@@ -1,5 +1,5 @@
 import { Modal } from './Modal';
-import { cn } from '../../lib/utils';
+import { Button } from './Button';
 
 interface ConfirmModalProps {
   open: boolean;
@@ -38,26 +38,21 @@ export function ConfirmModal({
     <Modal open={open} onOpenChange={onOpenChange} title={title}>
       <p className="text-board-text-secondary mb-6">{message}</p>
 
-      <div className="flex justify-end gap-2">
-        <button
+      <div className="flex justify-end gap-3">
+        <Button
           type="button"
+          variant="ghost"
           onClick={handleCancel}
-          className="px-4 py-2 text-board-text-muted hover:text-board-text transition-colors"
         >
           {cancelLabel}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant={variant === 'danger' ? 'danger' : 'primary'}
           onClick={handleConfirm}
-          className={cn(
-            'px-4 py-2 rounded-lg transition-colors',
-            variant === 'danger'
-              ? 'bg-status-error text-white hover:bg-status-error/90'
-              : 'bg-board-accent text-white hover:bg-board-accent-hover'
-          )}
         >
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

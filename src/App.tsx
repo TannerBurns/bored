@@ -47,11 +47,44 @@ function formatDuration(startedAt: Date, endedAt: Date): string {
 }
 
 const navItems = [
-  { id: 'boards', label: 'Boards' },
-  { id: 'specs', label: 'Specs' },
-  { id: 'runs', label: 'Agents' },
-  { id: 'workers', label: 'Workers' },
-  { id: 'settings', label: 'Settings' },
+  { 
+    id: 'boards', 
+    label: 'Boards',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7" />
+        <rect x="14" y="3" width="7" height="7" />
+        <rect x="3" y="14" width="7" height="7" />
+        <rect x="14" y="14" width="7" height="7" />
+      </svg>
+    ),
+  },
+  { 
+    id: 'specs', 
+    label: 'Specs',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <line x1="10" y1="9" x2="8" y2="9" />
+      </svg>
+    ),
+  },
+  { 
+    id: 'agents', 
+    label: 'Agents',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="10" rx="2" />
+        <circle cx="12" cy="5" r="2" />
+        <path d="M12 7v4" />
+        <line x1="8" y1="16" x2="8" y2="16" />
+        <line x1="16" y1="16" x2="16" y2="16" />
+      </svg>
+    ),
+  },
 ];
 
 function App() {
@@ -60,6 +93,7 @@ function App() {
   const [recentRuns, setRecentRuns] = useState<AgentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
+  const [agentsTab, setAgentsTab] = useState<'workers' | 'runs'>('workers');
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
@@ -159,9 +193,9 @@ function App() {
     loadData();
   }, [storeSetBoards, storeSetCurrentBoard]);
 
-  // Load recent runs when the runs tab is active
+  // Load recent runs when the agents tab is active
   useEffect(() => {
-    if (activeNav !== 'runs') return;
+    if (activeNav !== 'agents') return;
     
     const loadRecentRuns = async () => {
       try {
@@ -178,9 +212,9 @@ function App() {
     return () => clearInterval(interval);
   }, [activeNav]);
 
-  // Refresh projects when workers tab is active (picks up newly added projects)
+  // Refresh projects when agents tab is active (picks up newly added projects for workers)
   useEffect(() => {
-    if (activeNav !== 'workers') return;
+    if (activeNav !== 'agents') return;
     
     const refreshProjects = async () => {
       try {
@@ -353,7 +387,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-board-bg text-board-text">
+    <div className="flex h-screen app-gradient-bg text-board-text">
       <Sidebar
         navItems={navItems}
         activeItem={activeNav}
@@ -364,6 +398,7 @@ function App() {
         onCreateBoard={() => setIsCreateBoardModalOpen(true)}
         onRenameBoard={handleRenameBoard}
         onDeleteBoard={requestDeleteBoard}
+        onSettingsClick={() => setActiveNav('settings')}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
@@ -384,23 +419,23 @@ function App() {
             activeNav === 'boards' && boards.length > 0 ? (
               <button
                 onClick={openCreateModal}
-                className="px-4 py-2 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors flex items-center gap-2 shadow-sm"
+                className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                New Ticket
+                New
               </button>
             ) : undefined
           }
@@ -410,11 +445,11 @@ function App() {
           <div className="flex-1 overflow-hidden">
             {isLoading ? (
               <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-board-text"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-board-accent border-t-transparent"></div>
               </div>
             ) : boards.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full">
-                <div className="text-center max-w-md">
+                <div className="text-center max-w-md glass rounded-2xl p-8">
                   <svg
                     className="w-16 h-16 mx-auto text-board-text-muted mb-4"
                     viewBox="0 0 24 24"
@@ -435,7 +470,7 @@ function App() {
                   </p>
                   <button
                     onClick={() => setIsCreateBoardModalOpen(true)}
-                    className="px-6 py-3 bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors font-medium shadow-sm"
+                    className="px-6 py-3 bg-board-accent text-white rounded-xl hover:bg-board-accent-hover hover:shadow-lg hover:scale-[1.02] transition-all duration-200 font-medium shadow-md"
                   >
                     Create Your First Board
                   </button>
@@ -455,13 +490,13 @@ function App() {
         {activeNav === 'specs' && (
           <div className="flex-1 overflow-hidden flex gap-4">
             {/* Spec List */}
-            <div className="w-80 bg-board-column rounded-xl border border-board-border overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-board-border flex items-center justify-between">
+            <div className="w-80 glass rounded-2xl overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-board-border flex items-center justify-between glass-subtle">
                 <h3 className="font-semibold text-board-text">Specs</h3>
                 <button
                   onClick={() => setIsCreateSpecModalOpen(true)}
                   disabled={!currentBoard}
-                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={currentBoard ? 'Create new spec' : 'Select a board first'}
                 >
                   <svg
@@ -491,7 +526,7 @@ function App() {
             </div>
             
             {/* Spec Detail */}
-            <div className="flex-1 bg-board-column rounded-xl border border-board-border overflow-hidden">
+            <div className="flex-1 glass rounded-2xl overflow-hidden">
               {selectedSpec ? (
                 <SpecDetail
                   spec={selectedSpec}
@@ -502,7 +537,7 @@ function App() {
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-board-text-muted">
-                  <div className="text-center">
+                  <div className="text-center glass-subtle rounded-xl p-8">
                     <svg
                       className="w-12 h-12 mx-auto mb-3 opacity-50"
                       viewBox="0 0 24 24"
@@ -527,169 +562,196 @@ function App() {
           </div>
         )}
 
-        {activeNav === 'runs' && (
-          <div className="bg-board-column rounded-xl p-6 border border-board-border overflow-auto">
-            <h3 className="text-lg font-semibold mb-4 text-board-text">Agent Runs</h3>
-            <p className="text-board-text-secondary mb-4">
-              View active and completed agent runs.
-            </p>
-            
-            {/* Active Runs Section */}
-            {tickets.filter((t) => t.lockedByRunId).length > 0 && (
-              <div className="mb-6">
-                <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
-                  Active Runs
-                </h4>
-                <div className="space-y-2">
-                  {tickets
-                    .filter((t) => t.lockedByRunId)
-                    .map((ticket) => (
-                      <div
-                        key={ticket.id}
-                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-board-text truncate">{ticket.title}</span>
-                            <span className="text-xs text-board-text-muted font-mono shrink-0">
-                              #{ticket.id.slice(0, 8)}
+        {activeNav === 'agents' && (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Agents Tabs */}
+            <div className="flex gap-1 mb-3">
+              {[
+                { 
+                  id: 'workers', 
+                  label: 'Workers',
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  ),
+                },
+                { 
+                  id: 'runs', 
+                  label: 'Runs',
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                  ),
+                  badge: tickets.filter((t) => t.lockedByRunId).length || undefined,
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setAgentsTab(tab.id as typeof agentsTab)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
+                    agentsTab === tab.id
+                      ? 'bg-board-accent text-white shadow-sm'
+                      : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                  {tab.badge && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                      agentsTab === tab.id 
+                        ? 'bg-white/20' 
+                        : 'bg-status-warning/20 text-status-warning'
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Workers Tab Content */}
+            {agentsTab === 'workers' && (
+              <div className="flex-1 overflow-auto glass rounded-lg">
+                <WorkerPanel projects={projects} />
+              </div>
+            )}
+
+            {/* Runs Tab Content */}
+            {agentsTab === 'runs' && (
+              <div className="flex-1 overflow-auto glass rounded-lg p-4">
+                {/* Active Runs Section */}
+                {tickets.filter((t) => t.lockedByRunId).length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="text-xs font-medium text-board-text-secondary uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
+                      Active Runs
+                    </h4>
+                    <div className="space-y-1.5">
+                      {tickets
+                        .filter((t) => t.lockedByRunId)
+                        .map((ticket) => (
+                          <div
+                            key={ticket.id}
+                            className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm text-board-text truncate">{ticket.title}</span>
+                                <span className="text-xs text-board-text-muted font-mono shrink-0">
+                                  #{ticket.id.slice(0, 8)}
+                                </span>
+                              </div>
+                              <span className="text-xs text-board-text-muted">
+                                Running with {ticket.agentPref || 'agent'}
+                              </span>
+                            </div>
+                            <span className="text-status-warning text-xs flex items-center gap-1">
+                              <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
+                              In Progress
                             </span>
                           </div>
-                          <span className="text-sm text-board-text-muted">
-                            Running with {ticket.agentPref || 'agent'}
-                          </span>
-                        </div>
-                        <span className="text-status-warning text-sm flex items-center gap-1">
-                          <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
-                          In Progress
-                        </span>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Recent Runs Section */}
+                <div>
+                  <h4 className="text-xs font-medium text-board-text-secondary uppercase tracking-wide mb-2">
+                    Recent Runs
+                  </h4>
+                  <div className="space-y-1.5">
+                    {recentRuns.length === 0 ? (
+                      <div className="glass-subtle rounded-lg p-6 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-board-text-muted mb-2">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                        <p className="text-board-text-muted text-sm">No runs yet</p>
+                        <p className="text-board-text-muted text-xs mt-0.5">Start a run from a ticket to see activity</p>
                       </div>
-                    ))}
+                    ) : (
+                      recentRuns.map((run) => {
+                        const ticket = tickets.find((t) => t.id === run.ticketId);
+                        const statusConfig = {
+                          running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
+                          queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
+                          finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
+                          error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
+                          aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
+                          paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
+                        };
+                        const status = statusConfig[run.status] || statusConfig.error;
+                        const startedAt = new Date(run.startedAt);
+                        const endedAt = run.endedAt ? new Date(run.endedAt) : null;
+                        const timeAgo = getTimeAgo(startedAt);
+                        const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
+                        
+                        return (
+                          <div
+                            key={run.id}
+                            className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between hover:bg-board-card-hover transition-colors"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm text-board-text truncate">
+                                  {ticket?.title || 'Unknown Ticket'}
+                                </span>
+                                <span className="text-xs text-board-text-muted font-mono shrink-0">
+                                  #{run.ticketId.slice(0, 8)}
+                                </span>
+                              </div>
+                              <span className="text-xs text-board-text-muted">
+                                {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} · {timeAgo}
+                                {duration && ` · ${duration}`}
+                              </span>
+                            </div>
+                            <span className={`${status.color} text-xs flex items-center gap-1 shrink-0`}>
+                              <span className={`inline-block w-1.5 h-1.5 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
+                              {status.label}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
             )}
-            
-            {/* Recent Runs Section */}
-            <div>
-              <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-2">
-                Recent Runs
-              </h4>
-              <div className="space-y-2">
-                {recentRuns.length === 0 ? (
-                  <p className="text-board-text-muted text-sm">No runs yet. Start a run from a ticket to see activity.</p>
-                ) : (
-                  recentRuns.map((run) => {
-                    const ticket = tickets.find((t) => t.id === run.ticketId);
-                    const statusConfig = {
-                      running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
-                      queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
-                      finished: { color: 'text-status-success', bg: 'bg-status-success', label: 'Completed', pulse: false },
-                      error: { color: 'text-status-error', bg: 'bg-status-error', label: 'Error', pulse: false },
-                      aborted: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Aborted', pulse: false },
-                      paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
-                    };
-                    const status = statusConfig[run.status] || statusConfig.error;
-                    const startedAt = new Date(run.startedAt);
-                    const endedAt = run.endedAt ? new Date(run.endedAt) : null;
-                    const timeAgo = getTimeAgo(startedAt);
-                    const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
-                    
-                    return (
-                      <div
-                        key={run.id}
-                        className="p-3 bg-board-card rounded-lg flex items-center justify-between border border-board-border"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-board-text truncate">
-                              {ticket?.title || 'Unknown Ticket'}
-                            </span>
-                            <span className="text-xs text-board-text-muted font-mono shrink-0">
-                              #{run.ticketId.slice(0, 8)}
-                            </span>
-                          </div>
-                          <span className="text-sm text-board-text-muted">
-                            {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} &middot; {timeAgo}
-                            {duration && ` · ${duration}`}
-                          </span>
-                        </div>
-                        <span className={`${status.color} text-sm flex items-center gap-1 shrink-0`}>
-                          <span className={`inline-block w-2 h-2 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
-                          {status.label}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeNav === 'workers' && (
-          <div className="flex-1 overflow-auto bg-board-column rounded-lg">
-            <WorkerPanel projects={projects} />
           </div>
         )}
 
         {activeNav === 'settings' && (
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Settings Tabs */}
-            <div className="flex border-b border-board-border mb-4">
-              <button
-                onClick={() => setSettingsTab('general')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'general'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                General
-              </button>
-              <button
-                onClick={() => setSettingsTab('projects')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'projects'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Projects
-              </button>
-              <button
-                onClick={() => setSettingsTab('cursor')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'cursor'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Cursor
-              </button>
-              <button
-                onClick={() => setSettingsTab('claude')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'claude'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Claude Code
-              </button>
-              <button
-                onClick={() => setSettingsTab('data')}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  settingsTab === 'data'
-                    ? 'border-b-2 border-board-accent text-board-accent'
-                    : 'text-board-text-muted hover:text-board-text'
-                }`}
-              >
-                Data
-              </button>
+            <div className="flex gap-1 mb-3">
+              {[
+                { id: 'general', label: 'General' },
+                { id: 'projects', label: 'Projects' },
+                { id: 'cursor', label: 'Cursor' },
+                { id: 'claude', label: 'Claude Code' },
+                { id: 'data', label: 'Data' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSettingsTab(tab.id as typeof settingsTab)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                    settingsTab === tab.id
+                      ? 'bg-board-accent text-white shadow-sm'
+                      : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
             
             {/* Settings Content */}
-            <div className="flex-1 overflow-auto bg-board-column rounded-xl p-6 border border-board-border">
+            <div className="flex-1 overflow-auto glass rounded-lg p-4">
               {settingsTab === 'general' && <GeneralSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}

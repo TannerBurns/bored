@@ -1,5 +1,6 @@
 import { useSpecStore } from '../../stores/specStore';
 import { useBoardStore } from '../../stores/boardStore';
+import { cn } from '../../lib/utils';
 import type { Spec } from '../../types';
 
 interface SpecListProps {
@@ -7,16 +8,16 @@ interface SpecListProps {
 }
 
 const statusColors: Record<string, string> = {
-  draft: 'bg-gray-500',
-  exploring: 'bg-blue-500 animate-pulse',
+  draft: 'bg-board-text-muted',
+  exploring: 'bg-status-info animate-pulse',
   planning: 'bg-purple-500 animate-pulse',
-  awaiting_approval: 'bg-yellow-500',
-  approved: 'bg-green-500',
+  awaiting_approval: 'bg-status-warning',
+  approved: 'bg-status-success',
   executing: 'bg-orange-500 animate-pulse',
   executed: 'bg-cyan-500',
-  working: 'bg-green-500 animate-pulse',
-  completed: 'bg-green-600',
-  failed: 'bg-red-500',
+  working: 'bg-status-success animate-pulse',
+  completed: 'bg-status-success',
+  failed: 'bg-status-error',
 };
 
 const statusLabels: Record<string, string> = {
@@ -44,7 +45,7 @@ export function SpecList({ onSelect }: SpecListProps) {
 
   if (isLoading) {
     return (
-      <div className="p-4 text-gray-500 text-sm">
+      <div className="p-4 text-board-text-muted text-sm glass-subtle rounded-xl">
         Loading specs...
       </div>
     );
@@ -52,8 +53,9 @@ export function SpecList({ onSelect }: SpecListProps) {
 
   if (specs.length === 0) {
     return (
-      <div className="p-4 text-gray-500 text-sm">
-        No specs yet. Create one to start planning!
+      <div className="p-6 text-center glass-subtle rounded-xl">
+        <div className="text-board-text-muted text-sm">No specs yet</div>
+        <p className="text-board-text-muted/60 text-xs mt-1">Create one to start planning!</p>
       </div>
     );
   }
@@ -64,34 +66,42 @@ export function SpecList({ onSelect }: SpecListProps) {
         <button
           key={spec.id}
           onClick={() => onSelect(spec)}
-          className={`w-full text-left p-3 rounded-lg border transition-all ${
+          className={cn(
+            'w-full text-left p-4 rounded-xl transition-all duration-200',
             currentSpec?.id === spec.id
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-              : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-          }`}
+              ? 'glass-intense ring-2 ring-board-accent glow-accent'
+              : 'glass hover:glass-intense hover:shadow-md hover:-translate-y-0.5'
+          )}
         >
-          <div className="flex items-start justify-between">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-gray-900 dark:text-white truncate">
+              <h4 className="font-medium text-board-text truncate">
                 {spec.name}
               </h4>
-              <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
+              <p className="text-sm text-board-text-muted truncate mt-1">
                 {spec.userInput}
               </p>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                Board: {getBoardName(spec.boardId)}
+              <p className="text-xs text-board-text-muted/70 mt-1 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                </svg>
+                {getBoardName(spec.boardId)}
               </p>
             </div>
             <span
-              className={`ml-2 px-2 py-0.5 text-xs font-medium text-white rounded-full ${
-                statusColors[spec.status] || 'bg-gray-500'
-              }`}
+              className={cn(
+                'shrink-0 px-2.5 py-1 text-xs font-medium text-white rounded-full shadow-sm',
+                statusColors[spec.status] || 'bg-board-text-muted'
+              )}
             >
               {statusLabels[spec.status] || spec.status}
             </span>
           </div>
           {spec.explorationLog?.length > 0 && (
-            <div className="mt-2 text-xs text-gray-400">
+            <div className="mt-2 text-xs text-board-text-muted glass-subtle px-2 py-1 rounded-lg inline-block">
               {spec.explorationLog.length} exploration{spec.explorationLog.length !== 1 ? 's' : ''}
             </div>
           )}

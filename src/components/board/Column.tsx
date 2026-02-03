@@ -24,25 +24,28 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
     <div
       ref={setNodeRef}
       className={cn(
-        'flex flex-col bg-board-column rounded-xl w-72 min-w-72 max-h-full border border-board-border shadow-sm',
-        isOver && 'ring-2 ring-board-accent'
+        'flex flex-col glass rounded-2xl w-72 min-w-72 max-h-full transition-all duration-200',
+        isOver && 'ring-2 ring-board-accent glow-accent scale-[1.01]'
       )}
     >
-      <div className="p-3 border-b border-board-border">
+      {/* Column header with gradient underline accent */}
+      <div className="p-3 border-b border-board-border relative">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-board-text">{column.name}</h3>
           <span
             className={cn(
-              'text-sm px-2 py-0.5 rounded-full font-medium',
+              'text-sm px-2.5 py-0.5 rounded-full font-medium transition-all duration-200',
               isOverWipLimit
-                ? 'bg-status-error/10 text-status-error'
-                : 'bg-board-surface text-board-text-muted'
+                ? 'bg-status-error/20 text-status-error glow-error'
+                : 'glass-subtle text-board-text-muted'
             )}
           >
             {ticketCount}
             {hasWipLimit && `/${wipLimit}`}
           </span>
         </div>
+        {/* Accent underline */}
+        <div className="absolute bottom-0 left-3 right-3 h-px bg-board-accent/30" />
       </div>
       
       <div
@@ -59,7 +62,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
         </SortableContext>
         
         {tickets.length === 0 && (
-          <div className="text-center text-board-text-muted text-sm py-8">
+          <div className="text-center text-board-text-muted text-sm py-8 glass-subtle rounded-xl">
             No tickets
           </div>
         )}
