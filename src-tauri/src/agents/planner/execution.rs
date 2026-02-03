@@ -14,6 +14,18 @@ use crate::db::{
 use super::config::{PlannerConfig, PlannerError, PlannerResult};
 use super::dependencies::topological_sort_epics;
 
+/// Context for creating an epic and its child tickets
+struct EpicCreationContext<'a> {
+    plan_epic: &'a crate::db::PlanEpic,
+    epic_title_to_id: &'a HashMap<String, String>,
+    board_id: &'a str,
+    column_id: &'a str,
+    project_id: &'a str,
+    version_id: &'a str,
+    agent_pref: Option<AgentPref>,
+    model: Option<String>,
+}
+
 /// Executes an approved plan by creating epics and tickets in the database.
 pub struct PlanExecutor {
     db: Arc<Database>,
@@ -151,16 +163,16 @@ impl PlanExecutor {
 
         // Create epics and their child tickets in dependency order
         for plan_epic in sorted_epics {
-            let (epic_id, child_ticket_ids) = self.create_epic_with_tickets(
+            let (epic_id, child_ticket_ids) = self.create_epic_with_tickets(EpicCreationContext {
                 plan_epic,
-                &epic_title_to_id,
-                target_board_id,
-                &backlog_column.id,
-                &spec.project_id,
-                &version.id,
-                agent_pref.clone(),
-                spec.model.clone(),
-            )?;
+                epic_title_to_id: &epic_title_to_id,
+                board_id: target_board_id,
+                column_id: &backlog_column.id,
+                project_id: &spec.project_id,
+                version_id: &version.id,
+                agent_pref: agent_pref.clone(),
+                model: spec.model.clone(),
+            })?;
 
             epic_title_to_id.insert(plan_epic.title.clone(), epic_id.clone());
             epic_ids.push(epic_id);
@@ -194,18 +206,21 @@ impl PlanExecutor {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn create_epic_with_tickets(
         &self,
-        plan_epic: &crate::db::PlanEpic,
-        epic_title_to_id: &HashMap<String, String>,
-        board_id: &str,
-        column_id: &str,
-        project_id: &str,
-        version_id: &str,
-        agent_pref: Option<AgentPref>,
-        model: Option<String>,
+        ctx: EpicCreationContext<'_>,
     ) -> Result<(String, Vec<String>), PlannerError> {
+        let EpicCreationContext {
+            plan_epic,
+            epic_title_to_id,
+            board_id,
+            column_id,
+            project_id,
+            version_id,
+            agent_pref,
+            model,
+        } = ctx;
+
         // Resolve dependencies
         let depends_on_epic_id = plan_epic
             .depends_on
