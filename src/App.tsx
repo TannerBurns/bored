@@ -91,7 +91,7 @@ function App() {
   const [activeNav, setActiveNav] = useState('boards');
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentRuns, setRecentRuns] = useState<AgentRunWithContext[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
   const [agentsTab, setAgentsTab] = useState<'workers' | 'runs'>('workers');
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
@@ -153,13 +153,25 @@ function App() {
     apiConfig?.token || ''
   );
 
-  // Load data from backend
   useEffect(() => {
     const loadData = async () => {
-      setIsLoading(true);
+      const getApiConfigWithRetry = async (maxRetries = 5): Promise<{ url: string; token: string; port: number }> => {
+        let lastError: unknown;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            return await getApiConfig();
+          } catch (error) {
+            lastError = error;
+            const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+            logger.debug(`API not ready, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+        throw lastError;
+      };
       
       try {
-        const config = await getApiConfig();
+        const config = await getApiConfigWithRetry();
         setApiConfig(config);
         api.configure({
           baseUrl: config.url,
@@ -188,7 +200,7 @@ function App() {
         logger.error('Failed to load data:', error);
       }
       
-      setIsLoading(false);
+      setIsDataLoaded(true);
     };
     
     loadData();
@@ -444,9 +456,16 @@ function App() {
 
         {activeNav === 'boards' && (
           <div className="flex-1 overflow-hidden">
-            {isLoading ? (
+            {!isDataLoaded ? (
               <div className="flex items-center justify-center h-full">
-                <div className="animate-spin rounded-full h-8 w-8 border-2 border-board-accent border-t-transparent"></div>
+                <div className="text-center">
+                  <div className="w-48 h-1 bg-board-border rounded-full overflow-hidden mb-4">
+                    <div className="h-full w-2/5 rounded-full animate-progress-slide" 
+                         style={{ background: 'linear-gradient(90deg, var(--app-board-accent), #22d3ee, var(--app-board-accent))', backgroundSize: '200% 100%' }} 
+                    />
+                  </div>
+                  <p className="text-sm text-board-text-muted">Loading boards...</p>
+                </div>
               </div>
             ) : boards.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full">

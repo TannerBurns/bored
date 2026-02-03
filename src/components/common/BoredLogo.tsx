@@ -1,0 +1,55 @@
+interface BoredLogoProps {
+  size?: number;
+  className?: string;
+  variant?: 'default' | 'gradient';
+  gradientId?: string;
+}
+
+export function BoredLogo({ 
+  size = 48, 
+  className = '', 
+  variant = 'default',
+  gradientId = 'bored-logo-gradient'
+}: BoredLogoProps) {
+  if (variant === 'gradient') {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 512 512"
+        xmlns="http://www.w3.org/2000/svg"
+        className={className}
+        aria-label="Bored logo"
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style={{ stopColor: 'var(--app-accent-start, #a78bfa)' }} />
+            <stop offset="100%" style={{ stopColor: 'var(--app-accent-end, #22d3ee)' }} />
+          </linearGradient>
+        </defs>
+        <rect x="51" y="51" width="410" height="410" rx="82" fill={`url(#${gradientId})`} />
+        <path
+          d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z"
+          fill="white"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="Bored logo"
+    >
+      <rect x="51" y="51" width="410" height="410" rx="82" fill="white" />
+      <path
+        d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z"
+        fill="black"
+      />
+    </svg>
+  );
+}

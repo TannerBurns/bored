@@ -1,13 +1,155 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="margin: 0; padding: 0; background: #0a0a0f;">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bored</title>
+    <script>
+      (function() {
+        var theme = 'dark';
+        try {
+          var stored = localStorage.getItem('agent-kanban-settings');
+          if (stored) {
+            var settings = JSON.parse(stored);
+            if (settings.state && settings.state.theme) {
+              theme = settings.state.theme;
+            }
+          }
+        } catch (e) {}
+        if (theme === 'system') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.style.background = theme === 'light' ? '#f5f5f7' : '#0a0a0f';
+      })();
+    </script>
+    <style>
+      /* Critical styles to prevent white flash before CSS loads */
+      html, body, #root {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+      }
+      html[data-theme="dark"], html[data-theme="dark"] body, html[data-theme="dark"] #root {
+        background: #0a0a0f;
+      }
+      html[data-theme="light"], html[data-theme="light"] body, html[data-theme="light"] #root {
+        background: #f5f5f7;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="initial-loader">
+        <!-- Keep logo in sync with src/components/common/BoredLogo.tsx -->
+        <div class="loader-icon">
+          <svg width="72" height="72" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="loader-logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" class="gradient-start"/>
+                <stop offset="100%" class="gradient-end"/>
+              </linearGradient>
+            </defs>
+            <rect x="51" y="51" width="410" height="410" rx="82" fill="url(#loader-logo-gradient)"/>
+            <path d="M185 135 h95 c58 0 95 32 95 79 c0 36 -22 58 -52 69 c42 11 69 42 69 84 c0 52 -42 90 -112 90 h-95 z M235 278 h38 c32 0 48 -16 48 -42 c0 -25 -16 -42 -48 -42 h-38 z M235 395 h43 c36 0 57 -19 57 -50 c0 -32 -21 -52 -57 -52 h-43 z" fill="white"/>
+          </svg>
+        </div>
+        <div class="loader-progress-track">
+          <div class="loader-progress-bar"></div>
+        </div>
+        <p class="loader-text">Loading workspace...</p>
+      </div>
+      <style>
+        /* Dark theme (default) */
+        #initial-loader {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          background: linear-gradient(135deg, #0a0a0f 0%, #111118 100%);
+          color: #a0a0b8;
+          font-family: Inter, system-ui, -apple-system, sans-serif;
+        }
+        .loader-icon {
+          width: 72px;
+          height: 72px;
+          margin-bottom: 32px;
+          border-radius: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 0 40px rgba(167, 139, 250, 0.3), 0 4px 20px rgba(0, 0, 0, 0.3);
+          animation: icon-pulse 2s ease-in-out infinite;
+          overflow: hidden;
+        }
+        .gradient-start { stop-color: #a78bfa; }
+        .gradient-end { stop-color: #22d3ee; }
+        .loader-progress-track {
+          width: 200px;
+          height: 4px;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+          overflow: hidden;
+          position: relative;
+        }
+        .loader-progress-bar {
+          position: absolute;
+          top: 0;
+          left: 0;
+          height: 100%;
+          width: 40%;
+          background: linear-gradient(90deg, #a78bfa, #22d3ee, #a78bfa);
+          background-size: 200% 100%;
+          border-radius: 4px;
+          animation: progress-slide 1.5s ease-in-out infinite, progress-shimmer 2s linear infinite;
+        }
+        .loader-text {
+          margin-top: 16px;
+          font-size: 13px;
+          opacity: 0.5;
+          letter-spacing: 0.5px;
+        }
+        
+        /* Light theme - applied via data-theme attribute */
+        html[data-theme="light"] #initial-loader {
+          background: linear-gradient(135deg, #f5f5f7 0%, #e8e8ed 100%);
+          color: #4a4a6a;
+        }
+        html[data-theme="light"] .loader-icon {
+          box-shadow: 0 0 40px rgba(139, 92, 246, 0.2), 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+        html[data-theme="light"] .gradient-start { stop-color: #8b5cf6; }
+        html[data-theme="light"] .gradient-end { stop-color: #3b82f6; }
+        html[data-theme="light"] .loader-progress-track {
+          background: rgba(0, 0, 0, 0.08);
+        }
+        html[data-theme="light"] .loader-progress-bar {
+          background: linear-gradient(90deg, #8b5cf6, #3b82f6, #8b5cf6);
+          background-size: 200% 100%;
+        }
+        
+        @keyframes progress-slide {
+          0% { left: -40%; }
+          100% { left: 100%; }
+        }
+        @keyframes progress-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes icon-pulse {
+          0%, 100% { 
+            transform: scale(1);
+            box-shadow: 0 0 40px rgba(167, 139, 250, 0.3);
+          }
+          50% { 
+            transform: scale(1.05);
+            box-shadow: 0 0 60px rgba(167, 139, 250, 0.5);
+          }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
