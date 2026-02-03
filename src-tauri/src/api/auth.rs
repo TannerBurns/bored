@@ -53,10 +53,10 @@ pub async fn auth_middleware(
 
 pub fn generate_token() -> String {
     use rand::Rng;
-    
+
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     const TOKEN_LENGTH: usize = 32;
-    
+
     let mut rng = rand::thread_rng();
     (0..TOKEN_LENGTH)
         .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
@@ -71,7 +71,7 @@ mod tests {
     fn test_generate_token() {
         let token1 = generate_token();
         let token2 = generate_token();
-        
+
         assert_eq!(token1.len(), 32);
         assert_eq!(token2.len(), 32);
         assert_ne!(token1, token2);

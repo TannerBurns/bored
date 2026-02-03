@@ -1,8 +1,11 @@
-use std::sync::Arc;
 use serde::Deserialize;
+use std::sync::Arc;
 use tauri::State;
 
-use crate::db::{CreateTicket, Database, Priority, Ticket, AgentPref, UpdateTicket, Comment, CreateComment, AuthorType, WorkflowType, EpicProgress};
+use crate::db::{
+    AgentPref, AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
+    Ticket, UpdateTicket, WorkflowType,
+};
 
 /// Input struct for creating tickets via Tauri command.
 /// Allows setting is_epic and epic_id at creation time.
@@ -64,7 +67,11 @@ pub async fn create_ticket(
     ticket: CreateTicketInput,
     db: State<'_, Arc<Database>>,
 ) -> Result<Ticket, String> {
-    tracing::info!("Creating ticket: {} (epic: {})", ticket.title, ticket.is_epic);
+    tracing::info!(
+        "Creating ticket: {} (epic: {})",
+        ticket.title,
+        ticket.is_epic
+    );
     let create = CreateTicket {
         board_id: ticket.board_id,
         column_id: ticket.column_id,
@@ -93,21 +100,24 @@ pub async fn move_ticket(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Moving ticket {} to column {}", ticket_id, column_id);
-    
+
     // Get the ticket before moving to check if it's an epic
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
-    
+
     // Get the target column name
-    let columns = db.get_columns(&ticket.board_id).map_err(|e| e.to_string())?;
+    let columns = db
+        .get_columns(&ticket.board_id)
+        .map_err(|e| e.to_string())?;
     let target_column = columns.iter().find(|c| c.id == column_id);
     let target_column_name = target_column.map(|c| c.name.as_str()).unwrap_or("");
-    
+
     // Perform the move
-    db.move_ticket(&ticket_id, &column_id).map_err(|e| e.to_string())?;
-    
+    db.move_ticket(&ticket_id, &column_id)
+        .map_err(|e| e.to_string())?;
+
     // Refresh ticket after move for lifecycle hooks
     let updated_ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
-    
+
     // Epic lifecycle: when an epic is moved to Ready, advance its first child
     if ticket.is_epic && target_column_name.eq_ignore_ascii_case("Ready") {
         if let Err(e) = crate::lifecycle::epic::on_epic_moved_to_ready(&db, &updated_ticket) {
@@ -115,7 +125,7 @@ pub async fn move_ticket(
             // Don't fail the move, just log the warning
         }
     }
-    
+
     // Handle ticket moved to Done - trigger lifecycle hooks
     if target_column_name.eq_ignore_ascii_case("Done") {
         let db_arc = db.inner().clone();
@@ -129,13 +139,13 @@ pub async fn move_ticket(
         else if updated_ticket.is_epic && updated_ticket.spec_id.is_some() {
             if let Err(e) = crate::lifecycle::epic::check_spec_completion_by_id(
                 &db_arc,
-                updated_ticket.spec_id.as_ref().unwrap()
+                updated_ticket.spec_id.as_ref().unwrap(),
             ) {
                 tracing::warn!("Failed to check spec completion: {}", e);
             }
         }
     }
-    
+
     // Handle ticket moved to Blocked - trigger epic blocking
     if target_column_name.eq_ignore_ascii_case("Blocked") && updated_ticket.epic_id.is_some() {
         let db_arc = db.inner().clone();
@@ -143,7 +153,7 @@ pub async fn move_ticket(
             tracing::warn!("Failed to handle child blocked: {}", e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -154,12 +164,16 @@ pub async fn update_ticket(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Updating ticket: {}", ticket_id);
-    
+
     // Get the ticket before updating to check for column changes and epic status
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
     let old_column_id = ticket.column_id.clone();
-    let is_column_changing = updates.column_id.as_ref().map(|new_col| new_col != &old_column_id).unwrap_or(false);
-    
+    let is_column_changing = updates
+        .column_id
+        .as_ref()
+        .map(|new_col| new_col != &old_column_id)
+        .unwrap_or(false);
+
     // Convert to UpdateTicket, explicitly setting epic fields to None to prevent
     // clients from modifying epic relationships through this command.
     // Use dedicated epic commands (add_ticket_to_epic, remove_ticket_from_epic,
@@ -185,59 +199,63 @@ pub async fn update_ticket(
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())
         .map_err(|e| e.to_string())?;
-    
+
     // Epic lifecycle hooks for column changes
     if is_column_changing {
         if let Some(new_column_id) = updates.column_id {
             // Get the target column name
-            let columns = db.get_columns(&ticket.board_id).map_err(|e| e.to_string())?;
+            let columns = db
+                .get_columns(&ticket.board_id)
+                .map_err(|e| e.to_string())?;
             let target_column = columns.iter().find(|c| c.id == new_column_id);
             let target_column_name = target_column.map(|c| c.name.as_str()).unwrap_or("");
-            
+
             // Refresh ticket after update for lifecycle hooks
             let updated_ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
             let db_arc = db.inner().clone();
-            
+
             // Epic moved to Ready: advance its first child
             if ticket.is_epic && target_column_name.eq_ignore_ascii_case("Ready") {
-                if let Err(e) = crate::lifecycle::epic::on_epic_moved_to_ready(&db, &updated_ticket) {
+                if let Err(e) = crate::lifecycle::epic::on_epic_moved_to_ready(&db, &updated_ticket)
+                {
                     tracing::warn!("Failed to advance epic children on update: {}", e);
                 }
             }
-            
+
             // Ticket moved to Done: trigger child completion or check spec completion
             if target_column_name.eq_ignore_ascii_case("Done") {
                 if updated_ticket.epic_id.is_some() {
-                    if let Err(e) = crate::lifecycle::epic::on_child_completed(&db_arc, &updated_ticket) {
+                    if let Err(e) =
+                        crate::lifecycle::epic::on_child_completed(&db_arc, &updated_ticket)
+                    {
                         tracing::warn!("Failed to handle child completion on update: {}", e);
                     }
                 } else if updated_ticket.is_epic && updated_ticket.spec_id.is_some() {
                     if let Err(e) = crate::lifecycle::epic::check_spec_completion_by_id(
                         &db_arc,
-                        updated_ticket.spec_id.as_ref().unwrap()
+                        updated_ticket.spec_id.as_ref().unwrap(),
                     ) {
                         tracing::warn!("Failed to check spec completion on update: {}", e);
                     }
                 }
             }
-            
+
             // Ticket moved to Blocked: trigger epic blocking
-            if target_column_name.eq_ignore_ascii_case("Blocked") && updated_ticket.epic_id.is_some() {
+            if target_column_name.eq_ignore_ascii_case("Blocked")
+                && updated_ticket.epic_id.is_some()
+            {
                 if let Err(e) = crate::lifecycle::epic::on_child_blocked(&db_arc, &updated_ticket) {
                     tracing::warn!("Failed to handle child blocked on update: {}", e);
                 }
             }
         }
     }
-    
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn delete_ticket(
-    ticket_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
+pub async fn delete_ticket(ticket_id: String, db: State<'_, Arc<Database>>) -> Result<(), String> {
     tracing::info!("Deleting ticket: {}", ticket_id);
     db.delete_ticket(&ticket_id).map_err(|e| e.to_string())
 }
@@ -280,7 +298,8 @@ pub async fn update_comment(
     db: State<'_, Arc<Database>>,
 ) -> Result<Comment, String> {
     tracing::info!("Updating comment: {}", comment_id);
-    db.update_comment(&comment_id, &body).map_err(|e| e.to_string())
+    db.update_comment(&comment_id, &body)
+        .map_err(|e| e.to_string())
 }
 
 // ===== Epic Commands =====
@@ -310,7 +329,8 @@ pub async fn add_ticket_to_epic(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Adding ticket {} to epic {}", ticket_id, epic_id);
-    db.add_ticket_to_epic(&epic_id, &ticket_id).map_err(|e| e.to_string())
+    db.add_ticket_to_epic(&epic_id, &ticket_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -319,7 +339,8 @@ pub async fn remove_ticket_from_epic(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Removing ticket {} from epic", ticket_id);
-    db.remove_ticket_from_epic(&ticket_id).map_err(|e| e.to_string())
+    db.remove_ticket_from_epic(&ticket_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -329,7 +350,8 @@ pub async fn reorder_epic_children(
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Reordering children for epic {}: {:?}", epic_id, child_ids);
-    db.reorder_epic_children(&epic_id, &child_ids).map_err(|e| e.to_string())
+    db.reorder_epic_children(&epic_id, &child_ids)
+        .map_err(|e| e.to_string())
 }
 
 /// Pause a ticket's execution - saves current stage and run ID for later resume
@@ -340,8 +362,14 @@ pub async fn pause_ticket(
     run_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
-    tracing::info!("Pausing ticket {} at stage {} (run {})", ticket_id, stage, run_id);
-    db.pause_ticket(&ticket_id, &stage, &run_id).map_err(|e| e.to_string())
+    tracing::info!(
+        "Pausing ticket {} at stage {} (run {})",
+        ticket_id,
+        stage,
+        run_id
+    );
+    db.pause_ticket(&ticket_id, &stage, &run_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Resume a paused ticket - moves to Ready and returns the stage to resume from
@@ -351,22 +379,30 @@ pub async fn resume_ticket(
     db: State<'_, Arc<Database>>,
 ) -> Result<Option<String>, String> {
     tracing::info!("Resuming ticket {}", ticket_id);
-    
+
     // Get the ticket to find its board
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
-    
+
     // Find the Ready column for this board
-    let columns = db.get_columns(&ticket.board_id).map_err(|e| e.to_string())?;
-    let ready_column = columns.iter().find(|c| c.name == "Ready")
+    let columns = db
+        .get_columns(&ticket.board_id)
+        .map_err(|e| e.to_string())?;
+    let ready_column = columns
+        .iter()
+        .find(|c| c.name == "Ready")
         .ok_or_else(|| "Ready column not found".to_string())?;
-    
+
     // Resume the ticket (clears paused_at)
     let stage = db.resume_ticket(&ticket_id).map_err(|e| e.to_string())?;
-    
+
     // Move ticket to Ready so workers can pick it up
-    db.move_ticket(&ticket_id, &ready_column.id).map_err(|e| e.to_string())?;
-    tracing::info!("Moved ticket {} to Ready column for worker pickup", ticket_id);
-    
+    db.move_ticket(&ticket_id, &ready_column.id)
+        .map_err(|e| e.to_string())?;
+    tracing::info!(
+        "Moved ticket {} to Ready column for worker pickup",
+        ticket_id
+    );
+
     Ok(stage)
 }
 

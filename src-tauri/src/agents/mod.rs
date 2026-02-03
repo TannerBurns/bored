@@ -1,17 +1,17 @@
-pub mod spawner;
-pub mod cursor;
 pub mod claude;
-pub mod prompt;
-pub mod worker;
-pub mod validation;
-pub mod plan_validation;
-pub mod orchestrator;
-pub mod worktree;
-pub mod runner;
+pub mod cursor;
 pub mod diagnostic;
+pub mod eta;
+pub mod orchestrator;
+pub mod plan_validation;
 pub mod planner;
 pub mod planner_prompts;
-pub mod eta;
+pub mod prompt;
+pub mod runner;
+pub mod spawner;
+pub mod validation;
+pub mod worker;
+pub mod worktree;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -98,8 +98,7 @@ pub type LogCallback = Box<dyn Fn(LogLine) + Send + Sync>;
 /// Extract text from agent output, handling both Claude stream-json and plain text.
 /// Tries stream-json parsing first, falls back to raw output.
 pub fn extract_agent_text(output: &str) -> String {
-    extract_text_from_stream_json(output)
-        .unwrap_or_else(|| output.to_string())
+    extract_text_from_stream_json(output).unwrap_or_else(|| output.to_string())
 }
 
 /// Extract text content from Claude's stream-json format.
@@ -107,13 +106,13 @@ pub fn extract_agent_text(output: &str) -> String {
 /// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     let mut text_parts = Vec::new();
-    
+
     for line in stream_output.lines() {
         let line = line.trim();
         if line.is_empty() || !line.starts_with('{') {
             continue;
         }
-        
+
         // Try to parse as JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
             if let Some(msg_type) = json.get("type").and_then(|t| t.as_str()) {
@@ -124,7 +123,8 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                         if let Some(event) = json.get("event") {
                             if let Some(event_type) = event.get("type").and_then(|t| t.as_str()) {
                                 if event_type == "content_block_delta" {
-                                    if let Some(text) = event.get("delta")
+                                    if let Some(text) = event
+                                        .get("delta")
                                         .and_then(|d| d.get("text"))
                                         .and_then(|t| t.as_str())
                                     {
@@ -142,11 +142,15 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                     }
                     "assistant" => {
                         // Assistant message with content array
-                        if let Some(text) = json.get("message")
+                        if let Some(text) = json
+                            .get("message")
                             .and_then(|m| m.get("content"))
                             .and_then(|c| c.as_array())
-                            .and_then(|arr| arr.iter()
-                                .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("text")))
+                            .and_then(|arr| {
+                                arr.iter().find(|v| {
+                                    v.get("type").and_then(|t| t.as_str()) == Some("text")
+                                })
+                            })
                             .and_then(|v| v.get("text"))
                             .and_then(|t| t.as_str())
                         {
@@ -155,7 +159,8 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                     }
                     "content_block_delta" => {
                         // Legacy/direct content_block_delta (without stream_event wrapper)
-                        if let Some(delta) = json.get("delta")
+                        if let Some(delta) = json
+                            .get("delta")
                             .and_then(|d| d.get("text"))
                             .and_then(|t| t.as_str())
                         {
@@ -167,7 +172,7 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
             }
         }
     }
-    
+
     if text_parts.is_empty() {
         None
     } else {
@@ -278,7 +283,10 @@ mod tests {
 {\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"1. First step\\n\"}}}\n\
 {\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"2. Second step\\n\"}}}\n";
         let result = extract_text_from_stream_json(stream_output);
-        assert_eq!(result, Some("## Plan\n\n1. First step\n2. Second step\n".to_string()));
+        assert_eq!(
+            result,
+            Some("## Plan\n\n1. First step\n2. Second step\n".to_string())
+        );
     }
 
     #[test]
@@ -339,7 +347,8 @@ mod tests {
 
     #[test]
     fn extract_text_returns_none_for_no_text_content() {
-        let stream_output = r#"{"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}"#;
+        let stream_output =
+            r#"{"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}"#;
         let result = extract_text_from_stream_json(stream_output);
         assert_eq!(result, None);
     }

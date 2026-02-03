@@ -1,5 +1,5 @@
 //! Shared agent runner logic for both direct runs and worker-initiated runs.
-//! 
+//!
 //! This module provides a unified execution path for agent runs, ensuring
 //! consistent behavior regardless of whether a run is triggered manually
 //! or by an automated worker.
@@ -7,15 +7,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Window};
+use tauri::{AppHandle, Emitter, Window};
 
-use crate::db::{Database, RunStatus, Ticket};
-use crate::db::models::Task;
-use super::{AgentKind, ClaudeApiConfig};
-use super::spawner::CancelHandle;
-use super::orchestrator::{WorkflowOrchestrator, OrchestratorConfig};
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
+use super::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
+use super::spawner::CancelHandle;
+use super::{AgentKind, ClaudeApiConfig};
+use crate::db::models::Task;
+use crate::db::{Database, RunStatus, Ticket};
 
 /// Re-export CancelHandlesMap for use by the worker
 pub type CancelHandlesMap = Arc<std::sync::Mutex<HashMap<String, CancelHandle>>>;
@@ -108,36 +108,32 @@ fn update_project_hooks_for_run(
         api_url,
         &api_token.chars().take(8).collect::<String>()
     );
-    
+
     match agent_kind {
-        AgentKind::Cursor => {
-            cursor_hooks::install_hooks_with_run_id(
-                repo_path,
-                hook_script_path,
-                Some(api_url),
-                Some(api_token),
-                Some(run_id),
-            )
-            .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e))
-        }
-        AgentKind::Claude => {
-            claude_hooks::install_local_hooks_with_run_id(
-                repo_path,
-                hook_script_path,
-                Some(api_url),
-                Some(api_token),
-                Some(run_id),
-            )
-            .map_err(|e| format!("Failed to update Claude settings.local.json: {}", e))
-        }
+        AgentKind::Cursor => cursor_hooks::install_hooks_with_run_id(
+            repo_path,
+            hook_script_path,
+            Some(api_url),
+            Some(api_token),
+            Some(run_id),
+        )
+        .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e)),
+        AgentKind::Claude => claude_hooks::install_local_hooks_with_run_id(
+            repo_path,
+            hook_script_path,
+            Some(api_url),
+            Some(api_token),
+            Some(run_id),
+        )
+        .map_err(|e| format!("Failed to update Claude settings.local.json: {}", e)),
     }
 }
 
 /// Execute an agent run with the given configuration.
-/// 
+///
 /// This is the main entry point for running agents - used by both
 /// the Tauri command (`start_agent_run`) and the worker system.
-/// 
+///
 /// Handles:
 /// - Multi-stage vs basic workflow detection
 /// - Log streaming and persistence
@@ -146,7 +142,7 @@ fn update_project_hooks_for_run(
 /// - Ticket movement between columns
 pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, String> {
     let start_time = std::time::Instant::now();
-    
+
     tracing::info!(
         "execute_agent_run: ticket={}, run_id={}, workflow_type={:?}, agent={:?}",
         config.ticket.id,
@@ -154,7 +150,7 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
         config.ticket.workflow_type,
         config.agent_kind
     );
-    
+
     // Update project hooks with run configuration
     if let Some(ref hook_path) = config.hook_script_path {
         if let Err(e) = update_project_hooks_for_run(
@@ -169,28 +165,37 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
             // Continue anyway - hooks might already be configured
         }
     }
-    
+
     // Update run status to running
-    config.db.update_run_status(&config.run_id, RunStatus::Running, None, None)
+    config
+        .db
+        .update_run_status(&config.run_id, RunStatus::Running, None, None)
         .map_err(|e| format!("Failed to update run status: {}", e))?;
-    
+
     // All tickets use multi-stage workflow now (WorkflowType is always MultiStage)
     // The orchestrator handles the full workflow with proper stage tracking
     let result = execute_multi_stage_workflow(&config).await;
-    
+
     let duration_secs = start_time.elapsed().as_secs_f64();
-    
+
     match result {
         Ok(()) => {
-            tracing::info!("Agent run {} completed successfully in {:.1}s", config.run_id, duration_secs);
-            
-            config.db.update_run_status(
-                &config.run_id,
-                RunStatus::Finished,
-                Some(0),
-                Some("Workflow completed successfully"),
-            ).map_err(|e| format!("Failed to update run status: {}", e))?;
-            
+            tracing::info!(
+                "Agent run {} completed successfully in {:.1}s",
+                config.run_id,
+                duration_secs
+            );
+
+            config
+                .db
+                .update_run_status(
+                    &config.run_id,
+                    RunStatus::Finished,
+                    Some(0),
+                    Some("Workflow completed successfully"),
+                )
+                .map_err(|e| format!("Failed to update run status: {}", e))?;
+
             // Emit completion event if we have a window
             if let Some(ref window) = config.window {
                 let event = AgentCompleteEvent {
@@ -203,7 +208,7 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
                     tracing::error!("Failed to emit agent-complete event: {}", e);
                 }
             }
-            
+
             Ok(RunnerResult {
                 status: RunStatus::Finished,
                 exit_code: Some(0),
@@ -213,17 +218,25 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
         }
         Err(e) => {
             tracing::error!("Agent run {} failed: {}", config.run_id, e);
-            
-            config.db.update_run_status(
-                &config.run_id,
-                RunStatus::Error,
-                None,
-                Some(&format!("Workflow failed: {}", e)),
-            ).map_err(|db_err| format!("Failed to update run status: {}", db_err))?;
-            
+
+            config
+                .db
+                .update_run_status(
+                    &config.run_id,
+                    RunStatus::Error,
+                    None,
+                    Some(&format!("Workflow failed: {}", e)),
+                )
+                .map_err(|db_err| format!("Failed to update run status: {}", db_err))?;
+
             // Move ticket to Blocked on error
-            move_ticket_to_column(&config.db, &config.ticket, "Blocked", config.window.as_ref());
-            
+            move_ticket_to_column(
+                &config.db,
+                &config.ticket,
+                "Blocked",
+                config.window.as_ref(),
+            );
+
             // Emit error event if we have a window
             if let Some(ref window) = config.window {
                 let event = AgentErrorEvent {
@@ -234,7 +247,7 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
                     tracing::error!("Failed to emit agent-error event: {}", emit_err);
                 }
             }
-            
+
             Ok(RunnerResult {
                 status: RunStatus::Error,
                 exit_code: None,
@@ -248,7 +261,7 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
 /// Execute a multi-stage workflow using the orchestrator
 async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), String> {
     tracing::info!("Starting multi-stage workflow for run {}", config.run_id);
-    
+
     let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
         db: config.db.clone(),
         window: config.window.clone(),
@@ -272,29 +285,46 @@ async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), Strin
         resume_from_stage: config.resume_from_stage.clone(),
         previous_run_id: config.previous_run_id.clone(),
     });
-    
+
     orchestrator.execute().await
 }
 
 /// Move a ticket to a column by name
-fn move_ticket_to_column(db: &Database, ticket: &Ticket, column_name: &str, window: Option<&Window>) {
+fn move_ticket_to_column(
+    db: &Database,
+    ticket: &Ticket,
+    column_name: &str,
+    window: Option<&Window>,
+) {
     match db.find_column_by_name(&ticket.board_id, column_name) {
         Ok(Some(column)) => {
             if let Err(e) = db.move_ticket(&ticket.id, &column.id) {
-                tracing::error!("Failed to move ticket {} to '{}': {}", ticket.id, column_name, e);
+                tracing::error!(
+                    "Failed to move ticket {} to '{}': {}",
+                    ticket.id,
+                    column_name,
+                    e
+                );
             } else {
                 tracing::info!("Moved ticket {} to column '{}'", ticket.id, column_name);
                 if let Some(window) = window {
-                    let _ = window.emit("ticket-moved", serde_json::json!({
-                        "ticketId": ticket.id,
-                        "columnName": column_name,
-                        "columnId": column.id,
-                    }));
+                    let _ = window.emit(
+                        "ticket-moved",
+                        serde_json::json!({
+                            "ticketId": ticket.id,
+                            "columnName": column_name,
+                            "columnId": column.id,
+                        }),
+                    );
                 }
             }
         }
         Ok(None) => {
-            tracing::warn!("Column '{}' not found for board {}", column_name, ticket.board_id);
+            tracing::warn!(
+                "Column '{}' not found for board {}",
+                column_name,
+                ticket.board_id
+            );
         }
         Err(e) => {
             tracing::error!("Error finding column '{}': {}", column_name, e);

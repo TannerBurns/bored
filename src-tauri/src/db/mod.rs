@@ -1,34 +1,34 @@
-pub mod schema;
+mod boards;
+mod comments;
+mod events;
 pub mod models;
 mod projects;
-mod boards;
-mod tickets;
 mod runs;
-mod events;
-mod comments;
-pub mod tasks;
+pub mod schema;
 mod specs;
+pub mod tasks;
+mod tickets;
 
+use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use rusqlite::Connection;
 use thiserror::Error;
 
 pub use models::*;
-pub use tickets::ReadyTicketDiagnostics;
 use schema::{CREATE_TABLES, SCHEMA_VERSION};
+pub use tickets::ReadyTicketDiagnostics;
 
 #[derive(Error, Debug)]
 pub enum DbError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
-    
+
     #[error("Lock error: {0}")]
     Lock(String),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Validation error: {0}")]
     Validation(String),
 }
@@ -41,19 +41,20 @@ pub struct Database {
 impl Database {
     pub fn open(db_path: PathBuf) -> Result<Self, DbError> {
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|_e| DbError::Validation(format!("Failed to create directory: {:?}", parent)))?;
+            std::fs::create_dir_all(parent).map_err(|_e| {
+                DbError::Validation(format!("Failed to create directory: {:?}", parent))
+            })?;
         }
 
         let conn = Connection::open(&db_path)?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
         let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
-        
+
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.migrate()?;
-        
+
         tracing::info!("Database opened at {:?}", db_path);
         Ok(db)
     }
@@ -61,18 +62,17 @@ impl Database {
     pub fn open_in_memory() -> Result<Self, DbError> {
         let conn = Connection::open_in_memory()?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
-        
+
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
-        
+
         db.migrate()?;
         Ok(db)
     }
 
     fn migrate(&self) -> Result<(), DbError> {
-        let conn = self.conn.lock()
-            .map_err(|e| DbError::Lock(e.to_string()))?;
+        let conn = self.conn.lock().map_err(|e| DbError::Lock(e.to_string()))?;
 
         let current_version: i32 = conn
             .query_row(
@@ -93,7 +93,7 @@ impl Database {
             if current_version == 0 {
                 conn.execute_batch(CREATE_TABLES)?;
             }
-            
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -109,8 +109,7 @@ impl Database {
     where
         F: FnOnce(&Connection) -> Result<T, DbError>,
     {
-        let conn = self.conn.lock()
-            .map_err(|e| DbError::Lock(e.to_string()))?;
+        let conn = self.conn.lock().map_err(|e| DbError::Lock(e.to_string()))?;
         f(&conn)
     }
 
@@ -118,8 +117,7 @@ impl Database {
     where
         F: FnOnce(&mut Connection) -> Result<T, DbError>,
     {
-        let mut conn = self.conn.lock()
-            .map_err(|e| DbError::Lock(e.to_string()))?;
+        let mut conn = self.conn.lock().map_err(|e| DbError::Lock(e.to_string()))?;
         f(&mut conn)
     }
 }
@@ -142,7 +140,7 @@ pub struct RunArtifacts {
 
 impl Database {
     /// Attempt to acquire a repository-level lock.
-    /// 
+    ///
     /// Returns true if the lock was acquired, false if another worker holds a valid lock.
     /// Uses INSERT...ON CONFLICT to atomically acquire or fail.
     pub fn acquire_repo_lock(
@@ -162,11 +160,11 @@ impl Database {
                    WHERE lock_expires_at < ?4"#,
                 rusqlite::params![project_id, run_id, expires_str, now],
             )?;
-            
+
             Ok(affected > 0)
         })
     }
-    
+
     /// Release a repository-level lock.
     /// Only releases if the lock is held by the specified run_id.
     pub fn release_repo_lock(&self, project_id: &str, run_id: &str) -> Result<(), DbError> {
@@ -178,7 +176,7 @@ impl Database {
             Ok(())
         })
     }
-    
+
     /// Update the run_id that owns a repository lock.
     /// Used when a temporary run_id is replaced with the actual run ID after creation.
     /// Only updates if the lock is currently held by old_run_id.
@@ -200,7 +198,7 @@ impl Database {
             Ok(())
         })
     }
-    
+
     /// Extend an existing repository lock.
     /// Only extends if the lock is held by the specified run_id.
     pub fn extend_repo_lock(
@@ -221,21 +219,23 @@ impl Database {
             Ok(())
         })
     }
-    
+
     /// Clean up expired repository locks.
     /// Returns the number of locks that were cleaned up.
     pub fn cleanup_expired_repo_locks(&self) -> Result<usize, DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
-            let affected = conn.execute(
-                "DELETE FROM repo_locks WHERE lock_expires_at < ?",
-                [&now],
-            )?;
+            let affected =
+                conn.execute("DELETE FROM repo_locks WHERE lock_expires_at < ?", [&now])?;
             Ok(affected)
         })
     }
 
-    pub fn update_run_artifacts(&self, run_id: &str, artifacts: &RunArtifacts) -> Result<(), DbError> {
+    pub fn update_run_artifacts(
+        &self,
+        run_id: &str,
+        artifacts: &RunArtifacts,
+    ) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let metadata = serde_json::to_string(artifacts).unwrap_or_else(|_| "{}".to_string());
             conn.execute(
@@ -248,11 +248,13 @@ impl Database {
 
     pub fn get_run_artifacts(&self, run_id: &str) -> Result<Option<RunArtifacts>, DbError> {
         self.with_conn(|conn| {
-            let metadata: Option<String> = conn.query_row(
-                "SELECT metadata_json FROM agent_runs WHERE id = ?",
-                [run_id],
-                |row| row.get(0),
-            ).ok();
+            let metadata: Option<String> = conn
+                .query_row(
+                    "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .ok();
             Ok(metadata.and_then(|m| serde_json::from_str(&m).ok()))
         })
     }
@@ -467,12 +469,14 @@ mod tests {
         use crate::db::models::CreateProject;
 
         fn setup_project(db: &Database) -> String {
-            let project = db.create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                preferred_agent: None,
-                requires_git: true,
-            }).unwrap();
+            let project = db
+                .create_project(&CreateProject {
+                    name: "Test".to_string(),
+                    path: temp_dir_path(),
+                    preferred_agent: None,
+                    requires_git: true,
+                })
+                .unwrap();
             project.id
         }
 
@@ -480,10 +484,10 @@ mod tests {
         fn acquire_repo_lock_success() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
             let acquired = db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             assert!(acquired);
         }
 
@@ -491,13 +495,13 @@ mod tests {
         fn acquire_repo_lock_fails_when_held() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
-            
+
             // First acquisition should succeed
             let first = db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
             assert!(first);
-            
+
             // Second acquisition should fail (lock not expired)
             let second = db.acquire_repo_lock(&project_id, "run-2", expires).unwrap();
             assert!(!second);
@@ -507,15 +511,17 @@ mod tests {
         fn acquire_repo_lock_succeeds_when_expired() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             // Acquire with expired lock
             let expired = Utc::now() - Duration::minutes(5);
             db.acquire_repo_lock(&project_id, "run-1", expired).unwrap();
-            
+
             // New acquisition should succeed since lock is expired
             let new_expires = Utc::now() + Duration::minutes(30);
-            let acquired = db.acquire_repo_lock(&project_id, "run-2", new_expires).unwrap();
-            
+            let acquired = db
+                .acquire_repo_lock(&project_id, "run-2", new_expires)
+                .unwrap();
+
             assert!(acquired);
         }
 
@@ -523,13 +529,13 @@ mod tests {
         fn release_repo_lock_success() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
             db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             // Release the lock
             db.release_repo_lock(&project_id, "run-1").unwrap();
-            
+
             // Now another run should be able to acquire
             let acquired = db.acquire_repo_lock(&project_id, "run-2", expires).unwrap();
             assert!(acquired);
@@ -539,13 +545,13 @@ mod tests {
         fn release_repo_lock_wrong_run_no_effect() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
             db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             // Try to release with wrong run_id
             db.release_repo_lock(&project_id, "run-wrong").unwrap();
-            
+
             // Lock should still be held, so new acquisition should fail
             let acquired = db.acquire_repo_lock(&project_id, "run-2", expires).unwrap();
             assert!(!acquired);
@@ -555,13 +561,14 @@ mod tests {
         fn extend_repo_lock_success() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let initial_expires = Utc::now() + Duration::minutes(30);
-            db.acquire_repo_lock(&project_id, "run-1", initial_expires).unwrap();
-            
+            db.acquire_repo_lock(&project_id, "run-1", initial_expires)
+                .unwrap();
+
             let new_expires = Utc::now() + Duration::minutes(60);
             let result = db.extend_repo_lock(&project_id, "run-1", new_expires);
-            
+
             assert!(result.is_ok());
         }
 
@@ -569,13 +576,13 @@ mod tests {
         fn extend_repo_lock_wrong_run_fails() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
             db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             // Try to extend with wrong run_id
             let result = db.extend_repo_lock(&project_id, "run-wrong", expires);
-            
+
             assert!(matches!(result, Err(DbError::NotFound(_))));
         }
 
@@ -583,22 +590,23 @@ mod tests {
         fn update_repo_lock_owner_success() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
-            db.acquire_repo_lock(&project_id, "temp-run-id", expires).unwrap();
-            
+            db.acquire_repo_lock(&project_id, "temp-run-id", expires)
+                .unwrap();
+
             // Update owner from temp to actual run id
             let result = db.update_repo_lock_owner(&project_id, "temp-run-id", "actual-run-id");
             assert!(result.is_ok());
-            
+
             // Now extend should work with new run id
             let new_expires = Utc::now() + Duration::minutes(60);
             let extend_result = db.extend_repo_lock(&project_id, "actual-run-id", new_expires);
             assert!(extend_result.is_ok());
-            
+
             // And release should work with new run id
             db.release_repo_lock(&project_id, "actual-run-id").unwrap();
-            
+
             // Lock should now be released
             let acquired = db.acquire_repo_lock(&project_id, "run-3", expires).unwrap();
             assert!(acquired);
@@ -608,13 +616,13 @@ mod tests {
         fn update_repo_lock_owner_wrong_old_id_fails() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             let expires = Utc::now() + Duration::minutes(30);
             db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             // Try to update with wrong old_run_id
             let result = db.update_repo_lock_owner(&project_id, "wrong-id", "new-id");
-            
+
             assert!(matches!(result, Err(DbError::NotFound(_))));
         }
 
@@ -622,18 +630,20 @@ mod tests {
         fn cleanup_expired_repo_locks() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             // Create expired lock
             let expired = Utc::now() - Duration::minutes(5);
             db.acquire_repo_lock(&project_id, "run-1", expired).unwrap();
-            
+
             // Cleanup should remove it
             let count = db.cleanup_expired_repo_locks().unwrap();
             assert_eq!(count, 1);
-            
+
             // Now new acquisition should succeed
             let new_expires = Utc::now() + Duration::minutes(30);
-            let acquired = db.acquire_repo_lock(&project_id, "run-2", new_expires).unwrap();
+            let acquired = db
+                .acquire_repo_lock(&project_id, "run-2", new_expires)
+                .unwrap();
             assert!(acquired);
         }
 
@@ -641,15 +651,15 @@ mod tests {
         fn cleanup_does_not_remove_valid_locks() {
             let db = create_test_db();
             let project_id = setup_project(&db);
-            
+
             // Create valid lock
             let expires = Utc::now() + Duration::minutes(30);
             db.acquire_repo_lock(&project_id, "run-1", expires).unwrap();
-            
+
             // Cleanup should not remove it
             let count = db.cleanup_expired_repo_locks().unwrap();
             assert_eq!(count, 0);
-            
+
             // Lock should still be held
             let acquired = db.acquire_repo_lock(&project_id, "run-2", expires).unwrap();
             assert!(!acquired);

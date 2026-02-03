@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import type { SpecProgress, SpecEta } from '../../types';
 

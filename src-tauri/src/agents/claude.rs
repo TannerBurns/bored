@@ -8,12 +8,14 @@ fn shell_escape(s: &str) -> String {
     if s.is_empty() {
         return "''".to_string();
     }
-    
+
     // If the string contains only safe characters, return as-is
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.') {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/' || c == '.')
+    {
         return s.to_string();
     }
-    
+
     // Otherwise, wrap in single quotes and escape any embedded single quotes
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -38,13 +40,14 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--verbose".to_string(),
         "--dangerously-skip-permissions".to_string(),
     ];
-    
-    let model_to_use = config.claude_api_config
+
+    let model_to_use = config
+        .claude_api_config
         .as_ref()
         .and_then(|c| c.model_override.as_ref())
         .filter(|s| !s.is_empty())
         .cloned();
-    
+
     if let Some(model) = model_to_use {
         args.push("--model".to_string());
         args.push(model);
@@ -52,10 +55,10 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         args.push("--model".to_string());
         args.push(map_model_for_claude(model));
     }
-    
+
     args.push("-p".to_string());
     args.push(config.prompt.clone());
-    
+
     (command, args)
 }
 
@@ -193,7 +196,7 @@ pub fn generate_hooks_settings_with_api(
 pub fn generate_hooks_settings_with_config(config: HooksConfig) -> serde_json::Value {
     // Build environment variables for the hook script, with proper shell escaping
     let mut env_vars = String::new();
-    
+
     if let Some(url) = config.api_url {
         env_vars.push_str(&format!("AGENT_KANBAN_API_URL={} ", shell_escape(url)));
     }
@@ -204,12 +207,15 @@ pub fn generate_hooks_settings_with_config(config: HooksConfig) -> serde_json::V
         env_vars.push_str(&format!("AGENT_KANBAN_RUN_ID={} ", shell_escape(run_id)));
     }
     if let Some(ticket_id) = config.ticket_id {
-        env_vars.push_str(&format!("AGENT_KANBAN_TICKET_ID={} ", shell_escape(ticket_id)));
+        env_vars.push_str(&format!(
+            "AGENT_KANBAN_TICKET_ID={} ",
+            shell_escape(ticket_id)
+        ));
     }
-    
+
     // Shell-escape the hook script path to handle spaces and special characters
     let escaped_path = shell_escape(config.hook_script_path);
-    
+
     let make_command = |event: &str| {
         if env_vars.is_empty() {
             format!("{} {}", escaped_path, event)
@@ -286,7 +292,7 @@ fn settings_file_has_hooks(path: &Path) -> bool {
     if !path.exists() {
         return false;
     }
-    
+
     match std::fs::read_to_string(path) {
         Ok(content) => {
             match serde_json::from_str::<serde_json::Value>(&content) {
@@ -311,7 +317,7 @@ pub fn check_global_hooks_installed() -> bool {
 }
 
 pub fn check_project_hooks_installed(project: &Path) -> bool {
-    settings_file_has_hooks(&project_settings_path(project)) 
+    settings_file_has_hooks(&project_settings_path(project))
         || settings_file_has_hooks(&local_settings_path(project))
 }
 
@@ -328,8 +334,10 @@ pub fn check_project_commands_installed(project: &Path) -> bool {
     if !commands_dir.exists() {
         return false;
     }
-    
-    COMMAND_TEMPLATES.iter().all(|name| commands_dir.join(name).exists())
+
+    COMMAND_TEMPLATES
+        .iter()
+        .all(|name| commands_dir.join(name).exists())
 }
 
 /// Get the user-level commands directory (~/.claude/commands/)
@@ -353,7 +361,9 @@ pub fn check_user_commands_installed() -> bool {
 /// This version doesn't have access to Tauri's resource resolver.
 pub fn get_bundled_commands_path() -> Option<PathBuf> {
     // Check development path (only works in dev builds)
-    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts").join("commands");
+    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("commands");
     if dev_path.exists() {
         return Some(dev_path);
     }
@@ -365,37 +375,37 @@ pub fn get_bundled_commands_path() -> Option<PathBuf> {
 pub fn get_bundled_commands_path_with_app<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Option<PathBuf> {
+    use tauri::Manager;
+
     // First, check development path
     if let Some(path) = get_bundled_commands_path() {
         return Some(path);
     }
-    
+
     // In production, resolve via Tauri's resource API
     // The commands are bundled under scripts/commands/
-    app.path_resolver()
-        .resolve_resource("scripts/commands")
+    app.path()
+        .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
+        .ok()
         .filter(|p| p.exists())
 }
 
-pub fn install_commands(
-    project: &Path,
-    commands_source: &Path,
-) -> std::io::Result<Vec<String>> {
+pub fn install_commands(project: &Path, commands_source: &Path) -> std::io::Result<Vec<String>> {
     let commands_dir = project.join(".claude").join("commands");
     std::fs::create_dir_all(&commands_dir)?;
-    
+
     let mut installed = Vec::new();
-    
+
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-        
+
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-    
+
     Ok(installed)
 }
 
@@ -407,21 +417,21 @@ pub fn install_user_commands(commands_source: &Path) -> std::io::Result<Vec<Stri
             "Could not determine home directory",
         )
     })?;
-    
+
     std::fs::create_dir_all(&commands_dir)?;
-    
+
     let mut installed = Vec::new();
-    
+
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-        
+
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-    
+
     Ok(installed)
 }
 
@@ -448,7 +458,7 @@ pub fn install_user_hooks(
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    
+
     // Read existing settings or create new
     let mut settings = if settings_path.exists() {
         let content = std::fs::read_to_string(&settings_path)?;
@@ -465,9 +475,8 @@ pub fn install_user_hooks(
 
     std::fs::write(
         settings_path,
-        serde_json::to_string_pretty(&settings).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?,
+        serde_json::to_string_pretty(&settings)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
     )?;
 
     Ok(())
@@ -483,7 +492,7 @@ pub fn install_project_hooks(
     std::fs::create_dir_all(&claude_dir)?;
 
     let settings_path = claude_dir.join("settings.json");
-    
+
     let mut settings = if settings_path.exists() {
         let content = std::fs::read_to_string(&settings_path)?;
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
@@ -498,9 +507,8 @@ pub fn install_project_hooks(
 
     std::fs::write(
         settings_path,
-        serde_json::to_string_pretty(&settings).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?,
+        serde_json::to_string_pretty(&settings)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
     )?;
 
     Ok(())
@@ -527,7 +535,7 @@ pub fn install_local_hooks_with_run_id(
     std::fs::create_dir_all(&claude_dir)?;
 
     let settings_path = claude_dir.join("settings.local.json");
-    
+
     let mut settings = if settings_path.exists() {
         let content = std::fs::read_to_string(&settings_path)?;
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
@@ -548,9 +556,8 @@ pub fn install_local_hooks_with_run_id(
 
     std::fs::write(
         settings_path,
-        serde_json::to_string_pretty(&settings).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-        })?,
+        serde_json::to_string_pretty(&settings)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?,
     )?;
 
     Ok(())
@@ -597,11 +604,21 @@ mod tests {
         // otherwise -p will consume the next flag (like --output-format) as its argument
         let config = create_test_config();
         let (_, args) = build_command(&config);
-        
-        let p_index = args.iter().position(|a| a == "-p").expect("-p flag must be present");
-        let prompt_index = args.iter().position(|a| a == "Test prompt").expect("prompt must be present");
-        
-        assert_eq!(prompt_index, p_index + 1, "-p must be immediately followed by the prompt");
+
+        let p_index = args
+            .iter()
+            .position(|a| a == "-p")
+            .expect("-p flag must be present");
+        let prompt_index = args
+            .iter()
+            .position(|a| a == "Test prompt")
+            .expect("prompt must be present");
+
+        assert_eq!(
+            prompt_index,
+            p_index + 1,
+            "-p must be immediately followed by the prompt"
+        );
     }
 
     #[test]
@@ -624,13 +641,17 @@ mod tests {
             ("haiku-4.5", "claude-haiku-4-5"),
             ("unknown-model", "unknown-model"), // Pass through unknown
         ];
-        
+
         for (input, expected) in test_cases {
             let mut config = create_test_config();
             config.model = Some(input.to_string());
             let (_, args) = build_command(&config);
-            assert!(args.contains(&expected.to_string()), 
-                "Expected {} to be mapped to {}", input, expected);
+            assert!(
+                args.contains(&expected.to_string()),
+                "Expected {} to be mapped to {}",
+                input,
+                expected
+            );
         }
     }
 
@@ -644,7 +665,7 @@ mod tests {
     #[test]
     fn build_command_uses_model_override_directly() {
         use super::super::ClaudeApiConfig;
-        
+
         let mut config = create_test_config();
         config.model = Some("sonnet-4".to_string()); // Regular model (would be mapped)
         config.claude_api_config = Some(ClaudeApiConfig {
@@ -653,9 +674,9 @@ mod tests {
             base_url: None,
             model_override: Some("custom-model-name".to_string()),
         });
-        
+
         let (_, args) = build_command(&config);
-        
+
         // Should use model_override directly, not the mapped version
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"custom-model-name".to_string()));
@@ -666,7 +687,7 @@ mod tests {
     #[test]
     fn build_command_ignores_empty_model_override() {
         use super::super::ClaudeApiConfig;
-        
+
         let mut config = create_test_config();
         config.model = Some("opus-4.5".to_string());
         config.claude_api_config = Some(ClaudeApiConfig {
@@ -675,9 +696,9 @@ mod tests {
             base_url: None,
             model_override: Some("".to_string()), // Empty string
         });
-        
+
         let (_, args) = build_command(&config);
-        
+
         // Should use the regular model with mapping since override is empty
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-opus-4-5".to_string()));
@@ -686,7 +707,7 @@ mod tests {
     #[test]
     fn build_command_model_override_priority() {
         use super::super::ClaudeApiConfig;
-        
+
         // Both model and model_override set - override should win
         let mut config = create_test_config();
         config.model = Some("haiku-4.5".to_string());
@@ -696,9 +717,9 @@ mod tests {
             base_url: None,
             model_override: Some("my-custom-model".to_string()),
         });
-        
+
         let (_, args) = build_command(&config);
-        
+
         assert!(args.contains(&"my-custom-model".to_string()));
         assert!(!args.contains(&"claude-haiku-4-5".to_string()));
     }
@@ -843,10 +864,7 @@ mod tests {
     fn project_settings_path_is_correct() {
         let project = PathBuf::from("/tmp/my-project");
         let path = project_settings_path(&project);
-        assert_eq!(
-            path,
-            PathBuf::from("/tmp/my-project/.claude/settings.json")
-        );
+        assert_eq!(path, PathBuf::from("/tmp/my-project/.claude/settings.json"));
     }
 
     #[test]
@@ -863,13 +881,13 @@ mod tests {
     fn install_project_hooks_creates_directory_and_file() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         let result = install_project_hooks(&temp_dir, "/path/to/hook.js", None, None);
         assert!(result.is_ok());
-        
+
         let settings_path = temp_dir.join(".claude").join("settings.json");
         assert!(settings_path.exists());
-        
+
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -878,9 +896,9 @@ mod tests {
     fn check_project_hooks_installed_returns_false_when_missing() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         assert!(!check_project_hooks_installed(&temp_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -888,10 +906,10 @@ mod tests {
     fn check_project_hooks_installed_returns_true_when_present() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_project_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
         assert!(check_project_hooks_installed(&temp_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -899,16 +917,16 @@ mod tests {
     fn install_project_hooks_writes_valid_json() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_project_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
-        
+
         let settings_path = temp_dir.join(".claude").join("settings.json");
         let content = std::fs::read_to_string(&settings_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        
+
         assert!(parsed.get("hooks").is_some());
         assert!(parsed["hooks"].get("UserPromptSubmit").is_some());
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -916,12 +934,12 @@ mod tests {
     fn install_local_hooks_creates_local_settings_file() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_local_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
-        
+
         let settings_path = temp_dir.join(".claude").join("settings.local.json");
         assert!(settings_path.exists());
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -937,7 +955,7 @@ mod tests {
         let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // URL contains ':' which is not a safe character, so it gets quoted
         assert!(command.contains("AGENT_KANBAN_API_URL='http://localhost:7432'"));
         // Token only contains safe chars, so not quoted
@@ -958,7 +976,7 @@ mod tests {
         let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         assert!(command.contains("AGENT_KANBAN_RUN_ID=run-123"));
         assert!(command.contains("AGENT_KANBAN_TICKET_ID=ticket-456"));
     }
@@ -971,7 +989,7 @@ mod tests {
         let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // Should be simple command without env prefix
         assert_eq!(command, "/path/to/hook.js UserPromptSubmit");
         assert!(!command.contains("env "));
@@ -982,10 +1000,10 @@ mod tests {
         let config = generate_hooks_settings("/path/to/hook.js");
         let hooks = config.get("hooks").unwrap();
         let pre_tool_use = hooks.get("PreToolUse").unwrap().as_array().unwrap();
-        
+
         // Should have two matchers: Bash and Read|Edit|Write
         assert_eq!(pre_tool_use.len(), 2);
-        
+
         let matchers: Vec<&str> = pre_tool_use
             .iter()
             .map(|m| m.get("matcher").unwrap().as_str().unwrap())
@@ -1012,7 +1030,10 @@ mod tests {
 
     #[test]
     fn shell_escape_path_with_single_quote() {
-        assert_eq!(shell_escape("/path/it's/hook.js"), "'/path/it'\\''s/hook.js'");
+        assert_eq!(
+            shell_escape("/path/it's/hook.js"),
+            "'/path/it'\\''s/hook.js'"
+        );
     }
 
     #[test]
@@ -1029,7 +1050,10 @@ mod tests {
     #[test]
     fn shell_escape_url_with_colon() {
         // URLs contain ':' which is not safe, so they get quoted
-        assert_eq!(shell_escape("http://localhost:7432"), "'http://localhost:7432'");
+        assert_eq!(
+            shell_escape("http://localhost:7432"),
+            "'http://localhost:7432'"
+        );
     }
 
     // Tests for path escaping in hooks
@@ -1042,7 +1066,7 @@ mod tests {
         let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // The path should be quoted
         assert!(command.contains("'/my path/with spaces/hook.js'"));
         assert!(command.ends_with(" UserPromptSubmit"));
@@ -1056,7 +1080,7 @@ mod tests {
         let first_matcher = stop.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // The path should be quoted
         assert!(command.contains("'/my path/hook.js'"));
     }
@@ -1073,7 +1097,7 @@ mod tests {
         let first_matcher = user_prompt.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // The token should be quoted
         assert!(command.contains("AGENT_KANBAN_API_TOKEN='token with spaces'"));
     }
@@ -1092,7 +1116,7 @@ mod tests {
         let first_matcher = stop.as_array().unwrap().first().unwrap();
         let first_hook = first_matcher["hooks"].as_array().unwrap().first().unwrap();
         let command = first_hook.get("command").unwrap().as_str().unwrap();
-        
+
         // Path should be quoted
         assert!(command.contains("'/path with spaces/hook.js'"));
         // Token with special char should be quoted
@@ -1117,9 +1141,9 @@ mod tests {
     fn check_project_commands_installed_returns_false_when_missing() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         assert!(!check_project_commands_installed(&temp_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -1128,26 +1152,26 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         let source_dir = temp_dir.join("source");
         std::fs::create_dir_all(&source_dir).unwrap();
-        
+
         // Create source command files
         for name in COMMAND_TEMPLATES {
             std::fs::write(source_dir.join(name), format!("# {}", name)).unwrap();
         }
-        
+
         let project_dir = temp_dir.join("project");
         std::fs::create_dir_all(&project_dir).unwrap();
-        
+
         let installed = install_commands(&project_dir, &source_dir).unwrap();
         assert_eq!(installed.len(), 5);
-        
+
         // Verify files exist
         let commands_dir = project_dir.join(".claude").join("commands");
         for name in COMMAND_TEMPLATES {
             assert!(commands_dir.join(name).exists());
         }
-        
+
         assert!(check_project_commands_installed(&project_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -1155,16 +1179,16 @@ mod tests {
     fn get_available_commands_returns_existing_files() {
         let temp_dir = std::env::temp_dir().join(format!("claude_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         // Create only some command files
         std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
         std::fs::write(temp_dir.join("deslop.md"), "# deslop").unwrap();
-        
+
         let available = get_available_commands(&temp_dir);
         assert_eq!(available.len(), 2);
         assert!(available.contains(&"cleanup.md".to_string()));
         assert!(available.contains(&"deslop.md".to_string()));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

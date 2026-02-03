@@ -4,12 +4,13 @@
 //! codebase exploration and work plan generation.
 
 /// Generate the exploration prompt for analyzing a codebase.
-/// 
+///
 /// This prompt instructs the agent to operate in read-only mode and
 /// gather information about the codebase structure, patterns, and
 /// relevant files for the user's request.
 pub fn generate_exploration_prompt(user_input: &str, iteration: usize) -> String {
-    format!(r#"# Codebase Exploration Task (Iteration {iteration})
+    format!(
+        r#"# Codebase Exploration Task (Iteration {iteration})
 
 You are analyzing a codebase to understand how to implement the following request:
 
@@ -60,15 +61,19 @@ High-level breakdown of how to implement the request based on your exploration.
 
 ### 5. Potential Challenges
 Any complexity, edge cases, or considerations discovered during exploration.
-"#, user_input = user_input, iteration = iteration)
+"#,
+        user_input = user_input,
+        iteration = iteration
+    )
 }
 
 /// Generate the planning prompt that produces structured JSON output.
-/// 
+///
 /// This prompt takes the exploration context and user request to generate
 /// a structured work plan with epics and tickets.
 pub fn generate_planning_prompt(user_input: &str, exploration_context: &str) -> String {
-    format!(r#"# Work Plan Generation
+    format!(
+        r#"# Work Plan Generation
 
 Based on your exploration of the codebase, create a structured work plan for the following request:
 
@@ -222,7 +227,10 @@ Epic 6: "Consolidate Changes" (dependsOn: ["Feature: Dashboard"])
 - Ticket: "Merge all epic branches into consolidation branch"
 
 Now generate the JSON work plan for the user's request. Output ONLY the JSON, no other text.
-"#, user_input = user_input, exploration_context = exploration_context)
+"#,
+        user_input = user_input,
+        exploration_context = exploration_context
+    )
 }
 
 /// Generate markdown from the plan overview for display purposes.
@@ -240,7 +248,7 @@ mod tests {
     #[test]
     fn test_exploration_prompt_contains_user_input() {
         let prompt = generate_exploration_prompt("Add dark mode support", 1);
-        
+
         assert!(prompt.contains("Add dark mode support"));
         assert!(prompt.contains("Iteration 1"));
         assert!(prompt.contains("READ-ONLY MODE"));
@@ -251,7 +259,7 @@ mod tests {
     fn test_exploration_prompt_iteration_number() {
         let prompt1 = generate_exploration_prompt("Test", 1);
         let prompt3 = generate_exploration_prompt("Test", 3);
-        
+
         assert!(prompt1.contains("Iteration 1"));
         assert!(prompt3.contains("Iteration 3"));
     }
@@ -260,9 +268,9 @@ mod tests {
     fn test_planning_prompt_contains_context() {
         let prompt = generate_planning_prompt(
             "Add caching layer",
-            "The codebase uses Redis for other features..."
+            "The codebase uses Redis for other features...",
         );
-        
+
         assert!(prompt.contains("Add caching layer"));
         assert!(prompt.contains("Redis for other features"));
         assert!(prompt.contains("dependsOn"));
@@ -272,7 +280,7 @@ mod tests {
     #[test]
     fn test_planning_prompt_has_json_schema() {
         let prompt = generate_planning_prompt("Test", "Context");
-        
+
         assert!(prompt.contains("\"overview\""));
         assert!(prompt.contains("\"epics\""));
         assert!(prompt.contains("\"tickets\""));
@@ -283,7 +291,7 @@ mod tests {
     #[test]
     fn test_format_plan_overview() {
         let overview = format_plan_overview("Implement feature X", 3, 12);
-        
+
         assert!(overview.contains("Implement feature X"));
         assert!(overview.contains("3 epic(s)"));
         assert!(overview.contains("12 ticket(s)"));

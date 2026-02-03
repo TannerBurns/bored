@@ -15,7 +15,7 @@ pub struct CursorStatus {
 #[tauri::command]
 pub async fn get_cursor_status(app: AppHandle) -> Result<CursorStatus, String> {
     let hook_script_path = get_hook_script_path(&app);
-    
+
     Ok(CursorStatus {
         is_available: cursor::is_cursor_available(),
         version: cursor::get_cursor_version(),
@@ -59,24 +59,26 @@ pub async fn install_cursor_hooks_project(
 ) -> Result<(), String> {
     let url = get_api_url(api_url);
     let token = get_api_token(api_token);
-    cursor::install_hooks(&PathBuf::from(project_path), &hook_script_path, Some(&url), token.as_deref())
-        .map_err(|e| e.to_string())
+    cursor::install_hooks(
+        &PathBuf::from(project_path),
+        &hook_script_path,
+        Some(&url),
+        token.as_deref(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_cursor_hooks_config(
-    hook_script_path: String,
-) -> Result<String, String> {
+pub async fn get_cursor_hooks_config(hook_script_path: String) -> Result<String, String> {
     let config = cursor::generate_hooks_json(&hook_script_path);
-    serde_json::to_string_pretty(&config)
-        .map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&config).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn check_project_hooks_installed(
-    project_path: String,
-) -> Result<bool, String> {
-    Ok(cursor::check_project_hooks_installed(&PathBuf::from(project_path)))
+pub async fn check_project_hooks_installed(project_path: String) -> Result<bool, String> {
+    Ok(cursor::check_project_hooks_installed(&PathBuf::from(
+        project_path,
+    )))
 }
 
 #[tauri::command]
@@ -85,8 +87,10 @@ pub async fn get_hook_script_path_cmd(app: AppHandle) -> Result<Option<String>, 
 }
 
 fn get_hook_script_path(app: &AppHandle) -> Option<String> {
-    app.path_resolver()
+    use tauri::Manager;
+    app.path()
         .app_data_dir()
+        .ok()
         .map(|dir| dir.join("scripts").join("cursor-hook.js"))
         .map(|p| p.to_string_lossy().to_string())
 }
@@ -103,7 +107,7 @@ mod tests {
             global_hooks_installed: false,
             hook_script_path: Some("/path/to/hook.js".to_string()),
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("isAvailable"));
         assert!(json.contains("globalHooksInstalled"));
@@ -118,7 +122,7 @@ mod tests {
             global_hooks_installed: false,
             hook_script_path: None,
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"isAvailable\":false"));
         assert!(json.contains("\"version\":null"));
@@ -133,10 +137,10 @@ mod tests {
             global_hooks_installed: true,
             hook_script_path: Some("/usr/local/bin/hook.js".to_string()),
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(parsed["isAvailable"], true);
         assert_eq!(parsed["version"], "1.0.0");
         assert_eq!(parsed["globalHooksInstalled"], true);
@@ -151,7 +155,7 @@ mod tests {
             global_hooks_installed: false,
             hook_script_path: None,
         };
-        
+
         let debug = format!("{:?}", status);
         assert!(debug.contains("CursorStatus"));
         assert!(debug.contains("is_available: true"));
@@ -165,7 +169,7 @@ mod tests {
             global_hooks_installed: true,
             hook_script_path: Some("/path".to_string()),
         };
-        
+
         let cloned = status.clone();
         assert_eq!(cloned.is_available, status.is_available);
         assert_eq!(cloned.version, status.version);

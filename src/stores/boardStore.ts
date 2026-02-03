@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts, PresetTaskInfo } from '../types';
 import { logger } from '../lib/logger';
 

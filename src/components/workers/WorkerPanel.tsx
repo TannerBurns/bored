@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
 import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';

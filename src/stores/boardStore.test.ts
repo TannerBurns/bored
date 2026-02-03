@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useBoardStore } from './boardStore';
 import type { Board, Column, Ticket, Comment, Task, TaskCounts, PresetTaskInfo } from '../types';
 
-// Mock @tauri-apps/api/tauri
-vi.mock('@tauri-apps/api/tauri', () => ({
+// Mock @tauri-apps/api/core
+vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 const mockBoard: Board = {
   id: 'board-1',

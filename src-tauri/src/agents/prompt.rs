@@ -1,5 +1,5 @@
-use crate::db::models::{Priority, Ticket, Task, TaskType};
 use super::AgentKind;
+use crate::db::models::{Priority, Task, TaskType, Ticket};
 
 fn slugify(title: &str) -> String {
     title
@@ -21,12 +21,19 @@ pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
 }
 
 /// Generate a ticket prompt with optional workflow instructions for the given agent type
-pub fn generate_ticket_prompt_with_workflow(ticket: &Ticket, agent_kind: Option<AgentKind>) -> String {
+pub fn generate_ticket_prompt_with_workflow(
+    ticket: &Ticket,
+    agent_kind: Option<AgentKind>,
+) -> String {
     generate_ticket_prompt_full(ticket, agent_kind, true)
 }
 
 /// Generate a ticket prompt with full control over workflow options
-pub fn generate_ticket_prompt_full(ticket: &Ticket, agent_kind: Option<AgentKind>, requires_git: bool) -> String {
+pub fn generate_ticket_prompt_full(
+    ticket: &Ticket,
+    agent_kind: Option<AgentKind>,
+    requires_git: bool,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
@@ -60,9 +67,9 @@ pub fn generate_ticket_prompt_full(ticket: &Ticket, agent_kind: Option<AgentKind
 
     if let Some(kind) = agent_kind {
         prompt.push_str("## Workflow\n\n");
-        
+
         let mut step = 1;
-        
+
         // Only include git branch step if git is required
         if requires_git {
             // Use char-based iteration to safely handle multi-byte UTF-8 characters
@@ -71,11 +78,14 @@ pub fn generate_ticket_prompt_full(ticket: &Ticket, agent_kind: Option<AgentKind
             prompt.push_str(&format!("{}. Create a branch: `{}`\n", step, branch_name));
             step += 1;
         }
-        
+
         prompt.push_str(&format!("{}. Create a plan before implementing\n", step));
         step += 1;
-        prompt.push_str(&format!("{}. After implementation, run this QA sequence:\n\n", step));
-        
+        prompt.push_str(&format!(
+            "{}. After implementation, run this QA sequence:\n\n",
+            step
+        ));
+
         match kind {
             AgentKind::Cursor => {
                 prompt.push_str("   - `/deslop` - Remove AI-generated code patterns\n");
@@ -86,20 +96,26 @@ pub fn generate_ticket_prompt_full(ticket: &Ticket, agent_kind: Option<AgentKind
                 prompt.push_str("   - `/cleanup` - Final lint pass\n");
                 prompt.push_str("   - `/review-changes` - Second review pass\n");
                 if requires_git {
-                    prompt.push_str("   - `/add-and-commit` - Stage and commit with detailed message\n");
+                    prompt.push_str(
+                        "   - `/add-and-commit` - Stage and commit with detailed message\n",
+                    );
                 }
             }
             AgentKind::Claude => {
                 prompt.push_str("   Read and follow each command file in order:\n");
-                prompt.push_str("   - `.claude/commands/deslop.md` - Remove AI-generated code patterns\n");
+                prompt.push_str(
+                    "   - `.claude/commands/deslop.md` - Remove AI-generated code patterns\n",
+                );
                 prompt.push_str("   - `.claude/commands/cleanup.md` - Fix lint/type errors\n");
                 prompt.push_str("   - `.claude/commands/unit-tests.md` - Add test coverage\n");
                 prompt.push_str("   - `.claude/commands/cleanup.md` - Fix test-related issues\n");
-                prompt.push_str("   - `.claude/commands/review-changes.md` - Apply best practices\n");
+                prompt
+                    .push_str("   - `.claude/commands/review-changes.md` - Apply best practices\n");
                 prompt.push_str("   - `.claude/commands/cleanup.md` - Final lint pass\n");
                 prompt.push_str("   - `.claude/commands/review-changes.md` - Second review pass\n");
                 if requires_git {
-                    prompt.push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
+                    prompt
+                        .push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
                 }
             }
         }
@@ -153,7 +169,7 @@ Your actions are being tracked via hooks. The board will be automatically update
 pub fn generate_branch_prompt(ticket: &Ticket) -> String {
     let id_prefix: String = ticket.id.chars().take(8).collect();
     let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
-    
+
     format!(
         r#"Create a new git branch for this task.
 
@@ -180,7 +196,8 @@ pub fn generate_get_branch_name_prompt() -> String {
 
 Reply with ONLY the branch name on a single line, nothing else.
 For example: ticket/abc12345/add-feature
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Generate a prompt for the agent to create a meaningful branch name
@@ -192,7 +209,7 @@ pub fn generate_branch_name_generation_prompt(ticket: &Ticket) -> String {
     } else {
         ticket.labels.join(", ")
     };
-    
+
     format!(
         r#"Analyze this ticket and generate a git branch name.
 
@@ -233,10 +250,10 @@ Respond with ONLY a JSON object on a single line, nothing else:
 - For a refactoring task: `{{"branch_name": "refactor/{id_prefix}/extract-auth-service"}}`
 "#,
         title = ticket.title,
-        description = if ticket.description_md.is_empty() { 
-            "No description provided".to_string() 
-        } else { 
-            ticket.description_md.clone() 
+        description = if ticket.description_md.is_empty() {
+            "No description provided".to_string()
+        } else {
+            ticket.description_md.clone()
         },
         labels = labels_str,
         id_prefix = id_prefix,
@@ -247,14 +264,14 @@ Respond with ONLY a JSON object on a single line, nothing else:
 pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
     // Try to find JSON in the output
     let trimmed = output.trim();
-    
+
     // Try parsing as JSON directly
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(branch) = json.get("branch_name").and_then(|v| v.as_str()) {
             return Some(branch.to_string());
         }
     }
-    
+
     // Try to find the FIRST complete JSON object in the output
     // This handles cases where multiple JSON objects are concatenated together
     if let Some(start) = trimmed.find('{') {
@@ -262,7 +279,7 @@ pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
         let chars: Vec<char> = trimmed[start..].chars().collect();
         let mut depth = 0;
         let mut end_offset = None;
-        
+
         for (i, ch) in chars.iter().enumerate() {
             match ch {
                 '{' => depth += 1,
@@ -276,7 +293,7 @@ pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
                 _ => {}
             }
         }
-        
+
         if let Some(end) = end_offset {
             let json_str: String = chars[..=end].iter().collect();
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
@@ -286,29 +303,29 @@ pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
             }
         }
     }
-    
+
     // Fallback: if it looks like a valid branch name, use the first line
     let first_line = trimmed.lines().next().unwrap_or("");
     if first_line.contains('/') && !first_line.contains(' ') && first_line.len() < 100 {
         return Some(first_line.to_string());
     }
-    
+
     None
 }
 
 /// Generate a prompt for the planning stage
 pub fn generate_plan_prompt(ticket: &Ticket) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str("Create an implementation plan for this task.\n\n");
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
-    
+
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
         prompt.push_str(&ticket.description_md);
         prompt.push_str("\n\n");
     }
-    
+
     let priority_context = match ticket.priority {
         Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
         Priority::High => "This is a high-priority task.",
@@ -319,7 +336,7 @@ pub fn generate_plan_prompt(ticket: &Ticket) -> String {
     if !priority_context.is_empty() {
         prompt.push_str(&format!("{}\n\n", priority_context));
     }
-    
+
     if !ticket.labels.is_empty() {
         prompt.push_str("## Labels\n\n");
         for label in &ticket.labels {
@@ -327,8 +344,9 @@ pub fn generate_plan_prompt(ticket: &Ticket) -> String {
         }
         prompt.push('\n');
     }
-    
-    prompt.push_str(r#"## Instructions
+
+    prompt.push_str(
+        r#"## Instructions
 
 1. Analyze the task requirements
 2. Identify the files that need to be modified or created
@@ -354,28 +372,30 @@ Format your plan as:
 ```
 
 Do NOT implement any code. Just create the plan.
-"#);
-    
+"#,
+    );
+
     prompt
 }
 
 /// Generate a prompt for the implementation stage
 pub fn generate_implement_prompt(ticket: &Ticket, plan: &str) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
-    
+
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
         prompt.push_str(&ticket.description_md);
         prompt.push_str("\n\n");
     }
-    
+
     prompt.push_str("## Implementation Plan\n\n");
     prompt.push_str(plan);
     prompt.push_str("\n\n");
-    
-    prompt.push_str(r#"## Instructions
+
+    prompt.push_str(
+        r#"## Instructions
 
 Execute the implementation plan above. For each step:
 1. Make the necessary code changes
@@ -388,8 +408,9 @@ Focus on implementing the plan. Do NOT:
 - Add tests (that comes in a separate stage)
 
 Just implement the core functionality as described in the plan.
-"#);
-    
+"#,
+    );
+
     prompt
 }
 
@@ -397,18 +418,22 @@ Just implement the core functionality as described in the plan.
 pub fn generate_command_prompt(command: &str, repo_path: &std::path::Path) -> String {
     // Try to read the command file content from various locations
     let locations = [
-        repo_path.join(".cursor/rules").join(format!("{}.md", command)),
-        repo_path.join(".claude/commands").join(format!("{}.md", command)),
+        repo_path
+            .join(".cursor/rules")
+            .join(format!("{}.md", command)),
+        repo_path
+            .join(".claude/commands")
+            .join(format!("{}.md", command)),
         // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
             .join(format!("{}.md", command)),
     ];
-    
+
     let cmd_content = locations
         .iter()
         .find_map(|path| std::fs::read_to_string(path).ok());
-    
+
     if let Some(content) = cmd_content {
         format!(
             r#"Execute the following command: /{command}
@@ -432,8 +457,9 @@ Remove AI-generated code patterns:
 - Defensive code that's not actually needed
 
 Focus on making the code clean and production-ready.
-"#.to_string(),
-            
+"#
+            .to_string(),
+
             "cleanup" => r#"Execute the /cleanup command:
 
 Fix all linting and type errors:
@@ -443,8 +469,9 @@ Fix all linting and type errors:
 4. Fix any formatting issues
 
 Report any issues that couldn't be automatically fixed.
-"#.to_string(),
-            
+"#
+            .to_string(),
+
             "unit-tests" => r#"Execute the /unit-tests command:
 
 Add test coverage for the recent changes:
@@ -454,8 +481,9 @@ Add test coverage for the recent changes:
 4. Ensure tests pass
 
 Focus on meaningful tests that verify behavior, not just coverage.
-"#.to_string(),
-            
+"#
+            .to_string(),
+
             "review-changes" => r#"Execute the /review-changes command:
 
 Review all recent changes:
@@ -465,8 +493,9 @@ Review all recent changes:
 4. Ensure consistent style and patterns
 
 Make any necessary improvements.
-"#.to_string(),
-            
+"#
+            .to_string(),
+
             "add-and-commit" => r#"Execute the /add-and-commit command:
 
 Stage and commit all changes:
@@ -478,8 +507,9 @@ Stage and commit all changes:
    - Any notable implementation decisions
 
 Use conventional commit format if the project uses it.
-"#.to_string(),
-            
+"#
+            .to_string(),
+
             _ => format!(
                 r#"Execute the /{command} command:
 
@@ -508,9 +538,9 @@ pub fn generate_task_prompt(task: &Task, ticket: &Ticket, repo_path: &std::path:
 /// Generate a prompt for a custom task
 fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
-    
+
     // Include the task-specific content if available
     if let Some(ref content) = task.content {
         if !content.is_empty() {
@@ -519,14 +549,15 @@ fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
             prompt.push_str("\n\n");
         }
     }
-    
+
     // Include ticket context if different from task content
-    if task.content.as_deref() != Some(&ticket.description_md) && !ticket.description_md.is_empty() {
+    if task.content.as_deref() != Some(&ticket.description_md) && !ticket.description_md.is_empty()
+    {
         prompt.push_str("## Original Ticket Context\n\n");
         prompt.push_str(&ticket.description_md);
         prompt.push_str("\n\n");
     }
-    
+
     let priority_context = match ticket.priority {
         Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
         Priority::High => "This is a high-priority task.",
@@ -537,7 +568,7 @@ fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
     if !priority_context.is_empty() {
         prompt.push_str(&format!("{}\n\n", priority_context));
     }
-    
+
     if !ticket.labels.is_empty() {
         prompt.push_str("## Labels\n\n");
         for label in &ticket.labels {
@@ -545,8 +576,9 @@ fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
         }
         prompt.push('\n');
     }
-    
-    prompt.push_str(r#"## Instructions
+
+    prompt.push_str(
+        r#"## Instructions
 
 1. Analyze the task requirements
 2. Create a plan before implementing
@@ -555,8 +587,9 @@ fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
 5. Run the project's test suite if applicable
 
 Focus on completing this specific task. Additional QA stages will follow.
-"#);
-    
+"#,
+    );
+
     prompt
 }
 
@@ -564,14 +597,18 @@ Focus on completing this specific task. Additional QA stages will follow.
 fn generate_preset_task_prompt(preset_name: &str, repo_path: &std::path::Path) -> String {
     // Try to read from various locations
     let locations = [
-        repo_path.join(".cursor/rules").join(format!("{}.md", preset_name)),
-        repo_path.join(".claude/commands").join(format!("{}.md", preset_name)),
+        repo_path
+            .join(".cursor/rules")
+            .join(format!("{}.md", preset_name)),
+        repo_path
+            .join(".claude/commands")
+            .join(format!("{}.md", preset_name)),
         // Fallback to our bundled command files
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
             .join(format!("{}.md", preset_name)),
     ];
-    
+
     for path in &locations {
         if let Ok(content) = std::fs::read_to_string(path) {
             return format!(
@@ -581,7 +618,7 @@ fn generate_preset_task_prompt(preset_name: &str, repo_path: &std::path::Path) -
             );
         }
     }
-    
+
     // Fallback prompts if no command file found
     get_fallback_preset_prompt(preset_name)
 }
@@ -601,8 +638,9 @@ Merge the latest changes from the main branch into this feature branch.
 4. Run linter and type checker after resolving
 5. Commit the merge
 6. Push the changes
-"#.to_string(),
-        
+"#
+        .to_string(),
+
         "add-tests" => r#"# Add Tests
 
 Add comprehensive test coverage for the recent changes.
@@ -614,8 +652,9 @@ Add comprehensive test coverage for the recent changes.
 3. Test happy paths, edge cases, and error conditions
 4. Ensure all tests pass
 5. Follow existing test patterns in the codebase
-"#.to_string(),
-        
+"#
+        .to_string(),
+
         "review-polish" => r#"# Review and Polish
 
 Review all recent changes for code quality and best practices.
@@ -628,8 +667,9 @@ Review all recent changes for code quality and best practices.
 4. Check for security concerns
 5. Remove unused code and fix formatting
 6. Add documentation where helpful
-"#.to_string(),
-        
+"#
+        .to_string(),
+
         "fix-lint" => r#"# Fix Lint Errors
 
 Fix all linting and type checking errors.
@@ -641,8 +681,9 @@ Fix all linting and type checking errors.
 3. Fix all errors
 4. Verify fixes by re-running checks
 5. Run tests to ensure fixes didn't break anything
-"#.to_string(),
-        
+"#
+        .to_string(),
+
         _ => format!(
             r#"# Task: {}
 
@@ -656,10 +697,10 @@ Execute the {} task. Follow any project conventions for this task type.
 /// Generate a planning prompt for a task
 pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str("Create an implementation plan for this task.\n\n");
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
-    
+
     // Use task content if available, otherwise use ticket description
     let content = task.content.as_deref().unwrap_or(&ticket.description_md);
     if !content.is_empty() {
@@ -667,7 +708,7 @@ pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
         prompt.push_str(content);
         prompt.push_str("\n\n");
     }
-    
+
     let priority_context = match ticket.priority {
         Priority::Urgent => "This is an URGENT task. Prioritize a minimal viable solution.",
         Priority::High => "This is a high-priority task.",
@@ -678,8 +719,9 @@ pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
     if !priority_context.is_empty() {
         prompt.push_str(&format!("{}\n\n", priority_context));
     }
-    
-    prompt.push_str(r#"## Instructions
+
+    prompt.push_str(
+        r#"## Instructions
 
 1. Analyze the task requirements
 2. Identify the files that need to be modified or created
@@ -705,17 +747,18 @@ Format your plan as:
 ```
 
 Do NOT implement any code. Just create the plan.
-"#);
-    
+"#,
+    );
+
     prompt
 }
 
 /// Generate an implementation prompt for a task with a plan
 pub fn generate_task_implement_prompt(task: &Task, ticket: &Ticket, plan: &str) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
-    
+
     // Use task content if available
     let content = task.content.as_deref().unwrap_or(&ticket.description_md);
     if !content.is_empty() {
@@ -723,12 +766,13 @@ pub fn generate_task_implement_prompt(task: &Task, ticket: &Ticket, plan: &str) 
         prompt.push_str(content);
         prompt.push_str("\n\n");
     }
-    
+
     prompt.push_str("## Implementation Plan\n\n");
     prompt.push_str(plan);
     prompt.push_str("\n\n");
-    
-    prompt.push_str(r#"## Instructions
+
+    prompt.push_str(
+        r#"## Instructions
 
 Execute the implementation plan above. For each step:
 1. Make the necessary code changes
@@ -741,8 +785,9 @@ Focus on implementing the plan. Do NOT:
 - Add tests (that's a separate task)
 
 Just implement the core functionality as described in the plan.
-"#);
-    
+"#,
+    );
+
     prompt
 }
 
@@ -985,49 +1030,49 @@ mod tests {
         // Takes first 8 chars: a, 🎉, b, c, d, e, f, g
         assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
     }
-    
+
     #[test]
     fn generate_ticket_prompt_full_without_git_cursor() {
         let ticket = create_test_ticket();
         let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), false);
-        
+
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
-        
+
         // Should NOT have git-related steps
         assert!(!prompt.contains("Create a branch:"));
         assert!(!prompt.contains("/add-and-commit"));
-        
+
         // Should still have non-git workflow steps
         assert!(prompt.contains("/deslop"));
         assert!(prompt.contains("/cleanup"));
         assert!(prompt.contains("/unit-tests"));
         assert!(prompt.contains("/review-changes"));
     }
-    
+
     #[test]
     fn generate_ticket_prompt_full_without_git_claude() {
         let ticket = create_test_ticket();
         let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Claude), false);
-        
+
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
-        
+
         // Should NOT have git-related steps
         assert!(!prompt.contains("Create a branch:"));
         assert!(!prompt.contains("add-and-commit.md"));
-        
+
         // Should still have non-git workflow steps
         assert!(prompt.contains("deslop.md"));
         assert!(prompt.contains("cleanup.md"));
         assert!(prompt.contains("unit-tests.md"));
     }
-    
+
     #[test]
     fn generate_ticket_prompt_full_with_git_includes_all_steps() {
         let ticket = create_test_ticket();
         let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), true);
-        
+
         // Should have all workflow steps including git
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains("/add-and-commit"));
@@ -1045,7 +1090,10 @@ mod tests {
         // This simulates the output from Claude stream-json where the text appears twice
         let output = r#"{"branch_name": "feat/2f8c058c/add-frontend-themes"}{"branch_name": "feat/2f8c058c/add-frontend-themes"}"#;
         let result = parse_branch_name_from_output(output);
-        assert_eq!(result, Some("feat/2f8c058c/add-frontend-themes".to_string()));
+        assert_eq!(
+            result,
+            Some("feat/2f8c058c/add-frontend-themes".to_string())
+        );
     }
 
     #[test]
@@ -1074,7 +1122,7 @@ mod tests {
     fn generate_branch_name_generation_prompt_includes_ticket_info() {
         let ticket = create_test_ticket();
         let prompt = generate_branch_name_generation_prompt(&ticket);
-        
+
         assert!(prompt.contains(&ticket.title));
         assert!(prompt.contains(&ticket.description_md));
         assert!(prompt.contains("branch_name"));
@@ -1087,7 +1135,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.labels = vec!["bug".to_string(), "urgent".to_string()];
         let prompt = generate_branch_name_generation_prompt(&ticket);
-        
+
         assert!(prompt.contains("bug"));
         assert!(prompt.contains("urgent"));
     }
@@ -1097,7 +1145,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.description_md = "".to_string();
         let prompt = generate_branch_name_generation_prompt(&ticket);
-        
+
         assert!(prompt.contains("No description provided"));
     }
 
@@ -1106,7 +1154,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.id = "abcd1234efgh5678".to_string();
         let prompt = generate_branch_name_generation_prompt(&ticket);
-        
+
         // Should include first 8 chars of ticket ID
         assert!(prompt.contains("abcd1234"));
     }

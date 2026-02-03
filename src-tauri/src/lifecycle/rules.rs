@@ -46,7 +46,7 @@ fn check_system_transition(from: TicketState, to: TicketState) -> TransitionPerm
             "System cannot transition from {} to {}",
             from.to_column_name(),
             to.to_column_name()
-        ))
+        )),
     }
 }
 
@@ -58,8 +58,14 @@ mod tests {
     #[test]
     fn test_same_state_always_allowed() {
         for state in [Backlog, Ready, InProgress, Blocked, Review, Done] {
-            assert_eq!(can_transition(state, state, false, false), TransitionPermission::Allowed);
-            assert_eq!(can_transition(state, state, true, false), TransitionPermission::Allowed);
+            assert_eq!(
+                can_transition(state, state, false, false),
+                TransitionPermission::Allowed
+            );
+            assert_eq!(
+                can_transition(state, state, true, false),
+                TransitionPermission::Allowed
+            );
         }
     }
 
@@ -71,10 +77,11 @@ mod tests {
             for to in states {
                 if from != to && from != InProgress {
                     assert_eq!(
-                        can_transition(from, to, false, false), 
+                        can_transition(from, to, false, false),
                         TransitionPermission::Allowed,
                         "Expected {:?} -> {:?} to be allowed",
-                        from, to
+                        from,
+                        to
                     );
                 }
             }
@@ -84,25 +91,58 @@ mod tests {
     #[test]
     fn test_in_progress_allowed_even_when_locked() {
         // All InProgress transitions are allowed, even when locked (no restrictions for users)
-        assert_eq!(can_transition(InProgress, Ready, true, false), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Blocked, true, false), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Done, true, false), TransitionPermission::Allowed);
+        assert_eq!(
+            can_transition(InProgress, Ready, true, false),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Blocked, true, false),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Done, true, false),
+            TransitionPermission::Allowed
+        );
     }
 
     #[test]
     fn test_in_progress_allowed_when_not_locked() {
         // InProgress transitions are allowed when not locked
-        assert_eq!(can_transition(InProgress, Ready, false, false), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Blocked, false, false), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Done, false, false), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Backlog, false, false), TransitionPermission::Allowed);
+        assert_eq!(
+            can_transition(InProgress, Ready, false, false),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Blocked, false, false),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Done, false, false),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Backlog, false, false),
+            TransitionPermission::Allowed
+        );
     }
 
     #[test]
     fn test_system_transitions() {
-        assert_eq!(can_transition(Ready, InProgress, false, true), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Review, false, true), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Blocked, false, true), TransitionPermission::Allowed);
-        assert_eq!(can_transition(InProgress, Ready, false, true), TransitionPermission::Allowed);
+        assert_eq!(
+            can_transition(Ready, InProgress, false, true),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Review, false, true),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Blocked, false, true),
+            TransitionPermission::Allowed
+        );
+        assert_eq!(
+            can_transition(InProgress, Ready, false, true),
+            TransitionPermission::Allowed
+        );
     }
 }

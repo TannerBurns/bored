@@ -484,12 +484,16 @@ pub struct EpicProgress {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReadinessCheck {
-    Ready { project_id: String },
+    Ready {
+        project_id: String,
+    },
     /// Serializes as `{ "noProject": null }` to match TypeScript discriminated union
     NoProject(Option<()>),
     /// Serializes as `{ "projectNotFound": null }` to match TypeScript discriminated union
     ProjectNotFound(Option<()>),
-    ProjectPathMissing { path: String },
+    ProjectPathMissing {
+        path: String,
+    },
 }
 
 // ===== Task Queue System =====
@@ -532,7 +536,7 @@ impl TaskType {
             _ => None,
         }
     }
-    
+
     /// Get a human-readable display name for the task type
     pub fn display_name(&self) -> &'static str {
         match self {
@@ -785,7 +789,7 @@ where
     D: serde::Deserializer<'de>,
 {
     use serde::de::Deserialize;
-    
+
     // Use an untagged enum to handle string or array
     // Order matters: try array first, then string
     #[derive(Deserialize)]
@@ -794,10 +798,10 @@ where
         Multiple(Vec<String>),
         Single(String),
     }
-    
+
     // Deserialize as Option<StringOrArray> to handle null
     let value: Option<StringOrArray> = Option::deserialize(deserializer)?;
-    
+
     match value {
         None => Ok(Vec::new()),
         Some(StringOrArray::Single(s)) => {
@@ -807,9 +811,7 @@ where
                 Ok(vec![s])
             }
         }
-        Some(StringOrArray::Multiple(v)) => {
-            Ok(v.into_iter().filter(|s| !s.is_empty()).collect())
-        }
+        Some(StringOrArray::Multiple(v)) => Ok(v.into_iter().filter(|s| !s.is_empty()).collect()),
     }
 }
 
@@ -946,7 +948,12 @@ mod tests {
 
         #[test]
         fn roundtrip_as_str_parse() {
-            for p in [Priority::Low, Priority::Medium, Priority::High, Priority::Urgent] {
+            for p in [
+                Priority::Low,
+                Priority::Medium,
+                Priority::High,
+                Priority::Urgent,
+            ] {
                 assert_eq!(Priority::parse(p.as_str()), Some(p));
             }
         }
@@ -1027,7 +1034,10 @@ mod tests {
 
         #[test]
         fn parse_known_values() {
-            assert_eq!(EventType::parse("command_requested"), EventType::CommandRequested);
+            assert_eq!(
+                EventType::parse("command_requested"),
+                EventType::CommandRequested
+            );
             assert_eq!(EventType::parse("file_edited"), EventType::FileEdited);
             assert_eq!(EventType::parse("error"), EventType::Error);
         }
@@ -1051,7 +1061,10 @@ mod tests {
         fn parse_valid_values() {
             // Both "basic" and "multi_stage" parse to MultiStage for backward compatibility
             assert_eq!(WorkflowType::parse("basic"), Some(WorkflowType::MultiStage));
-            assert_eq!(WorkflowType::parse("multi_stage"), Some(WorkflowType::MultiStage));
+            assert_eq!(
+                WorkflowType::parse("multi_stage"),
+                Some(WorkflowType::MultiStage)
+            );
         }
 
         #[test]
@@ -1068,7 +1081,10 @@ mod tests {
 
         #[test]
         fn roundtrip_as_str_parse() {
-            assert_eq!(WorkflowType::parse(WorkflowType::MultiStage.as_str()), Some(WorkflowType::MultiStage));
+            assert_eq!(
+                WorkflowType::parse(WorkflowType::MultiStage.as_str()),
+                Some(WorkflowType::MultiStage)
+            );
         }
 
         #[test]
@@ -1116,7 +1132,7 @@ mod tests {
             // requires_git should default to true when not specified
             assert!(input.requires_git);
         }
-        
+
         #[test]
         fn create_project_requires_git_can_be_false() {
             let json = r#"{"name":"Proj","path":"/tmp","requiresGit":false}"#;
@@ -1126,11 +1142,15 @@ mod tests {
 
         #[test]
         fn readiness_check_serializes_variants() {
-            let ready = ReadinessCheck::Ready { project_id: "p1".to_string() };
+            let ready = ReadinessCheck::Ready {
+                project_id: "p1".to_string(),
+            };
             let json = serde_json::to_string(&ready).unwrap();
             assert!(json.contains("ready"));
 
-            let missing = ReadinessCheck::ProjectPathMissing { path: "/gone".to_string() };
+            let missing = ReadinessCheck::ProjectPathMissing {
+                path: "/gone".to_string(),
+            };
             let json = serde_json::to_string(&missing).unwrap();
             assert!(json.contains("projectPathMissing"));
         }

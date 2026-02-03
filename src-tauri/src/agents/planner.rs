@@ -76,7 +76,7 @@ pub enum PlannerError {
 
     #[error("Plan execution failed: {0}")]
     ExecutionFailed(String),
-    
+
     #[error("JSON serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
 }
@@ -124,11 +124,7 @@ impl PlannerAgent {
             .get_spec(&self.config.spec_id)
             .map_err(|e| PlannerError::Database(e.to_string()))?;
 
-        tracing::info!(
-            "Starting planner for spec {}: {:?}",
-            spec.id,
-            spec.status
-        );
+        tracing::info!("Starting planner for spec {}: {:?}", spec.id, spec.status);
 
         // Run exploration and planning with error recovery
         match self.run_explore_and_plan(&spec).await {
@@ -184,40 +180,60 @@ impl PlannerAgent {
     }
 
     /// Run an agent with the given prompt (with retry support)
-    async fn run_agent(&self, prompt: &str, spec: &Spec, phase: &str) -> Result<String, PlannerError> {
+    async fn run_agent(
+        &self,
+        prompt: &str,
+        spec: &Spec,
+        phase: &str,
+    ) -> Result<String, PlannerError> {
         let max_attempts = self.config.max_retries + 1;
         let mut last_error = String::new();
-        
+
         for attempt in 1..=max_attempts {
             if attempt > 1 {
                 let backoff_secs = 3 * attempt as u64;
                 tracing::warn!(
                     "Planner {} retry {}/{} after {}s backoff",
-                    phase, attempt, max_attempts, backoff_secs
+                    phase,
+                    attempt,
+                    max_attempts,
+                    backoff_secs
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
             }
-            
-            match self.run_agent_attempt(prompt, spec, phase, attempt, max_attempts).await {
+
+            match self
+                .run_agent_attempt(prompt, spec, phase, attempt, max_attempts)
+                .await
+            {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     last_error = e.to_string();
                     if attempt < max_attempts {
-                        tracing::warn!("Planner {} failed (attempt {}/{}): {}", phase, attempt, max_attempts, e);
+                        tracing::warn!(
+                            "Planner {} failed (attempt {}/{}): {}",
+                            phase,
+                            attempt,
+                            max_attempts,
+                            e
+                        );
                         continue;
                     }
                 }
             }
         }
-        
-        Err(PlannerError::ExplorationFailed(format!("{} (after {} attempts)", last_error, max_attempts)))
+
+        Err(PlannerError::ExplorationFailed(format!(
+            "{} (after {} attempts)",
+            last_error, max_attempts
+        )))
     }
-    
+
     /// Run a single attempt of an agent call
     async fn run_agent_attempt(
-        &self, 
-        prompt: &str, 
-        spec: &Spec, 
+        &self,
+        prompt: &str,
+        spec: &Spec,
         phase: &str,
         attempt: u32,
         max_attempts: u32,
@@ -249,13 +265,13 @@ impl PlannerAgent {
             let tx_clone = tx.clone();
             let spec_id = spec.id.clone();
             let phase_str = phase.to_string();
-            
+
             Some(Arc::new(Box::new(move |line: super::LogLine| {
                 let level = match line.stream {
                     super::LogStream::Stdout => "output",
                     super::LogStream::Stderr => "error",
                 };
-                
+
                 let _ = tx_clone.send(LiveEvent::PlannerLogEntry {
                     spec_id: spec_id.clone(),
                     phase: phase_str.clone(),
@@ -368,7 +384,9 @@ impl PlannerAgent {
             planner_prompts::generate_planning_prompt(&spec.user_input, exploration_context);
 
         // Run the agent to generate plan
-        let output = self.run_agent(&prompt, spec, "planning").await
+        let output = self
+            .run_agent(&prompt, spec, "planning")
+            .await
             .map_err(|e| PlannerError::PlanGenerationFailed(e.to_string()))?;
 
         // Extract text from agent output
@@ -436,7 +454,7 @@ impl PlannerAgent {
         });
 
         tracing::info!("Executing plan for spec {}", spec.id);
-        
+
         // Execute the plan creation with error recovery
         match self.execute_plan_inner(&spec).await {
             Ok(result) => Ok(result),
@@ -451,7 +469,7 @@ impl PlannerAgent {
             }
         }
     }
-    
+
     /// Inner implementation of execute_plan for error recovery
     async fn execute_plan_inner(&self, spec: &Spec) -> Result<PlannerResult, PlannerError> {
         // Get the plan JSON
@@ -464,9 +482,8 @@ impl PlannerAgent {
             .map_err(|e| PlannerError::ExecutionFailed(format!("Failed to parse plan: {}", e)))?;
 
         // Use target_board_id if set, otherwise fall back to board_id
-        let target_board_id = spec.target_board_id.as_ref()
-            .unwrap_or(&spec.board_id);
-        
+        let target_board_id = spec.target_board_id.as_ref().unwrap_or(&spec.board_id);
+
         // Get target board's backlog column for creating tickets
         let columns = self
             .db
@@ -476,7 +493,11 @@ impl PlannerAgent {
         let backlog_column = columns
             .iter()
             .find(|c| c.name == "Backlog")
-            .ok_or_else(|| PlannerError::ExecutionFailed("Backlog column not found on target board".to_string()))?;
+            .ok_or_else(|| {
+                PlannerError::ExecutionFailed(
+                    "Backlog column not found on target board".to_string(),
+                )
+            })?;
 
         let mut epic_ids = Vec::new();
         let mut ticket_ids = Vec::new();
@@ -504,10 +525,7 @@ impl PlannerAgent {
         let mut epic_title_to_id = std::collections::HashMap::new();
 
         // Convert spec's agent_pref string to AgentPref enum
-        let agent_pref = spec
-            .agent_pref
-            .as_ref()
-            .and_then(|s| AgentPref::parse(s));
+        let agent_pref = spec.agent_pref.as_ref().and_then(|s| AgentPref::parse(s));
 
         // Create epics and their child tickets in dependency order
         for plan_epic in sorted_epics {
@@ -518,7 +536,7 @@ impl PlannerAgent {
                 .depends_on
                 .first()
                 .and_then(|dep_title| epic_title_to_id.get(dep_title).cloned());
-            
+
             // Build list of all dependency IDs for storage
             let depends_on_epic_ids: Vec<String> = plan_epic
                 .depends_on
@@ -619,7 +637,7 @@ impl PlannerAgent {
 /// Handles cases where the JSON is embedded in other text.
 pub fn parse_project_plan(output: &str) -> Result<ProjectPlan, String> {
     let trimmed = output.trim();
-    
+
     // Try direct parse first
     if let Ok(plan) = serde_json::from_str::<ProjectPlan>(trimmed) {
         return Ok(plan);
@@ -649,7 +667,7 @@ fn extract_json_code_block(text: &str) -> Option<String> {
     // Look for ```json ... ``` pattern
     let start_pattern = "```json";
     let end_pattern = "```";
-    
+
     if let Some(start_idx) = text.find(start_pattern) {
         let content_start = start_idx + start_pattern.len();
         if let Some(end_idx) = text[content_start..].find(end_pattern) {
@@ -657,7 +675,7 @@ fn extract_json_code_block(text: &str) -> Option<String> {
             return Some(json_content.trim().to_string());
         }
     }
-    
+
     // Also try plain ``` blocks that contain JSON
     if let Some(start_idx) = text.find("```\n{") {
         let content_start = start_idx + 4; // Skip "```\n"
@@ -666,7 +684,7 @@ fn extract_json_code_block(text: &str) -> Option<String> {
             return Some(json_content.trim().to_string());
         }
     }
-    
+
     None
 }
 
@@ -842,7 +860,10 @@ fn generate_plan_markdown(plan: &ProjectPlan) -> String {
             if epic.depends_on.len() == 1 {
                 md.push_str(&format!("\n**Depends on:** {}\n", epic.depends_on[0]));
             } else {
-                md.push_str(&format!("\n**Depends on:** {}\n", epic.depends_on.join(", ")));
+                md.push_str(&format!(
+                    "\n**Depends on:** {}\n",
+                    epic.depends_on.join(", ")
+                ));
             }
         }
 
@@ -1096,7 +1117,7 @@ mod tests {
 {"overview":"Test plan","epics":[{"title":"Epic 1","description":"Desc","dependsOn":[],"tickets":[]}]}
 
 That's the plan!"#;
-        
+
         let result = parse_project_plan(text);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().overview, "Test plan");
@@ -1106,7 +1127,7 @@ That's the plan!"#;
     fn test_parse_project_plan_with_old_format_null() {
         // Test backward compatibility with old format (null for dependsOn)
         let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":null,"tickets":[]}]}"#;
-        
+
         let result = parse_project_plan(text);
         assert!(result.is_ok());
         let plan = result.unwrap();
@@ -1117,7 +1138,7 @@ That's the plan!"#;
     fn test_parse_project_plan_with_old_format_string() {
         // Test backward compatibility with old format (string for dependsOn)
         let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":"Other Epic","tickets":[]}]}"#;
-        
+
         let result = parse_project_plan(text);
         assert!(result.is_ok());
         let plan = result.unwrap();
@@ -1128,11 +1149,14 @@ That's the plan!"#;
     fn test_parse_project_plan_with_new_format_array() {
         // Test new format (array for dependsOn)
         let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":["A", "B"],"tickets":[]}]}"#;
-        
+
         let result = parse_project_plan(text);
         assert!(result.is_ok());
         let plan = result.unwrap();
-        assert_eq!(plan.epics[0].depends_on, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(
+            plan.epics[0].depends_on,
+            vec!["A".to_string(), "B".to_string()]
+        );
     }
 
     #[test]
@@ -1144,7 +1168,7 @@ That's the plan!"#;
 ```
 
 Done!"#;
-        
+
         let result = parse_project_plan(text);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().overview, "Code block plan");

@@ -10,22 +10,17 @@ use super::error::{ApiResult, AppError};
 use super::state::{AppState, LiveEvent};
 use super::types::*;
 use crate::db::{
-    AgentEvent, AgentEventPayload, AgentRun, Board, Column, Comment,
-    CreateRun, CreateTicket, CreateComment, UpdateTicket, EventType,
-    NormalizedEvent, RunStatus, Ticket, AuthorType,
+    AgentEvent, AgentEventPayload, AgentRun, AuthorType, Board, Column, Comment, CreateComment,
+    CreateRun, CreateTicket, EventType, NormalizedEvent, RunStatus, Ticket, UpdateTicket,
 };
-use crate::lifecycle::{TicketState, TransitionPermission, can_transition};
+use crate::lifecycle::{can_transition, TicketState, TransitionPermission};
 
 pub async fn health() -> &'static str {
     "ok"
 }
 
-pub async fn health_detailed(
-    State(state): State<AppState>,
-) -> ApiResult<Json<serde_json::Value>> {
-    let board_count = state.db.get_boards()
-        .map(|b| b.len())
-        .unwrap_or(0);
+pub async fn health_detailed(State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+    let board_count = state.db.get_boards().map(|b| b.len()).unwrap_or(0);
 
     Ok(Json(serde_json::json!({
         "status": "ok",
@@ -35,9 +30,7 @@ pub async fn health_detailed(
     })))
 }
 
-pub async fn list_boards(
-    State(state): State<AppState>,
-) -> ApiResult<Json<Vec<Board>>> {
+pub async fn list_boards(State(state): State<AppState>) -> ApiResult<Json<Vec<Board>>> {
     let boards = state.db.get_boards()?;
     Ok(Json(boards))
 }
@@ -46,10 +39,12 @@ pub async fn get_board(
     State(state): State<AppState>,
     Path(board_id): Path<String>,
 ) -> ApiResult<Json<BoardWithColumns>> {
-    let board = state.db.get_board(&board_id)?
+    let board = state
+        .db
+        .get_board(&board_id)?
         .ok_or_else(|| AppError::not_found("Board"))?;
     let columns = state.db.get_columns(&board_id)?;
-    
+
     Ok(Json(BoardWithColumns {
         id: board.id,
         name: board.name,
@@ -64,7 +59,9 @@ pub async fn list_columns(
     State(state): State<AppState>,
     Path(board_id): Path<String>,
 ) -> ApiResult<Json<Vec<Column>>> {
-    state.db.get_board(&board_id)?
+    state
+        .db
+        .get_board(&board_id)?
         .ok_or_else(|| AppError::not_found("Board"))?;
     let columns = state.db.get_columns(&board_id)?;
     Ok(Json(columns))
@@ -80,7 +77,9 @@ pub async fn list_tickets(
     Path(board_id): Path<String>,
     Query(query): Query<TicketQuery>,
 ) -> ApiResult<Json<Vec<Ticket>>> {
-    state.db.get_board(&board_id)?
+    state
+        .db
+        .get_board(&board_id)?
         .ok_or_else(|| AppError::not_found("Board"))?;
     let tickets = state.db.get_tickets(&board_id, query.column.as_deref())?;
     Ok(Json(tickets))
@@ -90,9 +89,11 @@ pub async fn create_ticket(
     State(state): State<AppState>,
     Json(req): Json<CreateTicketRequest>,
 ) -> ApiResult<(StatusCode, Json<Ticket>)> {
-    state.db.get_board(&req.board_id)?
+    state
+        .db
+        .get_board(&req.board_id)?
         .ok_or_else(|| AppError::not_found("Board"))?;
-    
+
     let columns = state.db.get_columns(&req.board_id)?;
     if !columns.iter().any(|c| c.id == req.column_id) {
         return Err(AppError::not_found("Column"));
@@ -148,24 +149,27 @@ pub async fn update_ticket(
         }
     }
 
-    let ticket = state.db.update_ticket(&ticket_id, &UpdateTicket {
-        title: req.title,
-        description_md: req.description_md,
-        priority: req.priority,
-        labels: req.labels,
-        project_id: req.project_id,
-        agent_pref: req.agent_pref,
-        workflow_type: req.workflow_type,
-        model: req.model,
-        branch_name: req.branch_name,
-        column_id: req.column_id,
-        is_epic: None,
-        epic_id: None,
-        order_in_epic: None,
-        depends_on_epic_id: None,
-        depends_on_epic_ids: vec![],
-        spec_id: None,
-    })?;
+    let ticket = state.db.update_ticket(
+        &ticket_id,
+        &UpdateTicket {
+            title: req.title,
+            description_md: req.description_md,
+            priority: req.priority,
+            labels: req.labels,
+            project_id: req.project_id,
+            agent_pref: req.agent_pref,
+            workflow_type: req.workflow_type,
+            model: req.model,
+            branch_name: req.branch_name,
+            column_id: req.column_id,
+            is_epic: None,
+            epic_id: None,
+            order_in_epic: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_id: None,
+        },
+    )?;
 
     state.broadcast(LiveEvent::TicketUpdated {
         ticket_id: ticket.id.clone(),
@@ -201,26 +205,26 @@ pub async fn move_ticket(
     let from_column_id = ticket.column_id.clone();
 
     let columns = state.db.get_columns(&ticket.board_id)?;
-    
-    let current_column = columns.iter()
+
+    let current_column = columns
+        .iter()
         .find(|c| c.id == from_column_id)
         .ok_or_else(|| AppError::not_found("Current column"))?;
-    
-    let target_column = columns.iter()
+
+    let target_column = columns
+        .iter()
         .find(|c| c.id == req.column_id)
         .ok_or_else(|| AppError::not_found("Target column"))?;
 
-    let current_state = TicketState::from_column_name(&current_column.name)
-        .ok_or_else(|| AppError::validation(format!(
-            "Unknown column state: {}", current_column.name
-        )))?;
+    let current_state = TicketState::from_column_name(&current_column.name).ok_or_else(|| {
+        AppError::validation(format!("Unknown column state: {}", current_column.name))
+    })?;
 
-    let target_state = TicketState::from_column_name(&target_column.name)
-        .ok_or_else(|| AppError::validation(format!(
-            "Unknown target state: {}", target_column.name
-        )))?;
+    let target_state = TicketState::from_column_name(&target_column.name).ok_or_else(|| {
+        AppError::validation(format!("Unknown target state: {}", target_column.name))
+    })?;
 
-    let is_locked = ticket.locked_by_run_id.is_some() 
+    let is_locked = ticket.locked_by_run_id.is_some()
         && ticket.lock_expires_at.is_some_and(|exp| exp > Utc::now());
     match can_transition(current_state, target_state, is_locked, false) {
         TransitionPermission::Allowed => {}
@@ -253,11 +257,14 @@ pub async fn reserve_ticket(
 
     if let Some(ref lock_expires) = ticket.lock_expires_at {
         if *lock_expires > Utc::now() {
-            return Err(AppError::conflict("Ticket is already locked by another run"));
+            return Err(AppError::conflict(
+                "Ticket is already locked by another run",
+            ));
         }
     }
 
-    let repo_path = req.repo_path
+    let repo_path = req
+        .repo_path
         .ok_or_else(|| AppError::validation("repo_path is required"))?;
 
     let run = state.db.create_run(&CreateRun {
@@ -319,7 +326,9 @@ pub async fn create_run(
 
     // Lock the ticket to prevent concurrent runs
     let lock_expires_at = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
-    state.db.lock_ticket(&req.ticket_id, &run.id, lock_expires_at)?;
+    state
+        .db
+        .lock_ticket(&req.ticket_id, &run.id, lock_expires_at)?;
 
     // Move to In Progress if that column exists
     let columns = state.db.get_columns(&ticket.board_id)?;
@@ -365,7 +374,8 @@ pub async fn update_run(
 ) -> ApiResult<Json<AgentRun>> {
     let existing = state.db.get_run(&run_id)?;
 
-    let status = req.status
+    let status = req
+        .status
         .as_ref()
         .and_then(|s| RunStatus::parse(s))
         .unwrap_or(existing.status.clone());
@@ -379,7 +389,10 @@ pub async fn update_run(
 
     let updated = state.db.get_run(&run_id)?;
 
-    if matches!(status, RunStatus::Finished | RunStatus::Error | RunStatus::Aborted) {
+    if matches!(
+        status,
+        RunStatus::Finished | RunStatus::Error | RunStatus::Aborted
+    ) {
         if let Ok(ticket) = state.db.get_ticket(&existing.ticket_id) {
             if ticket.locked_by_run_id.as_ref() == Some(&run_id) {
                 state.db.unlock_ticket(&existing.ticket_id)?;
@@ -421,7 +434,11 @@ pub async fn heartbeat(
     let new_expiry = Utc::now() + Duration::minutes(LOCK_DURATION_MINUTES);
     state.db.extend_lock(&run.ticket_id, &run_id, new_expiry)?;
 
-    tracing::debug!("Heartbeat received for run {}, lock extended to {}", run_id, new_expiry);
+    tracing::debug!(
+        "Heartbeat received for run {}, lock extended to {}",
+        run_id,
+        new_expiry
+    );
 
     Ok(Json(HeartbeatResponse {
         run_id,
@@ -436,7 +453,9 @@ pub async fn release_run(
 ) -> ApiResult<Json<AgentRun>> {
     let run = state.db.get_run(&run_id)?;
 
-    state.db.update_run_status(&run_id, RunStatus::Aborted, None, None)?;
+    state
+        .db
+        .update_run_status(&run_id, RunStatus::Aborted, None, None)?;
 
     if let Ok(ticket) = state.db.get_ticket(&run.ticket_id) {
         if ticket.locked_by_run_id.as_ref() == Some(&run_id) {
@@ -546,7 +565,9 @@ pub async fn queue_next(
 ) -> ApiResult<Json<QueueNextResponse>> {
     let boards = match &req.board_id {
         Some(id) => {
-            let board = state.db.get_board(id)?
+            let board = state
+                .db
+                .get_board(id)?
                 .ok_or_else(|| AppError::not_found("Board"))?;
             vec![board]
         }
@@ -589,13 +610,21 @@ pub async fn queue_next(
             }
 
             // Use provided repo_path, or fall back to the ticket's project path
-            let repo_path = req.repo_path.clone().or_else(|| {
-                ticket.project_id.as_ref()
-                    .and_then(|pid| state.db.get_project(pid).ok().flatten())
-                    .map(|p| p.path)
-            }).ok_or_else(|| AppError::validation(
-                "repo_path is required when ticket has no associated project"
-            ))?;
+            let repo_path = req
+                .repo_path
+                .clone()
+                .or_else(|| {
+                    ticket
+                        .project_id
+                        .as_ref()
+                        .and_then(|pid| state.db.get_project(pid).ok().flatten())
+                        .map(|p| p.path)
+                })
+                .ok_or_else(|| {
+                    AppError::validation(
+                        "repo_path is required when ticket has no associated project",
+                    )
+                })?;
 
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
@@ -636,9 +665,7 @@ pub async fn queue_next(
     Err(AppError::queue_empty())
 }
 
-pub async fn queue_status(
-    State(state): State<AppState>,
-) -> ApiResult<Json<QueueStatusResponse>> {
+pub async fn queue_status(State(state): State<AppState>) -> ApiResult<Json<QueueStatusResponse>> {
     let boards = state.db.get_boards()?;
     let mut total_ready = 0;
     let mut total_in_progress = 0;
@@ -649,18 +676,20 @@ pub async fn queue_status(
 
         let ready_count = if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
             let tickets = state.db.get_tickets(&board.id, Some(&ready_col.id))?;
-            tickets.iter().filter(|t| {
-                t.lock_expires_at.is_none_or(|exp| exp <= Utc::now())
-            }).count()
+            tickets
+                .iter()
+                .filter(|t| t.lock_expires_at.is_none_or(|exp| exp <= Utc::now()))
+                .count()
         } else {
             0
         };
 
-        let in_progress_count = if let Some(ip_col) = columns.iter().find(|c| c.name == "In Progress") {
-            state.db.get_tickets(&board.id, Some(&ip_col.id))?.len()
-        } else {
-            0
-        };
+        let in_progress_count =
+            if let Some(ip_col) = columns.iter().find(|c| c.name == "In Progress") {
+                state.db.get_tickets(&board.id, Some(&ip_col.id))?.len()
+            } else {
+                0
+            };
 
         total_ready += ready_count;
         total_in_progress += in_progress_count;

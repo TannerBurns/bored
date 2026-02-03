@@ -42,13 +42,34 @@ mod tests {
 
     #[test]
     fn test_from_column_name() {
-        assert_eq!(TicketState::from_column_name("Backlog"), Some(TicketState::Backlog));
-        assert_eq!(TicketState::from_column_name("ready"), Some(TicketState::Ready));
-        assert_eq!(TicketState::from_column_name("In Progress"), Some(TicketState::InProgress));
-        assert_eq!(TicketState::from_column_name("in_progress"), Some(TicketState::InProgress));
-        assert_eq!(TicketState::from_column_name("blocked"), Some(TicketState::Blocked));
-        assert_eq!(TicketState::from_column_name("Review"), Some(TicketState::Review));
-        assert_eq!(TicketState::from_column_name("done"), Some(TicketState::Done));
+        assert_eq!(
+            TicketState::from_column_name("Backlog"),
+            Some(TicketState::Backlog)
+        );
+        assert_eq!(
+            TicketState::from_column_name("ready"),
+            Some(TicketState::Ready)
+        );
+        assert_eq!(
+            TicketState::from_column_name("In Progress"),
+            Some(TicketState::InProgress)
+        );
+        assert_eq!(
+            TicketState::from_column_name("in_progress"),
+            Some(TicketState::InProgress)
+        );
+        assert_eq!(
+            TicketState::from_column_name("blocked"),
+            Some(TicketState::Blocked)
+        );
+        assert_eq!(
+            TicketState::from_column_name("Review"),
+            Some(TicketState::Review)
+        );
+        assert_eq!(
+            TicketState::from_column_name("done"),
+            Some(TicketState::Done)
+        );
         assert_eq!(TicketState::from_column_name("unknown"), None);
     }
 
