@@ -2,6 +2,19 @@ import { cn } from '../../../lib/utils';
 import type { AgentRun } from '../../../types';
 import type { RunEvent } from './types';
 
+/** Normalize eventType which can be string or {custom: "value"} */
+function getEventTypeString(eventType: unknown): string {
+  if (typeof eventType === 'string') return eventType;
+  if (typeof eventType === 'object' && eventType !== null) {
+    const obj = eventType as Record<string, unknown>;
+    if ('custom' in obj) return String(obj.custom);
+    const keys = Object.keys(obj);
+    if (keys.length === 1) return String(obj[keys[0]]);
+    return JSON.stringify(eventType);
+  }
+  return String(eventType);
+}
+
 export interface RunsHistoryProps {
   agentRuns: AgentRun[];
   lockedByRunId?: string;
@@ -326,19 +339,6 @@ interface RunEventsDisplayProps {
 }
 
 function RunEventsDisplay({ runEvents, loadingEvents }: RunEventsDisplayProps) {
-  // Helper to normalize eventType which can be string or {custom: "value"}
-  const getEventTypeString = (eventType: unknown): string => {
-    if (typeof eventType === 'string') return eventType;
-    if (typeof eventType === 'object' && eventType !== null) {
-      const obj = eventType as Record<string, unknown>;
-      if ('custom' in obj) return String(obj.custom);
-      const keys = Object.keys(obj);
-      if (keys.length === 1) return String(obj[keys[0]]);
-      return JSON.stringify(eventType);
-    }
-    return String(eventType);
-  };
-  
   const logEvents = runEvents.filter(e => {
     const type = getEventTypeString(e.eventType);
     return type === 'log_stdout' || type === 'log_stderr';

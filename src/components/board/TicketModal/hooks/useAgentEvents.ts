@@ -12,6 +12,17 @@ import type {
   AgentLog 
 } from '../types';
 
+/** Extract log stream type from event type (e.g., {custom: "log_stdout"} -> "stdout") */
+function getLogStream(eventType: unknown): string | null {
+  if (typeof eventType === 'object' && eventType !== null && 'custom' in eventType) {
+    const custom = (eventType as { custom: string }).custom;
+    if (custom.startsWith('log_')) {
+      return custom.replace('log_', '');
+    }
+  }
+  return null;
+}
+
 export interface UseAgentEventsOptions {
   ticket: Ticket;
   onAgentComplete?: (runId: string, status: string) => void;
@@ -170,16 +181,6 @@ export function useAgentEvents({
     logger.debug('Starting polling for run', { runId });
     let isCancelled = false;
     let lastEventCount = 0;
-
-    const getLogStream = (eventType: unknown): string | null => {
-      if (typeof eventType === 'object' && eventType !== null && 'custom' in eventType) {
-        const custom = (eventType as { custom: string }).custom;
-        if (custom.startsWith('log_')) {
-          return custom.replace('log_', '');
-        }
-      }
-      return null;
-    };
 
     const pollRunData = async () => {
       if (isCancelled) return;
