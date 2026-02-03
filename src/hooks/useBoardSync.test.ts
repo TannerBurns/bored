@@ -5,7 +5,7 @@ import { useBoardStore } from '../stores/boardStore';
 import type { Board, Ticket } from '../types';
 
 // Mock Tauri APIs
-vi.mock('@tauri-apps/api/tauri', () => ({
+vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(() => Promise.resolve([])),
 }));
 

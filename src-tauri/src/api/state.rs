@@ -1,6 +1,6 @@
+use crate::db::Database;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use crate::db::Database;
 
 /// Event sent to connected clients via SSE
 #[derive(Debug, Clone, serde::Serialize)]
@@ -108,16 +108,24 @@ pub struct AppState {
 impl AppState {
     pub fn new(db: Arc<Database>, api_token: String) -> Self {
         let (event_tx, _) = broadcast::channel(256);
-        Self { db, api_token, event_tx }
+        Self {
+            db,
+            api_token,
+            event_tx,
+        }
     }
-    
+
     /// Create AppState with an externally provided event_tx
     pub fn with_event_tx(
         db: Arc<Database>,
         api_token: String,
         event_tx: broadcast::Sender<LiveEvent>,
     ) -> Self {
-        Self { db, api_token, event_tx }
+        Self {
+            db,
+            api_token,
+            event_tx,
+        }
     }
 
     pub fn broadcast(&self, event: LiveEvent) {
@@ -149,15 +157,18 @@ mod tests {
     fn broadcast_and_receive() {
         let state = create_test_state();
         let mut rx = state.subscribe();
-        
+
         state.broadcast(LiveEvent::TicketCreated {
             ticket_id: "t1".to_string(),
             board_id: "b1".to_string(),
         });
-        
+
         let event = rx.try_recv().unwrap();
         match event {
-            LiveEvent::TicketCreated { ticket_id, board_id } => {
+            LiveEvent::TicketCreated {
+                ticket_id,
+                board_id,
+            } => {
                 assert_eq!(ticket_id, "t1");
                 assert_eq!(board_id, "b1");
             }
@@ -170,11 +181,11 @@ mod tests {
         let state = create_test_state();
         let mut rx1 = state.subscribe();
         let mut rx2 = state.subscribe();
-        
+
         state.broadcast(LiveEvent::TicketUpdated {
             ticket_id: "t1".to_string(),
         });
-        
+
         assert!(rx1.try_recv().is_ok());
         assert!(rx2.try_recv().is_ok());
     }

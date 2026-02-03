@@ -13,22 +13,18 @@ pub async fn sse_handler(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
 
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
-        .filter_map(|result| {
-            match result {
-                Ok(event) => {
-                    match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().data(json))),
-                        Err(e) => {
-                            tracing::error!("Failed to serialize SSE event: {}", e);
-                            None
-                        }
-                    }
-                }
+    let stream =
+        tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(|result| match result {
+            Ok(event) => match serde_json::to_string(&event) {
+                Ok(json) => Some(Ok(Event::default().data(json))),
                 Err(e) => {
-                    tracing::warn!("SSE broadcast lag: {}", e);
+                    tracing::error!("Failed to serialize SSE event: {}", e);
                     None
                 }
+            },
+            Err(e) => {
+                tracing::warn!("SSE broadcast lag: {}", e);
+                None
             }
         });
 
@@ -55,28 +51,26 @@ pub async fn sse_filtered(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
 
-    let type_filter: Option<Vec<String>> = filter.types.map(|t| {
-        t.split(',').map(|s| s.trim().to_string()).collect()
-    });
+    let type_filter: Option<Vec<String>> = filter
+        .types
+        .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
     let ticket_filter = filter.ticket_id;
     let run_filter = filter.run_id;
 
-    let stream = tokio_stream::wrappers::BroadcastStream::new(rx)
-        .filter_map(move |result| {
-            match result {
-                Ok(event) => {
-                    if !event_matches_filter(&event, &type_filter, &ticket_filter, &run_filter) {
-                        return None;
-                    }
-
-                    match serde_json::to_string(&event) {
-                        Ok(json) => Some(Ok(Event::default().data(json))),
-                        Err(_) => None,
-                    }
+    let stream =
+        tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(move |result| match result {
+            Ok(event) => {
+                if !event_matches_filter(&event, &type_filter, &ticket_filter, &run_filter) {
+                    return None;
                 }
-                Err(_) => None,
+
+                match serde_json::to_string(&event) {
+                    Ok(json) => Some(Ok(Event::default().data(json))),
+                    Err(_) => None,
+                }
             }
+            Err(_) => None,
         });
 
     Sse::new(stream).keep_alive(

@@ -1,11 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::Arc;
-use tauri::{Manager, WindowBuilder, WindowUrl};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-use agent_kanban::{api, commands, db, logging};
-use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
+use agent_kanban::commands::runs::RunningAgents;
+use agent_kanban::{api, commands, db, logging};
 
 /// Check if a URL is allowed for navigation within the app
 fn is_allowed_url(url: &url::Url) -> bool {
@@ -18,35 +18,35 @@ fn is_allowed_url(url: &url::Url) -> bool {
             }
         }
     }
-    
+
     // Allow tauri custom protocol (production builds)
     if url.scheme() == "tauri" {
         return true;
     }
-    
+
     // Allow about:blank and similar
     if url.scheme() == "about" {
         return true;
     }
-    
+
     false
 }
 
 fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
-        .path_resolver()
+        .path()
         .app_data_dir()
-        .ok_or("Failed to get app data directory")?;
-    
+        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+
     let scripts_dir = app_data_dir.join("scripts");
     std::fs::create_dir_all(&scripts_dir)?;
 
     // Copy Cursor hook script
     copy_hook_script(app, "cursor-hook.js", &scripts_dir)?;
-    
+
     // Copy Claude hook script
     copy_hook_script(app, "claude-hook.js", &scripts_dir)?;
-    
+
     // Copy unified hook script (hook bridge)
     copy_hook_script(app, "agent-kanban-hook.js", &scripts_dir)?;
 
@@ -59,10 +59,13 @@ fn copy_hook_script(
     scripts_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_name = format!("scripts/{}", script_name);
-    
-    if let Some(resource_path) = app.path_resolver().resolve_resource(&resource_name) {
+
+    if let Ok(resource_path) = app
+        .path()
+        .resolve(&resource_name, tauri::path::BaseDirectory::Resource)
+    {
         let target_path = scripts_dir.join(script_name);
-        
+
         if resource_path.exists() {
             let should_copy = if target_path.exists() {
                 let resource_modified = std::fs::metadata(&resource_path)?.modified()?;
@@ -75,7 +78,7 @@ fn copy_hook_script(
             if should_copy {
                 std::fs::copy(&resource_path, &target_path)?;
                 tracing::info!("Copied {} to {:?}", script_name, target_path);
-                
+
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -88,7 +91,10 @@ fn copy_hook_script(
             tracing::warn!("Hook script resource not found at {:?}", resource_path);
         }
     } else {
-        tracing::warn!("Could not resolve hook script resource path for {}", script_name);
+        tracing::warn!(
+            "Could not resolve hook script resource path for {}",
+            script_name
+        );
     }
 
     Ok(())
@@ -96,9 +102,11 @@ fn copy_hook_script(
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app
-                .path_resolver()
+                .path()
                 .app_data_dir()
                 .expect("Failed to get app data directory");
 
@@ -120,7 +128,10 @@ fn main() {
             // This handles cases where the app crashed or was killed while a run was in progress
             match database.cleanup_orphaned_in_progress_tasks() {
                 Ok(count) if count > 0 => {
-                    tracing::info!("Startup cleanup: reset {} orphaned in-progress task(s)", count);
+                    tracing::info!(
+                        "Startup cleanup: reset {} orphaned in-progress task(s)",
+                        count
+                    );
                 }
                 Err(e) => {
                     tracing::warn!("Startup cleanup failed: {}", e);
@@ -130,7 +141,7 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
-            
+
             // Load Claude API settings from disk (or create fresh if not present)
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
             app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
@@ -145,7 +156,9 @@ fn main() {
                         token.trim().to_string()
                     }
                     _ => {
-                        tracing::info!("Generating new API token (existing file was empty or unreadable)");
+                        tracing::info!(
+                            "Generating new API token (existing file was empty or unreadable)"
+                        );
                         let token = api::generate_token();
                         std::fs::write(&token_path, &token).expect("Failed to write API token");
                         token
@@ -157,19 +170,19 @@ fn main() {
                 std::fs::write(&token_path, &token).expect("Failed to write API token");
                 token
             };
-            
+
             let api_config = api::ApiConfig {
                 token: api_token.clone(),
                 ..Default::default()
             };
-            
+
             let port_path = app_data_dir.join("api_port");
             std::fs::write(&port_path, api_config.port.to_string())
                 .expect("Failed to write API port");
 
             // Create shared API URL and token for Tauri commands
             let api_url = format!("http://127.0.0.1:{}", api_config.port);
-            
+
             // Make config available via environment for child processes
             std::env::set_var("AGENT_KANBAN_API_TOKEN", &api_config.token);
             std::env::set_var("AGENT_KANBAN_API_PORT", api_config.port.to_string());
@@ -177,7 +190,7 @@ fn main() {
 
             // Create shared event channel for SSE broadcasting
             let event_tx = api::create_event_channel();
-            
+
             // Manage shared state for commands that need API/event access
             app.manage(event_tx.clone());
             app.manage(api_url);
@@ -188,7 +201,13 @@ fn main() {
             let event_tx_for_api = event_tx;
             let api_config_clone = api_config.clone();
             tauri::async_runtime::spawn(async move {
-                match api::start_server_with_event_tx(db_for_api, api_config_clone, event_tx_for_api).await {
+                match api::start_server_with_event_tx(
+                    db_for_api,
+                    api_config_clone,
+                    event_tx_for_api,
+                )
+                .await
+                {
                     Ok(handle) => {
                         tracing::info!("API server started at {}", handle.addr);
                         // Keep handle alive - server runs until app exits
@@ -209,17 +228,17 @@ fn main() {
 
             // Create the main window with navigation guard
             let window_url = if cfg!(debug_assertions) {
-                WindowUrl::External("http://localhost:1420".parse().unwrap())
+                WebviewUrl::External("http://localhost:1420".parse().unwrap())
             } else {
-                WindowUrl::App("index.html".into())
+                WebviewUrl::App("index.html".into())
             };
-            
-            let _main_window = WindowBuilder::new(app, "main", window_url)
+
+            let _main_window = WebviewWindowBuilder::new(app, "main", window_url)
                 .title("Bored")
                 .inner_size(1200.0, 800.0)
                 .resizable(true)
                 .on_navigation(|url| {
-                    let allowed = is_allowed_url(&url);
+                    let allowed = is_allowed_url(url);
                     if !allowed {
                         tracing::warn!(
                             "Blocked navigation to external URL: {} - use system browser instead",
@@ -352,4 +371,69 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_allowed_url_allows_localhost_dev_server() {
+        let url = url::Url::parse("http://localhost:1420").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_127_0_0_1_dev_server() {
+        let url = url::Url::parse("http://127.0.0.1:1420").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_localhost_wrong_port() {
+        let url = url::Url::parse("http://localhost:3000").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_localhost_no_port() {
+        let url = url::Url::parse("http://localhost/").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_tauri_scheme() {
+        let url = url::Url::parse("tauri://localhost/index.html").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_about_scheme() {
+        let url = url::Url::parse("about:blank").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_https() {
+        let url = url::Url::parse("https://example.com").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_http() {
+        let url = url::Url::parse("http://malicious.com/steal-data").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_with_path() {
+        let url = url::Url::parse("https://github.com/user/repo").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_javascript_scheme() {
+        let url = url::Url::parse("javascript:alert(1)").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { useSpecStore } from '../../stores/specStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Button } from '../common/Button';

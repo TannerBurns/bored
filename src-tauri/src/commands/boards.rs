@@ -19,10 +19,7 @@ pub async fn get_columns(
 }
 
 #[tauri::command]
-pub async fn create_board(
-    name: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Board, String> {
+pub async fn create_board(name: String, db: State<'_, Arc<Database>>) -> Result<Board, String> {
     tracing::info!("Creating board: {}", name);
     db.create_board(&name).map_err(|e| e.to_string())
 }
@@ -38,26 +35,19 @@ pub async fn update_board(
 }
 
 #[tauri::command]
-pub async fn delete_board(
-    board_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
+pub async fn delete_board(board_id: String, db: State<'_, Arc<Database>>) -> Result<(), String> {
     tracing::info!("Deleting board: {}", board_id);
     db.delete_board(&board_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn factory_reset(
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
+pub async fn factory_reset(db: State<'_, Arc<Database>>) -> Result<(), String> {
     tracing::warn!("Factory reset requested");
     db.factory_reset().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn repair_specs_table(
-    db: State<'_, Arc<Database>>,
-) -> Result<String, String> {
+pub async fn repair_specs_table(db: State<'_, Arc<Database>>) -> Result<String, String> {
     tracing::warn!("Repairing specs table CHECK constraint");
     db.repair_specs_constraint().map_err(|e| e.to_string())
 }

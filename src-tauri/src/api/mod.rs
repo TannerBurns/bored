@@ -8,16 +8,16 @@ pub mod spool;
 pub mod state;
 pub mod types;
 
+use crate::db::Database;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
-use crate::db::Database;
 
 pub use auth::generate_token;
 pub use cleanup::{start_cleanup_service, CleanupConfig};
+pub use error::{ApiError, ApiResult, AppError};
+pub use spool::{get_default_spool_dir, start_spool_processor};
 pub use state::{AppState, LiveEvent};
-pub use error::{ApiError, AppError, ApiResult};
-pub use spool::{start_spool_processor, get_default_spool_dir};
 
 /// Create a new event broadcaster channel
 pub fn create_event_channel() -> broadcast::Sender<LiveEvent> {

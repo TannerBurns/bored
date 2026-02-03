@@ -27,7 +27,9 @@ pub struct CleanupResult {
 
 impl CleanupResult {
     pub fn is_empty(&self) -> bool {
-        self.released_tickets.is_empty() && self.aborted_runs.is_empty() && self.released_repo_locks == 0
+        self.released_tickets.is_empty()
+            && self.aborted_runs.is_empty()
+            && self.released_repo_locks == 0
     }
 }
 
@@ -115,11 +117,17 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
                         }
 
                         for run_id in &result.aborted_runs {
-                            tracing::debug!("Marked run {} as aborted due to lock expiration", run_id);
+                            tracing::debug!(
+                                "Marked run {} as aborted due to lock expiration",
+                                run_id
+                            );
                         }
-                        
+
                         if result.released_repo_locks > 0 {
-                            tracing::debug!("Released {} expired repo locks", result.released_repo_locks);
+                            tracing::debug!(
+                                "Released {} expired repo locks",
+                                result.released_repo_locks
+                            );
                         }
                     }
                 }
@@ -134,7 +142,7 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{CreateRun, CreateTicket, AgentType, Priority, WorkflowType};
+    use crate::db::{AgentType, CreateRun, CreateTicket, Priority, WorkflowType};
     use chrono::{Duration as ChronoDuration, Utc};
 
     fn setup_test_db() -> Database {
@@ -155,34 +163,38 @@ mod tests {
         // Create a board and ticket
         let board = db.create_board("Test Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Test Ticket".to_string(),
-            description_md: "Description".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "Description".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
 
         // Create a run and lock the ticket with an expired time
-        let run = db.create_run(&CreateRun {
-            ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Cursor,
-            repo_path: "/tmp/test".to_string(),
-            parent_run_id: None,
-            stage: None,
-            ..Default::default()
-        }).unwrap();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp/test".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
         db.lock_ticket(&ticket.id, &run.id, expired_time).unwrap();
@@ -206,34 +218,38 @@ mod tests {
         // Create a board and ticket
         let board = db.create_board("Test Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Test Ticket".to_string(),
-            description_md: "Description".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "Description".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
 
         // Create a run and lock the ticket with a future expiration
-        let run = db.create_run(&CreateRun {
-            ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Cursor,
-            repo_path: "/tmp/test".to_string(),
-            parent_run_id: None,
-            stage: None,
-            ..Default::default()
-        }).unwrap();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp/test".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
 
         let future_time = Utc::now() + ChronoDuration::minutes(30);
         db.lock_ticket(&ticket.id, &run.id, future_time).unwrap();
@@ -255,36 +271,41 @@ mod tests {
         // Create a board and ticket
         let board = db.create_board("Test Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Test Ticket".to_string(),
-            description_md: "Description".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "Description".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
 
         // Create a run with running status
-        let run = db.create_run(&CreateRun {
-            ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Cursor,
-            repo_path: "/tmp/test".to_string(),
-            parent_run_id: None,
-            stage: None,
-            ..Default::default()
-        }).unwrap();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp/test".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
 
-        db.update_run_status(&run.id, RunStatus::Running, None, None).unwrap();
+        db.update_run_status(&run.id, RunStatus::Running, None, None)
+            .unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
         db.lock_ticket(&ticket.id, &run.id, expired_time).unwrap();
@@ -321,7 +342,7 @@ mod tests {
             released_repo_locks: 0,
         };
         assert!(!with_runs.is_empty());
-        
+
         let with_repo_locks = CleanupResult {
             released_tickets: vec![],
             aborted_runs: vec![],
@@ -343,61 +364,69 @@ mod tests {
         let board = db.create_board("Test Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
 
-        let ticket1 = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Ticket 1".to_string(),
-            description_md: "Desc".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
+        let ticket1 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket 1".to_string(),
+                description_md: "Desc".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
 
-        let ticket2 = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Ticket 2".to_string(),
-            description_md: "Desc".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
+        let ticket2 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket 2".to_string(),
+                description_md: "Desc".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
 
-        let run1 = db.create_run(&CreateRun {
-            ticket_id: ticket1.id.clone(),
-            agent_type: AgentType::Cursor,
-            repo_path: "/tmp/test".to_string(),
-            parent_run_id: None,
-            stage: None,
-            ..Default::default()
-        }).unwrap();
+        let run1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket1.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp/test".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
 
-        let run2 = db.create_run(&CreateRun {
-            ticket_id: ticket2.id.clone(),
-            agent_type: AgentType::Claude,
-            repo_path: "/tmp/test".to_string(),
-            parent_run_id: None,
-            stage: None,
-            ..Default::default()
-        }).unwrap();
+        let run2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket2.id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp/test".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
 
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
         db.lock_ticket(&ticket1.id, &run1.id, expired_time).unwrap();
@@ -408,63 +437,73 @@ mod tests {
         assert_eq!(result.released_tickets.len(), 2);
         assert_eq!(result.aborted_runs.len(), 2);
     }
-    
+
     #[test]
     fn cleanup_releases_expired_repo_locks() {
         use crate::db::models::CreateProject;
-        
+
         let db = setup_test_db();
-        
+
         // Create a project
-        let project = db.create_project(&CreateProject {
-            name: "Test Project".to_string(),
-            path: std::env::temp_dir().to_string_lossy().to_string(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test Project".to_string(),
+                path: std::env::temp_dir().to_string_lossy().to_string(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         // Acquire an expired repo lock
         let expired_time = Utc::now() - ChronoDuration::minutes(5);
-        db.acquire_repo_lock(&project.id, "old-run", expired_time).unwrap();
-        
+        db.acquire_repo_lock(&project.id, "old-run", expired_time)
+            .unwrap();
+
         // Run cleanup
         let result = cleanup_expired_locks(&db).unwrap();
-        
+
         // Should have released the repo lock
         assert_eq!(result.released_repo_locks, 1);
-        
+
         // New acquisition should succeed
         let new_expires = Utc::now() + ChronoDuration::minutes(30);
-        let acquired = db.acquire_repo_lock(&project.id, "new-run", new_expires).unwrap();
+        let acquired = db
+            .acquire_repo_lock(&project.id, "new-run", new_expires)
+            .unwrap();
         assert!(acquired);
     }
-    
+
     #[test]
     fn cleanup_does_not_release_valid_repo_locks() {
         use crate::db::models::CreateProject;
-        
+
         let db = setup_test_db();
-        
+
         // Create a project
-        let project = db.create_project(&CreateProject {
-            name: "Test Project".to_string(),
-            path: std::env::temp_dir().to_string_lossy().to_string(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test Project".to_string(),
+                path: std::env::temp_dir().to_string_lossy().to_string(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         // Acquire a valid repo lock
         let valid_time = Utc::now() + ChronoDuration::minutes(30);
-        db.acquire_repo_lock(&project.id, "current-run", valid_time).unwrap();
-        
+        db.acquire_repo_lock(&project.id, "current-run", valid_time)
+            .unwrap();
+
         // Run cleanup
         let result = cleanup_expired_locks(&db).unwrap();
-        
+
         // Should not have released the repo lock
         assert_eq!(result.released_repo_locks, 0);
-        
+
         // New acquisition should fail
-        let acquired = db.acquire_repo_lock(&project.id, "new-run", valid_time).unwrap();
+        let acquired = db
+            .acquire_repo_lock(&project.id, "new-run", valid_time)
+            .unwrap();
         assert!(!acquired);
     }
 }

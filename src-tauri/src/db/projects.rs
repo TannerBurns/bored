@@ -1,7 +1,5 @@
-use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{
-    Project, CreateProject, UpdateProject, AgentPref, ReadinessCheck,
-};
+use crate::db::models::{AgentPref, CreateProject, Project, ReadinessCheck, UpdateProject};
+use crate::db::{parse_datetime, Database, DbError};
 
 impl Database {
     pub fn create_project(&self, input: &CreateProject) -> Result<Project, DbError> {
@@ -88,7 +86,8 @@ impl Database {
                         allow_shell_commands: row.get::<_, i32>(6)? != 0,
                         allow_file_writes: row.get::<_, i32>(7)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
-                        settings: serde_json::from_str(&settings_json).unwrap_or(serde_json::json!({})),
+                        settings: serde_json::from_str(&settings_json)
+                            .unwrap_or(serde_json::json!({})),
                         requires_git: row.get::<_, i32>(12).unwrap_or(1) != 0,
                         created_at: parse_datetime(row.get(10)?),
                         updated_at: parse_datetime(row.get(11)?),
@@ -101,9 +100,8 @@ impl Database {
     }
 
     pub fn get_project(&self, project_id: &str) -> Result<Option<Project>, DbError> {
-        self.get_projects().map(|projects| {
-            projects.into_iter().find(|p| p.id == project_id)
-        })
+        self.get_projects()
+            .map(|projects| projects.into_iter().find(|p| p.id == project_id))
     }
 
     pub fn get_project_by_path(&self, path: &str) -> Result<Option<Project>, DbError> {
@@ -113,9 +111,9 @@ impl Database {
             .map(|p| p.to_string_lossy().to_string());
 
         self.get_projects().map(|projects| {
-            projects.into_iter().find(|p| {
-                Some(&p.path) == canonical.as_ref()
-            })
+            projects
+                .into_iter()
+                .find(|p| Some(&p.path) == canonical.as_ref())
         })
     }
 
@@ -240,24 +238,27 @@ impl Database {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             );
 
-            let (ticket_project_id, board_id) = result
-                .map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))?;
+            let (ticket_project_id, board_id) =
+                result.map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))?;
 
-            let board_project_id: Option<String> = conn.query_row(
-                "SELECT default_project_id FROM boards WHERE id = ?",
-                [&board_id],
-                |row| row.get(0),
-            ).ok().flatten();
+            let board_project_id: Option<String> = conn
+                .query_row(
+                    "SELECT default_project_id FROM boards WHERE id = ?",
+                    [&board_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
 
             let effective_project_id = ticket_project_id.or(board_project_id);
 
             match effective_project_id {
                 Some(pid) => {
-                    let path: Option<String> = conn.query_row(
-                        "SELECT path FROM projects WHERE id = ?",
-                        [&pid],
-                        |row| row.get(0),
-                    ).ok();
+                    let path: Option<String> = conn
+                        .query_row("SELECT path FROM projects WHERE id = ?", [&pid], |row| {
+                            row.get(0)
+                        })
+                        .ok();
 
                     if let Some(p) = path {
                         if std::path::Path::new(&p).exists() {
@@ -285,8 +286,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Database;
     use crate::db::models::{CreateTicket, Priority, WorkflowType};
+    use crate::db::Database;
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -299,14 +300,14 @@ mod tests {
     #[test]
     fn create_project_validates_path_exists() {
         let db = create_test_db();
-        
+
         let result = db.create_project(&CreateProject {
             name: "Bad".to_string(),
             path: "/nonexistent/path/12345".to_string(),
             preferred_agent: None,
             requires_git: true,
         });
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("does not exist"));
@@ -315,7 +316,7 @@ mod tests {
     #[test]
     fn create_project_validates_path_is_directory() {
         let db = create_test_db();
-        
+
         let file_path = std::env::current_exe().unwrap();
         let result = db.create_project(&CreateProject {
             name: "Bad".to_string(),
@@ -323,7 +324,7 @@ mod tests {
             preferred_agent: None,
             requires_git: true,
         });
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("not a directory"));
@@ -333,18 +334,20 @@ mod tests {
     fn get_project_by_path() {
         let db = create_test_db();
         let temp = temp_dir_path();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp.clone(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp.clone(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         let found = db.get_project_by_path(&temp).unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().id, project.id);
-        
+
         let not_found = db.get_project_by_path("/some/other/path").unwrap();
         assert!(not_found.is_none());
     }
@@ -352,23 +355,27 @@ mod tests {
     #[test]
     fn update_project_hooks() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         assert!(!project.cursor_hooks_installed);
         assert!(!project.claude_hooks_installed);
-        
-        db.update_project_hooks(&project.id, Some(true), None).unwrap();
+
+        db.update_project_hooks(&project.id, Some(true), None)
+            .unwrap();
         let updated = db.get_project(&project.id).unwrap().unwrap();
         assert!(updated.cursor_hooks_installed);
         assert!(!updated.claude_hooks_installed);
-        
-        db.update_project_hooks(&project.id, None, Some(true)).unwrap();
+
+        db.update_project_hooks(&project.id, None, Some(true))
+            .unwrap();
         let updated = db.get_project(&project.id).unwrap().unwrap();
         assert!(updated.cursor_hooks_installed);
         assert!(updated.claude_hooks_installed);
@@ -377,17 +384,19 @@ mod tests {
     #[test]
     fn delete_project_fails_if_board_uses_it() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         let board = db.create_board("Board").unwrap();
         db.set_board_project(&board.id, Some(&project.id)).unwrap();
-        
+
         let result = db.delete_project(&project.id);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("board"));
@@ -396,22 +405,24 @@ mod tests {
     #[test]
     fn set_board_project() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         let board = db.create_board("Board").unwrap();
         assert!(board.default_project_id.is_none());
-        
+
         db.set_board_project(&board.id, Some(&project.id)).unwrap();
-        
+
         let updated = db.get_board(&board.id).unwrap().unwrap();
         assert_eq!(updated.default_project_id, Some(project.id.clone()));
-        
+
         db.set_board_project(&board.id, None).unwrap();
         let cleared = db.get_board(&board.id).unwrap().unwrap();
         assert!(cleared.default_project_id.is_none());
@@ -420,25 +431,31 @@ mod tests {
     #[test]
     fn update_project_blocked_patterns() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         assert!(project.blocked_patterns.is_empty());
-        
-        db.update_project(&project.id, &UpdateProject {
-            name: None,
-            preferred_agent: None,
-            allow_shell_commands: None,
-            allow_file_writes: None,
-            blocked_patterns: Some(vec!["*.log".to_string(), "node_modules".to_string()]),
-            requires_git: None,
-        }).unwrap();
-        
+
+        db.update_project(
+            &project.id,
+            &UpdateProject {
+                name: None,
+                preferred_agent: None,
+                allow_shell_commands: None,
+                allow_file_writes: None,
+                blocked_patterns: Some(vec!["*.log".to_string(), "node_modules".to_string()]),
+                requires_git: None,
+            },
+        )
+        .unwrap();
+
         let updated = db.get_project(&project.id).unwrap().unwrap();
         assert_eq!(updated.blocked_patterns, vec!["*.log", "node_modules"]);
     }
@@ -446,36 +463,40 @@ mod tests {
     #[test]
     fn can_move_to_ready_with_ticket_project() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Proj".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Proj".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         let board = db.create_board("Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
-        
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Ticket".to_string(),
-            description_md: "".to_string(),
-            priority: Priority::Low,
-            labels: vec![],
-            project_id: Some(project.id.clone()),
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
-        
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
+
         let check = db.can_move_to_ready(&ticket.id).unwrap();
         match check {
             ReadinessCheck::Ready { project_id } => assert_eq!(project_id, project.id),
@@ -486,37 +507,41 @@ mod tests {
     #[test]
     fn can_move_to_ready_uses_board_default() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Proj".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Proj".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         let board = db.create_board("Board").unwrap();
         db.set_board_project(&board.id, Some(&project.id)).unwrap();
-        
+
         let columns = db.get_columns(&board.id).unwrap();
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Ticket".to_string(),
-            description_md: "".to_string(),
-            priority: Priority::Low,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
-        
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
+
         let check = db.can_move_to_ready(&ticket.id).unwrap();
         match check {
             ReadinessCheck::Ready { project_id } => assert_eq!(project_id, project.id),
@@ -527,74 +552,84 @@ mod tests {
     #[test]
     fn can_move_to_ready_returns_no_project() {
         let db = create_test_db();
-        
+
         let board = db.create_board("Board").unwrap();
         let columns = db.get_columns(&board.id).unwrap();
-        
-        let ticket = db.create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: columns[0].id.clone(),
-            title: "Ticket".to_string(),
-            description_md: "".to_string(),
-            priority: Priority::Low,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: None,
-        }).unwrap();
-        
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: None,
+            })
+            .unwrap();
+
         let check = db.can_move_to_ready(&ticket.id).unwrap();
         assert!(matches!(check, ReadinessCheck::NoProject(_)));
     }
-    
+
     #[test]
     fn create_project_with_requires_git_false() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "No Git Project".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: false,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "No Git Project".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: false,
+            })
+            .unwrap();
+
         assert!(!project.requires_git);
-        
+
         // Verify it persists
         let fetched = db.get_project(&project.id).unwrap().unwrap();
         assert!(!fetched.requires_git);
     }
-    
+
     #[test]
     fn update_project_requires_git() {
         let db = create_test_db();
-        
-        let project = db.create_project(&CreateProject {
-            name: "Test".to_string(),
-            path: temp_dir_path(),
-            preferred_agent: None,
-            requires_git: true,
-        }).unwrap();
-        
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: true,
+            })
+            .unwrap();
+
         assert!(project.requires_git);
-        
+
         // Update to not require git
-        db.update_project(&project.id, &UpdateProject {
-            name: None,
-            preferred_agent: None,
-            allow_shell_commands: None,
-            allow_file_writes: None,
-            blocked_patterns: None,
-            requires_git: Some(false),
-        }).unwrap();
-        
+        db.update_project(
+            &project.id,
+            &UpdateProject {
+                name: None,
+                preferred_agent: None,
+                allow_shell_commands: None,
+                allow_file_writes: None,
+                blocked_patterns: None,
+                requires_git: Some(false),
+            },
+        )
+        .unwrap();
+
         let updated = db.get_project(&project.id).unwrap().unwrap();
         assert!(!updated.requires_git);
     }

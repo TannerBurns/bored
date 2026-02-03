@@ -12,24 +12,24 @@ pub use boards::*;
 pub use claude::*;
 pub use cursor::*;
 pub use projects::*;
-pub use runs::{start_agent_run, get_agent_runs, get_recent_runs, get_agent_run, get_run_events, cancel_agent_run};
+pub use runs::{
+    cancel_agent_run, get_agent_run, get_agent_runs, get_recent_runs, get_run_events,
+    start_agent_run,
+};
 pub use specs::{
-    create_spec, get_specs, get_spec, update_spec, delete_spec,
-    set_spec_status, append_spec_exploration, set_spec_plan, approve_plan,
-    get_spec_tickets, start_planner, execute_plan, start_spec_work,
-    get_spec_progress, pause_spec_work, resume_spec_work, halt_spec_work,
-    get_spec_eta,
+    append_spec_exploration, approve_plan, create_spec, delete_spec, execute_plan, get_spec,
+    get_spec_eta, get_spec_progress, get_spec_tickets, get_specs, halt_spec_work, pause_spec_work,
+    resume_spec_work, set_spec_plan, set_spec_status, start_planner, start_spec_work, update_spec,
 };
 pub use tasks::{
-    get_tasks, get_task, create_task, add_preset_task, delete_task,
-    get_next_pending_task, has_pending_tasks, get_task_counts, update_task, get_preset_types,
-    reset_task,
+    add_preset_task, create_task, delete_task, get_next_pending_task, get_preset_types, get_task,
+    get_task_counts, get_tasks, has_pending_tasks, reset_task, update_task,
 };
 pub use tickets::*;
 pub use workers::{
-    start_worker, stop_worker, stop_all_workers, get_workers, get_worker_queue_status,
-    validate_worker, get_commands_path, get_available_commands, install_commands_to_project,
-    install_commands_to_user, check_commands_installed, check_user_commands_installed,
+    check_commands_installed, check_user_commands_installed, get_available_commands,
+    get_commands_path, get_worker_queue_status, get_workers, install_commands_to_project,
+    install_commands_to_user, start_worker, stop_all_workers, stop_worker, validate_worker,
 };
 
 /// API configuration returned to the frontend
@@ -43,15 +43,13 @@ pub struct ApiConfigResponse {
 /// Get the current API configuration (port, URL, token)
 #[tauri::command]
 pub fn get_api_config() -> Result<ApiConfigResponse, String> {
-    let port_str = std::env::var("AGENT_KANBAN_API_PORT")
-        .unwrap_or_else(|_| "7432".to_string());
+    let port_str = std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string());
     let port: u16 = port_str.parse().unwrap_or(7432);
-    
+
     let url = std::env::var("AGENT_KANBAN_API_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", port));
-    
-    let token = std::env::var("AGENT_KANBAN_API_TOKEN")
-        .unwrap_or_default();
-    
+
+    let token = std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_default();
+
     Ok(ApiConfigResponse { url, port, token })
 }

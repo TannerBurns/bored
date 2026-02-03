@@ -1,6 +1,6 @@
+use crate::db::{AgentPref, AgentType, Column, Priority, Ticket, WorkflowType};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::db::{Priority, AgentType, AgentPref, Ticket, Column, WorkflowType};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

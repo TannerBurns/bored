@@ -3,19 +3,19 @@
 //! Workers are automated agents that poll for tickets in the "Ready" column
 //! and process them using the same execution path as manual runs.
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
 use tokio::time::sleep;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
-use tauri::{AppHandle, Manager};
 
-use super::{AgentKind, ClaudeApiConfig};
+use super::diagnostic;
 use super::runner::{self, RunnerConfig};
 use super::worktree;
-use super::diagnostic;
-use crate::db::{Database, AgentType, AuthorType, CreateRun, CreateComment, RunStatus, Ticket};
+use super::{AgentKind, ClaudeApiConfig};
+use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus, Ticket};
 use crate::lifecycle::epic::on_child_blocked;
 
 #[derive(Debug, Clone)]
@@ -93,7 +93,12 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn new(id: String, config: WorkerConfig, db: Arc<Database>, cancel_handles: Option<runner::CancelHandlesMap>) -> Self {
+    pub fn new(
+        id: String,
+        config: WorkerConfig,
+        db: Arc<Database>,
+        cancel_handles: Option<runner::CancelHandlesMap>,
+    ) -> Self {
         let status = WorkerStatus {
             id: id.clone(),
             agent_type: config.agent_type.as_str().to_string(),
@@ -176,7 +181,8 @@ impl Worker {
         }
 
         let run_id = uuid::Uuid::new_v4().to_string();
-        let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(self.config.lock_duration_mins);
+        let lock_expires =
+            chrono::Utc::now() + chrono::Duration::minutes(self.config.lock_duration_mins);
 
         // Try to reserve the next available ticket
         let Some(ticket) = self.db.reserve_next_ticket(
@@ -184,7 +190,8 @@ impl Worker {
             self.config.agent_type,
             &run_id,
             lock_expires,
-        )? else {
+        )?
+        else {
             // Log diagnostics to help debug why no tickets are being picked up
             if let Ok(diag) = self.db.get_ready_ticket_diagnostics(
                 self.config.project_id.as_deref(),
@@ -208,7 +215,7 @@ impl Worker {
         };
 
         tracing::info!("Worker {} reserved ticket: {}", self.id, ticket.id);
-        
+
         // Check if the ticket's parent spec is paused or halted
         if let Some(ref spec_id) = ticket.spec_id {
             match self.db.get_spec(spec_id) {
@@ -218,7 +225,10 @@ impl Worker {
                         SpecStatus::Paused | SpecStatus::Halted => {
                             tracing::info!(
                                 "Worker {} skipping ticket {} because spec {} is {:?}",
-                                self.id, ticket.id, spec_id, spec.status
+                                self.id,
+                                ticket.id,
+                                spec_id,
+                                spec.status
                             );
                             self.db.unlock_ticket(&ticket.id)?;
                             return Ok(false);
@@ -229,7 +239,9 @@ impl Worker {
                 Err(e) => {
                     tracing::warn!(
                         "Worker {} failed to check spec {} status: {}, unlocking ticket to be safe",
-                        self.id, spec_id, e
+                        self.id,
+                        spec_id,
+                        e
                     );
                     self.db.unlock_ticket(&ticket.id)?;
                     return Ok(false);
@@ -249,19 +261,28 @@ impl Worker {
         // Create a worktree for isolated execution - ALWAYS use worktrees
         // This ensures agent work never affects the user's main repo/terminal
         let repo_path_buf = std::path::PathBuf::from(&repo_path);
-        
+
         let worktree_info = if let Some(ref existing_branch) = ticket.branch_name {
             // Ticket has a branch - create worktree to reuse it
             tracing::info!(
                 "Worker {} found existing branch for ticket {}: {}, creating worktree",
-                self.id, ticket.id, existing_branch
+                self.id,
+                ticket.id,
+                existing_branch
             );
-            
-            match worktree::create_worktree_with_existing_branch(&repo_path_buf, existing_branch, &run_id, None) {
+
+            match worktree::create_worktree_with_existing_branch(
+                &repo_path_buf,
+                existing_branch,
+                &run_id,
+                None,
+            ) {
                 Ok(info) => {
                     tracing::info!(
                         "Worker {} created worktree at {} using branch {}",
-                        self.id, info.path.display(), info.branch_name
+                        self.id,
+                        info.path.display(),
+                        info.branch_name
                     );
                     Some(info)
                 }
@@ -270,9 +291,10 @@ impl Worker {
                         "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
                         self.id, ticket.id, e
                     );
-                    
+
                     // Handle worktree failure with diagnostics
-                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e).await;
+                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e)
+                        .await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
                 }
@@ -281,11 +303,12 @@ impl Worker {
             // First run - no branch yet
             // Create worktree with a temporary branch name
             // The orchestrator will generate an AI branch name and switch to it
-            let temp_branch = format!("agent-work/{}/{}", 
+            let temp_branch = format!(
+                "agent-work/{}/{}",
                 &ticket.id[..8.min(ticket.id.len())],
                 &run_id[..8.min(run_id.len())]
             );
-            
+
             // For epic child tickets, check if previous sibling has a branch
             // to implement chain branching (each child branches from previous child)
             let base_branch = if ticket.epic_id.is_some() {
@@ -335,7 +358,8 @@ impl Worker {
                         } else {
                             tracing::info!(
                                 "Worker {} ticket {} is first child in epic, using default branch",
-                                self.id, ticket.id
+                                self.id,
+                                ticket.id
                             );
                             None
                         }
@@ -351,13 +375,17 @@ impl Worker {
             } else {
                 None
             };
-            
+
             tracing::info!(
                 "Worker {} ticket {} has no branch yet, creating worktree with temp branch: {}{}",
-                self.id, ticket.id, temp_branch,
-                base_branch.as_ref().map_or(String::new(), |b| format!(" (based on {})", b))
+                self.id,
+                ticket.id,
+                temp_branch,
+                base_branch
+                    .as_ref()
+                    .map_or(String::new(), |b| format!(" (based on {})", b))
             );
-            
+
             match worktree::create_worktree(&worktree::WorktreeConfig {
                 repo_path: repo_path_buf.clone(),
                 branch_name: temp_branch.clone(),
@@ -368,7 +396,9 @@ impl Worker {
                 Ok(mut info) => {
                     tracing::info!(
                         "Worker {} created worktree at {} with temp branch {}",
-                        self.id, info.path.display(), info.branch_name
+                        self.id,
+                        info.path.display(),
+                        info.branch_name
                     );
                     // Mark this as a temp branch so downstream knows a branch was created
                     // but it's not the ticket's permanent branch yet
@@ -380,15 +410,16 @@ impl Worker {
                         "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
                         self.id, ticket.id, e
                     );
-                    
+
                     // Handle worktree failure with diagnostics
-                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e).await;
+                    self.handle_worktree_failure(&ticket, &repo_path_buf, &e)
+                        .await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
                 }
             }
         };
-        
+
         // Worktree is now always created - unwrap is safe here
         let worktree = worktree_info.expect("Worktree should always be created");
         let working_path = worktree.path.clone();
@@ -399,9 +430,11 @@ impl Worker {
             // Reuse the existing paused run
             tracing::info!(
                 "Worker {} resuming paused run {} for ticket {}",
-                self.id, paused_run_id, ticket.id
+                self.id,
+                paused_run_id,
+                ticket.id
             );
-            
+
             // Get the existing run and update its status back to running
             match self.db.get_run(paused_run_id) {
                 Ok(mut existing_run) => {
@@ -417,11 +450,14 @@ impl Worker {
                         let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
                         return Err(e.into());
                     }
-                    
+
                     // CRITICAL: Remove the old cancelled handle so the orchestrator doesn't
                     // immediately detect cancellation when checking is_cancelled()
                     {
-                        let mut handles = self.cancel_handles.lock().expect("cancel handles mutex poisoned");
+                        let mut handles = self
+                            .cancel_handles
+                            .lock()
+                            .expect("cancel handles mutex poisoned");
                         if handles.remove(paused_run_id).is_some() {
                             tracing::info!(
                                 "Removed old cancelled handle for run {} to allow resume",
@@ -429,7 +465,7 @@ impl Worker {
                             );
                         }
                     }
-                    
+
                     // Update repo_path in case worktree changed
                     existing_run.repo_path = working_path.to_string_lossy().to_string();
                     existing_run.status = RunStatus::Running;
@@ -438,7 +474,8 @@ impl Worker {
                 Err(e) => {
                     tracing::warn!(
                         "Could not find paused run {}, creating new run: {}",
-                        paused_run_id, e
+                        paused_run_id,
+                        e
                     );
                     // Fall back to creating a new run
                     match self.db.create_run(&CreateRun {
@@ -484,10 +521,16 @@ impl Worker {
         };
 
         // Transfer lock ownership from temporary run_id to actual run ID
-        if let Err(e) = self.db.update_ticket_lock_owner(&ticket.id, &run_id, &run.id, Some(lock_expires)) {
+        if let Err(e) =
+            self.db
+                .update_ticket_lock_owner(&ticket.id, &run_id, &run.id, Some(lock_expires))
+        {
             tracing::error!(
                 "Worker {} failed to transfer lock from {} to {}: {}",
-                self.id, run_id, run.id, e
+                self.id,
+                run_id,
+                run.id,
+                e
             );
             let _ = self.db.update_run_status(
                 &run.id,
@@ -514,12 +557,21 @@ impl Worker {
         // Get the next pending task for this ticket
         let task = match self.db.get_next_pending_task(&ticket.id) {
             Ok(Some(t)) => {
-                tracing::info!("Worker {} found pending task {} for ticket {}", self.id, t.id, ticket.id);
+                tracing::info!(
+                    "Worker {} found pending task {} for ticket {}",
+                    self.id,
+                    t.id,
+                    ticket.id
+                );
                 Some(t)
             }
             Ok(None) => {
-                tracing::warn!("Worker {} found no pending tasks for ticket {}, skipping", self.id, ticket.id);
-                
+                tracing::warn!(
+                    "Worker {} found no pending tasks for ticket {}, skipping",
+                    self.id,
+                    ticket.id
+                );
+
                 // Update run status to Finished (no work to do is not an error)
                 // IMPORTANT: Keep heartbeat running until status update succeeds to prevent
                 // the lock from expiring while the run is still marked as "Running"
@@ -531,7 +583,9 @@ impl Worker {
                 ) {
                     tracing::error!(
                         "Worker {} failed to update run {} status to Finished: {}",
-                        self.id, run.id, e
+                        self.id,
+                        run.id,
+                        e
                     );
                     // Try to mark as Error instead so the run doesn't stay stuck in Running
                     let _ = self.db.update_run_status(
@@ -541,14 +595,14 @@ impl Worker {
                         Some(&format!("Failed to update status: {}", e)),
                     );
                 }
-                
+
                 // Now safe to stop heartbeat since status is no longer Running
                 heartbeat_handle.abort();
-                
+
                 // Clean up
                 self.db.unlock_ticket(&ticket.id)?;
                 let _ = worktree::remove_worktree(&worktree.path, &worktree.repo_path);
-                
+
                 // Reset worker status
                 {
                     let mut status = self.status.lock().expect("status mutex poisoned");
@@ -556,15 +610,20 @@ impl Worker {
                     status.current_ticket_id = None;
                     status.current_run_id = None;
                 }
-                
+
                 return Ok(false);
             }
             Err(e) => {
-                tracing::warn!("Worker {} failed to get tasks for ticket {}: {}", self.id, ticket.id, e);
+                tracing::warn!(
+                    "Worker {} failed to get tasks for ticket {}: {}",
+                    self.id,
+                    ticket.id,
+                    e
+                );
                 None // Fall back to legacy ticket-based workflow
             }
         };
-        
+
         // Mark task as in progress - CRITICAL: must succeed before continuing
         // If this fails (e.g., task is not pending, already claimed by another run),
         // we must abort to prevent complete_task/fail_task from failing later
@@ -595,42 +654,50 @@ impl Worker {
         // - Branch comments
         // - Agent summary comments
         // - Ticket movement
-        
+
         // Determine branch setup based on whether ticket already has a branch:
         // - First run (no branch): Pass temp branch so orchestrator can rename it to an AI-generated name
         // - Subsequent runs (has branch): Use the existing branch name
-        let (worktree_branch, branch_already_created, is_temp_branch) = if ticket.branch_name.is_some() {
-            // Subsequent run - use existing branch (worktree attached to it)
-            (ticket.branch_name.clone(), true, false)
-        } else {
-            // First run - the worktree was created with a temp branch. Pass the temp branch
-            // name so the orchestrator can generate a proper AI-named branch and rename it.
-            // This prevents the temp branch from being orphaned.
-            (Some(worktree.branch_name.clone()), true, worktree.is_temp_branch)
-        };
-        
+        let (worktree_branch, branch_already_created, is_temp_branch) =
+            if ticket.branch_name.is_some() {
+                // Subsequent run - use existing branch (worktree attached to it)
+                (ticket.branch_name.clone(), true, false)
+            } else {
+                // First run - the worktree was created with a temp branch. Pass the temp branch
+                // name so the orchestrator can generate a proper AI-named branch and rename it.
+                // This prevents the temp branch from being orphaned.
+                (
+                    Some(worktree.branch_name.clone()),
+                    true,
+                    worktree.is_temp_branch,
+                )
+            };
+
         // Check if we're resuming from a paused state
         // The ticket's paused_at_stage field tells us which stage to resume from
         let resume_from_stage = ticket.paused_at_stage.clone();
         if let Some(ref stage) = resume_from_stage {
             tracing::info!(
                 "Worker {} resuming ticket {} from stage '{}'",
-                self.id, ticket.id, stage
+                self.id,
+                ticket.id,
+                stage
             );
         }
-        
+
         // Get the previous run ID for retrieving stage outputs when resuming
         let previous_run_id = ticket.paused_run_id.clone();
         if previous_run_id.is_some() {
             tracing::info!(
                 "Worker {} will retrieve stage outputs from previous run {:?}",
-                self.id, previous_run_id
+                self.id,
+                previous_run_id
             );
         }
-        
+
         let runner_config = RunnerConfig {
             db: self.db.clone(),
-            window: None, // Workers don't have a window
+            window: None,                               // Workers don't have a window
             app_handle: self.config.app_handle.clone(), // Use app_handle for global event emission
             ticket: ticket.clone(),
             task: task.clone(),
@@ -659,12 +726,15 @@ impl Worker {
             if let Err(e) = self.db.clear_ticket_pause(&ticket.id) {
                 tracing::warn!("Failed to clear ticket pause state: {}", e);
             } else {
-                tracing::info!("Cleared pause state for ticket {} after capturing resume info", ticket.id);
+                tracing::info!(
+                    "Cleared pause state for ticket {} after capturing resume info",
+                    ticket.id
+                );
             }
         }
 
         let result = runner::execute_agent_run(runner_config).await;
-        
+
         // Stop heartbeat
         heartbeat_handle.abort();
 
@@ -673,9 +743,12 @@ impl Worker {
             Ok(r) => {
                 tracing::info!(
                     "Worker {} completed run {} with status {:?} in {:.1}s",
-                    self.id, run.id, r.status, r.duration_secs
+                    self.id,
+                    run.id,
+                    r.status,
+                    r.duration_secs
                 );
-                
+
                 // Mark task as completed or failed based on result
                 // Note: For Aborted/Paused runs, the task was already reset to pending
                 // by cancel_agent_run, so we don't update it here
@@ -685,12 +758,16 @@ impl Worker {
                         RunStatus::Error => self.db.fail_task(&t.id),
                         RunStatus::Aborted => {
                             // Task already reset to pending by cancel handler
-                            tracing::info!("Skipping task update for aborted run - task already reset");
+                            tracing::info!(
+                                "Skipping task update for aborted run - task already reset"
+                            );
                             Ok(t.clone())
                         }
                         RunStatus::Paused => {
                             // Task already reset to pending by pause handler
-                            tracing::info!("Skipping task update for paused run - task already reset");
+                            tracing::info!(
+                                "Skipping task update for paused run - task already reset"
+                            );
                             Ok(t.clone())
                         }
                         _ => Ok(t.clone()),
@@ -702,17 +779,17 @@ impl Worker {
             }
             Err(e) => {
                 let error_str = e.to_string();
-                let was_cancelled_or_paused = error_str.contains("cancelled") 
+                let was_cancelled_or_paused = error_str.contains("cancelled")
                     || error_str.contains("Cancelled")
                     || error_str.contains("paused")
                     || error_str.contains("Paused");
-                
+
                 if was_cancelled_or_paused {
                     tracing::info!("Worker {} run {} was cancelled/paused", self.id, run.id);
                     // Task already reset to pending by cancel/pause handler, don't mark as failed
                 } else {
                     tracing::error!("Worker {} run {} failed: {}", self.id, run.id, e);
-                    
+
                     // Mark task as failed (only for real failures, not cancellations/pauses)
                     if let Some(ref t) = task {
                         if let Err(fail_err) = self.db.fail_task(&t.id) {
@@ -725,12 +802,20 @@ impl Worker {
 
         // Unlock the ticket
         self.db.unlock_ticket(&ticket.id)?;
-        
+
         // Clean up worktree
         if let Err(e) = worktree::remove_worktree(&worktree.path, &worktree.repo_path) {
-            tracing::warn!("Failed to remove worktree {}: {}", worktree.path.display(), e);
+            tracing::warn!(
+                "Failed to remove worktree {}: {}",
+                worktree.path.display(),
+                e
+            );
         } else {
-            tracing::info!("Worker {} removed worktree at {}", self.id, worktree.path.display());
+            tracing::info!(
+                "Worker {} removed worktree at {}",
+                self.id,
+                worktree.path.display()
+            );
         }
 
         // Update worker status
@@ -745,7 +830,10 @@ impl Worker {
         Ok(true)
     }
 
-    fn get_repo_path(&self, ticket: &Ticket) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_repo_path(
+        &self,
+        ticket: &Ticket,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(ref project_id) = ticket.project_id {
             if let Ok(Some(project)) = self.db.get_project(project_id) {
                 return Ok(project.path);
@@ -784,7 +872,7 @@ impl Worker {
             }
         })
     }
-    
+
     /// Handle worktree creation failure by spawning a diagnostic agent and moving ticket to Blocked.
     ///
     /// This provides the user with helpful troubleshooting guidance and moves the ticket
@@ -797,9 +885,11 @@ impl Worker {
     ) {
         tracing::info!(
             "Worker {} handling worktree failure for ticket {}: {:?}",
-            self.id, ticket.id, error.diagnostic_type()
+            self.id,
+            ticket.id,
+            error.diagnostic_type()
         );
-        
+
         // Build diagnostic context from the error
         let mut context = diagnostic::classify_worktree_error(error);
         context.repo_path = repo_path.to_path_buf();
@@ -808,10 +898,10 @@ impl Worker {
             ticket.branch_name.as_deref().unwrap_or("(new)"),
             ticket.title
         ));
-        
+
         // Move ticket to Blocked column
         self.move_ticket_to_blocked(ticket);
-        
+
         // First, try to spawn a diagnostic agent
         let db_clone = self.db.clone();
         let app_handle = self.config.app_handle.clone();
@@ -821,13 +911,17 @@ impl Worker {
         let api_token = self.config.api_token.clone();
         let context_clone = context.clone();
         let agent_kind = self.config.agent_type;
-        
+
         // Try to spawn diagnostic agent (fire-and-forget in the background)
         let worker_id = self.id.clone();
         let claude_api_config = self.config.claude_api_config.clone();
         tokio::spawn(async move {
-            tracing::info!("Worker {} spawning diagnostic agent for ticket {}", worker_id, ticket_id);
-            
+            tracing::info!(
+                "Worker {} spawning diagnostic agent for ticket {}",
+                worker_id,
+                ticket_id
+            );
+
             match diagnostic::run_diagnostic_agent(
                 db_clone.clone(),
                 app_handle,
@@ -838,11 +932,14 @@ impl Worker {
                 ticket_model,
                 agent_kind,
                 claude_api_config,
-            ).await {
+            )
+            .await
+            {
                 Ok(()) => {
                     tracing::info!(
                         "Worker {} diagnostic agent completed for ticket {}",
-                        worker_id, ticket_id
+                        worker_id,
+                        ticket_id
                     );
                 }
                 Err(e) => {
@@ -850,10 +947,11 @@ impl Worker {
                         "Worker {} diagnostic agent failed for ticket {}: {}. Adding fallback comment.",
                         worker_id, ticket_id, e
                     );
-                    
+
                     // Fall back to a static comment with basic troubleshooting steps
-                    let fallback_comment = diagnostic::create_fallback_diagnostic_comment(&context_clone);
-                    
+                    let fallback_comment =
+                        diagnostic::create_fallback_diagnostic_comment(&context_clone);
+
                     if let Err(comment_err) = db_clone.create_comment(&CreateComment {
                         ticket_id: ticket_id.clone(),
                         author_type: AuthorType::System,
@@ -869,7 +967,7 @@ impl Worker {
             }
         });
     }
-    
+
     /// Move a ticket to the Blocked column
     fn move_ticket_to_blocked(&self, ticket: &Ticket) {
         match self.db.find_column_by_name(&ticket.board_id, "Blocked") {
@@ -877,29 +975,37 @@ impl Worker {
                 if let Err(e) = self.db.move_ticket(&ticket.id, &column.id) {
                     tracing::error!(
                         "Worker {} failed to move ticket {} to Blocked: {}",
-                        self.id, ticket.id, e
+                        self.id,
+                        ticket.id,
+                        e
                     );
                 } else {
                     tracing::info!(
                         "Worker {} moved ticket {} to Blocked column",
-                        self.id, ticket.id
+                        self.id,
+                        ticket.id
                     );
-                    
+
                     // Emit event if we have an app handle
                     if let Some(ref app_handle) = self.config.app_handle {
-                        let _ = app_handle.emit_all("ticket-moved", serde_json::json!({
-                            "ticketId": ticket.id,
-                            "columnName": "Blocked",
-                            "columnId": column.id,
-                        }));
+                        let _ = app_handle.emit(
+                            "ticket-moved",
+                            serde_json::json!({
+                                "ticketId": ticket.id,
+                                "columnName": "Blocked",
+                                "columnId": column.id,
+                            }),
+                        );
                     }
-                    
+
                     // Epic lifecycle: if this ticket is a child, block the parent epic
                     if ticket.epic_id.is_some() {
                         if let Err(e) = on_child_blocked(&self.db, ticket) {
                             tracing::warn!(
                                 "Worker {} failed to block parent epic for ticket {}: {}",
-                                self.id, ticket.id, e
+                                self.id,
+                                ticket.id,
+                                e
                             );
                         }
                     }
@@ -908,14 +1014,12 @@ impl Worker {
             Ok(None) => {
                 tracing::warn!(
                     "Worker {} could not find Blocked column for board {}",
-                    self.id, ticket.board_id
+                    self.id,
+                    ticket.board_id
                 );
             }
             Err(e) => {
-                tracing::error!(
-                    "Worker {} error finding Blocked column: {}",
-                    self.id, e
-                );
+                tracing::error!("Worker {} error finding Blocked column: {}", self.id, e);
             }
         }
     }
@@ -934,7 +1038,12 @@ impl WorkerManager {
         }
     }
 
-    pub fn start_worker(&self, config: WorkerConfig, db: Arc<Database>, cancel_handles: Option<runner::CancelHandlesMap>) -> String {
+    pub fn start_worker(
+        &self,
+        config: WorkerConfig,
+        db: Arc<Database>,
+        cancel_handles: Option<runner::CancelHandlesMap>,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let worker = Arc::new(Worker::new(id.clone(), config, db, cancel_handles));
         let worker_clone = worker.clone();
@@ -943,8 +1052,14 @@ impl WorkerManager {
             worker_clone.run().await;
         });
 
-        self.workers.lock().expect("workers mutex poisoned").push(worker);
-        self.handles.lock().expect("handles mutex poisoned").push(handle);
+        self.workers
+            .lock()
+            .expect("workers mutex poisoned")
+            .push(worker);
+        self.handles
+            .lock()
+            .expect("handles mutex poisoned")
+            .push(handle);
 
         id
     }
@@ -952,9 +1067,9 @@ impl WorkerManager {
     pub fn stop_worker(&self, worker_id: &str) -> bool {
         let mut workers = self.workers.lock().expect("workers mutex poisoned");
         let mut handles = self.handles.lock().expect("handles mutex poisoned");
-        
+
         let index = workers.iter().position(|w| w.id == worker_id);
-        
+
         if let Some(idx) = index {
             workers[idx].stop();
             workers.remove(idx);
@@ -977,7 +1092,12 @@ impl WorkerManager {
 
         // Abort all handles instead of awaiting them - this ensures idle workers
         // that are sleeping during poll intervals are terminated immediately
-        let handles: Vec<_> = self.handles.lock().expect("handles mutex poisoned").drain(..).collect();
+        let handles: Vec<_> = self
+            .handles
+            .lock()
+            .expect("handles mutex poisoned")
+            .drain(..)
+            .collect();
         for handle in handles {
             handle.abort();
         }
@@ -1023,9 +1143,18 @@ mod tests {
 
     #[test]
     fn worker_state_serializes() {
-        assert_eq!(serde_json::to_string(&WorkerState::Idle).unwrap(), "\"idle\"");
-        assert_eq!(serde_json::to_string(&WorkerState::Running).unwrap(), "\"running\"");
-        assert_eq!(serde_json::to_string(&WorkerState::Stopped).unwrap(), "\"stopped\"");
+        assert_eq!(
+            serde_json::to_string(&WorkerState::Idle).unwrap(),
+            "\"idle\""
+        );
+        assert_eq!(
+            serde_json::to_string(&WorkerState::Running).unwrap(),
+            "\"running\""
+        );
+        assert_eq!(
+            serde_json::to_string(&WorkerState::Stopped).unwrap(),
+            "\"stopped\""
+        );
     }
 
     #[test]

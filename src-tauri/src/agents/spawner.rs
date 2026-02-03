@@ -5,7 +5,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::{AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome};
+use super::{
+    AgentKind, AgentRunConfig, AgentRunResult, LogCallback, LogLine, LogStream, RunOutcome,
+};
 
 /// Maximum number of retries for transient errors
 const MAX_TRANSIENT_RETRIES: u32 = 3;
@@ -120,13 +122,17 @@ impl AgentProcess {
 
         let on_log_stdout = on_log.clone();
         let stdout_handle = stdout.map(|out| {
-            thread::spawn(move || read_stream_with_capture(out, LogStream::Stdout, on_log_stdout, capture_stdout))
+            thread::spawn(move || {
+                read_stream_with_capture(out, LogStream::Stdout, on_log_stdout, capture_stdout)
+            })
         });
 
         // Always capture stderr for transient error detection
         let on_log_stderr = on_log;
         let stderr_handle = stderr.map(|err| {
-            thread::spawn(move || read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, true))
+            thread::spawn(move || {
+                read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, true)
+            })
         });
 
         let deadline = timeout.map(|t| Instant::now() + t);
@@ -189,7 +195,6 @@ impl AgentProcess {
             }
         }
     }
-
 }
 
 /// Handle to cancel a running process
@@ -203,7 +208,7 @@ impl CancelHandle {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
-    
+
     /// Check if this handle has been cancelled
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
@@ -218,8 +223,8 @@ fn read_stream<R: std::io::Read>(reader: R, stream: LogStream, on_log: Option<Ar
 
 /// Read a stream line by line, calling the callback for each line and optionally capturing output
 fn read_stream_with_capture<R: std::io::Read>(
-    reader: R, 
-    stream: LogStream, 
+    reader: R,
+    stream: LogStream,
     on_log: Option<Arc<LogCallback>>,
     capture: bool,
 ) -> Option<String> {
@@ -227,7 +232,11 @@ fn read_stream_with_capture<R: std::io::Read>(
         LogStream::Stdout => "stdout",
         LogStream::Stderr => "stderr",
     };
-    tracing::debug!("Starting to read {} stream (capture={})", stream_name, capture);
+    tracing::debug!(
+        "Starting to read {} stream (capture={})",
+        stream_name,
+        capture
+    );
     let reader = BufReader::new(reader);
     let mut line_count = 0;
     let mut captured = if capture { Some(Vec::new()) } else { None };
@@ -236,13 +245,18 @@ fn read_stream_with_capture<R: std::io::Read>(
         match line {
             Ok(content) => {
                 line_count += 1;
-                tracing::debug!("[{}] Line {}: {} chars", stream_name, line_count, content.len());
-                
+                tracing::debug!(
+                    "[{}] Line {}: {} chars",
+                    stream_name,
+                    line_count,
+                    content.len()
+                );
+
                 // Capture if requested
                 if let Some(ref mut lines) = captured {
                     lines.push(content.clone());
                 }
-                
+
                 if let Some(ref callback) = on_log {
                     callback(LogLine {
                         stream,
@@ -257,8 +271,12 @@ fn read_stream_with_capture<R: std::io::Read>(
             }
         }
     }
-    tracing::debug!("[{}] Stream finished, read {} lines", stream_name, line_count);
-    
+    tracing::debug!(
+        "[{}] Stream finished, read {} lines",
+        stream_name,
+        line_count
+    );
+
     captured.map(|lines| lines.join("\n"))
 }
 
@@ -288,7 +306,7 @@ pub fn run_agent_with_cancel_callback(
         AgentKind::Cursor => super::cursor::build_command(&config),
         AgentKind::Claude => super::claude::build_command(&config),
     };
-    
+
     tracing::info!("Built command: {} {:?}", command, args);
 
     let env_vars = build_env_vars(&config);
@@ -296,23 +314,30 @@ pub fn run_agent_with_cancel_callback(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    
-    tracing::info!("Env vars: {:?}", env_vars.iter().map(|(k, _)| k).collect::<Vec<_>>());
+
+    tracing::info!(
+        "Env vars: {:?}",
+        env_vars.iter().map(|(k, _)| k).collect::<Vec<_>>()
+    );
     tracing::info!("Working directory: {:?}", config.repo_path);
 
     // Calculate a global deadline to ensure total execution time respects the timeout contract.
-    let global_deadline = config.timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
+    let global_deadline = config
+        .timeout_secs
+        .map(|secs| Instant::now() + Duration::from_secs(secs));
     let mut attempt = 0;
     let mut on_spawn = on_spawn;
 
     loop {
         attempt += 1;
-        
+
         if attempt > 1 {
             let backoff_ms = INITIAL_BACKOFF_MS * 2u64.pow(attempt - 2);
             tracing::info!(
                 "Retry attempt {} for run {} after {}ms backoff",
-                attempt, config.run_id, backoff_ms
+                attempt,
+                config.run_id,
+                backoff_ms
             );
             thread::sleep(Duration::from_millis(backoff_ms));
         }
@@ -333,7 +358,8 @@ pub fn run_agent_with_cancel_callback(
                 let duration_secs = start_time.elapsed().as_secs_f64();
                 tracing::warn!(
                     "Global timeout exceeded before attempt {} for run {}",
-                    attempt, config.run_id
+                    attempt,
+                    config.run_id
                 );
                 return Ok(AgentRunResult {
                     run_id: config.run_id,
@@ -396,7 +422,8 @@ pub fn run_agent_with_cancel_callback(
                         if is_transient_error(stderr) {
                             tracing::warn!(
                                 "Transient error detected on attempt {} for run {}: {}",
-                                attempt, config.run_id, 
+                                attempt,
+                                config.run_id,
                                 stderr.chars().take(100).collect::<String>()
                             );
                             continue; // Retry
@@ -405,11 +432,12 @@ pub fn run_agent_with_cancel_callback(
                 }
 
                 let duration_secs = start_time.elapsed().as_secs_f64();
-                
+
                 if attempt > 1 && outcome == RunOutcome::Success {
                     tracing::info!(
                         "Run {} succeeded on attempt {} after transient errors",
-                        config.run_id, attempt
+                        config.run_id,
+                        attempt
                     );
                 }
 
@@ -464,7 +492,7 @@ pub fn run_agent_with_capture(
         AgentKind::Cursor => super::cursor::build_command(&config),
         AgentKind::Claude => super::claude::build_command(&config),
     };
-    
+
     tracing::info!("Built command: {} {:?}", command, args);
 
     let env_vars = build_env_vars(&config);
@@ -475,18 +503,22 @@ pub fn run_agent_with_capture(
 
     // Calculate a global deadline to ensure total execution time respects the timeout contract.
     // This prevents retry attempts from each getting a fresh timeout window.
-    let global_deadline = config.timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
+    let global_deadline = config
+        .timeout_secs
+        .map(|secs| Instant::now() + Duration::from_secs(secs));
     let mut attempt = 0;
     let mut on_spawn = on_spawn;
 
     loop {
         attempt += 1;
-        
+
         if attempt > 1 {
             let backoff_ms = INITIAL_BACKOFF_MS * 2u64.pow(attempt - 2);
             tracing::info!(
                 "Retry attempt {} for run {} after {}ms backoff",
-                attempt, config.run_id, backoff_ms
+                attempt,
+                config.run_id,
+                backoff_ms
             );
             thread::sleep(Duration::from_millis(backoff_ms));
         }
@@ -507,7 +539,8 @@ pub fn run_agent_with_capture(
                 let duration_secs = start_time.elapsed().as_secs_f64();
                 tracing::warn!(
                     "Global timeout exceeded before attempt {} for run {}",
-                    attempt, config.run_id
+                    attempt,
+                    config.run_id
                 );
                 return Ok(AgentRunResult {
                     run_id: config.run_id,
@@ -567,7 +600,8 @@ pub fn run_agent_with_capture(
                         if is_transient_error(stderr) {
                             tracing::warn!(
                                 "Transient error detected on attempt {} for run {}: {}",
-                                attempt, config.run_id, 
+                                attempt,
+                                config.run_id,
                                 stderr.chars().take(100).collect::<String>()
                             );
                             continue; // Retry
@@ -576,11 +610,12 @@ pub fn run_agent_with_capture(
                 }
 
                 let duration_secs = start_time.elapsed().as_secs_f64();
-                
+
                 if attempt > 1 && outcome == RunOutcome::Success {
                     tracing::info!(
                         "Run {} succeeded on attempt {} after transient errors",
-                        config.run_id, attempt
+                        config.run_id,
+                        attempt
                     );
                 }
 
@@ -646,7 +681,7 @@ fn build_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
             config.repo_path.to_string_lossy().to_string(),
         ),
     ];
-    
+
     if let (AgentKind::Claude, Some(ref c)) = (config.kind, &config.claude_api_config) {
         if let Some(v) = c.auth_token.as_ref().filter(|s| !s.is_empty()) {
             env_vars.push(("ANTHROPIC_AUTH_TOKEN".to_string(), v.clone()));
@@ -658,7 +693,7 @@ fn build_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
             env_vars.push(("ANTHROPIC_BASE_URL".to_string(), v.clone()));
         }
     }
-    
+
     env_vars
 }
 
@@ -724,7 +759,7 @@ mod tests {
         handle.cancel();
         assert!(handle.is_cancelled());
     }
-    
+
     #[test]
     fn cancel_handle_clone_shares_state() {
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -735,10 +770,10 @@ mod tests {
 
         assert!(!handle1.is_cancelled());
         assert!(!handle2.is_cancelled());
-        
+
         // Cancel via handle1
         handle1.cancel();
-        
+
         // Both handles should reflect the cancellation
         assert!(handle1.is_cancelled());
         assert!(handle2.is_cancelled());
@@ -790,7 +825,7 @@ mod tests {
     #[test]
     fn build_env_vars_includes_claude_api_config() {
         use crate::agents::ClaudeApiConfig;
-        
+
         let config = AgentRunConfig {
             kind: AgentKind::Claude,
             ticket_id: "t".to_string(),
@@ -809,20 +844,26 @@ mod tests {
             }),
         };
         let env_vars = build_env_vars(&config);
-        
+
         // Base 5 + 3 Claude API vars (auth_token, api_key, base_url)
         // model_override is not set as env var, it's used in build_command
         assert_eq!(env_vars.len(), 8);
-        
-        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-auth-token"));
-        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "my-api-key"));
-        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://custom.api.com"));
+
+        assert!(env_vars
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-auth-token"));
+        assert!(env_vars
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "my-api-key"));
+        assert!(env_vars
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://custom.api.com"));
     }
 
     #[test]
     fn build_env_vars_skips_empty_claude_values() {
         use crate::agents::ClaudeApiConfig;
-        
+
         let config = AgentRunConfig {
             kind: AgentKind::Claude,
             ticket_id: "t".to_string(),
@@ -841,17 +882,19 @@ mod tests {
             }),
         };
         let env_vars = build_env_vars(&config);
-        
+
         // Base 5 + only 1 Claude var (api_key)
         assert_eq!(env_vars.len(), 6);
         assert!(!env_vars.iter().any(|(k, _)| k == "ANTHROPIC_AUTH_TOKEN"));
-        assert!(env_vars.iter().any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "key"));
+        assert!(env_vars
+            .iter()
+            .any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "key"));
     }
 
     #[test]
     fn build_env_vars_cursor_ignores_claude_config() {
         use crate::agents::ClaudeApiConfig;
-        
+
         let config = AgentRunConfig {
             kind: AgentKind::Cursor, // Not Claude
             ticket_id: "t".to_string(),
@@ -870,7 +913,7 @@ mod tests {
             }),
         };
         let env_vars = build_env_vars(&config);
-        
+
         // Should only have base 5 vars, Claude config ignored for Cursor
         assert_eq!(env_vars.len(), 5);
     }
@@ -878,7 +921,9 @@ mod tests {
     #[test]
     fn is_transient_error_detects_connection_stalled() {
         assert!(is_transient_error("C: Connection stalled"));
-        assert!(is_transient_error("Error: connection stalled during request"));
+        assert!(is_transient_error(
+            "Error: connection stalled during request"
+        ));
     }
 
     #[test]

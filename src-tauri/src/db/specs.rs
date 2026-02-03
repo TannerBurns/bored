@@ -1,7 +1,10 @@
 //! Database operations for specs (planning agent)
 
-use crate::db::{Database, DbError, parse_datetime};
-use crate::db::models::{Spec, CreateSpec, UpdateSpec, SpecStatus, Exploration, SpecProgress, SpecEpicStatus, SpecTicketStatus};
+use crate::db::models::{
+    CreateSpec, Exploration, Spec, SpecEpicStatus, SpecProgress, SpecStatus, SpecTicketStatus,
+    UpdateSpec,
+};
+use crate::db::{parse_datetime, Database, DbError};
 
 impl Database {
     pub fn create_spec(&self, input: &CreateSpec) -> Result<Spec, DbError> {
@@ -164,31 +167,27 @@ impl Database {
 
     pub fn delete_spec(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let affected = conn.execute(
-                "DELETE FROM specs WHERE id = ?",
-                [id],
-            )?;
-            
+            let affected = conn.execute("DELETE FROM specs WHERE id = ?", [id])?;
+
             if affected == 0 {
                 return Err(DbError::NotFound(format!("Spec {}", id)));
             }
             Ok(())
         })
     }
-    
+
     /// Delete a spec and all tickets created from it (cascade delete)
     /// Returns the number of tickets deleted
     pub fn delete_spec_with_tickets(&self, id: &str) -> Result<usize, DbError> {
         self.with_conn(|conn| {
             // First, get all ticket IDs associated with this spec
-            let mut stmt = conn.prepare(
-                "SELECT id FROM tickets WHERE spec_id = ?"
-            )?;
-            let ticket_ids: Vec<String> = stmt.query_map([id], |row| row.get(0))?
+            let mut stmt = conn.prepare("SELECT id FROM tickets WHERE spec_id = ?")?;
+            let ticket_ids: Vec<String> = stmt
+                .query_map([id], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
-            
+
             let ticket_count = ticket_ids.len();
-            
+
             // Delete all related data for these tickets
             for ticket_id in &ticket_ids {
                 // Delete comments
@@ -200,54 +199,56 @@ impl Database {
                 // Delete runs
                 conn.execute("DELETE FROM runs WHERE ticket_id = ?", [ticket_id])?;
             }
-            
+
             // Delete all tickets with this spec_id
-            conn.execute(
-                "DELETE FROM tickets WHERE spec_id = ?",
-                [id],
-            )?;
-            
+            conn.execute("DELETE FROM tickets WHERE spec_id = ?", [id])?;
+
             // Delete the spec itself
-            let affected = conn.execute(
-                "DELETE FROM specs WHERE id = ?",
-                [id],
-            )?;
-            
+            let affected = conn.execute("DELETE FROM specs WHERE id = ?", [id])?;
+
             if affected == 0 {
                 return Err(DbError::NotFound(format!("Spec {}", id)));
             }
-            
+
             Ok(ticket_count)
         })
     }
 
     /// Append an exploration entry to a spec's log
-    pub fn append_spec_exploration(&self, id: &str, exploration: &Exploration) -> Result<(), DbError> {
+    pub fn append_spec_exploration(
+        &self,
+        id: &str,
+        exploration: &Exploration,
+    ) -> Result<(), DbError> {
         self.with_conn(|conn| {
             // Get existing log
-            let existing_log: Option<String> = conn.query_row(
-                "SELECT exploration_log FROM specs WHERE id = ?",
-                [id],
-                |row| row.get(0),
-            ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
-                other => DbError::Sqlite(other),
-            })?;
+            let existing_log: Option<String> = conn
+                .query_row(
+                    "SELECT exploration_log FROM specs WHERE id = ?",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Spec {}", id))
+                    }
+                    other => DbError::Sqlite(other),
+                })?;
 
             let mut log: Vec<Exploration> = existing_log
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default();
-            
+
             log.push(exploration.clone());
-            
+
             let log_json = serde_json::to_string(&log).unwrap_or_else(|_| "[]".to_string());
             let now = chrono::Utc::now().to_rfc3339();
-            
+
             conn.execute(
                 "UPDATE specs SET exploration_log = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![log_json, now, id],
             )?;
-            
+
             Ok(())
         })
     }
@@ -260,7 +261,7 @@ impl Database {
                 "UPDATE specs SET status = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![status.as_str(), now, id],
             )?;
-            
+
             if affected == 0 {
                 return Err(DbError::NotFound(format!("Spec {}", id)));
             }
@@ -269,16 +270,22 @@ impl Database {
     }
 
     /// Set the generated plan for a spec
-    pub fn set_spec_plan(&self, id: &str, markdown: &str, json: Option<&serde_json::Value>) -> Result<(), DbError> {
+    pub fn set_spec_plan(
+        &self,
+        id: &str,
+        markdown: &str,
+        json: Option<&serde_json::Value>,
+    ) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
-            let json_str = json.map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_string()));
-            
+            let json_str =
+                json.map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".to_string()));
+
             let affected = conn.execute(
                 "UPDATE specs SET plan_markdown = ?, plan_json = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![markdown, json_str, now, id],
             )?;
-            
+
             if affected == 0 {
                 return Err(DbError::NotFound(format!("Spec {}", id)));
             }
@@ -290,29 +297,31 @@ impl Database {
     pub fn pause_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
-            
+
             // Check current status - can only pause if Working
-            let current_status: String = conn.query_row(
-                "SELECT status FROM specs WHERE id = ?",
-                [id],
-                |row| row.get(0),
-            ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
-                other => DbError::Sqlite(other),
-            })?;
-            
+            let current_status: String = conn
+                .query_row("SELECT status FROM specs WHERE id = ?", [id], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Spec {}", id))
+                    }
+                    other => DbError::Sqlite(other),
+                })?;
+
             if current_status != "working" {
                 return Err(DbError::Validation(format!(
                     "Cannot pause: spec is in '{}' status, must be 'working'",
                     current_status
                 )));
             }
-            
+
             conn.execute(
                 "UPDATE specs SET status = 'paused', updated_at = ? WHERE id = ?",
                 rusqlite::params![now, id],
             )?;
-            
+
             Ok(())
         })
     }
@@ -321,35 +330,37 @@ impl Database {
     pub fn resume_spec_work(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
-            
+
             // Check current status - can only resume if Paused
-            let current_status: String = conn.query_row(
-                "SELECT status FROM specs WHERE id = ?",
-                [id],
-                |row| row.get(0),
-            ).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("Spec {}", id)),
-                other => DbError::Sqlite(other),
-            })?;
-            
+            let current_status: String = conn
+                .query_row("SELECT status FROM specs WHERE id = ?", [id], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Spec {}", id))
+                    }
+                    other => DbError::Sqlite(other),
+                })?;
+
             if current_status != "paused" {
                 return Err(DbError::Validation(format!(
                     "Cannot resume: spec is in '{}' status, must be 'paused'",
                     current_status
                 )));
             }
-            
+
             // Clear paused_at but preserve stage/run info for resume
             conn.execute(
                 "UPDATE tickets SET paused_at = NULL, updated_at = ? WHERE spec_id = ?",
                 rusqlite::params![now, id],
             )?;
-            
+
             conn.execute(
                 "UPDATE specs SET status = 'working', updated_at = ? WHERE id = ?",
                 rusqlite::params![now, id],
             )?;
-            
+
             Ok(())
         })
     }
@@ -426,7 +437,10 @@ impl Database {
     }
 
     /// Get all tickets created from a spec
-    pub fn get_spec_tickets(&self, spec_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+    pub fn get_spec_tickets(
+        &self,
+        spec_id: &str,
+    ) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
@@ -460,9 +474,12 @@ impl Database {
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
-    
+
     /// Get root epics (no dependencies) for a spec
-    pub fn get_spec_root_epics(&self, spec_id: &str) -> Result<Vec<crate::db::models::Ticket>, DbError> {
+    pub fn get_spec_root_epics(
+        &self,
+        spec_id: &str,
+    ) -> Result<Vec<crate::db::models::Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
@@ -479,7 +496,7 @@ impl Database {
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
     }
-    
+
     /// Check if all epics for a spec are complete (in Done column)
     pub fn are_all_spec_epics_done(&self, spec_id: &str) -> Result<bool, DbError> {
         self.with_conn(|conn| {
@@ -489,11 +506,11 @@ impl Database {
                 [spec_id],
                 |row| row.get(0),
             )?;
-            
+
             if epic_count == 0 {
                 return Ok(false); // No epics means not complete
             }
-            
+
             // Check how many are in the Done column
             let done_count: i64 = conn.query_row(
                 r#"SELECT COUNT(*) FROM tickets t
@@ -502,11 +519,11 @@ impl Database {
                 [spec_id],
                 |row| row.get(0),
             )?;
-            
+
             Ok(done_count == epic_count)
         })
     }
-    
+
     /// Get progress stats for a spec's epics
     pub fn get_spec_progress(&self, spec_id: &str) -> Result<SpecProgress, DbError> {
         self.with_conn(|conn| {
@@ -516,9 +533,9 @@ impl Database {
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.spec_id = ? AND t.is_epic = 1
-                   ORDER BY t.created_at ASC"#
+                   ORDER BY t.created_at ASC"#,
             )?;
-            
+
             let epic_rows = epic_stmt.query_map([spec_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -527,24 +544,26 @@ impl Database {
                     row.get::<_, Option<String>>(3)?,
                 ))
             })?;
-            
-            let epic_data: Vec<(String, String, String, Option<String>)> = epic_rows.collect::<Result<Vec<_>, _>>()?;
-            
+
+            let epic_data: Vec<(String, String, String, Option<String>)> =
+                epic_rows.collect::<Result<Vec<_>, _>>()?;
+
             // Build a map of epic id -> title for resolving dependency titles
-            let mut epic_title_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut epic_title_map: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for (id, title, _, _) in &epic_data {
                 epic_title_map.insert(id.clone(), title.clone());
             }
-            
+
             // For each epic, get its child tickets
             let mut ticket_stmt = conn.prepare(
                 r#"SELECT t.id, t.title, c.name as column_name
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.epic_id = ?
-                   ORDER BY t.order_in_epic ASC, t.created_at ASC"#
+                   ORDER BY t.order_in_epic ASC, t.created_at ASC"#,
             )?;
-            
+
             let mut epics = Vec::new();
             for (epic_id, epic_title, epic_column, depends_on_json) in epic_data {
                 let ticket_rows = ticket_stmt.query_map([&epic_id], |row| {
@@ -554,20 +573,20 @@ impl Database {
                         column: row.get(2)?,
                     })
                 })?;
-                
+
                 let tickets: Vec<SpecTicketStatus> = ticket_rows.collect::<Result<Vec<_>, _>>()?;
-                
+
                 // Parse dependency IDs from JSON
                 let depends_on_ids: Vec<String> = depends_on_json
                     .and_then(|s| serde_json::from_str(&s).ok())
                     .unwrap_or_default();
-                
+
                 // Resolve dependency titles
                 let depends_on_titles: Vec<String> = depends_on_ids
                     .iter()
                     .filter_map(|id| epic_title_map.get(id).cloned())
                     .collect();
-                
+
                 epics.push(SpecEpicStatus {
                     id: epic_id,
                     title: epic_title,
@@ -577,21 +596,22 @@ impl Database {
                     tickets,
                 });
             }
-            
+
             let total = epics.len();
             let done = epics.iter().filter(|e| e.column == "Done").count();
-            let in_progress = epics.iter().filter(|e| {
-                matches!(e.column.as_str(), "Ready" | "In Progress" | "Review")
-            }).count();
+            let in_progress = epics
+                .iter()
+                .filter(|e| matches!(e.column.as_str(), "Ready" | "In Progress" | "Review"))
+                .count();
             let blocked = epics.iter().filter(|e| e.column == "Blocked").count();
-            
+
             // Get total count of ALL tickets (epics + child tickets)
             let total_tickets: usize = conn.query_row(
                 "SELECT COUNT(*) FROM tickets WHERE spec_id = ?",
                 [spec_id],
                 |row| row.get::<_, i64>(0),
             )? as usize;
-            
+
             Ok(SpecProgress {
                 total,
                 done,
@@ -609,18 +629,21 @@ impl Database {
         //               11-plan_json, 12-settings_json, 13-work_started_at, 14-created_at, 15-updated_at
         let status_str: String = row.get(6)?;
         let status = SpecStatus::parse(&status_str).unwrap_or_default();
-        
+
         let exploration_log_str: Option<String> = row.get(9)?;
         let exploration_log: Vec<Exploration> = exploration_log_str
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        
+
         let plan_json_str: Option<String> = row.get(11)?;
         let plan_json = plan_json_str.and_then(|s| serde_json::from_str(&s).ok());
-        
-        let settings_str: String = row.get::<_, Option<String>>(12)?.unwrap_or_else(|| "{}".to_string());
-        let settings = serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
-        
+
+        let settings_str: String = row
+            .get::<_, Option<String>>(12)?
+            .unwrap_or_else(|| "{}".to_string());
+        let settings =
+            serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
+
         let work_started_at: Option<String> = row.get(13)?;
 
         Ok(Spec {
@@ -645,23 +668,25 @@ impl Database {
 
     // Helper to map ticket rows with spec_id column (v15)
     fn map_ticket_row_v15(row: &rusqlite::Row) -> rusqlite::Result<crate::db::models::Ticket> {
-        use crate::db::models::{Ticket, Priority, AgentPref, WorkflowType};
-        
+        use crate::db::models::{AgentPref, Priority, Ticket, WorkflowType};
+
         let labels_json: String = row.get(6)?;
         let labels: Vec<String> = serde_json::from_str(&labels_json).unwrap_or_default();
-        
+
         let priority_str: String = row.get(5)?;
         let priority = Priority::parse(&priority_str).unwrap_or(Priority::Medium);
-        
+
         let agent_pref_str: Option<String> = row.get(12)?;
         let agent_pref = agent_pref_str.and_then(|s| AgentPref::parse(&s));
-        
-        let workflow_type_str: String = row.get::<_, Option<String>>(13)?.unwrap_or_else(|| "basic".to_string());
+
+        let workflow_type_str: String = row
+            .get::<_, Option<String>>(13)?
+            .unwrap_or_else(|| "basic".to_string());
         let workflow_type = WorkflowType::parse(&workflow_type_str).unwrap_or_default();
-        
+
         let model: Option<String> = row.get(14)?;
         let branch_name: Option<String> = row.get(15)?;
-        
+
         let is_epic: bool = row.get::<_, i32>(16).unwrap_or(0) != 0;
         let epic_id: Option<String> = row.get(17)?;
         let order_in_epic: Option<i32> = row.get(18)?;
@@ -671,7 +696,7 @@ impl Database {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let spec_id: Option<String> = row.get(21)?;
-        
+
         // Pause fields (columns 22, 23, 24)
         let paused_at: Option<String> = row.get(22)?;
         let paused_at_stage: Option<String> = row.get(23)?;
@@ -726,7 +751,8 @@ mod tests {
             path: temp_dir_path(),
             preferred_agent: None,
             requires_git: false,
-        }).unwrap()
+        })
+        .unwrap()
     }
 
     #[test]
@@ -734,28 +760,33 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Feature Plan".to_string(),
-            user_input: "I want to add a new authentication system".to_string(),
-            agent_pref: Some("claude".to_string()),
-            model: Some("opus".to_string()),
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Feature Plan".to_string(),
+                user_input: "I want to add a new authentication system".to_string(),
+                agent_pref: Some("claude".to_string()),
+                model: Some("opus".to_string()),
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         assert_eq!(spec.name, "Feature Plan");
         assert_eq!(spec.project_id, project.id);
         assert_eq!(spec.agent_pref, Some("claude".to_string()));
         assert_eq!(spec.model, Some("opus".to_string()));
         assert_eq!(spec.status, SpecStatus::Draft);
         assert!(spec.exploration_log.is_empty());
-        
+
         let fetched = db.get_spec(&spec.id).unwrap();
         assert_eq!(fetched.id, spec.id);
-        assert_eq!(fetched.user_input, "I want to add a new authentication system");
+        assert_eq!(
+            fetched.user_input,
+            "I want to add a new authentication system"
+        );
         assert_eq!(fetched.project_id, project.id);
     }
 
@@ -764,7 +795,7 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
+
         db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
@@ -774,8 +805,9 @@ mod tests {
             agent_pref: None,
             model: None,
             settings: serde_json::json!({}),
-        }).unwrap();
-        
+        })
+        .unwrap();
+
         db.create_spec(&CreateSpec {
             board_id: board.id.clone(),
             target_board_id: Some(board.id.clone()),
@@ -785,8 +817,9 @@ mod tests {
             agent_pref: None,
             model: None,
             settings: serde_json::json!({}),
-        }).unwrap();
-        
+        })
+        .unwrap();
+
         let specs = db.get_specs(&board.id).unwrap();
         assert_eq!(specs.len(), 2);
     }
@@ -796,30 +829,37 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Original".to_string(),
-            user_input: "Original input".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
-        let updated = db.update_spec(&spec.id, &UpdateSpec {
-            name: Some("Updated".to_string()),
-            user_input: None,
-            status: Some(SpecStatus::Exploring),
-            agent_pref: Some("cursor".to_string()),
-            model: Some("sonnet".to_string()),
-            exploration_log: None,
-            plan_markdown: None,
-            plan_json: None,
-            settings: None,
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Original".to_string(),
+                user_input: "Original input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let updated = db
+            .update_spec(
+                &spec.id,
+                &UpdateSpec {
+                    name: Some("Updated".to_string()),
+                    user_input: None,
+                    status: Some(SpecStatus::Exploring),
+                    agent_pref: Some("cursor".to_string()),
+                    model: Some("sonnet".to_string()),
+                    exploration_log: None,
+                    plan_markdown: None,
+                    plan_json: None,
+                    settings: None,
+                },
+            )
+            .unwrap();
+
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.user_input, "Original input");
         assert_eq!(updated.status, SpecStatus::Exploring);
@@ -832,26 +872,28 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Input".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         let exploration = Exploration {
             query: "How does auth work?".to_string(),
             response: "Auth uses JWT tokens...".to_string(),
             timestamp: chrono::Utc::now(),
         };
-        
+
         db.append_spec_exploration(&spec.id, &exploration).unwrap();
-        
+
         let fetched = db.get_spec(&spec.id).unwrap();
         assert_eq!(fetched.exploration_log.len(), 1);
         assert_eq!(fetched.exploration_log[0].query, "How does auth work?");
@@ -862,22 +904,24 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Input".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         assert_eq!(spec.status, SpecStatus::Draft);
-        
+
         db.set_spec_status(&spec.id, SpecStatus::Completed).unwrap();
-        
+
         let fetched = db.get_spec(&spec.id).unwrap();
         assert_eq!(fetched.status, SpecStatus::Completed);
     }
@@ -887,25 +931,28 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Input".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         let plan_json = serde_json::json!({
             "overview": "Test plan",
             "epics": []
         });
-        
-        db.set_spec_plan(&spec.id, "# Test Plan\n\nOverview...", Some(&plan_json)).unwrap();
-        
+
+        db.set_spec_plan(&spec.id, "# Test Plan\n\nOverview...", Some(&plan_json))
+            .unwrap();
+
         let fetched = db.get_spec(&spec.id).unwrap();
         assert!(fetched.plan_markdown.is_some());
         assert!(fetched.plan_json.is_some());
@@ -917,20 +964,22 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Input".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         db.delete_spec(&spec.id).unwrap();
-        
+
         let result = db.get_spec(&spec.id);
         assert!(matches!(result, Err(DbError::NotFound(_))));
     }
@@ -967,22 +1016,24 @@ mod tests {
     fn create_working_spec(db: &Database) -> crate::db::models::Spec {
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Work Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Work Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Move through the workflow to 'executed' then 'working'
         db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
         db.start_spec_work(&spec.id).unwrap();
-        
+
         db.get_spec(&spec.id).unwrap()
     }
 
@@ -990,11 +1041,11 @@ mod tests {
     fn pause_spec_work_success() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         assert_eq!(spec.status, SpecStatus::Working);
-        
+
         db.pause_spec_work(&spec.id).unwrap();
-        
+
         let paused = db.get_spec(&spec.id).unwrap();
         assert_eq!(paused.status, SpecStatus::Paused);
     }
@@ -1004,18 +1055,20 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Status is Draft, not Working
         let result = db.pause_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
@@ -1032,14 +1085,14 @@ mod tests {
     fn resume_spec_work_success() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         db.pause_spec_work(&spec.id).unwrap();
-        
+
         let paused = db.get_spec(&spec.id).unwrap();
         assert_eq!(paused.status, SpecStatus::Paused);
-        
+
         db.resume_spec_work(&spec.id).unwrap();
-        
+
         let resumed = db.get_spec(&spec.id).unwrap();
         assert_eq!(resumed.status, SpecStatus::Working);
     }
@@ -1048,7 +1101,7 @@ mod tests {
     fn resume_spec_work_fails_if_not_paused() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         // Status is Working, not Paused
         let result = db.resume_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
@@ -1068,53 +1121,57 @@ mod tests {
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Create a ticket linked to the spec
-        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "T1".to_string(),
-            description_md: "".to_string(),
-            priority: crate::db::models::Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: crate::db::models::WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: Some(spec.id.clone()),
-        }).unwrap();
-        
+        let ticket = db
+            .create_ticket(&crate::db::models::CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready.id.clone(),
+                title: "T1".to_string(),
+                description_md: "".to_string(),
+                priority: crate::db::models::Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: crate::db::models::WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: Some(spec.id.clone()),
+            })
+            .unwrap();
+
         // Set to working, pause ticket, then pause spec
         db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
-        
+
         assert!(db.is_ticket_paused(&ticket.id).unwrap());
-        
+
         db.pause_spec_work(&spec.id).unwrap();
-        
+
         // Resume the spec - ticket pause state should be cleared
         db.resume_spec_work(&spec.id).unwrap();
-        
+
         // Verify spec is working again
         let resumed = db.get_spec(&spec.id).unwrap();
         assert_eq!(resumed.status, SpecStatus::Working);
-        
+
         // Verify ticket pause state is cleared so workers can pick it up
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
     }
@@ -1126,57 +1183,64 @@ mod tests {
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Create a ticket linked to the spec
-        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "T1".to_string(),
-            description_md: "".to_string(),
-            priority: crate::db::models::Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: crate::db::models::WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: Some(spec.id.clone()),
-        }).unwrap();
-        
+        let ticket = db
+            .create_ticket(&crate::db::models::CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready.id.clone(),
+                title: "T1".to_string(),
+                description_md: "".to_string(),
+                priority: crate::db::models::Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: crate::db::models::WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: Some(spec.id.clone()),
+            })
+            .unwrap();
+
         // Set to working, pause ticket at "implement" stage, then pause spec
         db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "implement", "run-123").unwrap();
-        
+
         let paused = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(paused.paused_at_stage, Some("implement".to_string()));
-        
+
         db.pause_spec_work(&spec.id).unwrap();
-        
+
         // Resume the spec
         db.resume_spec_work(&spec.id).unwrap();
-        
+
         // Verify ticket is no longer paused (paused_at cleared)
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
-        
+
         // Both paused_at_stage and paused_run_id should be preserved so worker can resume
         // the same run from the same stage
         let resumed_ticket = db.get_ticket(&ticket.id).unwrap();
-        assert_eq!(resumed_ticket.paused_at_stage, Some("implement".to_string()));
+        assert_eq!(
+            resumed_ticket.paused_at_stage,
+            Some("implement".to_string())
+        );
         // paused_run_id is preserved so the same run can be reused for continuity
         assert_eq!(resumed_ticket.paused_run_id, Some("run-123".to_string()));
     }
@@ -1188,53 +1252,61 @@ mod tests {
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Create a ticket linked to the spec
-        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "T1".to_string(),
-            description_md: "".to_string(),
-            priority: crate::db::models::Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: crate::db::models::WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: Some(spec.id.clone()),
-        }).unwrap();
-        
+        let ticket = db
+            .create_ticket(&crate::db::models::CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready.id.clone(),
+                title: "T1".to_string(),
+                description_md: "".to_string(),
+                priority: crate::db::models::Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: crate::db::models::WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: Some(spec.id.clone()),
+            })
+            .unwrap();
+
         // Set to working and pause the ticket with a run ID
         db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
-        db.pause_ticket(&ticket.id, "review", "run-xyz-123").unwrap();
-        
+        db.pause_ticket(&ticket.id, "review", "run-xyz-123")
+            .unwrap();
+
         // Verify the run ID was saved
         let paused_ticket = db.get_ticket(&ticket.id).unwrap();
         assert_eq!(paused_ticket.paused_run_id, Some("run-xyz-123".to_string()));
-        
+
         db.pause_spec_work(&spec.id).unwrap();
         db.resume_spec_work(&spec.id).unwrap();
-        
+
         // paused_run_id should be preserved so the same run can be reused for continuity
         // paused_at_stage should be preserved so worker knows where to resume
         let resumed_ticket = db.get_ticket(&ticket.id).unwrap();
-        assert_eq!(resumed_ticket.paused_run_id, Some("run-xyz-123".to_string()));
+        assert_eq!(
+            resumed_ticket.paused_run_id,
+            Some("run-xyz-123".to_string())
+        );
         assert_eq!(resumed_ticket.paused_at_stage, Some("review".to_string()));
     }
 
@@ -1242,9 +1314,9 @@ mod tests {
     fn halt_spec_work_from_working() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         db.halt_spec_work(&spec.id).unwrap();
-        
+
         let halted = db.get_spec(&spec.id).unwrap();
         assert_eq!(halted.status, SpecStatus::Halted);
     }
@@ -1253,10 +1325,10 @@ mod tests {
     fn halt_spec_work_from_paused() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         db.pause_spec_work(&spec.id).unwrap();
         db.halt_spec_work(&spec.id).unwrap();
-        
+
         let halted = db.get_spec(&spec.id).unwrap();
         assert_eq!(halted.status, SpecStatus::Halted);
     }
@@ -1268,47 +1340,51 @@ mod tests {
         let project = create_test_project(&db);
         let columns = db.get_columns(&board.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Create a ticket linked to the spec
-        let ticket = db.create_ticket(&crate::db::models::CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "T1".to_string(),
-            description_md: "".to_string(),
-            priority: crate::db::models::Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: crate::db::models::WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_id: Some(spec.id.clone()),
-        }).unwrap();
-        
+        let ticket = db
+            .create_ticket(&crate::db::models::CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready.id.clone(),
+                title: "T1".to_string(),
+                description_md: "".to_string(),
+                priority: crate::db::models::Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: crate::db::models::WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_id: Some(spec.id.clone()),
+            })
+            .unwrap();
+
         // Set to working and pause the ticket
         db.set_spec_status(&spec.id, SpecStatus::Working).unwrap();
         db.pause_ticket(&ticket.id, "impl", "run-1").unwrap();
-        
+
         assert!(db.is_ticket_paused(&ticket.id).unwrap());
-        
+
         // Halt the spec
         db.halt_spec_work(&spec.id).unwrap();
-        
+
         // Ticket pause state should be cleared
         assert!(!db.is_ticket_paused(&ticket.id).unwrap());
     }
@@ -1318,18 +1394,20 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Status is Draft
         let result = db.halt_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
@@ -1347,22 +1425,24 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
-        
+
         db.start_spec_work(&spec.id).unwrap();
-        
+
         let working = db.get_spec(&spec.id).unwrap();
         assert_eq!(working.status, SpecStatus::Working);
         assert!(working.work_started_at.is_some());
@@ -1372,14 +1452,14 @@ mod tests {
     fn start_spec_work_from_halted() {
         let db = create_test_db();
         let spec = create_working_spec(&db);
-        
+
         db.halt_spec_work(&spec.id).unwrap();
-        
+
         let halted = db.get_spec(&spec.id).unwrap();
         assert_eq!(halted.status, SpecStatus::Halted);
-        
+
         db.start_spec_work(&spec.id).unwrap();
-        
+
         let restarted = db.get_spec(&spec.id).unwrap();
         assert_eq!(restarted.status, SpecStatus::Working);
     }
@@ -1389,18 +1469,20 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         // Status is Draft
         let result = db.start_spec_work(&spec.id);
         assert!(matches!(result, Err(DbError::Validation(_))));
@@ -1418,23 +1500,25 @@ mod tests {
         let db = create_test_db();
         let board = db.create_board("Test Board").unwrap();
         let project = create_test_project(&db);
-        
-        let spec = db.create_spec(&CreateSpec {
-            board_id: board.id.clone(),
-            target_board_id: Some(board.id.clone()),
-            project_id: project.id.clone(),
-            name: "Plan".to_string(),
-            user_input: "Test".to_string(),
-            agent_pref: None,
-            model: None,
-            settings: serde_json::json!({}),
-        }).unwrap();
-        
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Test".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
         assert!(spec.work_started_at.is_none());
-        
+
         db.set_spec_status(&spec.id, SpecStatus::Executed).unwrap();
         db.start_spec_work(&spec.id).unwrap();
-        
+
         let started = db.get_spec(&spec.id).unwrap();
         assert!(started.work_started_at.is_some());
     }

@@ -1,13 +1,13 @@
 //! Tauri commands for worker management.
 
+use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 use tauri::State;
 
+use crate::agents::validation::{validate_worker_environment, ValidationResult};
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
-use crate::agents::validation::{ValidationResult, validate_worker_environment};
-use crate::agents::{AgentKind, ClaudeApiConfig, cursor, claude};
+use crate::agents::{claude, cursor, AgentKind, ClaudeApiConfig};
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::commands::runs::RunningAgents;
 use crate::db::Database;
@@ -40,8 +40,10 @@ pub struct WorkerQueueStatus {
 
 /// Get the hook script path from app data directory
 fn get_hook_script_path(app: &tauri::AppHandle) -> Option<String> {
-    app.path_resolver()
+    use tauri::Manager;
+    app.path()
         .app_data_dir()
+        .ok()
         .map(|dir| dir.join("scripts").join("cursor-hook.js"))
         .map(|p| p.to_string_lossy().to_string())
 }
@@ -61,7 +63,7 @@ pub async fn start_worker(
         stage_timeout_minutes,
         stage_max_retries,
     } = input;
-    
+
     tracing::info!(
         "Starting worker: agent_type={}, project_id={:?}",
         agent_type,
@@ -80,15 +82,15 @@ pub async fn start_worker(
             std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string())
         )
     });
-    let api_token = std::env::var("AGENT_KANBAN_API_TOKEN")
-        .unwrap_or_else(|_| "default-token".to_string());
-    
+    let api_token =
+        std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
+
     // Get the hook script path for the worker to use
     let hook_script_path = get_hook_script_path(&app);
     tracing::info!("Worker hook script path: {:?}", hook_script_path);
 
-    let claude_api_config = (agent_kind == AgentKind::Claude)
-        .then(|| ClaudeApiConfig::from(claude_api_state.get()));
+    let claude_api_config =
+        (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
 
     let config = WorkerConfig {
         agent_type: agent_kind,
@@ -144,7 +146,7 @@ pub async fn get_worker_queue_status(
 ) -> Result<WorkerQueueStatus, String> {
     let boards = db.get_boards().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now();
-    
+
     let mut ready_count = 0;
     let mut in_progress_count = 0;
 
@@ -158,24 +160,18 @@ pub async fn get_worker_queue_status(
                 .map_err(|e| e.to_string())?;
             ready_count += tickets
                 .iter()
-                .filter(|t| {
-                    t.lock_expires_at
-                        .is_none_or(|exp| exp <= now)
-                })
+                .filter(|t| t.lock_expires_at.is_none_or(|exp| exp <= now))
                 .count();
         }
 
         // Count tickets that are actively being worked on by workers
         // This is any ticket with a valid (non-expired) lock, regardless of which column it's in
-        let all_tickets = db
-            .get_tickets(&board.id, None)
-            .map_err(|e| e.to_string())?;
+        let all_tickets = db.get_tickets(&board.id, None).map_err(|e| e.to_string())?;
         in_progress_count += all_tickets
             .iter()
             .filter(|t| {
                 // Has a lock that hasn't expired
-                t.locked_by_run_id.is_some() && 
-                t.lock_expires_at.is_some_and(|exp| exp > now)
+                t.locked_by_run_id.is_some() && t.lock_expires_at.is_some_and(|exp| exp > now)
             })
             .count();
     }
@@ -199,11 +195,8 @@ pub async fn validate_worker(
     };
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL").ok();
-    let result = validate_worker_environment(
-        agent_kind,
-        &PathBuf::from(&repo_path),
-        api_url.as_deref(),
-    );
+    let result =
+        validate_worker_environment(agent_kind, &PathBuf::from(&repo_path), api_url.as_deref());
 
     Ok(result)
 }
@@ -270,8 +263,14 @@ pub async fn check_commands_installed(
 
     // Check both user-level and project-level commands
     let installed = match agent_type.as_str() {
-        "cursor" => cursor::check_user_commands_installed() || cursor::check_project_commands_installed(&repo),
-        "claude" => claude::check_user_commands_installed() || claude::check_project_commands_installed(&repo),
+        "cursor" => {
+            cursor::check_user_commands_installed()
+                || cursor::check_project_commands_installed(&repo)
+        }
+        "claude" => {
+            claude::check_user_commands_installed()
+                || claude::check_project_commands_installed(&repo)
+        }
         _ => return Err(format!("Invalid agent type: {}", agent_type)),
     };
 

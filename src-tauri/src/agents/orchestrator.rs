@@ -2,53 +2,65 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Manager, Window};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Window};
 
-use crate::db::{Database, AgentType, CreateRun, RunStatus, Ticket, NormalizedEvent, EventType, AgentEventPayload, CreateComment, AuthorType};
-use crate::db::models::{Task, TaskType};
-use crate::lifecycle::epic::{on_child_completed, on_child_blocked};
-use super::{AgentKind, AgentRunConfig, AgentRunResult, ClaudeApiConfig, LogCallback, LogLine, LogStream, RunOutcome, extract_text_from_stream_json};
-use super::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output, generate_plan_prompt, generate_implement_prompt, generate_command_prompt, generate_task_plan_prompt, generate_task_implement_prompt, generate_task_prompt};
-use super::spawner::{run_agent_with_capture, CancelHandle};
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
-use super::plan_validation::{validate_plan_for_clarification, generate_clarification_message, PlanValidationConfig};
+use super::plan_validation::{
+    generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
+};
+use super::prompt::{
+    generate_branch_name_generation_prompt, generate_command_prompt, generate_implement_prompt,
+    generate_plan_prompt, generate_task_implement_prompt, generate_task_plan_prompt,
+    generate_task_prompt, parse_branch_name_from_output,
+};
+use super::spawner::{run_agent_with_capture, CancelHandle};
+use super::{
+    extract_text_from_stream_json, AgentKind, AgentRunConfig, AgentRunResult, ClaudeApiConfig,
+    LogCallback, LogLine, LogStream, RunOutcome,
+};
+use crate::db::models::{Task, TaskType};
+use crate::db::{
+    AgentEventPayload, AgentType, AuthorType, CreateComment, CreateRun, Database, EventType,
+    NormalizedEvent, RunStatus, Ticket,
+};
+use crate::lifecycle::epic::{on_child_blocked, on_child_completed};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
 
 /// Parse code review output for issue count.
-/// 
+///
 /// Looks for a line like `ISSUES_FOUND: 3` in the output and returns the number.
 fn parse_code_review_issues(output: &str) -> Option<usize> {
-    let text = extract_text_from_stream_json(output)
-        .unwrap_or_else(|| output.to_string());
-    
+    let text = extract_text_from_stream_json(output).unwrap_or_else(|| output.to_string());
+
     text.lines()
         .find(|l| l.trim().starts_with("ISSUES_FOUND:"))
         .and_then(|l| l.split(':').nth(1)?.trim().parse().ok())
 }
 
 /// Extract the issues section from code review output.
-/// 
+///
 /// Extracts content between "## Issues Found" and "## Summary" for passing to the fix phase.
 fn extract_issues_section(output: &str) -> String {
-    let text = extract_text_from_stream_json(output)
-        .unwrap_or_else(|| output.to_string());
-    
+    let text = extract_text_from_stream_json(output).unwrap_or_else(|| output.to_string());
+
     let start_marker = "## Issues Found";
     let end_marker = "## Summary";
-    
+
     if let Some(start_idx) = text.find(start_marker) {
         let issues_start = start_idx + start_marker.len();
         if let Some(end_idx) = text[issues_start..].find(end_marker) {
-            return text[issues_start..issues_start + end_idx].trim().to_string();
+            return text[issues_start..issues_start + end_idx]
+                .trim()
+                .to_string();
         }
         return text[issues_start..].trim().to_string();
     }
-    
+
     text
 }
 
@@ -94,7 +106,7 @@ pub struct OrchestratorConfig {
 /// The code-review loop runs dynamically after implement (not listed here).
 pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "branch",
-    "plan", 
+    "plan",
     "implement",
     "deslop",
     "cleanup",
@@ -179,7 +191,7 @@ impl WorkflowOrchestrator {
             } else {
                 std::collections::HashMap::new()
             };
-            
+
             // Also check the current run's sub-runs (for when we reuse the same run ID)
             if outputs.is_empty() {
                 match config.db.get_completed_stage_outputs(&config.parent_run_id) {
@@ -198,7 +210,7 @@ impl WorkflowOrchestrator {
                     }
                 }
             }
-            
+
             for (stage, output) in &outputs {
                 tracing::debug!("  - {}: {} chars", stage, output.len());
             }
@@ -206,7 +218,7 @@ impl WorkflowOrchestrator {
         } else {
             std::collections::HashMap::new()
         };
-        
+
         Self {
             db: config.db,
             window: config.window,
@@ -232,7 +244,7 @@ impl WorkflowOrchestrator {
             previous_stage_outputs,
         }
     }
-    
+
     /// Check if a stage should be skipped due to resumption.
     /// Returns true if we're resuming and haven't reached the resume stage yet.
     fn should_skip_stage(&self, stage: &str) -> bool {
@@ -243,26 +255,33 @@ impl WorkflowOrchestrator {
                 // This includes both the main workflow stages and the code-review stages.
                 // Must match the order in TicketModal.tsx handlePauseTicket()
                 let stage_order = [
-                    "branch-gen", "branch",           // Branch creation
-                    "plan", "plan-validation",        // Planning (validation is a sub-step)
-                    "implement",                      // Implementation
-                    "code-review", "code-review-fix", // Code review loop
-                    "deslop", "cleanup", "unit-tests", // QA stages
-                    "review-changes", "add-and-commit", // Final stages
+                    "branch-gen",
+                    "branch", // Branch creation
+                    "plan",
+                    "plan-validation", // Planning (validation is a sub-step)
+                    "implement",       // Implementation
+                    "code-review",
+                    "code-review-fix", // Code review loop
+                    "deslop",
+                    "cleanup",
+                    "unit-tests", // QA stages
+                    "review-changes",
+                    "add-and-commit", // Final stages
                 ];
-                
+
                 // Find the index of the resume stage
                 let resume_idx = stage_order.iter().position(|&s| s == resume_stage);
                 // Find the index of the current stage
                 let current_idx = stage_order.iter().position(|&s| s == stage);
-                
+
                 match (resume_idx, current_idx) {
                     (Some(resume), Some(current)) => current < resume,
                     _ => {
                         // Unknown stage, don't skip to be safe
                         tracing::warn!(
                             "Unknown stage for resumption check: stage={}, resume_from={}",
-                            stage, resume_stage
+                            stage,
+                            resume_stage
                         );
                         false
                     }
@@ -270,14 +289,20 @@ impl WorkflowOrchestrator {
             }
         }
     }
-    
+
     /// Emit an event to the frontend, using window if available, otherwise app_handle
-    fn emit_event<S: serde::Serialize + Clone>(&self, event_name: &str, payload: &S) -> Result<(), String> {
+    fn emit_event<S: serde::Serialize + Clone>(
+        &self,
+        event_name: &str,
+        payload: &S,
+    ) -> Result<(), String> {
         if let Some(ref window) = self.window {
-            window.emit(event_name, payload)
+            window
+                .emit(event_name, payload)
                 .map_err(|e| format!("Failed to emit {} via window: {}", event_name, e))
         } else if let Some(ref app_handle) = self.app_handle {
-            app_handle.emit_all(event_name, payload)
+            app_handle
+                .emit(event_name, payload)
                 .map_err(|e| format!("Failed to emit {} via app_handle: {}", event_name, e))
         } else {
             // No window or app_handle, just log and continue
@@ -285,9 +310,9 @@ impl WorkflowOrchestrator {
             Ok(())
         }
     }
-    
+
     /// Check if the workflow has been cancelled
-    /// 
+    ///
     /// This checks both the orchestrator's own cancelled flag AND the cancel handle
     /// registered in the shared map. The latter is important for detecting cancellations
     /// that happened between stages (after one stage finished but before the next started).
@@ -296,7 +321,7 @@ impl WorkflowOrchestrator {
         if self.cancelled.load(Ordering::Relaxed) {
             return true;
         }
-        
+
         // Also check the cancel handle in the shared map
         // This catches cancellations that happened between stages
         if let Ok(handles) = self.cancel_handles.lock() {
@@ -306,10 +331,10 @@ impl WorkflowOrchestrator {
                 }
             }
         }
-        
+
         false
     }
-    
+
     /// Update project hooks with run configuration
     /// Uses the PARENT run_id so all events are associated with the main workflow run
     fn update_hooks_for_run(&self) -> Result<(), String> {
@@ -320,34 +345,30 @@ impl WorkflowOrchestrator {
                 return Ok(());
             }
         };
-        
+
         tracing::debug!(
             "Updating hooks for parent run {} with token (first 8 chars): {}...",
             self.parent_run_id,
             &self.api_token.chars().take(8).collect::<String>()
         );
-        
+
         match self.agent_kind {
-            AgentKind::Cursor => {
-                cursor_hooks::install_hooks_with_run_id(
-                    &self.repo_path,
-                    hook_script_path,
-                    Some(&self.api_url),
-                    Some(&self.api_token),
-                    Some(&self.parent_run_id),
-                )
-                .map_err(|e| format!("Failed to update Cursor hooks: {}", e))
-            }
-            AgentKind::Claude => {
-                claude_hooks::install_local_hooks_with_run_id(
-                    &self.repo_path,
-                    hook_script_path,
-                    Some(&self.api_url),
-                    Some(&self.api_token),
-                    Some(&self.parent_run_id),
-                )
-                .map_err(|e| format!("Failed to update Claude hooks: {}", e))
-            }
+            AgentKind::Cursor => cursor_hooks::install_hooks_with_run_id(
+                &self.repo_path,
+                hook_script_path,
+                Some(&self.api_url),
+                Some(&self.api_token),
+                Some(&self.parent_run_id),
+            )
+            .map_err(|e| format!("Failed to update Cursor hooks: {}", e)),
+            AgentKind::Claude => claude_hooks::install_local_hooks_with_run_id(
+                &self.repo_path,
+                hook_script_path,
+                Some(&self.api_url),
+                Some(&self.api_token),
+                Some(&self.parent_run_id),
+            )
+            .map_err(|e| format!("Failed to update Claude hooks: {}", e)),
         }
     }
 
@@ -357,7 +378,8 @@ impl WorkflowOrchestrator {
         if let Some(ref resume_stage) = self.resume_from_stage {
             tracing::info!(
                 "Resuming multi-stage workflow for ticket {} from stage '{}'",
-                self.ticket.id, resume_stage
+                self.ticket.id,
+                resume_stage
             );
             // Clear the paused_at_stage from the database now that we're resuming
             if let Err(e) = self.db.clear_ticket_pause(&self.ticket.id) {
@@ -365,12 +387,15 @@ impl WorkflowOrchestrator {
                 // Continue anyway - the important thing is we have the resume stage
             }
         } else {
-            tracing::info!("Starting multi-stage workflow for ticket {}", self.ticket.id);
+            tracing::info!(
+                "Starting multi-stage workflow for ticket {}",
+                self.ticket.id
+            );
         }
-        
+
         // Move ticket to "In Progress" when workflow starts
         self.move_ticket_to_column("In Progress");
-        
+
         // Handle branch creation based on whether we already have a branch name
         // and whether it was already created (e.g., via worktree)
         // Skip if we're resuming past the branch stage
@@ -379,34 +404,48 @@ impl WorkflowOrchestrator {
         } else if let Some(ref branch_name) = self.worktree_branch {
             if self.is_temp_branch {
                 // Temp branch exists but needs to be renamed to an AI-generated name
-                tracing::info!("Temp branch '{}' exists, generating AI name and renaming...", branch_name);
-                
+                tracing::info!(
+                    "Temp branch '{}' exists, generating AI name and renaming...",
+                    branch_name
+                );
+
                 if self.is_cancelled() {
                     return Err("Workflow cancelled".to_string());
                 }
-                
-                let branch_gen_result = self.run_stage("branch-gen", &generate_branch_name_generation_prompt(&self.ticket)).await?;
-                
+
+                let branch_gen_result = self
+                    .run_stage(
+                        "branch-gen",
+                        &generate_branch_name_generation_prompt(&self.ticket),
+                    )
+                    .await?;
+
                 // Try to parse the generated branch name
-                let generated_branch = branch_gen_result.captured_stdout
-                    .as_ref()
-                    .and_then(|output| {
-                        let text_content = extract_text_from_stream_json(output)
-                            .unwrap_or_else(|| output.clone());
-                        tracing::debug!("Branch-gen output (extracted): {}", text_content);
-                        parse_branch_name_from_output(&text_content)
-                    });
-                
+                let generated_branch =
+                    branch_gen_result
+                        .captured_stdout
+                        .as_ref()
+                        .and_then(|output| {
+                            let text_content = extract_text_from_stream_json(output)
+                                .unwrap_or_else(|| output.clone());
+                            tracing::debug!("Branch-gen output (extracted): {}", text_content);
+                            parse_branch_name_from_output(&text_content)
+                        });
+
                 // Use generated name or fall back to deterministic
                 let new_branch_name = if let Some(ref name) = generated_branch {
                     tracing::info!("Agent generated branch name: {}", name);
                     name.clone()
                 } else {
-                    let fallback = super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
-                    tracing::warn!("Could not parse generated branch name, using fallback: {}", fallback);
+                    let fallback =
+                        super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
+                    tracing::warn!(
+                        "Could not parse generated branch name, using fallback: {}",
+                        fallback
+                    );
                     fallback
                 };
-                
+
                 // Rename the temp branch to the new name BEFORE updating the database.
                 // This ensures the database only records the new branch name after the git
                 // rename succeeds. If we updated the database first and the rename failed,
@@ -415,7 +454,7 @@ impl WorkflowOrchestrator {
                 if self.is_cancelled() {
                     return Err("Workflow cancelled".to_string());
                 }
-                
+
                 let rename_prompt = format!(
                     r#"Rename the current git branch to a better name.
 
@@ -430,44 +469,59 @@ Rename the current branch from `{}` to `{}`
 
 Do NOT start implementing any code changes. Just rename the branch.
 "#,
-                    branch_name, new_branch_name,
-                    branch_name, new_branch_name, new_branch_name, branch_name
+                    branch_name,
+                    new_branch_name,
+                    branch_name,
+                    new_branch_name,
+                    new_branch_name,
+                    branch_name
                 );
-                
+
                 let _rename_result = self.run_stage("branch", &rename_prompt).await?;
-                
+
                 // Now that the git rename succeeded, store the NEW branch name on ticket
                 if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &new_branch_name) {
                     tracing::warn!("Failed to store branch name on ticket: {}", e);
                 } else {
-                    tracing::info!("Stored branch name '{}' on ticket {}", new_branch_name, self.ticket.id);
-                    let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
-                        "ticketId": self.ticket.id,
-                        "branchName": new_branch_name,
-                    }));
+                    tracing::info!(
+                        "Stored branch name '{}' on ticket {}",
+                        new_branch_name,
+                        self.ticket.id
+                    );
+                    let _ = self.emit_event(
+                        "ticket-branch-updated",
+                        &serde_json::json!({
+                            "ticketId": self.ticket.id,
+                            "branchName": new_branch_name,
+                        }),
+                    );
                 }
             } else {
                 // We have a permanent branch name already
                 tracing::info!("Using pre-determined branch name: {}", branch_name);
-                
+
                 // Store branch name on ticket if not already set
                 if self.ticket.branch_name.is_none() {
                     if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, branch_name) {
                         tracing::warn!("Failed to store branch name on ticket: {}", e);
                     } else {
-                        tracing::info!("Stored branch name '{}' on ticket {}", branch_name, self.ticket.id);
+                        tracing::info!(
+                            "Stored branch name '{}' on ticket {}",
+                            branch_name,
+                            self.ticket.id
+                        );
                     }
                 }
-                
+
                 // If branch wasn't already created (e.g., worktree creation failed),
                 // we need to create it now
                 if !self.branch_already_created {
                     tracing::info!("Branch '{}' not yet created, creating now...", branch_name);
-                    
+
                     if self.is_cancelled() {
                         return Err("Workflow cancelled".to_string());
                     }
-                    
+
                     let branch_prompt = format!(
                         r#"Create a new git branch for this task.
 
@@ -485,7 +539,7 @@ Do NOT start implementing any code changes. Just create the branch.
 "#,
                         branch_name
                     );
-                    
+
                     let _branch_result = self.run_stage("branch", &branch_prompt).await?;
                 }
             }
@@ -493,55 +547,75 @@ Do NOT start implementing any code changes. Just create the branch.
             // No branch name yet - generate and create a branch
             // (This path is kept for backwards compatibility but shouldn't normally be hit)
             tracing::info!("No branch name provided, generating and creating new branch...");
-            
+
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
-            let branch_gen_result = self.run_stage("branch-gen", &generate_branch_name_generation_prompt(&self.ticket)).await?;
-            
+
+            let branch_gen_result = self
+                .run_stage(
+                    "branch-gen",
+                    &generate_branch_name_generation_prompt(&self.ticket),
+                )
+                .await?;
+
             // Try to parse the generated branch name
             // For Claude, we need to extract text from stream-json format first
-            let generated_branch = branch_gen_result.captured_stdout
+            let generated_branch = branch_gen_result
+                .captured_stdout
                 .as_ref()
                 .and_then(|output| {
                     // Try extracting text from stream-json (Claude format)
-                    let text_content = extract_text_from_stream_json(output)
-                        .unwrap_or_else(|| output.clone());
-                    
+                    let text_content =
+                        extract_text_from_stream_json(output).unwrap_or_else(|| output.clone());
+
                     tracing::debug!("Branch-gen output (extracted): {}", text_content);
                     parse_branch_name_from_output(&text_content)
                 });
-            
+
             // Use generated name or fall back to deterministic
             let branch_to_create = if let Some(ref name) = generated_branch {
                 tracing::info!("Agent generated branch name: {}", name);
                 name.clone()
             } else {
                 // Fallback to deterministic naming
-                let fallback = super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
-                tracing::warn!("Could not parse generated branch name, using fallback: {}", fallback);
+                let fallback =
+                    super::worktree::generate_branch_name(&self.ticket.id, &self.ticket.title);
+                tracing::warn!(
+                    "Could not parse generated branch name, using fallback: {}",
+                    fallback
+                );
                 fallback
             };
-            
+
             // Store branch name on ticket BEFORE creating the branch
             // This allows the UI to show the branch immediately
-            if let Err(e) = self.db.set_ticket_branch(&self.ticket.id, &branch_to_create) {
+            if let Err(e) = self
+                .db
+                .set_ticket_branch(&self.ticket.id, &branch_to_create)
+            {
                 tracing::warn!("Failed to store branch name on ticket: {}", e);
             } else {
-                tracing::info!("Stored branch name '{}' on ticket {}", branch_to_create, self.ticket.id);
+                tracing::info!(
+                    "Stored branch name '{}' on ticket {}",
+                    branch_to_create,
+                    self.ticket.id
+                );
                 // Emit event for frontend to update the ticket display
-                let _ = self.emit_event("ticket-branch-updated", &serde_json::json!({
-                    "ticketId": self.ticket.id,
-                    "branchName": branch_to_create,
-                }));
+                let _ = self.emit_event(
+                    "ticket-branch-updated",
+                    &serde_json::json!({
+                        "ticketId": self.ticket.id,
+                        "branchName": branch_to_create,
+                    }),
+                );
             }
-            
+
             // Now have the agent create the branch with that name
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
+
             let branch_prompt = format!(
                 r#"Create a new git branch for this task.
 
@@ -559,30 +633,35 @@ Do NOT start implementing any code changes. Just create the branch.
 "#,
                 branch_to_create
             );
-            
+
             let _branch_result = self.run_stage("branch", &branch_prompt).await?;
         }
-        
+
         // Stage 1: Plan
         // Skip if we're resuming past the plan stage, but retrieve the saved plan
         let plan = if self.should_skip_stage("plan") {
             tracing::info!("Skipping plan stage (resuming from later stage)");
             // Try to retrieve the saved plan from previous comments for use in implementation
             self.get_saved_plan().unwrap_or_else(|| {
-                tracing::warn!("No saved plan found - implementation will proceed without plan context");
+                tracing::warn!(
+                    "No saved plan found - implementation will proceed without plan context"
+                );
                 String::new()
             })
         } else {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
+
             // Use task-based prompts if we have a task, otherwise fall back to ticket-based
             let plan_prompt = if let Some(ref task) = self.task {
                 // For preset tasks, we skip the plan stage and go directly to execution
                 if task.task_type != TaskType::Custom {
                     // Skip plan for preset tasks - they have their own instructions
-                    tracing::info!("Skipping plan stage for preset task type: {:?}", task.task_type);
+                    tracing::info!(
+                        "Skipping plan stage for preset task type: {:?}",
+                        task.task_type
+                    );
                     String::new()
                 } else {
                     generate_task_plan_prompt(task, &self.ticket)
@@ -590,7 +669,7 @@ Do NOT start implementing any code changes. Just create the branch.
             } else {
                 generate_plan_prompt(&self.ticket)
             };
-            
+
             if !plan_prompt.is_empty() {
                 let plan_result = self.run_stage("plan", &plan_prompt).await?;
                 // Extract only the text content from stream-json output.
@@ -599,26 +678,33 @@ Do NOT start implementing any code changes. Just create the branch.
                 let raw_output = plan_result.captured_stdout.unwrap_or_default();
                 let extracted = extract_text_from_stream_json(&raw_output)
                     .unwrap_or_else(|| raw_output.clone());
-                
+
                 tracing::info!(
                     "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
                     raw_output.len(),
                     extracted.len(),
-                    if raw_output.is_empty() { 0 } else { 100 - (extracted.len() * 100 / raw_output.len()) }
+                    if raw_output.is_empty() {
+                        0
+                    } else {
+                        100 - (extracted.len() * 100 / raw_output.len())
+                    }
                 );
-                
+
                 extracted
             } else {
                 String::new()
             }
         };
-        
+
         // Only run plan validation if we actually ran the plan stage (not skipped)
         if !plan.is_empty() && !self.should_skip_stage("plan") {
             self.add_plan_comment(&plan);
-            
-            tracing::info!("Running plan clarification validation for ticket {}", self.ticket.id);
-            
+
+            tracing::info!(
+                "Running plan clarification validation for ticket {}",
+                self.ticket.id
+            );
+
             let validation_config = PlanValidationConfig {
                 db: self.db.clone(),
                 parent_run_id: self.parent_run_id.clone(),
@@ -631,9 +717,10 @@ Do NOT start implementing any code changes. Just create the branch.
                 claude_api_config: self.claude_api_config.clone(),
                 timeout_secs: self.stage_timeout_secs,
             };
-            
-            let validation_result = validate_plan_for_clarification(&validation_config, &plan).await;
-            
+
+            let validation_result =
+                validate_plan_for_clarification(&validation_config, &plan).await;
+
             match validation_result {
                 Ok(result) if result.needs_clarification => {
                     tracing::info!(
@@ -641,18 +728,22 @@ Do NOT start implementing any code changes. Just create the branch.
                         self.ticket.id,
                         result.reason
                     );
-                    
-                    let clarification_message = generate_clarification_message(&validation_config, &plan)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!("Failed to generate clarification message: {}", e);
-                            format!("Clarification needed: {}", result.reason)
-                        });
-                    
+
+                    let clarification_message =
+                        generate_clarification_message(&validation_config, &plan)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::warn!("Failed to generate clarification message: {}", e);
+                                format!("Clarification needed: {}", result.reason)
+                            });
+
                     self.add_clarification_comment(&clarification_message);
                     self.move_ticket_to_column("Blocked");
-                    
-                    return Err(format!("Plan requires user clarification: {}", result.reason));
+
+                    return Err(format!(
+                        "Plan requires user clarification: {}",
+                        result.reason
+                    ));
                 }
                 Ok(result) => {
                     tracing::info!(
@@ -670,7 +761,7 @@ Do NOT start implementing any code changes. Just create the branch.
                 }
             }
         }
-        
+
         // Stage 2: Implement
         // Skip if we're resuming past the implement stage
         if self.should_skip_stage("implement") {
@@ -679,7 +770,7 @@ Do NOT start implementing any code changes. Just create the branch.
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
+
             let implement_prompt = if let Some(ref task) = self.task {
                 // For preset tasks, use the preset-specific prompt
                 if task.task_type != TaskType::Custom {
@@ -690,47 +781,57 @@ Do NOT start implementing any code changes. Just create the branch.
             } else {
                 generate_implement_prompt(&self.ticket, &plan)
             };
-            
+
             let _impl_result = self.run_stage("implement", &implement_prompt).await?;
         }
-        
+
         // Code review loop - skip if resuming past it
         if self.should_skip_stage("code-review") {
             tracing::info!("Skipping code-review loop (resuming from later stage)");
         } else {
             self.run_code_review_loop().await?;
         }
-        
+
         // Move ticket to "Review" when entering QA phase
         self.move_ticket_to_column("Review");
-        
+
         // Stage 3+: QA Commands
         // Each command is checked individually to allow resumption from any point
-        let qa_commands = &["deslop", "cleanup", "unit-tests", "review-changes", "add-and-commit"];
-        
+        let qa_commands = &[
+            "deslop",
+            "cleanup",
+            "unit-tests",
+            "review-changes",
+            "add-and-commit",
+        ];
+
         for cmd in qa_commands {
             // Skip commands that come before the resume point
             if self.should_skip_stage(cmd) {
                 tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
                 continue;
             }
-            
+
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            self.run_stage(cmd, &generate_command_prompt(cmd, &self.repo_path)).await?;
+            self.run_stage(cmd, &generate_command_prompt(cmd, &self.repo_path))
+                .await?;
         }
-        
+
         // Move ticket to "Done" when workflow completes successfully
         self.move_ticket_to_column("Done");
-        
+
         // Add workflow completion summary comment
         self.add_workflow_summary_comment();
-        
-        tracing::info!("Multi-stage workflow completed for ticket {}", self.ticket.id);
+
+        tracing::info!(
+            "Multi-stage workflow completed for ticket {}",
+            self.ticket.id
+        );
         Ok(())
     }
-    
+
     /// Add a completion summary comment for the workflow
     fn add_workflow_summary_comment(&self) {
         let comment_text = format!(
@@ -750,27 +851,36 @@ Do NOT start implementing any code changes. Just create the branch.
         if let Err(e) = self.db.create_comment(&create_comment) {
             tracing::warn!("Failed to add workflow summary comment: {}", e);
         } else {
-            tracing::info!("Added workflow summary comment for ticket {}", self.ticket.id);
-            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
-                "ticketId": self.ticket.id,
-                "comment": comment_text,
-            }));
+            tracing::info!(
+                "Added workflow summary comment for ticket {}",
+                self.ticket.id
+            );
+            let _ = self.emit_event(
+                "ticket-comment-added",
+                &serde_json::json!({
+                    "ticketId": self.ticket.id,
+                    "comment": comment_text,
+                }),
+            );
         }
     }
-    
+
     /// Retrieve stage output from previous run (used when resuming)
     fn get_previous_stage_output(&self, stage: &str) -> Option<String> {
         self.previous_stage_outputs.get(stage).cloned()
     }
-    
+
     /// Retrieve the saved plan from previous run or comments (used when resuming)
     fn get_saved_plan(&self) -> Option<String> {
         // First, try to get from previous run's stage outputs (more reliable)
         if let Some(plan) = self.get_previous_stage_output("plan") {
-            tracing::info!("Retrieved saved plan from previous run ({} chars)", plan.len());
+            tracing::info!(
+                "Retrieved saved plan from previous run ({} chars)",
+                plan.len()
+            );
             return Some(plan);
         }
-        
+
         // Fallback: try to get from comments (legacy support)
         match self.db.get_comments(&self.ticket.id) {
             Ok(comments) => {
@@ -795,7 +905,10 @@ Do NOT start implementing any code changes. Just create the branch.
                         }
                     }
                 }
-                tracing::warn!("No plan found in previous run or comments for ticket {}", self.ticket.id);
+                tracing::warn!(
+                    "No plan found in previous run or comments for ticket {}",
+                    self.ticket.id
+                );
                 None
             }
             Err(e) => {
@@ -804,7 +917,7 @@ Do NOT start implementing any code changes. Just create the branch.
             }
         }
     }
-    
+
     /// Add a comment with the extracted plan for visibility and debugging
     fn add_plan_comment(&self, plan: &str) {
         let comment_text = format!(
@@ -824,17 +937,20 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to add plan comment: {}", e);
         } else {
             tracing::info!(
-                "Added plan comment for ticket {} ({} chars)", 
+                "Added plan comment for ticket {} ({} chars)",
                 self.ticket.id,
                 plan.len()
             );
-            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
-                "ticketId": self.ticket.id,
-                "comment": comment_text,
-            }));
+            let _ = self.emit_event(
+                "ticket-comment-added",
+                &serde_json::json!({
+                    "ticketId": self.ticket.id,
+                    "comment": comment_text,
+                }),
+            );
         }
     }
-    
+
     /// Add a clarification request comment when the plan needs user input
     fn add_clarification_comment(&self, message: &str) {
         let comment_text = format!(
@@ -854,41 +970,67 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to add clarification comment: {}", e);
         } else {
             tracing::info!(
-                "Added clarification comment for ticket {} ({} chars)", 
+                "Added clarification comment for ticket {} ({} chars)",
                 self.ticket.id,
                 message.len()
             );
-            let _ = self.emit_event("ticket-comment-added", &serde_json::json!({
-                "ticketId": self.ticket.id,
-                "comment": comment_text,
-            }));
+            let _ = self.emit_event(
+                "ticket-comment-added",
+                &serde_json::json!({
+                    "ticketId": self.ticket.id,
+                    "comment": comment_text,
+                }),
+            );
         }
     }
-    
+
     /// Move the ticket to a column by name (best effort - logs warning if column not found)
     fn move_ticket_to_column(&self, column_name: &str) {
-        tracing::info!("Attempting to move ticket {} to column '{}' on board {}", 
-            self.ticket.id, column_name, self.ticket.board_id);
-        
-        match self.db.find_column_by_name(&self.ticket.board_id, column_name) {
+        tracing::info!(
+            "Attempting to move ticket {} to column '{}' on board {}",
+            self.ticket.id,
+            column_name,
+            self.ticket.board_id
+        );
+
+        match self
+            .db
+            .find_column_by_name(&self.ticket.board_id, column_name)
+        {
             Ok(Some(column)) => {
-                tracing::info!("Found column '{}' with id {} for board {}", 
-                    column_name, column.id, self.ticket.board_id);
+                tracing::info!(
+                    "Found column '{}' with id {} for board {}",
+                    column_name,
+                    column.id,
+                    self.ticket.board_id
+                );
                 if let Err(e) = self.db.move_ticket(&self.ticket.id, &column.id) {
-                    tracing::error!("Failed to move ticket {} to '{}': {}", self.ticket.id, column_name, e);
+                    tracing::error!(
+                        "Failed to move ticket {} to '{}': {}",
+                        self.ticket.id,
+                        column_name,
+                        e
+                    );
                 } else {
-                    tracing::info!("Successfully moved ticket {} to column '{}'", self.ticket.id, column_name);
+                    tracing::info!(
+                        "Successfully moved ticket {} to column '{}'",
+                        self.ticket.id,
+                        column_name
+                    );
                     // Emit event for frontend to update
-                    if let Err(e) = self.emit_event("ticket-moved", &serde_json::json!({
-                        "ticketId": self.ticket.id,
-                        "columnName": column_name,
-                        "columnId": column.id,
-                    })) {
+                    if let Err(e) = self.emit_event(
+                        "ticket-moved",
+                        &serde_json::json!({
+                            "ticketId": self.ticket.id,
+                            "columnName": column_name,
+                            "columnId": column.id,
+                        }),
+                    ) {
                         tracing::warn!("Failed to emit ticket-moved event: {}", e);
                     } else {
                         tracing::info!("Emitted ticket-moved event for ticket {}", self.ticket.id);
                     }
-                    
+
                     // Epic lifecycle hooks: when a child ticket moves to Done or Blocked,
                     // trigger epic advancement or blocking
                     if self.ticket.epic_id.is_some() {
@@ -911,8 +1053,11 @@ Do NOT start implementing any code changes. Just create the branch.
                 }
             }
             Ok(None) => {
-                tracing::error!("Column '{}' not found for board {}. Looking up available columns...", 
-                    column_name, self.ticket.board_id);
+                tracing::error!(
+                    "Column '{}' not found for board {}. Looking up available columns...",
+                    column_name,
+                    self.ticket.board_id
+                );
                 // Log available columns for debugging
                 if let Ok(columns) = self.db.get_columns(&self.ticket.board_id) {
                     let column_names: Vec<_> = columns.iter().map(|c| c.name.as_str()).collect();
@@ -926,26 +1071,25 @@ Do NOT start implementing any code changes. Just create the branch.
     }
 
     /// Run a single stage of the workflow with retry support
-    async fn run_stage(
-        &self,
-        stage: &str,
-        prompt: &str,
-    ) -> Result<AgentRunResult, String> {
+    async fn run_stage(&self, stage: &str, prompt: &str) -> Result<AgentRunResult, String> {
         let max_attempts = self.stage_max_retries + 1;
         let mut last_error = String::new();
-        
+
         for attempt in 1..=max_attempts {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
+
             if attempt > 1 {
                 let backoff_secs = 5 * attempt as u64;
                 tracing::warn!(
                     "Stage '{}' retry {}/{} after {}s backoff",
-                    stage, attempt, max_attempts, backoff_secs
+                    stage,
+                    attempt,
+                    max_attempts,
+                    backoff_secs
                 );
-                
+
                 // Cancellation-aware sleep: check cancellation every second during backoff
                 // This ensures cancellation is responsive even during long retry delays
                 for _ in 0..backoff_secs {
@@ -956,8 +1100,11 @@ Do NOT start implementing any code changes. Just create the branch.
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
             }
-            
-            match self.run_stage_attempt(stage, prompt, attempt, max_attempts).await {
+
+            match self
+                .run_stage_attempt(stage, prompt, attempt, max_attempts)
+                .await
+            {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     last_error = e.clone();
@@ -965,16 +1112,22 @@ Do NOT start implementing any code changes. Just create the branch.
                         return Err(e);
                     }
                     if attempt < max_attempts {
-                        tracing::warn!("Stage '{}' failed (attempt {}/{}): {}", stage, attempt, max_attempts, e);
+                        tracing::warn!(
+                            "Stage '{}' failed (attempt {}/{}): {}",
+                            stage,
+                            attempt,
+                            max_attempts,
+                            e
+                        );
                         continue;
                     }
                 }
             }
         }
-        
+
         Err(format!("{} (after {} attempts)", last_error, max_attempts))
     }
-    
+
     /// Run a single attempt of a stage
     async fn run_stage_attempt(
         &self,
@@ -983,25 +1136,34 @@ Do NOT start implementing any code changes. Just create the branch.
         attempt: u32,
         max_attempts: u32,
     ) -> Result<AgentRunResult, String> {
-        tracing::info!("Starting stage '{}' attempt {}/{} for parent run {}", stage, attempt, max_attempts, self.parent_run_id);
-        
+        tracing::info!(
+            "Starting stage '{}' attempt {}/{} for parent run {}",
+            stage,
+            attempt,
+            max_attempts,
+            self.parent_run_id
+        );
+
         if attempt == 1 {
             self.emit_stage_event(stage, "running", None, None);
         }
-        
+
         // Create sub-run in database
-        let sub_run = self.db.create_run(&CreateRun {
-            ticket_id: self.ticket.id.clone(),
-            agent_type: match self.agent_kind {
-                AgentKind::Cursor => AgentType::Cursor,
-                AgentKind::Claude => AgentType::Claude,
-            },
-            repo_path: self.repo_path.to_string_lossy().to_string(),
-            parent_run_id: Some(self.parent_run_id.clone()),
-            stage: Some(stage.to_string()),
-            ..Default::default()
-        }).map_err(|e| format!("Failed to create sub-run: {}", e))?;
-        
+        let sub_run = self
+            .db
+            .create_run(&CreateRun {
+                ticket_id: self.ticket.id.clone(),
+                agent_type: match self.agent_kind {
+                    AgentKind::Cursor => AgentType::Cursor,
+                    AgentKind::Claude => AgentType::Claude,
+                },
+                repo_path: self.repo_path.to_string_lossy().to_string(),
+                parent_run_id: Some(self.parent_run_id.clone()),
+                stage: Some(stage.to_string()),
+                ..Default::default()
+            })
+            .map_err(|e| format!("Failed to create sub-run: {}", e))?;
+
         // Update project hooks with parent run configuration
         // This ensures the hook script has the correct run_id for API calls
         // We use the PARENT run_id so events are grouped under the main workflow run
@@ -1009,11 +1171,12 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to update hooks for stage '{}': {}", stage, e);
             // Continue anyway - hooks might work with existing configuration
         }
-        
+
         // Update sub-run status to running
-        self.db.update_run_status(&sub_run.id, RunStatus::Running, None, None)
+        self.db
+            .update_run_status(&sub_run.id, RunStatus::Running, None, None)
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
-        
+
         // Build agent config
         let config = AgentRunConfig {
             kind: self.agent_kind,
@@ -1027,7 +1190,7 @@ Do NOT start implementing any code changes. Just create the branch.
             model: self.ticket.model.clone(),
             claude_api_config: self.claude_api_config.clone(),
         };
-        
+
         // Create log callback
         // Use PARENT run ID for both database storage and frontend events
         // This ensures events can be retrieved using ticket.lockedByRunId
@@ -1041,19 +1204,20 @@ Do NOT start implementing any code changes. Just create the branch.
             AgentKind::Claude => AgentType::Claude,
         };
         let stage_for_logs = stage.to_string();
-        
+
         let on_log: Arc<LogCallback> = Arc::new(Box::new(move |log: LogLine| {
             let stream_name = match log.stream {
                 LogStream::Stdout => "stdout",
                 LogStream::Stderr => "stderr",
             };
-            tracing::debug!("LOG [{}:{}]: [{}] - {} chars", 
+            tracing::debug!(
+                "LOG [{}:{}]: [{}] - {} chars",
                 stage_for_logs,
                 parent_run_id_for_logs,
                 stream_name,
                 log.content.len()
             );
-            
+
             // Store log to database with PARENT run ID
             // This allows frontend to retrieve events using ticket.lockedByRunId
             let normalized_event = NormalizedEvent {
@@ -1070,7 +1234,7 @@ Do NOT start implementing any code changes. Just create the branch.
             if let Err(e) = db_for_logs.create_event(&normalized_event) {
                 tracing::error!("Failed to persist log event: {}", e);
             }
-            
+
             // Emit to frontend for real-time display
             // Use window if available (direct agent runs), otherwise use app_handle (worker runs)
             #[derive(serde::Serialize, Clone)]
@@ -1087,18 +1251,18 @@ Do NOT start implementing any code changes. Just create the branch.
                 content: log.content,
                 timestamp: log.timestamp.to_rfc3339(),
             };
-            
+
             if let Some(ref window) = window_for_logs {
                 if let Err(e) = window.emit("agent-log", &event) {
                     tracing::error!("Failed to emit agent-log event via window: {}", e);
                 }
             } else if let Some(ref app_handle) = app_handle_for_logs {
-                if let Err(e) = app_handle.emit_all("agent-log", &event) {
+                if let Err(e) = app_handle.emit("agent-log", &event) {
                     tracing::error!("Failed to emit agent-log event via app_handle: {}", e);
                 }
             }
         }));
-        
+
         // Set up cancel handle registration
         let cancel_handles = self.cancel_handles.clone();
         let sub_run_id_for_spawn = sub_run.id.clone();
@@ -1106,11 +1270,17 @@ Do NOT start implementing any code changes. Just create the branch.
         // Also register the parent run ID so cancelling the parent works
         let parent_run_id = self.parent_run_id.clone();
         let cancelled = self.cancelled.clone();
-        
+
         let on_spawn: super::spawner::OnSpawnCallback = Box::new(move |cancel_handle| {
-            tracing::info!("Sub-run {} spawned for parent {}", sub_run_id_for_spawn, parent_run_id);
-            let mut handles = cancel_handles.lock().expect("cancel handles mutex poisoned");
-            
+            tracing::info!(
+                "Sub-run {} spawned for parent {}",
+                sub_run_id_for_spawn,
+                parent_run_id
+            );
+            let mut handles = cancel_handles
+                .lock()
+                .expect("cancel handles mutex poisoned");
+
             // Check if the previous handle for parent run was cancelled (cancellation between stages)
             // If so, immediately cancel the new handle too to propagate the cancellation
             if let Some(prev_handle) = handles.get(&parent_run_id) {
@@ -1122,34 +1292,38 @@ Do NOT start implementing any code changes. Just create the branch.
                     cancel_handle.cancel();
                 }
             }
-            
+
             // Register under both the sub-run ID and the parent run ID
             handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
             handles.insert(parent_run_id.clone(), cancel_handle);
         });
-        
+
         // Run the agent with capture
         let start_time = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
             run_agent_with_capture(config, Some(on_log), Some(on_spawn))
-        }).await
-            .map_err(|e| format!("Stage task failed: {}", e))?
-            .map_err(|e| format!("Stage execution failed: {}", e))?;
-        
+        })
+        .await
+        .map_err(|e| format!("Stage task failed: {}", e))?
+        .map_err(|e| format!("Stage execution failed: {}", e))?;
+
         // Clean up cancel handles
         {
-            let mut handles = self.cancel_handles.lock().expect("cancel handles mutex poisoned");
+            let mut handles = self
+                .cancel_handles
+                .lock()
+                .expect("cancel handles mutex poisoned");
             handles.remove(&sub_run_id_for_cleanup);
             // Don't remove the parent run ID handle yet - it will be updated with the next sub-run's handle
         }
-        
+
         // Check if we were cancelled during execution
         if result.status == RunOutcome::Cancelled {
             cancelled.store(true, Ordering::Relaxed);
         }
-        
+
         let duration_secs = start_time.elapsed().as_secs_f64();
-        
+
         // Update sub-run status
         let status = match result.status {
             RunOutcome::Success => RunStatus::Finished,
@@ -1157,21 +1331,23 @@ Do NOT start implementing any code changes. Just create the branch.
             RunOutcome::Timeout => RunStatus::Error,
             RunOutcome::Cancelled => RunStatus::Aborted,
         };
-        
-        self.db.update_run_status(
-            &sub_run.id,
-            status.clone(),
-            result.exit_code,
-            result.summary.as_deref(),
-        ).map_err(|e| format!("Failed to update sub-run status: {}", e))?;
-        
+
+        self.db
+            .update_run_status(
+                &sub_run.id,
+                status.clone(),
+                result.exit_code,
+                result.summary.as_deref(),
+            )
+            .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
+
         // Save stage output to run metadata for resume capability
         if result.status == RunOutcome::Success {
             if let Some(ref output) = result.captured_stdout {
                 // Extract just the text content, not the full stream-json
-                let extracted_output = extract_text_from_stream_json(output)
-                    .unwrap_or_else(|| output.clone());
-                
+                let extracted_output =
+                    extract_text_from_stream_json(output).unwrap_or_else(|| output.clone());
+
                 // Limit output size to avoid huge metadata (keep first 50KB)
                 // Use char_indices to find a safe UTF-8 boundary to avoid panic on multi-byte chars
                 let truncated_output = if extracted_output.len() > 50_000 {
@@ -1185,37 +1361,50 @@ Do NOT start implementing any code changes. Just create the branch.
                 } else {
                     extracted_output
                 };
-                
+
                 let metadata = serde_json::json!({
                     "stage_output": truncated_output,
                     "duration_secs": duration_secs,
                 });
-                
+
                 if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
                     tracing::warn!("Failed to save stage output to metadata: {}", e);
                 } else {
-                    tracing::debug!("Saved stage '{}' output ({} chars)", stage, truncated_output.len());
+                    tracing::debug!(
+                        "Saved stage '{}' output ({} chars)",
+                        stage,
+                        truncated_output.len()
+                    );
                 }
             }
         }
-        
+
         self.emit_stage_event(
-            stage, 
-            status.as_str(), 
+            stage,
+            status.as_str(),
             Some(sub_run.id.clone()),
             Some(duration_secs),
         );
-        
+
         if result.status != RunOutcome::Success {
-            return Err(format!("Stage '{}' failed with status {:?}", stage, result.status));
+            return Err(format!(
+                "Stage '{}' failed with status {:?}",
+                stage, result.status
+            ));
         }
-        
+
         tracing::info!("Stage '{}' completed in {:.1}s", stage, duration_secs);
         Ok(result)
     }
-    
+
     /// Emit a stage event to the frontend
-    fn emit_stage_event(&self, stage: &str, status: &str, sub_run_id: Option<String>, duration_secs: Option<f64>) {
+    fn emit_stage_event(
+        &self,
+        stage: &str,
+        status: &str,
+        sub_run_id: Option<String>,
+        duration_secs: Option<f64>,
+    ) {
         let event = StageEvent {
             parent_run_id: self.parent_run_id.clone(),
             stage: stage.to_string(),
@@ -1227,34 +1416,34 @@ Do NOT start implementing any code changes. Just create the branch.
             tracing::warn!("Failed to emit stage event: {}", e);
         }
     }
-    
+
     /// Run the iterative code review loop (find issues, then fix, repeat until clean).
     async fn run_code_review_loop(&self) -> Result<(), String> {
         let max_iterations = self.code_review_max_iterations;
-        
+
         if max_iterations == 0 {
             tracing::info!("Code review loop disabled (max_iterations = 0)");
             return Ok(());
         }
-        
+
         tracing::info!(
             "Starting code review loop for ticket {} (max {} iterations)",
             self.ticket.id,
             max_iterations
         );
-        
+
         for iteration in 1..=max_iterations {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            
+
             tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
-            
+
             let review_prompt = generate_command_prompt("code-review", &self.repo_path);
             let review_result = self.run_stage("code-review", &review_prompt).await?;
             let output = review_result.captured_stdout.unwrap_or_default();
             let issue_count = parse_code_review_issues(&output);
-            
+
             match issue_count {
                 Some(0) => {
                     tracing::info!(
@@ -1269,13 +1458,13 @@ Do NOT start implementing any code changes. Just create the branch.
                         count,
                         iteration
                     );
-                    
+
                     let issues_context = extract_issues_section(&output);
-                    let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
+                    let base_fix_prompt =
+                        generate_command_prompt("code-review-fix", &self.repo_path);
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt,
-                        issues_context
+                        base_fix_prompt, issues_context
                     );
                     self.run_stage("code-review-fix", &fix_prompt).await?;
                 }
@@ -1287,7 +1476,7 @@ Do NOT start implementing any code changes. Just create the branch.
                 }
             }
         }
-        
+
         // We've completed max_iterations without finding 0 issues.
         // Don't run an extra verification - respect the max_iterations setting.
         tracing::warn!(
@@ -1295,7 +1484,7 @@ Do NOT start implementing any code changes. Just create the branch.
             max_iterations,
             self.ticket.id
         );
-        
+
         Ok(())
     }
 }
@@ -1325,7 +1514,7 @@ mod tests {
         assert!(MULTI_STAGE_WORKFLOW.contains(&"implement"));
         assert!(MULTI_STAGE_WORKFLOW.contains(&"add-and-commit"));
     }
-    
+
     #[test]
     fn parse_code_review_issues_extracts_count() {
         let output = r#"## Issues Found
@@ -1341,7 +1530,7 @@ ISSUES_FOUND: 1
 "#;
         assert_eq!(parse_code_review_issues(output), Some(1));
     }
-    
+
     #[test]
     fn parse_code_review_issues_handles_zero() {
         let output = r#"## Issues Found
@@ -1353,25 +1542,25 @@ ISSUES_FOUND: 0
 "#;
         assert_eq!(parse_code_review_issues(output), Some(0));
     }
-    
+
     #[test]
     fn parse_code_review_issues_handles_multiple() {
         let output = "Some text\nISSUES_FOUND: 5\nMore text";
         assert_eq!(parse_code_review_issues(output), Some(5));
     }
-    
+
     #[test]
     fn parse_code_review_issues_returns_none_for_missing() {
         let output = "No issues marker in this output";
         assert_eq!(parse_code_review_issues(output), None);
     }
-    
+
     #[test]
     fn parse_code_review_issues_handles_whitespace() {
         let output = "  ISSUES_FOUND:   3  ";
         assert_eq!(parse_code_review_issues(output), Some(3));
     }
-    
+
     #[test]
     fn extract_issues_section_extracts_content() {
         let output = r#"Some preamble
@@ -1393,7 +1582,7 @@ ISSUES_FOUND: 2
         assert!(!section.contains("ISSUES_FOUND"));
         assert!(!section.contains("Some preamble"));
     }
-    
+
     #[test]
     fn extract_issues_section_handles_no_end_marker() {
         let output = r#"## Issues Found
@@ -1403,32 +1592,32 @@ ISSUES_FOUND: 2
         let section = extract_issues_section(output);
         assert!(section.contains("Issue 1: Something"));
     }
-    
+
     #[test]
     fn extract_issues_section_returns_all_when_no_marker() {
         let output = "Just plain text without markers";
         let section = extract_issues_section(output);
         assert_eq!(section, output);
     }
-    
+
     #[test]
     fn parse_code_review_issues_handles_large_count() {
         let output = "ISSUES_FOUND: 99";
         assert_eq!(parse_code_review_issues(output), Some(99));
     }
-    
+
     #[test]
     fn parse_code_review_issues_ignores_invalid_number() {
         let output = "ISSUES_FOUND: abc";
         assert_eq!(parse_code_review_issues(output), None);
     }
-    
+
     #[test]
     fn parse_code_review_issues_takes_first_match() {
         let output = "ISSUES_FOUND: 2\nISSUES_FOUND: 5";
         assert_eq!(parse_code_review_issues(output), Some(2));
     }
-    
+
     #[test]
     fn extract_issues_section_handles_empty_section() {
         let output = "## Issues Found\n## Summary\nISSUES_FOUND: 0";

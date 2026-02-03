@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 
-use crate::agents::worktree::{is_git_repo, repo_has_commits, create_initial_commit};
+use crate::agents::worktree::{create_initial_commit, is_git_repo, repo_has_commits};
 use crate::db::{CreateProject, Database, Project, ReadinessCheck, UpdateProject};
 
 #[tauri::command]
@@ -84,14 +84,20 @@ pub async fn update_project_hooks(
 }
 
 #[tauri::command]
-pub async fn browse_for_directory() -> Result<Option<String>, String> {
-    use tauri::api::dialog::blocking::FileDialogBuilder;
+pub async fn browse_for_directory(
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
 
-    let path = FileDialogBuilder::new()
+    let file_path = app
+        .dialog()
+        .file()
         .set_title("Select Project Directory")
-        .pick_folder();
+        .blocking_pick_folder();
 
-    Ok(path.map(|p| p.to_string_lossy().to_string()))
+    Ok(file_path
+        .and_then(|fp| fp.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -113,14 +119,21 @@ pub async fn init_git_repo(path: String) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to initialize git repository: {}", stderr.trim()));
+        return Err(format!(
+            "Failed to initialize git repository: {}",
+            stderr.trim()
+        ));
     }
 
     // Create an initial commit so the repository is ready for worktree operations.
     // This prevents the "unborn branch" error when agents try to create worktrees.
     if !repo_has_commits(repo_path) {
-        create_initial_commit(repo_path)
-            .map_err(|e| format!("Git repository initialized but failed to create initial commit: {}", e))?;
+        create_initial_commit(repo_path).map_err(|e| {
+            format!(
+                "Git repository initialized but failed to create initial commit: {}",
+                e
+            )
+        })?;
     }
 
     Ok(())
@@ -152,8 +165,7 @@ pub async fn create_project_folder(parent_path: String, name: String) -> Result<
         return Err(format!("Directory already exists: {}", full_path.display()));
     }
 
-    std::fs::create_dir(&full_path)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
+    std::fs::create_dir(&full_path).map_err(|e| format!("Failed to create directory: {}", e))?;
 
     Ok(full_path.to_string_lossy().to_string())
 }
@@ -209,11 +221,8 @@ mod tests {
     async fn create_project_folder_empty_name() {
         let temp_dir = std::env::temp_dir();
 
-        let result = create_project_folder(
-            temp_dir.to_string_lossy().to_string(),
-            "".to_string(),
-        )
-        .await;
+        let result =
+            create_project_folder(temp_dir.to_string_lossy().to_string(), "".to_string()).await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("cannot be empty"));
@@ -271,11 +280,9 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let project_name = format!("new_project_{}", uuid::Uuid::new_v4());
 
-        let result = create_project_folder(
-            temp_dir.to_string_lossy().to_string(),
-            project_name.clone(),
-        )
-        .await;
+        let result =
+            create_project_folder(temp_dir.to_string_lossy().to_string(), project_name.clone())
+                .await;
 
         assert!(result.is_ok());
         let created_path = result.unwrap();
@@ -327,9 +334,12 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(temp_dir.join(".git").exists());
-        
+
         // Verify that an initial commit was also created (prevents unborn branch issues)
-        assert!(repo_has_commits(&temp_dir), "init_git_repo should create an initial commit");
+        assert!(
+            repo_has_commits(&temp_dir),
+            "init_git_repo should create an initial commit"
+        );
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

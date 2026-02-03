@@ -56,7 +56,7 @@ pub fn build_command_with_settings(
 
     // Add extra flags before the prompt
     args.extend(settings.extra_flags.clone());
-    
+
     // Prompt is a positional argument at the end
     args.push(config.prompt.clone());
 
@@ -96,7 +96,7 @@ pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value
     // from a persisted file at runtime. This avoids issues with Cursor caching
     // stale tokens in hooks.json.
     let mut env_exports = String::new();
-    
+
     if let Some(url) = config.api_url {
         env_exports.push_str(&format!("export AGENT_KANBAN_API_URL=\"{}\"; ", url));
     }
@@ -105,7 +105,7 @@ pub fn generate_hooks_json_with_config(config: HooksConfig) -> serde_json::Value
     if let Some(run_id) = config.run_id {
         env_exports.push_str(&format!("export AGENT_KANBAN_RUN_ID=\"{}\"; ", run_id));
     }
-    
+
     // Create hook command wrapped in sh -c to ensure environment variables are set
     // Cursor executes commands directly, so we need an explicit shell
     // Use double quotes for the script path inside (handles spaces)
@@ -141,11 +141,14 @@ pub fn generate_hooks_config(api_url: &str, hook_script_path: &str) -> serde_jso
     // Use double quotes inside to avoid quoting issues
     let escaped_script = hook_script_path.replace("\"", "\\\"");
     let make_hook = |event: &str| {
-        let shell_command = format!("export AGENT_KANBAN_API_URL=\"{}\"; node \"{}\" {}", api_url, escaped_script, event);
+        let shell_command = format!(
+            "export AGENT_KANBAN_API_URL=\"{}\"; node \"{}\" {}",
+            api_url, escaped_script, event
+        );
         let command = format!("/bin/sh -c '{}'", shell_command);
         serde_json::json!([{ "command": command }])
     };
-    
+
     serde_json::json!({
         "version": 1,
         "hooks": {
@@ -177,7 +180,7 @@ pub fn install_hooks_with_run_id(
 
     let hooks_json = generate_hooks_json_with_api(hook_script_path, api_url, api_token, run_id);
     let hooks_path = cursor_dir.join("hooks.json");
-    
+
     std::fs::write(
         hooks_path,
         serde_json::to_string_pretty(&hooks_json).unwrap(),
@@ -248,9 +251,7 @@ pub fn get_cursor_version() -> Option<String> {
 }
 
 pub fn check_global_hooks_installed() -> bool {
-    global_hooks_path()
-        .map(|p| p.exists())
-        .unwrap_or(false)
+    global_hooks_path().map(|p| p.exists()).unwrap_or(false)
 }
 
 pub fn check_project_hooks_installed(repo_path: &Path) -> bool {
@@ -270,8 +271,10 @@ pub fn check_project_commands_installed(repo_path: &Path) -> bool {
     if !commands_dir.exists() {
         return false;
     }
-    
-    COMMAND_TEMPLATES.iter().all(|name| commands_dir.join(name).exists())
+
+    COMMAND_TEMPLATES
+        .iter()
+        .all(|name| commands_dir.join(name).exists())
 }
 
 /// Get the user-level commands directory (~/.cursor/commands/)
@@ -295,7 +298,9 @@ pub fn check_user_commands_installed() -> bool {
 /// This version doesn't have access to Tauri's resource resolver.
 pub fn get_bundled_commands_path() -> Option<PathBuf> {
     // Check development path (only works in dev builds)
-    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts").join("commands");
+    let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("commands");
     if dev_path.exists() {
         return Some(dev_path);
     }
@@ -307,37 +312,37 @@ pub fn get_bundled_commands_path() -> Option<PathBuf> {
 pub fn get_bundled_commands_path_with_app<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Option<PathBuf> {
+    use tauri::Manager;
+
     // First, check development path
     if let Some(path) = get_bundled_commands_path() {
         return Some(path);
     }
-    
+
     // In production, resolve via Tauri's resource API
     // The commands are bundled under scripts/commands/
-    app.path_resolver()
-        .resolve_resource("scripts/commands")
+    app.path()
+        .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
+        .ok()
         .filter(|p| p.exists())
 }
 
-pub fn install_commands(
-    repo_path: &Path,
-    commands_source: &Path,
-) -> std::io::Result<Vec<String>> {
+pub fn install_commands(repo_path: &Path, commands_source: &Path) -> std::io::Result<Vec<String>> {
     let commands_dir = repo_path.join(".cursor").join("commands");
     std::fs::create_dir_all(&commands_dir)?;
-    
+
     let mut installed = Vec::new();
-    
+
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-        
+
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-    
+
     Ok(installed)
 }
 
@@ -349,21 +354,21 @@ pub fn install_user_commands(commands_source: &Path) -> std::io::Result<Vec<Stri
             "Could not determine home directory",
         )
     })?;
-    
+
     std::fs::create_dir_all(&commands_dir)?;
-    
+
     let mut installed = Vec::new();
-    
+
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-        
+
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-    
+
     Ok(installed)
 }
 
@@ -525,7 +530,11 @@ mod tests {
         let config = generate_hooks_json(script_path);
         let hooks = config.get("hooks").unwrap();
         // Each hook is an array of command objects
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
         let shell_hook = &shell_hook_array[0];
         let command = shell_hook.get("command").unwrap().as_str().unwrap();
         // Command should contain the script path
@@ -536,13 +545,13 @@ mod tests {
     fn install_hooks_creates_directory_and_file() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         let result = install_hooks(&temp_dir, "/path/to/hook.js", None, None);
         assert!(result.is_ok());
-        
+
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         assert!(hooks_path.exists());
-        
+
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -551,9 +560,9 @@ mod tests {
     fn check_project_hooks_installed_returns_false_when_missing() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         assert!(!check_project_hooks_installed(&temp_dir));
-        
+
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -562,10 +571,10 @@ mod tests {
     fn check_project_hooks_installed_returns_true_when_present() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
         assert!(check_project_hooks_installed(&temp_dir));
-        
+
         // Cleanup
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -583,7 +592,7 @@ mod tests {
     fn generate_hooks_json_each_hook_has_correct_event_in_command() {
         let config = generate_hooks_json("/path/to/hook.js");
         let hooks = config.get("hooks").unwrap();
-        
+
         let expected_events = vec![
             "beforeShellExecution",
             "beforeReadFile",
@@ -594,11 +603,21 @@ mod tests {
 
         for event in expected_events {
             let hook_array = hooks.get(event).unwrap().as_array().unwrap();
-            assert_eq!(hook_array.len(), 1, "Hook {} should have exactly one command", event);
+            assert_eq!(
+                hook_array.len(),
+                1,
+                "Hook {} should have exactly one command",
+                event
+            );
             let command = hook_array[0].get("command").unwrap().as_str().unwrap();
             // Command is wrapped in sh -c, so event name is at end of inner command before closing quote
             let expected_ending = format!("{}'", event);
-            assert!(command.ends_with(&expected_ending), "Command should end with event name before closing quote: {} (got: {})", event, command);
+            assert!(
+                command.ends_with(&expected_ending),
+                "Command should end with event name before closing quote: {} (got: {})",
+                event,
+                command
+            );
         }
     }
 
@@ -606,16 +625,16 @@ mod tests {
     fn install_hooks_writes_valid_json() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
-        
+
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         let content = std::fs::read_to_string(&hooks_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        
+
         assert!(parsed.get("hooks").is_some());
         assert!(parsed["hooks"].get("beforeShellExecution").is_some());
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -624,15 +643,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         // Don't create temp_dir - install_hooks should handle missing .cursor dir
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         let cursor_dir = temp_dir.join(".cursor");
         assert!(!cursor_dir.exists());
-        
+
         install_hooks(&temp_dir, "/path/to/hook.js", None, None).unwrap();
-        
+
         assert!(cursor_dir.exists());
         assert!(cursor_dir.is_dir());
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -650,9 +669,9 @@ mod tests {
     fn check_project_commands_installed_returns_false_when_missing() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         assert!(!check_project_commands_installed(&temp_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -661,26 +680,26 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         let source_dir = temp_dir.join("source");
         std::fs::create_dir_all(&source_dir).unwrap();
-        
+
         // Create source command files
         for name in COMMAND_TEMPLATES {
             std::fs::write(source_dir.join(name), format!("# {}", name)).unwrap();
         }
-        
+
         let project_dir = temp_dir.join("project");
         std::fs::create_dir_all(&project_dir).unwrap();
-        
+
         let installed = install_commands(&project_dir, &source_dir).unwrap();
         assert_eq!(installed.len(), 5);
-        
+
         // Verify files exist
         let commands_dir = project_dir.join(".cursor").join("commands");
         for name in COMMAND_TEMPLATES {
             assert!(commands_dir.join(name).exists());
         }
-        
+
         assert!(check_project_commands_installed(&project_dir));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -688,16 +707,16 @@ mod tests {
     fn get_available_commands_returns_existing_files() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         // Create only some command files
         std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
         std::fs::write(temp_dir.join("deslop.md"), "# deslop").unwrap();
-        
+
         let available = get_available_commands(&temp_dir);
         assert_eq!(available.len(), 2);
         assert!(available.contains(&"cleanup.md".to_string()));
         assert!(available.contains(&"deslop.md".to_string()));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -727,11 +746,24 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_api_includes_env_in_command() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", Some("http://localhost:7432"), None, None);
+        let config = generate_hooks_json_with_api(
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            None,
+            None,
+        );
         let hooks = config.get("hooks").unwrap();
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
-        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
-        
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let command = shell_hook_array[0]
+            .get("command")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         // Env vars should be embedded in the shell command with export and double quotes
         assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
         // Command should be wrapped in /bin/sh -c
@@ -742,9 +774,17 @@ mod tests {
     fn generate_hooks_json_with_api_none_has_no_env_in_command() {
         let config = generate_hooks_json_with_api("/path/to/hook.js", None, None, None);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
-        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
-        
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let command = shell_hook_array[0]
+            .get("command")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         // Should not contain env var prefix
         assert!(!command.contains("AGENT_KANBAN_API_URL="));
     }
@@ -753,17 +793,23 @@ mod tests {
     fn install_hooks_with_api_url_includes_env_in_command() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
-        install_hooks(&temp_dir, "/path/to/hook.js", Some("http://localhost:7432"), None).unwrap();
-        
+
+        install_hooks(
+            &temp_dir,
+            "/path/to/hook.js",
+            Some("http://localhost:7432"),
+            None,
+        )
+        .unwrap();
+
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         let content = std::fs::read_to_string(&hooks_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        
+
         let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
         let command = hook_array[0]["command"].as_str().unwrap();
         assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -776,9 +822,17 @@ mod tests {
             None,
         );
         let hooks = config.get("hooks").unwrap();
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
-        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
-        
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let command = shell_hook_array[0]
+            .get("command")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         // API URL should be set, but API token is no longer embedded (read from file at runtime)
         assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
         // Token is intentionally NOT set in the command - script reads it from file
@@ -787,11 +841,20 @@ mod tests {
 
     #[test]
     fn generate_hooks_json_with_token_only_does_not_embed_token() {
-        let config = generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"), None);
+        let config =
+            generate_hooks_json_with_api("/path/to/hook.js", None, Some("test-token-456"), None);
         let hooks = config.get("hooks").unwrap();
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
-        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
-        
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let command = shell_hook_array[0]
+            .get("command")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         // Neither should be set - token is read from file at runtime
         assert!(!command.contains("AGENT_KANBAN_API_URL="));
         assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
@@ -806,9 +869,17 @@ mod tests {
             Some("run-12345"),
         );
         let hooks = config.get("hooks").unwrap();
-        let shell_hook_array = hooks.get("beforeShellExecution").unwrap().as_array().unwrap();
-        let command = shell_hook_array[0].get("command").unwrap().as_str().unwrap();
-        
+        let shell_hook_array = hooks
+            .get("beforeShellExecution")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let command = shell_hook_array[0]
+            .get("command")
+            .unwrap()
+            .as_str()
+            .unwrap();
+
         assert!(command.contains("export AGENT_KANBAN_RUN_ID=\"run-12345\""));
         assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
         // Token is NOT set in command - script reads from file at runtime
@@ -819,7 +890,7 @@ mod tests {
     fn install_hooks_with_api_url_and_token_includes_url_not_token() {
         let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
-        
+
         install_hooks(
             &temp_dir,
             "/path/to/hook.js",
@@ -827,17 +898,17 @@ mod tests {
             Some("my-secret-token"),
         )
         .unwrap();
-        
+
         let hooks_path = temp_dir.join(".cursor").join("hooks.json");
         let content = std::fs::read_to_string(&hooks_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        
+
         let hook_array = parsed["hooks"]["beforeShellExecution"].as_array().unwrap();
         let command = hook_array[0]["command"].as_str().unwrap();
         // URL is set, but token is NOT (script reads from file at runtime)
         assert!(command.contains("export AGENT_KANBAN_API_URL=\"http://localhost:7432\""));
         assert!(!command.contains("AGENT_KANBAN_API_TOKEN"));
-        
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 }

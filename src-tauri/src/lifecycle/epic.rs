@@ -3,9 +3,9 @@
 //! Handles automatic advancement of epic children and epic state management.
 //! Also handles cross-epic dependencies (depends_on_epic_id).
 
-use std::sync::Arc;
-use crate::db::{Database, DbError, Ticket, AuthorType, CreateComment, SpecStatus, UpdateTicket};
 use super::TicketState;
+use crate::db::{AuthorType, CreateComment, Database, DbError, SpecStatus, Ticket, UpdateTicket};
+use std::sync::Arc;
 
 /// Result of epic advancement
 #[derive(Debug)]
@@ -23,7 +23,7 @@ pub enum EpicAdvancement {
 }
 
 /// Handle epic advancement when moved to Ready.
-/// 
+///
 /// When an epic is moved to Ready:
 /// 1. Check if this epic has a dependency (depends_on_epic_id)
 /// 2. If dependency exists and is not Done, block this epic
@@ -40,29 +40,31 @@ pub fn on_epic_moved_to_ready(
     if let Some(ref dependency_id) = epic.depends_on_epic_id {
         // Check if the dependency epic is in Done
         let dependency = db.get_ticket(dependency_id)?;
-        let dep_column = db.get_columns(&dependency.board_id)?
+        let dep_column = db
+            .get_columns(&dependency.board_id)?
             .into_iter()
             .find(|c| c.id == dependency.column_id);
-        
+
         // Determine if dependency is complete
         // If column lookup fails, treat as incomplete (fail-safe: block the epic)
-        let dependency_complete = match dep_column {
-            Some(ref col) => col.name == "Done",
-            None => {
-                tracing::warn!(
+        let dependency_complete =
+            match dep_column {
+                Some(ref col) => col.name == "Done",
+                None => {
+                    tracing::warn!(
                     "Epic {}: could not find column {} for dependency {}, treating as incomplete",
                     epic.id, dependency.column_id, dependency_id
                 );
-                false
-            }
-        };
-        
+                    false
+                }
+            };
+
         if !dependency_complete {
             // Dependency not complete - try to move epic to Backlog, but always block
             // regardless of whether the column lookup succeeds
             if let Some(backlog) = db.find_column_by_name(&epic.board_id, "Backlog")? {
                 db.move_ticket(&epic.id, &backlog.id)?;
-                
+
                 // Add system comment
                 db.create_comment(&CreateComment {
                     ticket_id: epic.id.clone(),
@@ -73,22 +75,24 @@ pub fn on_epic_moved_to_ready(
                     ),
                     metadata: None,
                 })?;
-                
+
                 tracing::info!(
                     "Epic {} blocked by dependency {}, moved to Backlog",
-                    epic.id, dependency_id
+                    epic.id,
+                    dependency_id
                 );
             } else {
                 tracing::warn!(
                     "Epic {} blocked by dependency {} but could not find Backlog column to move it",
-                    epic.id, dependency_id
+                    epic.id,
+                    dependency_id
                 );
             }
-            
+
             // Always return BlockedByDependency when dependency is incomplete,
             // regardless of whether we could move the epic to Backlog
-            return Ok(EpicAdvancement::BlockedByDependency { 
-                dependency_id: dependency_id.clone() 
+            return Ok(EpicAdvancement::BlockedByDependency {
+                dependency_id: dependency_id.clone(),
             });
         }
     }
@@ -103,12 +107,9 @@ pub fn on_epic_moved_to_ready(
         // Find the Ready column for this board
         if let Some(ready_column) = db.find_column_by_name(&epic.board_id, "Ready")? {
             db.move_ticket(&child.id, &ready_column.id)?;
-            
-            tracing::info!(
-                "Epic {}: advanced child {} to Ready",
-                epic.id, child.id
-            );
-            
+
+            tracing::info!("Epic {}: advanced child {} to Ready", epic.id, child.id);
+
             return Ok(EpicAdvancement::ChildAdvanced { child_id: child.id });
         }
     }
@@ -118,10 +119,7 @@ pub fn on_epic_moved_to_ready(
 
 /// Populate consolidation epic ticket descriptions with branch merge instructions.
 /// Called when a consolidation epic moves to Ready (all dependencies complete).
-fn populate_consolidation_tickets(
-    db: &Arc<Database>,
-    epic: &Ticket,
-) -> Result<(), DbError> {
+fn populate_consolidation_tickets(db: &Arc<Database>, epic: &Ticket) -> Result<(), DbError> {
     let Some(ref spec_id) = epic.spec_id else {
         tracing::warn!(
             "Consolidation epic {} has no spec_id, cannot populate branch info",
@@ -132,11 +130,12 @@ fn populate_consolidation_tickets(
 
     // Get all epics from the spec with their final branches
     let epics_with_branches = db.get_spec_epics_with_branches(spec_id)?;
-    
+
     if epics_with_branches.is_empty() {
         tracing::warn!(
             "Consolidation epic {}: no epics with branches found in spec {}",
-            epic.id, spec_id
+            epic.id,
+            spec_id
         );
         return Ok(());
     }
@@ -144,10 +143,14 @@ fn populate_consolidation_tickets(
     // Build the merge instructions markdown
     let mut merge_steps = Vec::new();
     merge_steps.push("## Branch Consolidation Task\n".to_string());
-    merge_steps.push("Create a consolidation branch and merge all epic work sequentially.\n".to_string());
+    merge_steps
+        .push("Create a consolidation branch and merge all epic work sequentially.\n".to_string());
     merge_steps.push("### Steps:\n".to_string());
-    merge_steps.push(format!("1. Create new branch from main: `spec/{}/consolidated`\n", spec_id));
-    
+    merge_steps.push(format!(
+        "1. Create new branch from main: `spec/{}/consolidated`\n",
+        spec_id
+    ));
+
     let mut step = 2;
     for (epic_id, epic_title, branch) in &epics_with_branches {
         if let Some(branch_name) = branch {
@@ -159,17 +162,22 @@ fn populate_consolidation_tickets(
         } else {
             tracing::warn!(
                 "Consolidation epic {}: epic {} ({}) has no final branch",
-                epic.id, epic_id, epic_title
+                epic.id,
+                epic_id,
+                epic_title
             );
         }
     }
-    
+
     merge_steps.push(format!("{}. Verify all tests pass\n", step));
     merge_steps.push(format!("{}. Push the consolidated branch\n", step + 1));
-    
+
     merge_steps.push("\n### Epics to Merge:\n".to_string());
     for (_, epic_title, branch) in &epics_with_branches {
-        let branch_info = branch.as_ref().map(|b| format!(" → `{}`", b)).unwrap_or_default();
+        let branch_info = branch
+            .as_ref()
+            .map(|b| format!(" → `{}`", b))
+            .unwrap_or_default();
         merge_steps.push(format!("- {}{}\n", epic_title, branch_info));
     }
 
@@ -178,14 +186,18 @@ fn populate_consolidation_tickets(
     // Update all children of the consolidation epic with the merge instructions
     let children = db.get_epic_children(&epic.id)?;
     for child in children {
-        db.update_ticket(&child.id, &UpdateTicket {
-            description_md: Some(description.clone()),
-            ..Default::default()
-        })?;
-        
+        db.update_ticket(
+            &child.id,
+            &UpdateTicket {
+                description_md: Some(description.clone()),
+                ..Default::default()
+            },
+        )?;
+
         tracing::info!(
             "Consolidation epic {}: updated child {} with branch merge instructions",
-            epic.id, child.id
+            epic.id,
+            child.id
         );
     }
 
@@ -196,8 +208,11 @@ fn populate_consolidation_tickets(
         body_md: format!(
             "Consolidation epic ready. {} epic branches to merge:\n{}",
             epics_with_branches.len(),
-            epics_with_branches.iter()
-                .filter_map(|(_, title, branch)| branch.as_ref().map(|b| format!("- {} → `{}`", title, b)))
+            epics_with_branches
+                .iter()
+                .filter_map(|(_, title, branch)| branch
+                    .as_ref()
+                    .map(|b| format!("- {} → `{}`", title, b)))
                 .collect::<Vec<_>>()
                 .join("\n")
         ),
@@ -208,25 +223,22 @@ fn populate_consolidation_tickets(
 }
 
 /// Handle child ticket completion.
-/// 
+///
 /// When a child ticket moves to Done, check if there are more children
 /// to process. If yes, move the next child to Ready. If no, move the epic to Done.
-pub fn on_child_completed(
-    db: &Arc<Database>,
-    child: &Ticket,
-) -> Result<EpicAdvancement, DbError> {
+pub fn on_child_completed(db: &Arc<Database>, child: &Ticket) -> Result<EpicAdvancement, DbError> {
     let Some(epic_id) = &child.epic_id else {
         return Ok(EpicAdvancement::NoAction);
     };
 
     let epic = db.get_ticket(epic_id)?;
-    
+
     // Check if all children are done
     if db.are_all_epic_children_done(&epic.id)? {
         // Move epic to Done
         if let Some(done_column) = db.find_column_by_name(&epic.board_id, "Done")? {
             db.move_ticket(&epic.id, &done_column.id)?;
-            
+
             // Add system comment
             db.create_comment(&CreateComment {
                 ticket_id: epic.id.clone(),
@@ -234,19 +246,19 @@ pub fn on_child_completed(
                 body_md: "All child tickets completed. Epic moved to Done.".to_string(),
                 metadata: None,
             })?;
-            
+
             tracing::info!("Epic {} completed - all children done", epic.id);
-            
+
             // Check for dependent epics that can now be moved to Ready
             let advanced = advance_dependent_epics(db, &epic)?;
-            
+
             // Check if this epic belongs to a spec and if all spec epics are done
             check_spec_completion(db, &epic)?;
-            
+
             if !advanced.is_empty() {
                 return Ok(EpicAdvancement::DependentsAdvanced { epic_ids: advanced });
             }
-            
+
             return Ok(EpicAdvancement::EpicComplete);
         }
     } else {
@@ -254,13 +266,17 @@ pub fn on_child_completed(
         if let Some(next_child) = db.get_next_pending_child(&epic.id)? {
             if let Some(ready_column) = db.find_column_by_name(&epic.board_id, "Ready")? {
                 db.move_ticket(&next_child.id, &ready_column.id)?;
-                
+
                 tracing::info!(
                     "Epic {}: advanced next child {} to Ready after {} completed",
-                    epic.id, next_child.id, child.id
+                    epic.id,
+                    next_child.id,
+                    child.id
                 );
-                
-                return Ok(EpicAdvancement::ChildAdvanced { child_id: next_child.id });
+
+                return Ok(EpicAdvancement::ChildAdvanced {
+                    child_id: next_child.id,
+                });
             }
         }
     }
@@ -275,21 +291,21 @@ pub fn advance_dependent_epics(
     completed_epic: &Ticket,
 ) -> Result<Vec<String>, DbError> {
     let mut advanced = Vec::new();
-    
+
     // Find all epics that depend on this one
     let dependents = db.get_epics_depending_on(&completed_epic.id)?;
-    
+
     for dependent in dependents {
         // Check if it's in Backlog
         let columns = db.get_columns(&dependent.board_id)?;
         let current_column = columns.iter().find(|c| c.id == dependent.column_id);
-        
+
         if let Some(col) = current_column {
             if col.name == "Backlog" {
                 // Move to Ready
                 if let Some(ready_column) = db.find_column_by_name(&dependent.board_id, "Ready")? {
                     db.move_ticket(&dependent.id, &ready_column.id)?;
-                    
+
                     // Add system comment
                     db.create_comment(&CreateComment {
                         ticket_id: dependent.id.clone(),
@@ -300,50 +316,45 @@ pub fn advance_dependent_epics(
                         ),
                         metadata: None,
                     })?;
-                    
+
                     tracing::info!(
                         "Epic {} moved to Ready after dependency {} completed",
-                        dependent.id, completed_epic.id
+                        dependent.id,
+                        completed_epic.id
                     );
-                    
+
                     advanced.push(dependent.id.clone());
-                    
+
                     // Also trigger on_epic_moved_to_ready to advance its first child
                     let _ = on_epic_moved_to_ready(db, &dependent);
                 }
             }
         }
     }
-    
+
     Ok(advanced)
 }
 
 /// Check if all epics for a spec are complete
 /// If so, update the spec status to Completed
-fn check_spec_completion(
-    db: &Arc<Database>,
-    completed_epic: &Ticket,
-) -> Result<(), DbError> {
+fn check_spec_completion(db: &Arc<Database>, completed_epic: &Ticket) -> Result<(), DbError> {
     // Only check if epic belongs to a spec
     let Some(ref spec_id) = completed_epic.spec_id else {
         return Ok(());
     };
-    
+
     check_spec_completion_by_id(db, spec_id)
 }
 
 /// Check if all epics for a spec are complete by spec ID
 /// If so, update the spec status to Completed
 /// This is public so it can be called from start_spec_work and other places
-pub fn check_spec_completion_by_id(
-    db: &Arc<Database>,
-    spec_id: &str,
-) -> Result<(), DbError> {
+pub fn check_spec_completion_by_id(db: &Arc<Database>, spec_id: &str) -> Result<(), DbError> {
     // Check if all spec epics are done
     if db.are_all_spec_epics_done(spec_id)? {
         // Get spec to check current status
         let spec = db.get_spec(spec_id)?;
-        
+
         // Update if currently in a status that indicates work was in progress
         // This handles edge cases like:
         // - Working: normal completion
@@ -351,10 +362,12 @@ pub fn check_spec_completion_by_id(
         // - Halted: work was halted but all epics completed
         // - Executed: work never started but epics were moved to Done manually
         match spec.status {
-            SpecStatus::Working | SpecStatus::Paused | 
-            SpecStatus::Halted | SpecStatus::Executed => {
+            SpecStatus::Working
+            | SpecStatus::Paused
+            | SpecStatus::Halted
+            | SpecStatus::Executed => {
                 db.set_spec_status(spec_id, SpecStatus::Completed)?;
-                
+
                 tracing::info!(
                     "Spec {} completed (from status '{}') - all {} epics done",
                     spec_id,
@@ -367,50 +380,46 @@ pub fn check_spec_completion_by_id(
             }
         }
     }
-    
+
     Ok(())
 }
 
 /// Handle child ticket blocked.
-/// 
+///
 /// When a child ticket moves to Blocked, move the parent epic to Blocked as well.
-pub fn on_child_blocked(
-    db: &Arc<Database>,
-    child: &Ticket,
-) -> Result<(), DbError> {
+pub fn on_child_blocked(db: &Arc<Database>, child: &Ticket) -> Result<(), DbError> {
     let Some(epic_id) = &child.epic_id else {
         return Ok(());
     };
 
     let epic = db.get_ticket(epic_id)?;
-    
+
     // Get current epic state
-    let epic_column = db.get_columns(&epic.board_id)?
+    let epic_column = db
+        .get_columns(&epic.board_id)?
         .into_iter()
         .find(|c| c.id == epic.column_id);
-    
+
     if let Some(col) = epic_column {
         let current_state = TicketState::from_column_name(&col.name);
-        
+
         // Only block epic if it's not already blocked or done
         if current_state != Some(TicketState::Blocked) && current_state != Some(TicketState::Done) {
             if let Some(blocked_column) = db.find_column_by_name(&epic.board_id, "Blocked")? {
                 db.move_ticket(&epic.id, &blocked_column.id)?;
-                
+
                 // Add system comment explaining why
                 db.create_comment(&CreateComment {
                     ticket_id: epic.id.clone(),
                     author_type: AuthorType::System,
-                    body_md: format!(
-                        "Epic blocked: child ticket \"{}\" is blocked.",
-                        child.title
-                    ),
+                    body_md: format!("Epic blocked: child ticket \"{}\" is blocked.", child.title),
                     metadata: None,
                 })?;
-                
+
                 tracing::info!(
                     "Epic {} blocked due to child {} being blocked",
-                    epic.id, child.id
+                    epic.id,
+                    child.id
                 );
             }
         }
@@ -446,10 +455,17 @@ mod tests {
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
             spec_id: None,
-        }).unwrap()
+        })
+        .unwrap()
     }
 
-    fn create_test_child(db: &Database, board_id: &str, column_id: &str, epic_id: &str, title: &str) -> Ticket {
+    fn create_test_child(
+        db: &Database,
+        board_id: &str,
+        column_id: &str,
+        epic_id: &str,
+        title: &str,
+    ) -> Ticket {
         db.create_ticket(&CreateTicket {
             board_id: board_id.to_string(),
             column_id: column_id.to_string(),
@@ -467,7 +483,8 @@ mod tests {
             depends_on_epic_id: None,
             depends_on_epic_ids: vec![],
             spec_id: None,
-        }).unwrap()
+        })
+        .unwrap()
     }
 
     #[test]
@@ -480,7 +497,7 @@ mod tests {
 
         // Create epic in Ready
         let epic = create_test_epic(&db, &board.id, &ready.id);
-        
+
         // Create children in Backlog
         let child1 = create_test_child(&db, &board.id, &backlog.id, &epic.id, "Child 1");
         let _child2 = create_test_child(&db, &board.id, &backlog.id, &epic.id, "Child 2");
@@ -509,7 +526,7 @@ mod tests {
 
         // Create epic in Ready
         let epic = create_test_epic(&db, &board.id, &ready.id);
-        
+
         // Create single child in Done
         let child = create_test_child(&db, &board.id, &done.id, &epic.id, "Only Child");
 
@@ -537,7 +554,7 @@ mod tests {
 
         // Create epic in Ready
         let epic = create_test_epic(&db, &board.id, &ready.id);
-        
+
         // Create children: one done, one in backlog
         let child1 = create_test_child(&db, &board.id, &done.id, &epic.id, "Child 1");
         let child2 = create_test_child(&db, &board.id, &backlog.id, &epic.id, "Child 2");
@@ -566,7 +583,7 @@ mod tests {
 
         // Create epic in Ready
         let epic = create_test_epic(&db, &board.id, &ready.id);
-        
+
         // Create child in Blocked
         let child = create_test_child(&db, &board.id, &blocked.id, &epic.id, "Blocked Child");
 
@@ -578,7 +595,12 @@ mod tests {
         assert_eq!(updated_epic.column_id, blocked.id);
     }
 
-    fn create_epic_with_dependency(db: &Database, board_id: &str, column_id: &str, depends_on: &str) -> Ticket {
+    fn create_epic_with_dependency(
+        db: &Database,
+        board_id: &str,
+        column_id: &str,
+        depends_on: &str,
+    ) -> Ticket {
         db.create_ticket(&CreateTicket {
             board_id: board_id.to_string(),
             column_id: column_id.to_string(),
@@ -596,7 +618,8 @@ mod tests {
             depends_on_epic_id: Some(depends_on.to_string()),
             depends_on_epic_ids: vec![depends_on.to_string()],
             spec_id: None,
-        }).unwrap()
+        })
+        .unwrap()
     }
 
     #[test]
@@ -609,10 +632,11 @@ mod tests {
 
         // Create first epic (the dependency) in Ready (not Done)
         let dependency_epic = create_test_epic(&db, &board.id, &ready.id);
-        
+
         // Create second epic that depends on the first, try to move to Ready
-        let dependent_epic = create_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
-        
+        let dependent_epic =
+            create_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
+
         // Create a child for the dependent epic (in Backlog)
         create_test_child(&db, &board.id, &backlog.id, &dependent_epic.id, "Child");
 
@@ -641,10 +665,11 @@ mod tests {
 
         // Create first epic (the dependency) in Done
         let dependency_epic = create_test_epic(&db, &board.id, &done.id);
-        
+
         // Create second epic that depends on the first, in Ready
-        let dependent_epic = create_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
-        
+        let dependent_epic =
+            create_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
+
         // Create a child for the dependent epic (in Backlog)
         let child = create_test_child(&db, &board.id, &backlog.id, &dependent_epic.id, "Child");
 
@@ -672,9 +697,10 @@ mod tests {
 
         // Create first epic that will complete
         let first_epic = create_test_epic(&db, &board.id, &done.id);
-        
+
         // Create second epic that depends on the first, in Backlog
-        let dependent_epic = create_epic_with_dependency(&db, &board.id, &backlog.id, &first_epic.id);
+        let dependent_epic =
+            create_epic_with_dependency(&db, &board.id, &backlog.id, &first_epic.id);
 
         // Trigger advance_dependent_epics
         let advanced = advance_dependent_epics(&db, &first_epic).unwrap();
@@ -682,7 +708,7 @@ mod tests {
         // Should have advanced the dependent epic
         assert_eq!(advanced.len(), 1);
         assert_eq!(advanced[0], dependent_epic.id);
-        
+
         // Verify dependent epic is now in Ready
         let updated = db.get_ticket(&dependent_epic.id).unwrap();
         let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
@@ -699,7 +725,7 @@ mod tests {
 
         // Create first epic that completes
         let first_epic = create_test_epic(&db, &board.id, &done.id);
-        
+
         // Create second epic already in Ready (not Backlog)
         let dependent_epic = create_epic_with_dependency(&db, &board.id, &ready.id, &first_epic.id);
 
@@ -708,7 +734,7 @@ mod tests {
 
         // Should NOT have advanced (already in Ready)
         assert!(advanced.is_empty());
-        
+
         // Verify dependent epic is still in Ready
         let updated = db.get_ticket(&dependent_epic.id).unwrap();
         assert_eq!(updated.column_id, ready.id);

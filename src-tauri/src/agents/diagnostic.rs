@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::AppHandle;
 
-use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
-use super::worktree::{DiagnosticType, WorktreeError};
 use super::spawner;
-use super::{AgentKind, AgentRunConfig, ClaudeApiConfig, extract_agent_text};
+use super::worktree::{DiagnosticType, WorktreeError};
+use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
+use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
 
 /// Context for diagnostic analysis
 #[derive(Debug, Clone)]
@@ -35,10 +35,10 @@ pub struct DiagnosticContext {
 pub enum DiagnosticError {
     #[error("Failed to create diagnostic run: {0}")]
     RunCreationFailed(String),
-    
+
     #[error("Failed to spawn diagnostic agent: {0}")]
     SpawnFailed(String),
-    
+
     #[error("Database error: {0}")]
     DatabaseError(#[from] crate::db::DbError),
 }
@@ -54,7 +54,7 @@ pub fn build_diagnostic_prompt(context: &DiagnosticContext) -> String {
         DiagnosticType::UnbornBranch => "Unborn Branch (No Commits)",
         DiagnosticType::Unknown => "Unknown Error",
     };
-    
+
     let mut prompt = format!(
         r#"# Diagnose Git Operation Failure
 
@@ -71,14 +71,17 @@ A git operation failed and needs troubleshooting. Analyze the error and provide 
 "#,
         context.operation,
         error_type_str,
-        context.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "N/A".to_string()),
+        context
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "N/A".to_string()),
         context.stderr,
     );
-    
+
     if let Some(ref additional) = context.additional_context {
         prompt.push_str(&format!("\n## Additional Context\n{}\n", additional));
     }
-    
+
     prompt.push_str(r#"
 ## Your Task
 
@@ -105,7 +108,7 @@ If this is an SSH authentication failure:
 
 IMPORTANT: Write ONLY the comment text. Start your response directly with the troubleshooting content.
 "#);
-    
+
     prompt
 }
 
@@ -115,7 +118,7 @@ pub fn classify_worktree_error(error: &WorktreeError) -> DiagnosticContext {
     let operation = error.operation().unwrap_or("unknown operation").to_string();
     let stderr = error.stderr().unwrap_or("").to_string();
     let exit_code = error.exit_code();
-    
+
     DiagnosticContext {
         repo_path: PathBuf::new(), // Will be filled in by caller
         operation,
@@ -148,37 +151,39 @@ pub async fn run_diagnostic_agent(
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let ticket_id_owned = ticket_id.to_string();
-    
+
     tracing::info!(
         "Starting diagnostic agent for ticket {}: error_type={:?}, operation={}",
         ticket_id,
         context.error_type,
         context.operation
     );
-    
+
     // Create a diagnostic run in the database
     let db_agent_type = match agent_kind {
         AgentKind::Cursor => AgentType::Cursor,
         AgentKind::Claude => AgentType::Claude,
     };
-    
-    let run = db.create_run(&CreateRun {
-        ticket_id: ticket_id.to_string(),
-        agent_type: db_agent_type,
-        repo_path: context.repo_path.to_string_lossy().to_string(),
-        parent_run_id: None,
-        stage: Some("diagnostic".to_string()),
-        ..Default::default()
-    }).map_err(|e| DiagnosticError::RunCreationFailed(e.to_string()))?;
-    
+
+    let run = db
+        .create_run(&CreateRun {
+            ticket_id: ticket_id.to_string(),
+            agent_type: db_agent_type,
+            repo_path: context.repo_path.to_string_lossy().to_string(),
+            parent_run_id: None,
+            stage: Some("diagnostic".to_string()),
+            ..Default::default()
+        })
+        .map_err(|e| DiagnosticError::RunCreationFailed(e.to_string()))?;
+
     // Update run to running status
     if let Err(e) = db.update_run_status(&run.id, RunStatus::Running, None, None) {
         tracing::warn!("Failed to update diagnostic run status: {}", e);
     }
-    
+
     // Build the diagnostic prompt
     let prompt = build_diagnostic_prompt(&context);
-    
+
     // Configure and run the agent using the ticket's model preference
     let agent_config = AgentRunConfig {
         kind: agent_kind,
@@ -192,12 +197,10 @@ pub async fn run_diagnostic_agent(
         model,
         claude_api_config,
     };
-    
+
     // Spawn the agent in a blocking task since spawner uses sync I/O
-    let result = tokio::task::spawn_blocking(move || {
-        spawner::run_agent(agent_config, None)
-    }).await;
-    
+    let result = tokio::task::spawn_blocking(move || spawner::run_agent(agent_config, None)).await;
+
     match result {
         Ok(Ok(agent_result)) => {
             let exit_code = agent_result.exit_code;
@@ -206,13 +209,14 @@ pub async fn run_diagnostic_agent(
             } else {
                 RunStatus::Error
             };
-            
+
             // Try to extract text from the agent's output
-            let extracted_text = agent_result.captured_stdout
+            let extracted_text = agent_result
+                .captured_stdout
                 .as_ref()
                 .map(|output| extract_agent_text(output))
                 .filter(|s| !s.is_empty());
-            
+
             if let Err(e) = db.update_run_status(
                 &run.id,
                 status.clone(),
@@ -221,14 +225,14 @@ pub async fn run_diagnostic_agent(
             ) {
                 tracing::warn!("Failed to update diagnostic run status: {}", e);
             }
-            
+
             tracing::info!(
                 "Diagnostic agent completed for ticket {}: exit_code={:?}, has_output={}",
                 ticket_id_owned,
                 exit_code,
                 extracted_text.is_some()
             );
-            
+
             // If we got text output from the agent, post it as a comment
             if let Some(ref comment_text) = extracted_text {
                 if !comment_text.trim().is_empty() {
@@ -237,7 +241,7 @@ pub async fn run_diagnostic_agent(
                         ticket_id_owned,
                         comment_text.len()
                     );
-                    
+
                     if let Err(e) = db.create_comment(&CreateComment {
                         ticket_id: ticket_id_owned.clone(),
                         author_type: AuthorType::System,
@@ -246,17 +250,19 @@ pub async fn run_diagnostic_agent(
                     }) {
                         tracing::error!(
                             "Failed to create diagnostic comment for ticket {}: {}",
-                            ticket_id_owned, e
+                            ticket_id_owned,
+                            e
                         );
                         return Err(DiagnosticError::SpawnFailed(format!(
-                            "Failed to post diagnostic comment: {}", e
+                            "Failed to post diagnostic comment: {}",
+                            e
                         )));
                     }
-                    
+
                     return Ok(());
                 }
             }
-            
+
             // No output extracted - return error so fallback comment is used
             let error_msg = format!(
                 "Diagnostic agent produced no usable output (exit_code={:?})",
@@ -268,31 +274,23 @@ pub async fn run_diagnostic_agent(
         Ok(Err(spawn_error)) => {
             let error_msg = format!("Diagnostic agent spawn failed: {}", spawn_error);
             tracing::error!("{}", error_msg);
-            
-            if let Err(e) = db.update_run_status(
-                &run.id,
-                RunStatus::Error,
-                None,
-                Some(&error_msg),
-            ) {
+
+            if let Err(e) = db.update_run_status(&run.id, RunStatus::Error, None, Some(&error_msg))
+            {
                 tracing::warn!("Failed to update diagnostic run status: {}", e);
             }
-            
+
             Err(DiagnosticError::SpawnFailed(error_msg))
         }
         Err(join_error) => {
             let error_msg = format!("Diagnostic agent task panicked: {}", join_error);
             tracing::error!("{}", error_msg);
-            
-            if let Err(e) = db.update_run_status(
-                &run.id,
-                RunStatus::Error,
-                None,
-                Some(&error_msg),
-            ) {
+
+            if let Err(e) = db.update_run_status(&run.id, RunStatus::Error, None, Some(&error_msg))
+            {
                 tracing::warn!("Failed to update diagnostic run status: {}", e);
             }
-            
+
             Err(DiagnosticError::SpawnFailed(error_msg))
         }
     }
@@ -359,8 +357,7 @@ The operation `{}` took too long and was cancelled.
 3. If the operation works manually, try again
 
 Once resolved, move this ticket back to Ready to retry."#,
-                context.operation,
-                context.operation
+                context.operation, context.operation
             )
         }
         DiagnosticType::NetworkError => {
@@ -380,7 +377,11 @@ Couldn't connect to the git remote.
    ```
 
 Once connectivity is restored, move this ticket back to Ready to retry."#,
-                context.stderr.lines().next().unwrap_or("Network unreachable")
+                context
+                    .stderr
+                    .lines()
+                    .next()
+                    .unwrap_or("Network unreachable")
             )
         }
         DiagnosticType::UnbornBranch => {
@@ -401,7 +402,11 @@ git add -A\n\n\
 git commit -m \"Initial commit\"\n\
 ```\n\n\
 After creating the initial commit, move this ticket back to Ready to retry.",
-                context.stderr.lines().next().unwrap_or("No commits in repository"),
+                context
+                    .stderr
+                    .lines()
+                    .next()
+                    .unwrap_or("No commits in repository"),
                 context.repo_path.display()
             )
         }
@@ -417,8 +422,7 @@ The operation `{}` failed with an error.
 ```
 
 Please investigate the error and resolve it manually. Once fixed, move this ticket back to Ready to retry."#,
-                context.operation,
-                context.stderr
+                context.operation, context.stderr
             )
         }
     }
@@ -438,13 +442,13 @@ mod tests {
             exit_code: Some(128),
             additional_context: None,
         };
-        
+
         let prompt = build_diagnostic_prompt(&context);
         assert!(prompt.contains("SSH Authentication"));
         assert!(prompt.contains("git fetch --all"));
         assert!(prompt.contains("Permission denied"));
     }
-    
+
     #[test]
     fn test_build_diagnostic_prompt_with_context() {
         let context = DiagnosticContext {
@@ -455,12 +459,12 @@ mod tests {
             exit_code: None,
             additional_context: Some("Branch: feature/test, Ticket: Fix login bug".to_string()),
         };
-        
+
         let prompt = build_diagnostic_prompt(&context);
         assert!(prompt.contains("Operation Timeout"));
         assert!(prompt.contains("Branch: feature/test"));
     }
-    
+
     #[test]
     fn test_fallback_comment_ssh() {
         let context = DiagnosticContext {
@@ -471,12 +475,12 @@ mod tests {
             exit_code: Some(128),
             additional_context: None,
         };
-        
+
         let comment = create_fallback_diagnostic_comment(&context);
         assert!(comment.contains("SSH Authentication Failed"));
         assert!(comment.contains("ssh-add"));
     }
-    
+
     #[test]
     fn test_fallback_comment_timeout() {
         let context = DiagnosticContext {
@@ -487,12 +491,12 @@ mod tests {
             exit_code: None,
             additional_context: None,
         };
-        
+
         let comment = create_fallback_diagnostic_comment(&context);
         assert!(comment.contains("Timed Out"));
         assert!(comment.contains("git fetch --all"));
     }
-    
+
     #[test]
     fn test_classify_ssh_error() {
         let error = WorktreeError::SshAuthFailed {
@@ -501,25 +505,25 @@ mod tests {
             exit_code: Some(128),
             operation: "git fetch".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         assert_eq!(context.error_type, DiagnosticType::SshAuth);
         assert_eq!(context.operation, "git fetch");
         assert_eq!(context.stderr, "Permission denied");
     }
-    
+
     #[test]
     fn test_classify_timeout_error() {
         let error = WorktreeError::Timeout {
             timeout_secs: 60,
             operation: "git clone".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         assert_eq!(context.error_type, DiagnosticType::Timeout);
         assert_eq!(context.operation, "git clone");
     }
-    
+
     #[test]
     fn test_classify_network_error() {
         let error = WorktreeError::NetworkError {
@@ -528,13 +532,13 @@ mod tests {
             exit_code: Some(128),
             operation: "git fetch".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         assert_eq!(context.error_type, DiagnosticType::NetworkError);
         assert_eq!(context.operation, "git fetch");
         assert!(context.stderr.contains("Connection refused"));
     }
-    
+
     #[test]
     fn test_fallback_comment_network_error() {
         let context = DiagnosticContext {
@@ -545,14 +549,14 @@ mod tests {
             exit_code: Some(128),
             additional_context: None,
         };
-        
+
         let comment = create_fallback_diagnostic_comment(&context);
         assert!(comment.contains("Network Error"));
         assert!(comment.contains("internet connection"));
         // Should NOT contain SSH key troubleshooting
         assert!(!comment.contains("ssh-add"));
     }
-    
+
     #[test]
     fn test_network_error_not_classified_as_ssh() {
         // This is the key test - network errors should get NetworkError type, not SshAuth
@@ -562,13 +566,13 @@ mod tests {
             exit_code: Some(128),
             operation: "git fetch --all".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         // Should be NetworkError, NOT SshAuth
         assert_eq!(context.error_type, DiagnosticType::NetworkError);
         assert_ne!(context.error_type, DiagnosticType::SshAuth);
     }
-    
+
     #[test]
     fn test_classify_git_error_extracts_details() {
         let error = WorktreeError::GitError {
@@ -577,14 +581,14 @@ mod tests {
             exit_code: Some(128),
             operation: "git worktree add /tmp/worktree branch".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         assert_eq!(context.error_type, DiagnosticType::GitError);
         assert_eq!(context.operation, "git worktree add /tmp/worktree branch");
         assert_eq!(context.stderr, "fatal: worktree 'path' is locked");
         assert_eq!(context.exit_code, Some(128));
     }
-    
+
     #[test]
     fn test_classify_git_error_with_permission_denied() {
         let error = WorktreeError::GitError {
@@ -593,13 +597,16 @@ mod tests {
             exit_code: Some(1),
             operation: "git worktree add".to_string(),
         };
-        
+
         let context = classify_worktree_error(&error);
         assert_eq!(context.error_type, DiagnosticType::Permission);
-        assert_eq!(context.stderr, "error: Permission denied while creating /tmp/worktree");
+        assert_eq!(
+            context.stderr,
+            "error: Permission denied while creating /tmp/worktree"
+        );
         assert_eq!(context.exit_code, Some(1));
     }
-    
+
     #[test]
     fn test_fallback_comment_unborn_branch() {
         let context = DiagnosticContext {
@@ -610,7 +617,7 @@ mod tests {
             exit_code: Some(128),
             additional_context: None,
         };
-        
+
         let comment = create_fallback_diagnostic_comment(&context);
         assert!(comment.contains("No Commits Yet"));
         assert!(comment.contains("Initial commit"));
@@ -618,7 +625,7 @@ mod tests {
         // Should NOT contain SSH troubleshooting
         assert!(!comment.contains("ssh-add"));
     }
-    
+
     #[test]
     fn test_build_diagnostic_prompt_unborn_branch() {
         let context = DiagnosticContext {
@@ -629,7 +636,7 @@ mod tests {
             exit_code: Some(128),
             additional_context: None,
         };
-        
+
         let prompt = build_diagnostic_prompt(&context);
         assert!(prompt.contains("Unborn Branch"));
         assert!(prompt.contains("git worktree add"));
