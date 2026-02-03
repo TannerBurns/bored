@@ -4,83 +4,39 @@
 //! 1. **Exploration**: Uses an AI agent to analyze the codebase structure
 //! 2. **Planning**: Generates a structured work plan with epics and tickets
 //! 3. **Execution**: Creates the epics and tickets in the database with proper dependencies
+//!
+//! This module is split into focused submodules:
+//! - `config`: Configuration types and error definitions
+//! - `prompts`: Prompt templates for exploration and planning
+//! - `parsing`: JSON parsing utilities for agent output
+//! - `dependencies`: Topological sorting and execution phase calculation
+//! - `markdown`: Plan markdown generation for display
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
 use crate::db::{
-    AgentPref, CreateTicket, Database, Exploration, PlanEpic, Priority, ProjectPlan, Spec,
-    SpecVersion, SpecVersionStatus, WorkflowType,
+    AgentPref, CreateTicket, Database, Exploration, Priority, ProjectPlan, Spec, SpecVersion,
+    SpecVersionStatus, WorkflowType,
 };
 
-#[cfg(test)]
-use crate::db::PlanTicket;
-
-use super::planner_prompts;
 use super::spawner;
-use super::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
+use super::{extract_agent_text, AgentRunConfig};
 
-/// Configuration for the planner agent
-#[derive(Debug, Clone)]
-pub struct PlannerConfig {
-    pub spec_id: String,
-    pub max_explorations: usize,
-    pub auto_approve: bool,
-    pub model: Option<String>,
-    pub agent_kind: AgentKind,
-    pub repo_path: PathBuf,
-    pub api_url: String,
-    pub api_token: String,
-    /// Claude API configuration (auth token, api key, base url, model override)
-    pub claude_api_config: Option<ClaudeApiConfig>,
-    /// Timeout per exploration/planning call in seconds (default: 300 = 5 min)
-    pub timeout_secs: u64,
-    /// Maximum retries per call (default: 2)
-    pub max_retries: u32,
-}
+// Submodules
+mod config;
+mod dependencies;
+mod markdown;
+mod parsing;
+mod prompts;
 
-/// Extended config with event broadcasting
-pub struct PlannerConfigWithEvents {
-    pub config: PlannerConfig,
-    pub event_tx: Option<broadcast::Sender<LiveEvent>>,
-}
-
-/// Result of a planner execution
-#[derive(Debug)]
-pub struct PlannerResult {
-    pub spec_id: String,
-    pub version_id: String,
-    pub status: SpecVersionStatus,
-    pub epic_ids: Vec<String>,
-    pub ticket_ids: Vec<String>,
-}
-
-/// Error type for planner operations
-#[derive(Debug, thiserror::Error)]
-pub enum PlannerError {
-    #[error("Database error: {0}")]
-    Database(String),
-
-    #[error("Spec not found: {0}")]
-    SpecNotFound(String),
-
-    #[error("Invalid state: {0}")]
-    InvalidState(String),
-
-    #[error("Exploration failed: {0}")]
-    ExplorationFailed(String),
-
-    #[error("Plan generation failed: {0}")]
-    PlanGenerationFailed(String),
-
-    #[error("Plan execution failed: {0}")]
-    ExecutionFailed(String),
-
-    #[error("JSON serialization error: {0}")]
-    JsonError(#[from] serde_json::Error),
-}
+// Public re-exports
+pub use config::{PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult};
+pub use dependencies::{calculate_execution_phases, topological_sort_epics};
+pub use markdown::generate_plan_markdown;
+pub use parsing::{extract_json_code_block, parse_project_plan};
+pub use prompts::{format_plan_overview, generate_exploration_prompt, generate_planning_prompt};
 
 /// The planner agent
 pub struct PlannerAgent {
@@ -193,7 +149,10 @@ impl PlannerAgent {
 
     /// Run plan generation only, skipping exploration (for use after conversational spec discovery)
     /// The exploration_context should contain the technical notes gathered during conversation
-    pub async fn run_plan_only(&self, exploration_context: &str) -> Result<PlannerResult, PlannerError> {
+    pub async fn run_plan_only(
+        &self,
+        exploration_context: &str,
+    ) -> Result<PlannerResult, PlannerError> {
         // Get spec and its latest version
         let spec = self
             .db
@@ -213,7 +172,10 @@ impl PlannerAgent {
         );
 
         // Generate plan using provided exploration context
-        match self.generate_plan(&spec, &version, exploration_context).await {
+        match self
+            .generate_plan(&spec, &version, exploration_context)
+            .await
+        {
             Ok(()) => {}
             Err(e) => {
                 tracing::error!("Plan generation failed, setting status to failed: {}", e);
@@ -386,7 +348,11 @@ impl PlannerAgent {
     }
 
     /// Run the exploration phase
-    async fn run_exploration(&self, spec: &Spec, version: &SpecVersion) -> Result<String, PlannerError> {
+    async fn run_exploration(
+        &self,
+        spec: &Spec,
+        version: &SpecVersion,
+    ) -> Result<String, PlannerError> {
         // Update status to exploring
         self.db
             .set_spec_version_status(&version.id, SpecVersionStatus::Exploring)
@@ -410,7 +376,7 @@ impl PlannerAgent {
         });
 
         // Generate exploration prompt
-        let prompt = planner_prompts::generate_exploration_prompt(&spec.user_input, 1);
+        let prompt = generate_exploration_prompt(&spec.user_input, 1);
 
         // Run the agent
         let output = self.run_agent(&prompt, spec, "exploration").await?;
@@ -461,11 +427,14 @@ impl PlannerAgent {
             spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Generating plan for spec {} version {}", spec.id, version.id);
+        tracing::info!(
+            "Generating plan for spec {} version {}",
+            spec.id,
+            version.id
+        );
 
         // Generate planning prompt
-        let prompt =
-            planner_prompts::generate_planning_prompt(&spec.user_input, exploration_context);
+        let prompt = generate_planning_prompt(&spec.user_input, exploration_context);
 
         // Run the agent to generate plan
         let output = self
@@ -545,7 +514,11 @@ impl PlannerAgent {
             spec_id: spec.id.clone(),
         });
 
-        tracing::info!("Executing plan for spec {} version {}", spec.id, version.id);
+        tracing::info!(
+            "Executing plan for spec {} version {}",
+            spec.id,
+            version.id
+        );
 
         // Execute the plan creation with error recovery
         match self.execute_plan_inner(&spec, &version).await {
@@ -731,575 +704,5 @@ impl PlannerAgent {
             epic_ids,
             ticket_ids,
         })
-    }
-}
-
-/// Parse a ProjectPlan from agent output.
-/// Handles cases where the JSON is embedded in other text.
-pub fn parse_project_plan(output: &str) -> Result<ProjectPlan, String> {
-    let trimmed = output.trim();
-
-    // Try direct parse first
-    if let Ok(plan) = serde_json::from_str::<ProjectPlan>(trimmed) {
-        return Ok(plan);
-    }
-
-    // Try to find JSON code block (```json ... ```)
-    if let Some(json_str) = extract_json_code_block(trimmed) {
-        if let Ok(plan) = serde_json::from_str::<ProjectPlan>(&json_str) {
-            return Ok(plan);
-        }
-    }
-
-    // Find JSON object in text (handles preamble/postamble)
-    let start = trimmed.find('{').ok_or("No JSON object found in output")?;
-    let end = trimmed.rfind('}').ok_or("No closing brace found")?;
-
-    if end > start {
-        let json_str = &trimmed[start..=end];
-        serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))
-    } else {
-        Err("Invalid JSON structure".to_string())
-    }
-}
-
-/// Extract JSON from a markdown code block if present
-fn extract_json_code_block(text: &str) -> Option<String> {
-    // Look for ```json ... ``` pattern
-    let start_pattern = "```json";
-    let end_pattern = "```";
-
-    if let Some(start_idx) = text.find(start_pattern) {
-        let content_start = start_idx + start_pattern.len();
-        if let Some(end_idx) = text[content_start..].find(end_pattern) {
-            let json_content = &text[content_start..content_start + end_idx];
-            return Some(json_content.trim().to_string());
-        }
-    }
-
-    // Also try plain ``` blocks that contain JSON
-    if let Some(start_idx) = text.find("```\n{") {
-        let content_start = start_idx + 4; // Skip "```\n"
-        if let Some(end_idx) = text[content_start..].find("\n```") {
-            let json_content = &text[content_start..content_start + end_idx];
-            return Some(json_content.trim().to_string());
-        }
-    }
-
-    None
-}
-
-/// Topologically sort epics so dependencies come before dependents.
-/// Returns an error if there's a cycle in the dependency graph.
-fn topological_sort_epics(epics: &[PlanEpic]) -> Result<Vec<&PlanEpic>, String> {
-    use std::collections::{HashMap, HashSet};
-
-    // Build title -> epic reference map
-    let title_to_epic: HashMap<&str, &PlanEpic> =
-        epics.iter().map(|e| (e.title.as_str(), e)).collect();
-
-    // Track visited and in-current-path for cycle detection
-    let mut visited: HashSet<&str> = HashSet::new();
-    let mut in_path: HashSet<&str> = HashSet::new();
-    let mut result: Vec<&PlanEpic> = Vec::new();
-
-    fn visit<'a>(
-        title: &'a str,
-        title_to_epic: &HashMap<&str, &'a PlanEpic>,
-        visited: &mut HashSet<&'a str>,
-        in_path: &mut HashSet<&'a str>,
-        result: &mut Vec<&'a PlanEpic>,
-    ) -> Result<(), String> {
-        if in_path.contains(title) {
-            return Err(format!(
-                "Circular dependency detected involving epic '{}'",
-                title
-            ));
-        }
-
-        if visited.contains(title) {
-            return Ok(());
-        }
-
-        in_path.insert(title);
-
-        if let Some(epic) = title_to_epic.get(title) {
-            // Visit all dependencies first
-            for dep_title in &epic.depends_on {
-                visit(dep_title, title_to_epic, visited, in_path, result)?;
-            }
-
-            visited.insert(title);
-            in_path.remove(title);
-            result.push(epic);
-        }
-
-        Ok(())
-    }
-
-    // Visit all epics
-    for epic in epics {
-        visit(
-            &epic.title,
-            &title_to_epic,
-            &mut visited,
-            &mut in_path,
-            &mut result,
-        )?;
-    }
-
-    Ok(result)
-}
-
-/// Calculate execution phases based on dependencies.
-/// Returns a vector of phases, where each phase contains epics that can run in parallel.
-fn calculate_execution_phases(epics: &[PlanEpic]) -> Vec<Vec<&PlanEpic>> {
-    use std::collections::HashMap;
-
-    let title_to_epic: HashMap<&str, &PlanEpic> =
-        epics.iter().map(|e| (e.title.as_str(), e)).collect();
-
-    let mut levels: HashMap<&str, usize> = HashMap::new();
-
-    fn get_level<'a>(
-        epic: &'a PlanEpic,
-        title_to_epic: &HashMap<&str, &'a PlanEpic>,
-        levels: &mut HashMap<&'a str, usize>,
-    ) -> usize {
-        if let Some(&level) = levels.get(epic.title.as_str()) {
-            return level;
-        }
-
-        if epic.depends_on.is_empty() {
-            levels.insert(&epic.title, 0);
-            return 0;
-        }
-
-        let mut max_dep_level = 0;
-        for dep_title in &epic.depends_on {
-            if let Some(dep_epic) = title_to_epic.get(dep_title.as_str()) {
-                let dep_level = get_level(dep_epic, title_to_epic, levels);
-                max_dep_level = max_dep_level.max(dep_level + 1);
-            }
-        }
-        levels.insert(&epic.title, max_dep_level);
-        max_dep_level
-    }
-
-    // Calculate levels for all epics
-    for epic in epics {
-        get_level(epic, &title_to_epic, &mut levels);
-    }
-
-    // Group by level
-    let max_level = levels.values().copied().max().unwrap_or(0);
-    let mut phases: Vec<Vec<&PlanEpic>> = vec![vec![]; max_level + 1];
-
-    for epic in epics {
-        let level = levels.get(epic.title.as_str()).copied().unwrap_or(0);
-        phases[level].push(epic);
-    }
-
-    phases
-}
-
-/// Generate a markdown representation of the plan
-fn generate_plan_markdown(plan: &ProjectPlan) -> String {
-    let mut md = String::new();
-
-    md.push_str("# Work Plan\n\n");
-    md.push_str(&plan.overview);
-    md.push_str("\n\n---\n\n");
-
-    // Generate execution flow summary
-    md.push_str("## Execution Flow\n\n");
-    let phases = calculate_execution_phases(&plan.epics);
-    let root_count = phases.first().map(|p| p.len()).unwrap_or(0);
-    let total_epics = plan.epics.len();
-
-    if root_count == 1 {
-        md.push_str(&format!(
-            "✓ **Sequential execution:** 1 root epic, {} phases total\n\n",
-            phases.len()
-        ));
-    } else if root_count == total_epics {
-        md.push_str(&format!(
-            "⚠ **All {} epics are root** (no dependencies) - all can run in parallel\n\n",
-            root_count
-        ));
-    } else {
-        md.push_str(&format!(
-            "{} root epic{} (can start immediately), {} phases total\n\n",
-            root_count,
-            if root_count != 1 { "s" } else { "" },
-            phases.len()
-        ));
-    }
-
-    for (phase_idx, phase_epics) in phases.iter().enumerate() {
-        let epic_titles: Vec<&str> = phase_epics.iter().map(|e| e.title.as_str()).collect();
-        let parallel_note = if phase_epics.len() > 1 {
-            " *(parallel)*"
-        } else {
-            ""
-        };
-        md.push_str(&format!(
-            "- **Phase {}:** {}{}\n",
-            phase_idx + 1,
-            epic_titles.join(", "),
-            parallel_note
-        ));
-    }
-    md.push_str("\n---\n\n");
-
-    for (i, epic) in plan.epics.iter().enumerate() {
-        md.push_str(&format!("## Epic {}: {}\n\n", i + 1, epic.title));
-        md.push_str(&epic.description);
-        md.push('\n');
-
-        if !epic.depends_on.is_empty() {
-            if epic.depends_on.len() == 1 {
-                md.push_str(&format!("\n**Depends on:** {}\n", epic.depends_on[0]));
-            } else {
-                md.push_str(&format!(
-                    "\n**Depends on:** {}\n",
-                    epic.depends_on.join(", ")
-                ));
-            }
-        }
-
-        md.push_str("\n### Tickets\n\n");
-
-        for (j, ticket) in epic.tickets.iter().enumerate() {
-            md.push_str(&format!("#### {}.{} {}\n\n", i + 1, j + 1, ticket.title));
-            md.push_str(&ticket.description);
-            md.push('\n');
-
-            if let Some(ref criteria) = ticket.acceptance_criteria {
-                md.push_str("\n**Acceptance Criteria:**\n");
-                for c in criteria {
-                    md.push_str(&format!("- {}\n", c));
-                }
-            }
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_generate_plan_markdown() {
-        let plan = ProjectPlan {
-            overview: "Test plan overview".to_string(),
-            epics: vec![PlanEpic {
-                title: "Epic 1".to_string(),
-                description: "Description 1".to_string(),
-                depends_on: vec![],
-                tickets: vec![PlanTicket {
-                    title: "Ticket 1".to_string(),
-                    description: "Ticket description".to_string(),
-                    acceptance_criteria: Some(vec!["Criteria 1".to_string()]),
-                }],
-            }],
-        };
-
-        let md = generate_plan_markdown(&plan);
-
-        assert!(md.contains("# Work Plan"));
-        assert!(md.contains("Test plan overview"));
-        assert!(md.contains("Epic 1: Epic 1"));
-        assert!(md.contains("1.1 Ticket 1"));
-        assert!(md.contains("Criteria 1"));
-    }
-
-    #[test]
-    fn test_topological_sort_no_dependencies() {
-        let epics = vec![
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-        ];
-
-        let sorted = topological_sort_epics(&epics).unwrap();
-        assert_eq!(sorted.len(), 2);
-    }
-
-    #[test]
-    fn test_topological_sort_with_dependencies() {
-        // B depends on A, so A should come first
-        let epics = vec![
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["A".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-        ];
-
-        let sorted = topological_sort_epics(&epics).unwrap();
-        assert_eq!(sorted.len(), 2);
-        assert_eq!(sorted[0].title, "A");
-        assert_eq!(sorted[1].title, "B");
-    }
-
-    #[test]
-    fn test_topological_sort_forward_reference_works() {
-        // This is the bug case: C depends on D, but D appears after C in the list
-        // The topological sort should handle this correctly
-        let epics = vec![
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "C".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["D".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["A".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "D".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-        ];
-
-        let sorted = topological_sort_epics(&epics).unwrap();
-        assert_eq!(sorted.len(), 4);
-
-        // Build a position map
-        let positions: std::collections::HashMap<_, _> = sorted
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.title.as_str(), i))
-            .collect();
-
-        // A should come before B
-        assert!(positions["A"] < positions["B"]);
-        // D should come before C
-        assert!(positions["D"] < positions["C"]);
-    }
-
-    #[test]
-    fn test_topological_sort_detects_cycle() {
-        // A -> B -> A (cycle)
-        let epics = vec![
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["B".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["A".to_string()],
-                tickets: vec![],
-            },
-        ];
-
-        let result = topological_sort_epics(&epics);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Circular dependency"));
-    }
-
-    #[test]
-    fn test_topological_sort_chain() {
-        // C -> B -> A (chain)
-        let epics = vec![
-            PlanEpic {
-                title: "C".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["B".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["A".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-        ];
-
-        let sorted = topological_sort_epics(&epics).unwrap();
-        assert_eq!(sorted.len(), 3);
-        assert_eq!(sorted[0].title, "A");
-        assert_eq!(sorted[1].title, "B");
-        assert_eq!(sorted[2].title, "C");
-    }
-
-    #[test]
-    fn test_topological_sort_multiple_dependencies() {
-        // C depends on both A and B
-        let epics = vec![
-            PlanEpic {
-                title: "C".to_string(),
-                description: "".to_string(),
-                depends_on: vec!["A".to_string(), "B".to_string()],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "A".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-            PlanEpic {
-                title: "B".to_string(),
-                description: "".to_string(),
-                depends_on: vec![],
-                tickets: vec![],
-            },
-        ];
-
-        let sorted = topological_sort_epics(&epics).unwrap();
-        assert_eq!(sorted.len(), 3);
-
-        // Build a position map
-        let positions: std::collections::HashMap<_, _> = sorted
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.title.as_str(), i))
-            .collect();
-
-        // Both A and B should come before C
-        assert!(positions["A"] < positions["C"]);
-        assert!(positions["B"] < positions["C"]);
-    }
-
-    #[test]
-    fn test_parse_project_plan_direct_json() {
-        let json = r#"{"overview":"Test","epics":[]}"#;
-        let result = parse_project_plan(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().overview, "Test");
-    }
-
-    #[test]
-    fn test_parse_project_plan_with_preamble() {
-        let text = r#"Here's the plan:
-
-{"overview":"Test plan","epics":[{"title":"Epic 1","description":"Desc","dependsOn":[],"tickets":[]}]}
-
-That's the plan!"#;
-
-        let result = parse_project_plan(text);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().overview, "Test plan");
-    }
-
-    #[test]
-    fn test_parse_project_plan_with_old_format_null() {
-        // Test backward compatibility with old format (null for dependsOn)
-        let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":null,"tickets":[]}]}"#;
-
-        let result = parse_project_plan(text);
-        assert!(result.is_ok());
-        let plan = result.unwrap();
-        assert!(plan.epics[0].depends_on.is_empty());
-    }
-
-    #[test]
-    fn test_parse_project_plan_with_old_format_string() {
-        // Test backward compatibility with old format (string for dependsOn)
-        let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":"Other Epic","tickets":[]}]}"#;
-
-        let result = parse_project_plan(text);
-        assert!(result.is_ok());
-        let plan = result.unwrap();
-        assert_eq!(plan.epics[0].depends_on, vec!["Other Epic".to_string()]);
-    }
-
-    #[test]
-    fn test_parse_project_plan_with_new_format_array() {
-        // Test new format (array for dependsOn)
-        let text = r#"{"overview":"Test","epics":[{"title":"Epic 1","description":"Desc","dependsOn":["A", "B"],"tickets":[]}]}"#;
-
-        let result = parse_project_plan(text);
-        assert!(result.is_ok());
-        let plan = result.unwrap();
-        assert_eq!(
-            plan.epics[0].depends_on,
-            vec!["A".to_string(), "B".to_string()]
-        );
-    }
-
-    #[test]
-    fn test_parse_project_plan_code_block() {
-        let text = r#"Here's the JSON:
-
-```json
-{"overview":"Code block plan","epics":[]}
-```
-
-Done!"#;
-
-        let result = parse_project_plan(text);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().overview, "Code block plan");
-    }
-
-    #[test]
-    fn test_parse_project_plan_no_json() {
-        let text = "This has no JSON at all";
-        let result = parse_project_plan(text);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_extract_json_code_block() {
-        let text = "prefix\n```json\n{\"key\":\"value\"}\n```\nsuffix";
-        let result = extract_json_code_block(text);
-        assert_eq!(result, Some("{\"key\":\"value\"}".to_string()));
-    }
-
-    #[test]
-    fn test_extract_json_code_block_plain() {
-        let text = "prefix\n```\n{\"key\":\"value\"}\n```\nsuffix";
-        let result = extract_json_code_block(text);
-        assert_eq!(result, Some("{\"key\":\"value\"}".to_string()));
-    }
-
-    #[test]
-    fn test_extract_json_code_block_none() {
-        let text = "no code block here";
-        let result = extract_json_code_block(text);
-        assert_eq!(result, None);
     }
 }

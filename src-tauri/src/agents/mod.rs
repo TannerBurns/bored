@@ -6,13 +6,67 @@ pub mod eta;
 pub mod orchestrator;
 pub mod plan_validation;
 pub mod planner;
-pub mod planner_prompts;
 pub mod prompt;
 pub mod runner;
 pub mod spawner;
 pub mod validation;
 pub mod worker;
 pub mod worktree;
+
+// Re-exports for backward compatibility
+pub use planner::{
+    PlannerAgent, PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult,
+};
+pub use worker::{Worker, WorkerConfig, WorkerManager, WorkerState, WorkerStatus};
+pub use spawner::{
+    run_agent, run_agent_with_cancel_callback, run_agent_with_capture, CancelHandle,
+    OnSpawnCallback, SpawnError,
+};
+// Claude module re-exports
+pub use claude::{
+    build_command as build_claude_command, check_global_hooks_installed as check_claude_global_hooks,
+    check_project_commands_installed as check_claude_project_commands,
+    check_project_hooks_installed as check_claude_project_hooks,
+    check_user_commands_installed as check_claude_user_commands,
+    generate_hooks_config as generate_claude_hooks_config,
+    generate_hooks_settings, generate_hooks_settings_with_api, generate_hooks_settings_with_config,
+    get_bundled_commands_path as get_claude_bundled_commands_path,
+    get_bundled_commands_path_with_app as get_claude_bundled_commands_path_with_app,
+    get_claude_version, install_commands as install_claude_commands,
+    install_local_hooks as install_claude_local_hooks,
+    install_local_hooks_with_run_id as install_claude_local_hooks_with_run_id,
+    install_project_hooks as install_claude_project_hooks,
+    install_user_commands as install_claude_user_commands,
+    install_user_hooks as install_claude_user_hooks,
+    is_claude_available, local_settings_path, project_settings_path, user_settings_path,
+    ClaudeSettings, HooksConfig as ClaudeHooksConfig, COMMAND_TEMPLATES as CLAUDE_COMMAND_TEMPLATES,
+};
+// Cursor module re-exports
+pub use cursor::{
+    build_command as build_cursor_command,
+    check_global_hooks_installed as check_cursor_global_hooks,
+    check_project_commands_installed as check_cursor_project_commands,
+    check_project_hooks_installed as check_cursor_project_hooks,
+    check_user_commands_installed as check_cursor_user_commands,
+    generate_hooks_config as generate_cursor_hooks_config,
+    generate_hooks_json, generate_hooks_json_with_api, generate_hooks_json_with_config,
+    get_bundled_commands_path as get_cursor_bundled_commands_path,
+    get_bundled_commands_path_with_app as get_cursor_bundled_commands_path_with_app,
+    get_cursor_version, global_hooks_path,
+    install_commands as install_cursor_commands,
+    install_global_hooks as install_cursor_global_hooks,
+    install_global_hooks_with_run_id as install_cursor_global_hooks_with_run_id,
+    install_hooks as install_cursor_hooks,
+    install_hooks_with_run_id as install_cursor_hooks_with_run_id,
+    install_user_commands as install_cursor_user_commands,
+    is_cursor_available, CursorSettings, HooksConfig as CursorHooksConfig,
+    COMMAND_TEMPLATES as CURSOR_COMMAND_TEMPLATES,
+};
+// Brainstorm module re-exports
+pub use brainstorm::{
+    BrainstormAgent, BrainstormConfig, BrainstormError, BrainstormResponse,
+    build_conversation_prompt, build_initial_prompt, parse_response, response_has_questions,
+};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
