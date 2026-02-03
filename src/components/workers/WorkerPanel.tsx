@@ -2,23 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
-import type { WorkerStatus, WorkerQueueStatus, AgentType, Project, ValidationResult } from '../../types';
+import { ClaudeIcon, CursorIcon } from '../common';
+import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
-import {
-  validateWorker,
-  installCommandsToUser,
-  getCursorStatus,
-  getClaudeStatus,
-  installCursorHooksProject,
-  installClaudeHooksProject,
-} from '../../lib/tauri';
 import { useSettingsStore } from '../../stores/settingsStore';
 
-interface Props {
-  projects: Project[];
-}
-
-export function WorkerPanel({ projects }: Props) {
+export function WorkerPanel() {
   const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
@@ -27,15 +16,9 @@ export function WorkerPanel({ projects }: Props) {
     workerCount: 0,
   });
   const [isStarting, setIsStarting] = useState(false);
-  const [newWorkerType, setNewWorkerType] = useState<AgentType>('cursor');
-  const [newWorkerProject, setNewWorkerProject] = useState<string>('');
+  const [cursorCount, setCursorCount] = useState<number>(0);
+  const [claudeCount, setClaudeCount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  
-  // Validation state
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-  const [isValidating, setIsValidating] = useState(false);
-  const [isFixing, setIsFixing] = useState(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -58,95 +41,42 @@ export function WorkerPanel({ projects }: Props) {
     return () => clearInterval(interval);
   }, [loadStatus]);
 
-  // Validate when project or agent type changes
-  const runValidation = useCallback(async () => {
-    if (!newWorkerProject) {
-      setValidationResult(null);
-      setValidationError(null);
-      return;
-    }
-
-    const project = projects.find(p => p.id === newWorkerProject);
-    if (!project) {
-      setValidationResult(null);
-      setValidationError(null);
-      return;
-    }
-
-    setIsValidating(true);
-    setValidationError(null);
-    try {
-      const result = await validateWorker(newWorkerType, project.path);
-      setValidationResult(result);
-    } catch (err) {
-      logger.error('Validation failed:', err);
-      setValidationResult(null);
-      setValidationError(String(err));
-    } finally {
-      setIsValidating(false);
-    }
-  }, [newWorkerProject, newWorkerType, projects]);
-
-  useEffect(() => {
-    runValidation();
-  }, [runValidation]);
-
-  const handleFix = async (fixAction: string) => {
-    if (!newWorkerProject) return;
-    
-    const project = projects.find(p => p.id === newWorkerProject);
-    if (!project) return;
-
-    setIsFixing(true);
-    setError(null);
-
-    try {
-      if (fixAction === 'install_commands') {
-        // Install commands to user directory (~/.cursor/commands/ or ~/.claude/commands/)
-        await installCommandsToUser(newWorkerType);
-      } else if (fixAction === 'install_hooks') {
-        // Get the hook script path from the agent status
-        if (newWorkerType === 'cursor') {
-          const status = await getCursorStatus();
-          if (!status.hookScriptPath) {
-            throw new Error('Cursor hook script not found. Check Settings > Cursor.');
-          }
-          await installCursorHooksProject(status.hookScriptPath, project.path);
-        } else {
-          const status = await getClaudeStatus();
-          if (!status.hookScriptPath) {
-            throw new Error('Claude hook script not found. Check Settings > Claude.');
-          }
-          await installClaudeHooksProject(status.hookScriptPath, project.path);
-        }
-      }
-      // Re-validate after fix
-      await runValidation();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsFixing(false);
-    }
-  };
-
-  const handleStartWorker = async () => {
+  const handleStartWorkers = async () => {
     setIsStarting(true);
     setError(null);
     
     try {
-      await invoke('start_worker', {
-        input: {
-          agentType: newWorkerType,
-          projectId: newWorkerProject || null,
-          codeReviewMaxIterations,
-          stageTimeoutMinutes,
-          stageMaxRetries,
-        },
-      });
+      // Start Cursor workers
+      for (let i = 0; i < cursorCount; i++) {
+        await invoke('start_worker', {
+          input: {
+            agentType: 'cursor',
+            projectId: null,
+            codeReviewMaxIterations,
+            stageTimeoutMinutes,
+            stageMaxRetries,
+          },
+        });
+      }
+      
+      // Start Claude workers
+      for (let i = 0; i < claudeCount; i++) {
+        await invoke('start_worker', {
+          input: {
+            agentType: 'claude',
+            projectId: null,
+            codeReviewMaxIterations,
+            stageTimeoutMinutes,
+            stageMaxRetries,
+          },
+        });
+      }
+      
       await loadStatus();
-      setNewWorkerProject('');
+      setCursorCount(0);
+      setClaudeCount(0);
     } catch (err) {
-      logger.error('Failed to start worker:', err);
+      logger.error('Failed to start workers:', err);
       setError(String(err));
     } finally {
       setIsStarting(false);
@@ -243,120 +173,52 @@ export function WorkerPanel({ projects }: Props) {
         </div>
       </div>
 
-      {/* Start New Worker */}
+      {/* Start Workers */}
       <div className="glass rounded-lg p-3">
-        <h3 className="text-xs font-medium text-board-text-muted uppercase tracking-wide mb-2">Start New Worker</h3>
-
+        <h3 className="text-xs font-medium text-board-text-muted uppercase tracking-wide mb-2">
+          Start Workers
+        </h3>
+        
         <div className="space-y-3">
-          <div className="flex gap-4">
-            <label className="flex items-center gap-1.5 cursor-pointer group">
-              <input
-                type="radio"
-                name="agentType"
-                checked={newWorkerType === 'cursor'}
-                onChange={() => setNewWorkerType('cursor')}
-                className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
-              />
-              <span className="text-sm text-board-text group-hover:text-board-accent transition-colors">Cursor</span>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer group">
-              <input
-                type="radio"
-                name="agentType"
-                checked={newWorkerType === 'claude'}
-                onChange={() => setNewWorkerType('claude')}
-                className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
-              />
-              <span className="text-sm text-board-text group-hover:text-board-accent transition-colors">Claude</span>
-            </label>
+          {/* Cursor worker count */}
+          <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
+            <span className="text-sm font-medium text-board-text flex items-center gap-2">
+              <CursorIcon size={16} className="text-board-text-secondary" />
+              Cursor Workers
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={cursorCount}
+              onChange={(e) => setCursorCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
+              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            />
           </div>
-
-          <select
-            value={newWorkerProject}
-            onChange={(e) => setNewWorkerProject(e.target.value)}
-            className="w-full px-2.5 py-1.5 rounded-lg text-sm text-board-text bg-board-surface border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/30 transition-all"
-          >
-            <option value="">All projects (no filter)</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name} - {project.path}
-              </option>
-            ))}
-          </select>
-
-          {/* Validation Status */}
-          {newWorkerProject && validationResult && (
-            <div className={cn(
-              'glass rounded-lg px-3 py-2 ring-1',
-              validationResult.valid ? 'ring-status-success/50' : 'ring-status-error/50'
-            )}>
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className={cn('w-1.5 h-1.5 rounded-full', validationResult.valid ? 'bg-status-success' : 'bg-status-error')} />
-                <span className={cn('text-sm font-medium', validationResult.valid ? 'text-status-success' : 'text-status-error')}>
-                  {validationResult.valid ? 'Environment Ready' : 'Environment Issues'}
-                </span>
-              </div>
-              
-              <div className="space-y-1">
-                {validationResult.checks.map((check) => (
-                  <div key={check.name} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn(
-                        'w-1 h-1 rounded-full',
-                        check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'
-                      )} />
-                      <span className="text-board-text-secondary">{check.message}</span>
-                    </div>
-                    {!check.passed && check.fixAction && (
-                      <Button
-                        onClick={() => handleFix(check.fixAction!)}
-                        disabled={isFixing}
-                        size="sm"
-                        variant="primary"
-                      >
-                        {isFixing ? 'Fixing...' : 'Fix'}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {validationResult.warnings.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-board-border">
-                  <span className="text-xs text-status-warning font-medium">Warnings:</span>
-                  <ul className="mt-0.5 space-y-0.5">
-                    {validationResult.warnings.map((warning, i) => (
-                      <li key={i} className="text-xs text-board-text-muted">{warning}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {isValidating && (
-            <div className="text-xs text-board-text-muted text-center glass-subtle rounded-lg py-2">
-              Validating environment...
-            </div>
-          )}
-
-          {validationError && (
-            <div className="glass rounded-lg px-3 py-2 ring-1 ring-status-error/50">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-status-error" />
-                <span className="text-sm font-medium text-status-error">Validation Error</span>
-              </div>
-              <p className="text-xs text-board-text-secondary mt-1">{validationError}</p>
-            </div>
-          )}
-
+          
+          {/* Claude worker count */}
+          <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
+            <span className="text-sm font-medium text-board-text flex items-center gap-2">
+              <ClaudeIcon size={16} className="text-[#da7756]" />
+              Claude Workers
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={claudeCount}
+              onChange={(e) => setClaudeCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
+              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            />
+          </div>
+          
           <Button
-            onClick={handleStartWorker}
-            disabled={isStarting || isValidating || !!validationError || (!!newWorkerProject && !!validationResult && !validationResult.valid)}
+            onClick={handleStartWorkers}
+            disabled={isStarting || (cursorCount === 0 && claudeCount === 0)}
             variant="primary"
             className="w-full"
           >
-            {isStarting ? 'Starting...' : isValidating ? 'Validating...' : 'Start Worker'}
+            {isStarting ? 'Starting...' : `Start ${cursorCount + claudeCount} Worker(s)`}
           </Button>
         </div>
       </div>
@@ -372,49 +234,51 @@ export function WorkerPanel({ projects }: Props) {
           </div>
         ) : (
           <div className="space-y-1.5">
-            {workers.map((worker) => {
-              const project = projects.find((p) => p.id === worker.projectId);
-              return (
-                <div
-                  key={worker.id}
-                  className="flex items-center justify-between glass-intense rounded-lg px-3 py-2"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          'w-2 h-2 rounded-full',
-                          getStatusColor(worker.status),
-                          getStatusGlow(worker.status)
-                        )}
-                      />
-                      <span className="font-medium text-sm text-board-text">
-                        {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
-                      </span>
-                      <span className="text-xs text-board-text-muted px-1.5 py-0.5 glass-subtle rounded">
-                        {worker.status}
-                      </span>
-                    </div>
-                    <div className="text-xs text-board-text-muted mt-0.5 truncate">
-                      {project ? project.name : 'All projects'} · {worker.ticketsProcessed} processed
-                    </div>
-                    {worker.currentTicketId && (
-                      <div className="text-xs text-board-accent mt-0.5 truncate flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-board-accent animate-pulse" />
-                        Working on: {worker.currentTicketId.substring(0, 8)}...
-                      </div>
+            {workers.map((worker) => (
+              <div
+                key={worker.id}
+                className="flex items-center justify-between glass-intense rounded-lg px-3 py-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        'w-2 h-2 rounded-full',
+                        getStatusColor(worker.status),
+                        getStatusGlow(worker.status)
+                      )}
+                    />
+                    {worker.agentType === 'cursor' ? (
+                      <CursorIcon size={14} className="text-board-text-secondary" />
+                    ) : (
+                      <ClaudeIcon size={14} className="text-[#da7756]" />
                     )}
+                    <span className="font-medium text-sm text-board-text">
+                      {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
+                    </span>
+                    <span className="text-xs text-board-text-muted px-1.5 py-0.5 glass-subtle rounded">
+                      {worker.status}
+                    </span>
                   </div>
-                  <Button
-                    onClick={() => handleStopWorker(worker.id, worker.status === 'running' && !!worker.currentTicketId)}
-                    variant="secondary"
-                    size="sm"
-                  >
-                    Stop
-                  </Button>
+                  <div className="text-xs text-board-text-muted mt-0.5 truncate">
+                    {worker.ticketsProcessed} processed
+                  </div>
+                  {worker.currentTicketId && (
+                    <div className="text-xs text-board-accent mt-0.5 truncate flex items-center gap-1">
+                      <span className="w-1 h-1 rounded-full bg-board-accent animate-pulse" />
+                      Working on: {worker.currentTicketId.substring(0, 8)}...
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+                <Button
+                  onClick={() => handleStopWorker(worker.id, worker.status === 'running' && !!worker.currentTicketId)}
+                  variant="secondary"
+                  size="sm"
+                >
+                  Stop
+                </Button>
+              </div>
+            ))}
           </div>
         )}
       </div>

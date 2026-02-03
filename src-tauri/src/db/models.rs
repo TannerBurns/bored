@@ -304,6 +304,30 @@ pub struct AgentRun {
     pub resumed_from_run_id: Option<String>,
 }
 
+/// An agent run with additional context for display (board, project, ticket info)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunWithContext {
+    #[serde(flatten)]
+    pub run: AgentRun,
+    /// The ticket title
+    pub ticket_title: String,
+    /// The board ID this run's ticket belongs to
+    pub board_id: String,
+    /// The board name
+    pub board_name: String,
+    /// The project ID (if the ticket has one)
+    pub project_id: Option<String>,
+    /// The project name (if the ticket has one)
+    pub project_name: Option<String>,
+    /// The current stage name for multi-stage workflows (if running)
+    pub current_stage: Option<String>,
+    /// Number of completed stages (sub-runs with status = finished)
+    pub completed_stages: u32,
+    /// Total number of stages (all sub-runs)
+    pub total_stages: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {

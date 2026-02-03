@@ -17,8 +17,8 @@ pub use conversations::{
 pub use cursor::*;
 pub use projects::*;
 pub use runs::{
-    cancel_agent_run, get_agent_run, get_agent_runs, get_recent_runs, get_run_events,
-    start_agent_run,
+    cancel_agent_run, get_agent_run, get_agent_runs, get_recent_runs,
+    get_recent_runs_with_context, get_run_events, start_agent_run,
 };
 pub use specs::{
     append_spec_exploration, approve_plan, create_spec, delete_spec, execute_plan, get_spec,

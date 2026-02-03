@@ -4,6 +4,7 @@ import type {
   Column,
   Ticket,
   AgentRun,
+  AgentRunWithContext,
   Project,
   CreateProjectInput,
   UpdateProjectInput,
@@ -154,8 +155,12 @@ export async function getAgentRuns(ticketId: string): Promise<AgentRun[]> {
   return invoke('get_agent_runs', { ticketId });
 }
 
-export async function getRecentRuns(limit?: number): Promise<AgentRun[]> {
-  return invoke('get_recent_runs', { limit });
+/** Get recent runs with full context (board, project, ticket info).
+ * This is the preferred method for the runs list as it eliminates
+ * client-side lookups and works across all boards.
+ */
+export async function getRecentRunsWithContext(limit?: number): Promise<AgentRunWithContext[]> {
+  return invoke('get_recent_runs_with_context', { limit });
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
@@ -303,16 +308,6 @@ export async function getClaudeApiSettings(): Promise<ClaudeApiSettings> {
 
 export async function setClaudeApiSettings(settings: ClaudeApiSettings): Promise<void> {
   return invoke('set_claude_api_settings', { settings });
-}
-
-// Worker validation and commands
-import type { ValidationResult } from '../types';
-
-export async function validateWorker(
-  agentType: string,
-  repoPath: string
-): Promise<ValidationResult> {
-  return invoke('validate_worker', { agentType, repoPath });
 }
 
 export async function getCommandsPath(): Promise<string | null> {

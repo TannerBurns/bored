@@ -14,6 +14,7 @@ import {
 } from '../../lib/tauri';
 import type { CursorStatus } from '../../lib/tauri';
 import type { Project } from '../../types';
+import { CursorIcon } from '../common';
 
 export function CursorSettings() {
   const [status, setStatus] = useState<CursorStatus | null>(null);
@@ -190,7 +191,10 @@ export function CursorSettings() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-board-text">Cursor Integration</h2>
+      <h2 className="text-lg font-semibold text-board-text flex items-center gap-2">
+        <CursorIcon size={20} className="text-board-text" />
+        Cursor Integration
+      </h2>
 
       {error && (
         <div className="bg-status-error/10 border border-status-error/30 text-status-error px-3 py-2 rounded-lg text-sm">

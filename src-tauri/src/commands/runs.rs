@@ -14,7 +14,7 @@ use crate::agents::{
     self, cursor, extract_text_from_stream_json, AgentKind, AgentRunConfig, ClaudeApiConfig,
 };
 use crate::commands::claude::ClaudeApiSettingsState;
-use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
+use crate::db::models::{AgentRun, AgentRunWithContext, AgentType, CreateRun, RunStatus};
 use crate::db::Database;
 
 /// Shared state for tracking running agents
@@ -983,6 +983,19 @@ pub async fn get_recent_runs(
     let limit = limit.unwrap_or(50);
     tracing::debug!("Getting recent {} agent runs", limit);
     db.get_recent_runs(limit).map_err(|e| e.to_string())
+}
+
+/// Get recent runs with full context (board, project, ticket info).
+/// This is the preferred method for the runs list view as it eliminates
+/// client-side lookups and works across all boards.
+#[tauri::command]
+pub async fn get_recent_runs_with_context(
+    limit: Option<u32>,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<AgentRunWithContext>, String> {
+    let limit = limit.unwrap_or(50);
+    tracing::debug!("Getting recent {} agent runs with context", limit);
+    db.get_recent_runs_with_context(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

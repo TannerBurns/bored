@@ -15,10 +15,10 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useSpecStore } from './stores/specStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
-import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRuns, getColumns, startAgentRun } from './lib/tauri';
+import { getProjects, getBoards, getTickets, getApiConfig, deleteTicket, getRecentRunsWithContext, getColumns, startAgentRun } from './lib/tauri';
 import { api } from './lib/api';
 import { logger } from './lib/logger';
-import type { Ticket, Project, Board as BoardType, AgentRun, CreateTicketInput, SpecWithVersion } from './types';
+import type { Ticket, Project, Board as BoardType, AgentRunWithContext, CreateTicketInput, SpecWithVersion } from './types';
 import './index.css';
 
 function getTimeAgo(date: Date): string {
@@ -90,7 +90,7 @@ const navItems = [
 function App() {
   const [activeNav, setActiveNav] = useState('boards');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [recentRuns, setRecentRuns] = useState<AgentRun[]>([]);
+  const [recentRuns, setRecentRuns] = useState<AgentRunWithContext[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
   const [agentsTab, setAgentsTab] = useState<'workers' | 'runs'>('workers');
@@ -200,7 +200,7 @@ function App() {
     
     const loadRecentRuns = async () => {
       try {
-        const runs = await getRecentRuns(50);
+        const runs = await getRecentRunsWithContext(50);
         setRecentRuns(runs);
       } catch (error) {
         logger.error('Failed to load recent runs:', error);
@@ -669,7 +669,7 @@ function App() {
             {/* Workers Tab Content */}
             {agentsTab === 'workers' && (
               <div className="flex-1 overflow-auto glass rounded-lg">
-                <WorkerPanel projects={projects} />
+                <WorkerPanel />
               </div>
             )}
 
@@ -728,7 +728,6 @@ function App() {
                       </div>
                     ) : (
                       recentRuns.map((run) => {
-                        const ticket = tickets.find((t) => t.id === run.ticketId);
                         const statusConfig = {
                           running: { color: 'text-status-warning', bg: 'bg-status-warning', label: 'Running', pulse: true },
                           queued: { color: 'text-board-text-muted', bg: 'bg-board-text-muted', label: 'Queued', pulse: false },
@@ -743,6 +742,11 @@ function App() {
                         const timeAgo = getTimeAgo(startedAt);
                         const duration = endedAt ? formatDuration(startedAt, endedAt) : null;
                         
+                        // Build stage progress info for multi-stage workflows
+                        const stageInfo = run.totalStages > 0 
+                          ? `${run.currentStage || 'stage'} (${run.completedStages}/${run.totalStages})`
+                          : null;
+                        
                         return (
                           <div
                             key={run.id}
@@ -750,17 +754,39 @@ function App() {
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
+                                <span className="text-xs text-board-text-muted bg-board-bg/50 px-1.5 py-0.5 rounded shrink-0">
+                                  {run.boardName}
+                                </span>
                                 <span className="font-medium text-sm text-board-text truncate">
-                                  {ticket?.title || 'Unknown Ticket'}
+                                  {run.ticketTitle}
                                 </span>
                                 <span className="text-xs text-board-text-muted font-mono shrink-0">
                                   #{run.ticketId.slice(0, 8)}
                                 </span>
                               </div>
-                              <span className="text-xs text-board-text-muted">
-                                {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} · {timeAgo}
-                                {duration && ` · ${duration}`}
-                              </span>
+                              <div className="flex items-center gap-1 text-xs text-board-text-muted">
+                                {run.projectName && (
+                                  <>
+                                    <span className="text-board-accent">{run.projectName}</span>
+                                    <span>·</span>
+                                  </>
+                                )}
+                                <span>{run.agentType === 'cursor' ? 'Cursor' : 'Claude'}</span>
+                                <span>·</span>
+                                <span>{timeAgo}</span>
+                                {duration && (
+                                  <>
+                                    <span>·</span>
+                                    <span>{duration}</span>
+                                  </>
+                                )}
+                                {stageInfo && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="text-board-text-secondary">{stageInfo}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                             <span className={`${status.color} text-xs flex items-center gap-1 shrink-0`}>
                               <span className={`inline-block w-1.5 h-1.5 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />

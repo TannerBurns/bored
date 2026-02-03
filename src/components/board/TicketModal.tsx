@@ -11,6 +11,7 @@ import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 import { FullscreenCommentModal } from './FullscreenCommentModal';
 import { CreateCommentModal } from './CreateCommentModal';
 import { TaskList } from './TaskList';
+import { BuildWithDropdown } from './BuildWithDropdown';
 import { useBoardStore } from '../../stores/boardStore';
 import type { Project, AgentRun, Comment, Ticket as TicketType, EpicProgress } from '../../types';
 import type {
@@ -1898,23 +1899,18 @@ export function TicketModal({
         <div className="flex items-center justify-between p-4 border-t border-board-border">
           <div className="flex flex-col gap-2">
             {!ticket.lockedByRunId && onRunWithAgent && (
-              <>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => onRunWithAgent(ticket.id, 'cursor')}
-                    disabled={!ticket.projectId || currentColumn?.name.toLowerCase() === 'backlog'}
-                    className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                  >
-                    <span>Run with Cursor</span>
-                  </button>
-                  <button
-                    onClick={() => onRunWithAgent(ticket.id, 'claude')}
-                    disabled={!ticket.projectId || currentColumn?.name.toLowerCase() === 'backlog'}
-                    className="px-3 py-1.5 bg-status-success text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                  >
-                    <span>Run with Claude</span>
-                  </button>
-                </div>
+              <div className="flex flex-col gap-2">
+                <BuildWithDropdown
+                  onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
+                  disabled={!ticket.projectId || currentColumn?.name.toLowerCase() === 'backlog'}
+                  disabledReason={
+                    currentColumn?.name.toLowerCase() === 'backlog'
+                      ? 'Move this ticket to Ready to enable agent runs.'
+                      : !ticket.projectId
+                        ? 'Assign a project to this ticket to enable agent runs.'
+                        : undefined
+                  }
+                />
                 {currentColumn?.name.toLowerCase() === 'backlog' ? (
                   <p className="text-sm text-yellow-400">
                     Move this ticket to Ready to enable agent runs.
@@ -1924,7 +1920,7 @@ export function TicketModal({
                     Assign a project to this ticket to enable agent runs.
                   </p>
                 )}
-              </>
+              </div>
             )}
           </div>
 

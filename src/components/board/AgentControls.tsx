@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Ticket, AgentRun, AgentType } from '../../types';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { BuildWithDropdown } from './BuildWithDropdown';
 
 interface AgentLogEvent {
   runId: string;
@@ -223,58 +224,27 @@ export function AgentControls({
         </div>
       )}
 
-      <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={() => handleRunAgent('cursor')}
+      <div className="flex gap-2 flex-wrap items-center">
+        <BuildWithDropdown
+          onSelect={handleRunAgent}
           disabled={isRunning || isLocked || !ticket.projectId || isInBacklog}
-          className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-          </svg>
-          {isRunning && currentRunId ? 'Running...' : 'Run with Cursor'}
-        </button>
-
-        <button
-          onClick={() => handleRunAgent('claude')}
-          disabled={isRunning || isLocked || !ticket.projectId || isInBacklog}
-          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 8V4H8" />
-            <rect width="16" height="12" x="4" y="8" rx="2" />
-            <path d="M2 14h2" />
-            <path d="M20 14h2" />
-            <path d="M15 13v2" />
-            <path d="M9 13v2" />
-          </svg>
-          {isRunning && currentRunId ? 'Running...' : 'Run with Claude'}
-        </button>
+          disabledReason={
+            isRunning
+              ? 'Agent is currently running'
+              : isLocked
+                ? 'Ticket is locked by another run'
+                : isInBacklog
+                  ? 'Move this ticket to Ready to enable agent runs.'
+                  : !ticket.projectId
+                    ? 'Assign a project to this ticket to enable agent runs.'
+                    : undefined
+          }
+        />
 
         {isRunning && (
           <button
             onClick={handleCancel}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            className="px-4 py-2 glass text-status-error rounded-xl hover:glass-intense hover:shadow-md transition-all duration-200"
           >
             Cancel
           </button>
