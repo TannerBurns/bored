@@ -1,5 +1,6 @@
 //! Error handling for worker operations.
 
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
@@ -10,19 +11,34 @@ use super::super::diagnostic;
 use super::super::worktree::WorktreeError;
 use super::super::{AgentKind, ClaudeApiConfig};
 
+/// Context for handling worktree failures.
+pub struct WorktreeFailureContext<'a> {
+    pub db: Arc<Database>,
+    pub app_handle: Option<AppHandle>,
+    pub ticket: &'a Ticket,
+    pub repo_path: &'a Path,
+    pub error: &'a WorktreeError,
+    pub api_url: &'a str,
+    pub api_token: &'a str,
+    pub agent_kind: AgentKind,
+    pub claude_api_config: Option<ClaudeApiConfig>,
+    pub worker_id: &'a str,
+}
+
 /// Spawns a diagnostic agent and moves ticket to Blocked.
-pub async fn handle_worktree_failure(
-    db: Arc<Database>,
-    app_handle: Option<AppHandle>,
-    ticket: &Ticket,
-    repo_path: &std::path::Path,
-    error: &WorktreeError,
-    api_url: &str,
-    api_token: &str,
-    agent_kind: AgentKind,
-    claude_api_config: Option<ClaudeApiConfig>,
-    worker_id: &str,
-) {
+pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
+    let WorktreeFailureContext {
+        db,
+        app_handle,
+        ticket,
+        repo_path,
+        error,
+        api_url,
+        api_token,
+        agent_kind,
+        claude_api_config,
+        worker_id,
+    } = ctx;
     tracing::info!(
         "Worker {} handling worktree failure for ticket {}: {:?}",
         worker_id,
@@ -38,7 +54,7 @@ pub async fn handle_worktree_failure(
         ticket.title
     ));
 
-    move_ticket_to_blocked(&db, &app_handle, ticket, &worker_id);
+    move_ticket_to_blocked(&db, &app_handle, ticket, worker_id);
 
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();

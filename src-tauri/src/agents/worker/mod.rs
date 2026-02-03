@@ -235,23 +235,21 @@ impl Worker {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
+                        "Worker {} failed to create worktree for ticket {}: {}",
                         self.id, ticket.id, e
                     );
-
-                    // Handle worktree failure with diagnostics
-                    error_handling::handle_worktree_failure(
-                        self.db.clone(),
-                        self.config.app_handle.clone(),
-                        &ticket,
-                        &repo_path_buf,
-                        &e,
-                        &self.config.api_url,
-                        &self.config.api_token,
-                        self.config.agent_type,
-                        self.config.claude_api_config.clone(),
-                        &self.id,
-                    )
+                    error_handling::handle_worktree_failure(error_handling::WorktreeFailureContext {
+                        db: self.db.clone(),
+                        app_handle: self.config.app_handle.clone(),
+                        ticket: &ticket,
+                        repo_path: &repo_path_buf,
+                        error: &e,
+                        api_url: &self.config.api_url,
+                        api_token: &self.config.api_token,
+                        agent_kind: self.config.agent_type,
+                        claude_api_config: self.config.claude_api_config.clone(),
+                        worker_id: &self.id,
+                    })
                     .await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
@@ -302,23 +300,21 @@ impl Worker {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Worker {} failed to create worktree for ticket {}: {}. CRITICAL: Cannot proceed without worktree.",
+                        "Worker {} failed to create worktree for ticket {}: {}",
                         self.id, ticket.id, e
                     );
-
-                    // Handle worktree failure with diagnostics
-                    error_handling::handle_worktree_failure(
-                        self.db.clone(),
-                        self.config.app_handle.clone(),
-                        &ticket,
-                        &repo_path_buf,
-                        &e,
-                        &self.config.api_url,
-                        &self.config.api_token,
-                        self.config.agent_type,
-                        self.config.claude_api_config.clone(),
-                        &self.id,
-                    )
+                    error_handling::handle_worktree_failure(error_handling::WorktreeFailureContext {
+                        db: self.db.clone(),
+                        app_handle: self.config.app_handle.clone(),
+                        ticket: &ticket,
+                        repo_path: &repo_path_buf,
+                        error: &e,
+                        api_url: &self.config.api_url,
+                        api_token: &self.config.api_token,
+                        agent_kind: self.config.agent_type,
+                        claude_api_config: self.config.claude_api_config.clone(),
+                        worker_id: &self.id,
+                    })
                     .await;
                     self.db.unlock_ticket(&ticket.id)?;
                     return Err(format!("Failed to create worktree: {}", e).into());
@@ -581,11 +577,7 @@ impl Worker {
     }
 
     fn get_base_branch_for_ticket(&self, ticket: &Ticket) -> Option<String> {
-        if ticket.epic_id.is_none() {
-            return None;
-        }
-
-        // For epic child tickets, check if previous sibling has a branch
+        ticket.epic_id.as_ref()?;
         match self.db.get_previous_epic_sibling(&ticket.id) {
             Ok(Some(prev_sibling)) => {
                 if let Some(ref branch) = prev_sibling.branch_name {
