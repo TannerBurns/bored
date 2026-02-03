@@ -23,9 +23,10 @@ const createMockRun = (overrides: Partial<AgentRun> = {}): AgentRun => ({
   id: 'run-1',
   ticketId: 'ticket-1',
   agentType: 'cursor',
+  repoPath: '/test/repo',
   status: 'finished',
-  startedAt: '2024-01-01T10:00:00Z',
-  endedAt: '2024-01-01T10:05:00Z',
+  startedAt: new Date('2024-01-01T10:00:00Z'),
+  endedAt: new Date('2024-01-01T10:05:00Z'),
   ...overrides,
 });
 

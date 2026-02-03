@@ -274,11 +274,14 @@ export function TicketModal({
       {/* Create Comment Modal */}
       <CreateCommentModal
         isOpen={isCreateCommentModalOpen}
-        onClose={() => setIsCreateCommentModalOpen(false)}
+        onClose={() => {
+          setIsCreateCommentModalOpen(false);
+          setCreateCommentInitialContent('');
+        }}
         onSubmit={async (body) => {
           await onAddComment(ticket.id, body);
         }}
-        initialContent=""
+        initialContent={createCommentInitialContent}
       />
     </div>
   );

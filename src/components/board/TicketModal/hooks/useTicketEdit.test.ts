@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useTicketEdit } from './useTicketEdit';
+import { useTicketEdit, type UseTicketEditOptions } from './useTicketEdit';
 import type { Ticket } from '../../../../types';
+
+type OnUpdateFn = UseTicketEditOptions['onUpdate'];
 
 const createMockTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
   id: 'ticket-1',
@@ -21,10 +23,10 @@ const createMockTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
 });
 
 describe('useTicketEdit', () => {
-  let mockOnUpdate: ReturnType<typeof vi.fn>;
+  let mockOnUpdate: Mock<OnUpdateFn>;
 
   beforeEach(() => {
-    mockOnUpdate = vi.fn(() => Promise.resolve());
+    mockOnUpdate = vi.fn<OnUpdateFn>(() => Promise.resolve());
   });
 
   describe('initialization', () => {
