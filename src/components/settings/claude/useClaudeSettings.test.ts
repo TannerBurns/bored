@@ -1,0 +1,257 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { useClaudeSettings } from './useClaudeSettings';
+import * as tauri from '../../../lib/tauri';
+import { useSettingsStore } from '../../../stores/settingsStore';
+
+vi.mock('../../../lib/tauri', () => ({
+  getClaudeStatus: vi.fn(),
+  installClaudeHooksUser: vi.fn(),
+  installClaudeHooksProject: vi.fn(),
+  getClaudeHooksConfig: vi.fn(),
+  getClaudeApiSettings: vi.fn(),
+  setClaudeApiSettings: vi.fn(),
+  getProjects: vi.fn(),
+  browseForDirectory: vi.fn(),
+  getAvailableCommands: vi.fn(),
+  installCommandsToUser: vi.fn(),
+  installCommandsToProject: vi.fn(),
+  checkCommandsInstalled: vi.fn(),
+  checkUserCommandsInstalled: vi.fn(),
+}));
+
+Object.assign(navigator, {
+  clipboard: {
+    writeText: vi.fn(() => Promise.resolve()),
+  },
+});
+
+const mockClaudeStatus = {
+  isAvailable: true,
+  version: '1.2.3',
+  hookScriptPath: '/path/to/claude-hook.sh',
+  userHooksInstalled: true,
+};
+
+const mockApiSettings = {
+  authToken: 'test-token',
+  apiKey: 'test-api-key',
+  baseUrl: 'https://api.example.com',
+  modelOverride: 'claude-opus-4',
+};
+
+describe('useClaudeSettings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSettingsStore.setState({
+      claudeAuthToken: '',
+      claudeApiKey: '',
+      claudeBaseUrl: '',
+      claudeModelOverride: '',
+    });
+    vi.mocked(tauri.getClaudeStatus).mockResolvedValue(mockClaudeStatus);
+    vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue(mockApiSettings);
+    vi.mocked(tauri.setClaudeApiSettings).mockResolvedValue(undefined);
+    vi.mocked(tauri.getProjects).mockResolvedValue([]);
+    vi.mocked(tauri.getAvailableCommands).mockResolvedValue([]);
+    vi.mocked(tauri.checkUserCommandsInstalled).mockResolvedValue(false);
+  });
+
+  describe('initialization', () => {
+    it('loads API settings on mount', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.apiSettings.authToken).toBe('test-token');
+      expect(result.current.apiSettings.apiKey).toBe('test-api-key');
+      expect(result.current.apiSettings.baseUrl).toBe('https://api.example.com');
+      expect(result.current.apiSettings.modelOverride).toBe('claude-opus-4');
+    });
+
+    it('loads userHooksInstalled from Claude status', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.userHooksInstalled).toBe(true);
+    });
+
+    it('updates settings store with loaded API settings', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      // Wait for the effect to run and update the store
+      await waitFor(() => {
+        const state = useSettingsStore.getState();
+        return state.claudeAuthToken === 'test-token';
+      });
+
+      const storeState = useSettingsStore.getState();
+      expect(storeState.claudeAuthToken).toBe('test-token');
+      expect(storeState.claudeApiKey).toBe('test-api-key');
+    });
+
+    it('handles null API settings values', async () => {
+      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
+        authToken: null,
+        apiKey: null,
+        baseUrl: null,
+        modelOverride: null,
+      });
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.apiSettings.authToken).toBe('');
+      expect(result.current.apiSettings.apiKey).toBe('');
+    });
+  });
+
+  describe('save API settings', () => {
+    it('saves API settings successfully', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      act(() => {
+        result.current.apiSettings.setAuthToken('new-token');
+        result.current.apiSettings.setApiKey('new-api-key');
+      });
+
+      await act(async () => {
+        await result.current.apiSettings.save();
+      });
+
+      expect(tauri.setClaudeApiSettings).toHaveBeenCalledWith({
+        authToken: 'new-token',
+        apiKey: 'new-api-key',
+        baseUrl: 'https://api.example.com',
+        modelOverride: 'claude-opus-4',
+      });
+      expect(result.current.success).toBe('Claude API settings saved successfully!');
+    });
+
+    it('converts empty strings to null when saving', async () => {
+      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
+        authToken: null,
+        apiKey: null,
+        baseUrl: null,
+        modelOverride: null,
+      });
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.apiSettings.save();
+      });
+
+      expect(tauri.setClaudeApiSettings).toHaveBeenCalledWith({
+        authToken: null,
+        apiKey: null,
+        baseUrl: null,
+        modelOverride: null,
+      });
+    });
+
+    it('sets error on save failure', async () => {
+      vi.mocked(tauri.setClaudeApiSettings).mockRejectedValue(new Error('Save failed'));
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.apiSettings.save();
+      });
+
+      expect(result.current.error).toContain('Failed to save API settings');
+    });
+
+    it('sets saving flag during save', async () => {
+      let resolveSave: () => void;
+      const savePromise = new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      });
+      vi.mocked(tauri.setClaudeApiSettings).mockReturnValue(savePromise);
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      let savePromiseFromHook: Promise<void>;
+      act(() => {
+        savePromiseFromHook = result.current.apiSettings.save();
+      });
+
+      expect(result.current.apiSettings.saving).toBe(true);
+
+      await act(async () => {
+        resolveSave!();
+        await savePromiseFromHook;
+      });
+
+      expect(result.current.apiSettings.saving).toBe(false);
+    });
+
+    it('updates store after successful save', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Set new values
+      act(() => {
+        result.current.apiSettings.setAuthToken('new-saved-token');
+      });
+
+      // After save, the hook reloads from backend which updates the store
+      await act(async () => {
+        await result.current.apiSettings.save();
+      });
+
+      // The store should have been updated with the normalized values from getClaudeApiSettings
+      const storeState = useSettingsStore.getState();
+      expect(storeState.claudeAuthToken).toBe('test-token'); // From mockApiSettings reload
+    });
+  });
+
+  describe('API settings setters', () => {
+    it('allows setting individual API fields', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      act(() => {
+        result.current.apiSettings.setAuthToken('new-auth');
+        result.current.apiSettings.setApiKey('new-key');
+        result.current.apiSettings.setBaseUrl('https://new.com');
+        result.current.apiSettings.setModelOverride('new-model');
+      });
+
+      expect(result.current.apiSettings.authToken).toBe('new-auth');
+      expect(result.current.apiSettings.apiKey).toBe('new-key');
+      expect(result.current.apiSettings.baseUrl).toBe('https://new.com');
+      expect(result.current.apiSettings.modelOverride).toBe('new-model');
+    });
+  });
+
+  describe('extends useAgentSettings', () => {
+    it('provides hook installation capabilities', async () => {
+      vi.mocked(tauri.installClaudeHooksUser).mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.hookInstall.install();
+      });
+
+      expect(tauri.installClaudeHooksUser).toHaveBeenCalledWith('/path/to/claude-hook.sh');
+      expect(result.current.success).toContain('Hooks installed in user settings');
+    });
+  });
+});
