@@ -7,6 +7,8 @@ export interface TicketModalFooterProps {
   currentColumn: Column | undefined;
   isEditing: boolean;
   isSaving: boolean;
+  showDeleteConfirm: boolean;
+  setShowDeleteConfirm: (show: boolean) => void;
   onRunWithAgent?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onSave: () => Promise<void>;
@@ -19,13 +21,14 @@ export function TicketModalFooter({
   currentColumn,
   isEditing,
   isSaving,
+  showDeleteConfirm,
+  setShowDeleteConfirm,
   onRunWithAgent,
   onDelete,
   onSave,
   onCancelEdit,
   onStartEdit,
 }: TicketModalFooterProps) {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async () => {

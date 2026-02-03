@@ -9,7 +9,7 @@ export interface CommentsSectionProps {
   comments: Comment[];
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onOpenFullscreenComment: (comment: Comment) => void;
-  onOpenCreateCommentModal: () => void;
+  onOpenCreateCommentModal: (initialContent: string) => void;
 }
 
 export function CommentsSection({
@@ -108,7 +108,7 @@ export function CommentsSection({
           className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
         />
         <button
-          onClick={onOpenCreateCommentModal}
+          onClick={() => onOpenCreateCommentModal(newComment)}
           className="p-2.5 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface border border-board-border"
           aria-label="Expand to fullscreen editor"
           title="Fullscreen editor"

@@ -39,6 +39,7 @@ export function TicketModal({
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
+  const [createCommentInitialContent, setCreateCommentInitialContent] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
@@ -219,7 +220,10 @@ export function TicketModal({
             comments={comments}
             onAddComment={onAddComment}
             onOpenFullscreenComment={setFullscreenComment}
-            onOpenCreateCommentModal={() => setIsCreateCommentModalOpen(true)}
+            onOpenCreateCommentModal={(initialContent) => {
+              setCreateCommentInitialContent(initialContent);
+              setIsCreateCommentModalOpen(true);
+            }}
           />
         </div>
 
@@ -229,6 +233,8 @@ export function TicketModal({
           currentColumn={currentColumn}
           isEditing={editState.isEditing}
           isSaving={editState.isSaving}
+          showDeleteConfirm={showDeleteConfirm}
+          setShowDeleteConfirm={setShowDeleteConfirm}
           onRunWithAgent={onRunWithAgent}
           onDelete={onDelete ? handleDelete : undefined}
           onSave={editState.handleSave}
