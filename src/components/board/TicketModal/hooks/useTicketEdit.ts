@@ -7,7 +7,6 @@ export interface UseTicketEditOptions {
 }
 
 export interface UseTicketEditReturn {
-  // Edit state
   isEditing: boolean;
   setIsEditing: (editing: boolean) => void;
   editTitle: string;
@@ -28,11 +27,7 @@ export interface UseTicketEditReturn {
   setEditBranchName: (branch: string) => void;
   editColumnId: string;
   setEditColumnId: (columnId: string) => void;
-  
-  // Save state
   isSaving: boolean;
-  
-  // Handlers
   handleSave: () => Promise<void>;
   resetEditState: () => void;
 }
@@ -50,7 +45,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
   const [editColumnId, setEditColumnId] = useState<string>(ticket.columnId);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Reset edit state when the ticket prop changes (e.g., user selects a different ticket)
   useEffect(() => {
     setEditTitle(ticket.title);
     setEditDescription(ticket.descriptionMd);

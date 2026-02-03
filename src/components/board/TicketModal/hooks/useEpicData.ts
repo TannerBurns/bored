@@ -30,7 +30,6 @@ export function useEpicData({ ticket }: UseEpicDataOptions): UseEpicDataReturn {
   const [selectedChildId, setSelectedChildId] = useState<string>('');
   const [isAddingChild, setIsAddingChild] = useState(false);
 
-  // Load epic-related data
   useEffect(() => {
     const loadEpicData = async () => {
       setLoadingEpic(true);

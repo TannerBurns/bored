@@ -7,14 +7,10 @@ import { CreateCommentModal } from '../CreateCommentModal';
 import { TaskList } from '../TaskList';
 import type { Project, Comment } from '../../../types';
 import type { TicketModalProps } from './types';
-
-// Hooks
 import { useTicketEdit } from './hooks/useTicketEdit';
 import { useEpicData } from './hooks/useEpicData';
 import { useRunsHistory } from './hooks/useRunsHistory';
 import { useAgentEvents } from './hooks/useAgentEvents';
-
-// Components
 import { TicketModalHeader } from './TicketModalHeader';
 import { TicketEditForm } from './TicketEditForm';
 import { TicketDetails } from './TicketDetails';
@@ -38,11 +34,8 @@ export function TicketModal({
   onDelete,
   onAgentComplete,
 }: TicketModalProps) {
-  // Projects state
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  
-  // Modal state
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -50,7 +43,6 @@ export function TicketModal({
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
 
-  // Custom hooks
   const editState = useTicketEdit({ ticket, onUpdate });
   
   const epicData = useEpicData({ ticket });
@@ -68,7 +60,6 @@ export function TicketModal({
     setEditBranchName: editState.setEditBranchName,
   });
 
-  // Load projects
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -84,7 +75,6 @@ export function TicketModal({
     loadProjects();
   }, []);
 
-  // Reset delete confirm state when ticket changes
   useEffect(() => {
     setShowDeleteConfirm(false);
   }, [ticket.id]);

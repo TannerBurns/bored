@@ -24,8 +24,6 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
-  // Load past agent runs for this ticket
-  // Also reload when lockedByRunId changes (a new run started or finished)
   useEffect(() => {
     const loadRuns = async () => {
       try {
@@ -40,7 +38,6 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
     loadRuns();
   }, [ticketId, lockedByRunId]);
 
-  // Toggle run details view and load events
   const handleRunClick = useCallback(async (runId: string) => {
     if (expandedRunId === runId) {
       // Collapse if already expanded

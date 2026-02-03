@@ -55,7 +55,6 @@ export function useAgentEvents({
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
-  // Sync isAgentRunning with ticket prop changes
   useEffect(() => {
     const wasRunning = isAgentRunning;
     const nowRunning = !!ticket.lockedByRunId;
@@ -71,12 +70,10 @@ export function useAgentEvents({
     }
   }, [ticket.lockedByRunId, isAgentRunning]);
 
-  // Update paused state when ticket changes
   useEffect(() => {
     setIsTicketPaused(!!ticket.pausedAt);
   }, [ticket.pausedAt]);
 
-  // Listen for agent events when ticket has an active run
   useEffect(() => {
     const runId = ticket.lockedByRunId;
     if (!runId) {
@@ -166,7 +163,6 @@ export function useAgentEvents({
     };
   }, [ticket.lockedByRunId, ticket.id, onAgentComplete, setAgentRuns]);
 
-  // Poll for run events and updates when there's an active run
   useEffect(() => {
     const runId = ticket.lockedByRunId;
     if (!runId) return;
@@ -239,7 +235,6 @@ export function useAgentEvents({
     };
   }, [ticket.lockedByRunId, ticket.id, onAgentComplete, setAgentRuns]);
 
-  // Poll for comments when there's an active run (for worker mode)
   useEffect(() => {
     const runId = ticket.lockedByRunId;
     if (!runId) return;
@@ -263,7 +258,6 @@ export function useAgentEvents({
     };
   }, [ticket.lockedByRunId, ticket.id]);
 
-  // Listen for backend-added comments
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
     let isCancelled = false;
@@ -297,7 +291,6 @@ export function useAgentEvents({
     };
   }, [ticket.id]);
 
-  // Listen for branch name updates from the orchestrator
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
     let isCancelled = false;
@@ -332,14 +325,12 @@ export function useAgentEvents({
     };
   }, [ticket.id, setEditBranchName]);
 
-  // Auto-scroll logs
   useEffect(() => {
     if (shouldAutoScroll && logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
   }, [agentLogs, shouldAutoScroll]);
 
-  // Reset auto-scroll when logs are cleared or agent starts
   useEffect(() => {
     if (agentLogs.length === 0) {
       setShouldAutoScroll(true);
