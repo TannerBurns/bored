@@ -484,7 +484,13 @@ pub fn create_worktree_with_existing_branch(
                                         "Successfully created worktree after auto-cleanup at {}",
                                         worktree_path.display()
                                     );
-                                    // Continue to success path below
+
+                                    return Ok(WorktreeInfo {
+                                        path: worktree_path,
+                                        branch_name: branch_name.to_string(),
+                                        repo_path: repo_root,
+                                        is_temp_branch: false,
+                                    });
                                 } else {
                                     let final_stderr = String::from_utf8_lossy(&final_retry.stderr);
                                     return Err(WorktreeError::GitError {
