@@ -120,21 +120,21 @@ export function DataSettings() {
 
   if (resetComplete) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div>
-          <h2 className="text-xl font-semibold text-board-text">Data Management</h2>
-          <p className="text-sm text-board-text-muted mt-1">
+          <h2 className="text-lg font-semibold text-board-text">Data Management</h2>
+          <p className="text-xs text-board-text-muted mt-0.5">
             Manage your application data and storage.
           </p>
         </div>
 
-        <div className="bg-status-success/10 border border-status-success/30 rounded-xl p-6 flex items-center gap-4">
-          <div className="p-3 bg-status-success/20 rounded-full">
-            <CheckIcon className="w-6 h-6 text-status-success" />
+        <div className="bg-status-success/10 border border-status-success/30 rounded-lg px-3 py-2 flex items-center gap-3">
+          <div className="p-1.5 bg-status-success/20 rounded-full">
+            <CheckIcon className="w-4 h-4 text-status-success" />
           </div>
           <div>
-            <h3 className="font-medium text-status-success">Reset Complete</h3>
-            <p className="text-sm text-board-text-secondary mt-0.5">
+            <h3 className="text-sm font-medium text-status-success">Reset Complete</h3>
+            <p className="text-xs text-board-text-secondary">
               Application data has been cleared. Reloading...
             </p>
           </div>
@@ -144,56 +144,55 @@ export function DataSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold text-board-text">Data Management</h2>
-        <p className="text-sm text-board-text-muted mt-1">
+        <h2 className="text-lg font-semibold text-board-text">Data Management</h2>
+        <p className="text-xs text-board-text-muted mt-0.5">
           Manage your application data and storage.
         </p>
       </div>
 
       {/* Storage Info */}
-      <div className="glass rounded-xl p-5 space-y-4">
+      <div className="glass rounded-lg p-3 space-y-3">
         <div>
-          <h3 className="font-medium text-board-text">Local Storage</h3>
-          <p className="text-sm text-board-text-muted mt-0.5">
-            Settings and preferences are stored locally in your browser.
+          <h3 className="text-sm font-medium text-board-text">Local Storage</h3>
+          <p className="text-xs text-board-text-muted mt-0.5">
+            Settings and preferences are stored locally.
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-board-surface-raised rounded-lg p-4 border border-board-border">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-board-surface-raised rounded-lg px-3 py-2 border border-board-border">
             <p className="text-xs text-board-text-muted uppercase tracking-wide">Settings</p>
-            <p className="text-lg font-semibold text-board-text mt-1">Stored</p>
+            <p className="text-sm font-semibold text-board-text mt-0.5">Stored</p>
           </div>
-          <div className="bg-board-surface-raised rounded-lg p-4 border border-board-border">
+          <div className="bg-board-surface-raised rounded-lg px-3 py-2 border border-board-border">
             <p className="text-xs text-board-text-muted uppercase tracking-wide">Environment</p>
-            <p className="text-lg font-semibold text-board-text mt-1">Desktop App</p>
+            <p className="text-sm font-semibold text-board-text mt-0.5">Desktop App</p>
           </div>
         </div>
       </div>
 
       {/* Cleanup Stale Runs */}
-      <div className="glass rounded-xl p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-status-warning/10 rounded-lg">
-            <RefreshIcon className="w-5 h-5 text-status-warning" />
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="flex items-start gap-2">
+          <div className="p-1.5 bg-status-warning/10 rounded-lg">
+            <RefreshIcon className="w-4 h-4 text-status-warning" />
           </div>
           <div>
-            <h3 className="font-medium text-board-text">Cleanup Stale Runs</h3>
-            <p className="text-sm text-board-text-muted mt-0.5">
-              Mark any stuck "Running" or "Queued" agent runs as aborted. Use this if you have 
-              runs that are stuck and never completed.
+            <h3 className="text-sm font-medium text-board-text">Cleanup Stale Runs</h3>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              Mark stuck "Running" or "Queued" runs as aborted.
             </p>
           </div>
         </div>
 
         {cleanupResult && (
-          <div className={`rounded-lg p-3 ${cleanupResult.error ? 'bg-status-error/10 border border-status-error/30' : 'bg-status-success/10 border border-status-success/30'}`}>
+          <div className={`rounded-lg px-3 py-2 ${cleanupResult.error ? 'bg-status-error/10 border border-status-error/30' : 'bg-status-success/10 border border-status-success/30'}`}>
             {cleanupResult.error ? (
-              <p className="text-sm text-status-error">{cleanupResult.error}</p>
+              <p className="text-xs text-status-error">{cleanupResult.error}</p>
             ) : (
-              <p className="text-sm text-status-success">
+              <p className="text-xs text-status-success">
                 {cleanupResult.count === 0 
                   ? 'No stale runs found.' 
                   : `Cleaned up ${cleanupResult.count} stale run${cleanupResult.count === 1 ? '' : 's'}.`}
@@ -205,23 +204,22 @@ export function DataSettings() {
         <button
           onClick={handleCleanupStaleRuns}
           disabled={isCleaningRuns}
-          className="px-4 py-2 bg-status-warning/10 text-status-warning border border-status-warning/30 rounded-lg hover:bg-status-warning/20 disabled:opacity-50 transition-colors font-medium"
+          className="px-3 py-1.5 text-sm bg-status-warning/10 text-status-warning border border-status-warning/30 rounded-lg hover:bg-status-warning/20 disabled:opacity-50 transition-colors font-medium"
         >
           {isCleaningRuns ? 'Cleaning...' : 'Cleanup Stale Runs'}
         </button>
       </div>
 
       {/* Factory Reset */}
-      <div className="glass rounded-xl p-5 space-y-4 ring-1 ring-status-error/30">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-status-error/10 rounded-lg">
-            <TrashIcon className="w-5 h-5 text-status-error" />
+      <div className="glass rounded-lg p-3 space-y-3 ring-1 ring-status-error/30">
+        <div className="flex items-start gap-2">
+          <div className="p-1.5 bg-status-error/10 rounded-lg">
+            <TrashIcon className="w-4 h-4 text-status-error" />
           </div>
           <div>
-            <h3 className="font-medium text-board-text">Factory Reset</h3>
-            <p className="text-sm text-board-text-muted mt-0.5">
-              Clear all application data and restore default settings. This will remove all boards, 
-              tickets, and preferences. This action cannot be undone.
+            <h3 className="text-sm font-medium text-board-text">Factory Reset</h3>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              Clear all application data. This action cannot be undone.
             </p>
           </div>
         </div>
@@ -229,18 +227,18 @@ export function DataSettings() {
         {!showConfirm ? (
           <button
             onClick={() => setShowConfirm(true)}
-            className="px-4 py-2 bg-status-error/10 text-status-error border border-status-error/30 rounded-lg hover:bg-status-error/20 transition-colors font-medium"
+            className="px-3 py-1.5 text-sm bg-status-error/10 text-status-error border border-status-error/30 rounded-lg hover:bg-status-error/20 transition-colors font-medium"
           >
             Reset All Data
           </button>
         ) : (
-          <div className="bg-status-error/5 border border-status-error/20 rounded-lg p-4 space-y-4">
-            <div className="flex items-start gap-3">
-              <AlertIcon className="w-5 h-5 text-status-error flex-shrink-0 mt-0.5" />
+          <div className="bg-status-error/5 border border-status-error/20 rounded-lg p-3 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertIcon className="w-4 h-4 text-status-error flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-medium text-status-error">Are you absolutely sure?</p>
-                <p className="text-sm text-board-text-secondary mt-1">
-                  This will permanently delete all your data. Type <span className="font-mono font-bold">RESET</span> to confirm.
+                <p className="text-sm font-medium text-status-error">Are you sure?</p>
+                <p className="text-xs text-board-text-secondary mt-0.5">
+                  Type <span className="font-mono font-bold">RESET</span> to confirm.
                 </p>
               </div>
             </div>
@@ -249,22 +247,22 @@ export function DataSettings() {
               type="text"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
-              placeholder="Type RESET to confirm"
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-status-error border border-board-border font-mono"
+              placeholder="Type RESET"
+              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-1 focus:ring-status-error border border-board-border font-mono"
               autoFocus
             />
 
             <div className="flex gap-2">
               <button
                 onClick={handleCancel}
-                className="px-4 py-2 text-board-text-muted hover:text-board-text transition-colors"
+                className="px-3 py-1.5 text-sm text-board-text-muted hover:text-board-text transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleFactoryReset}
                 disabled={confirmText !== 'RESET' || isResetting}
-                className="px-4 py-2 bg-status-error text-white rounded-lg hover:bg-status-error/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                className="px-3 py-1.5 text-sm bg-status-error text-white rounded-lg hover:bg-status-error/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 {isResetting ? 'Resetting...' : 'Confirm Reset'}
               </button>

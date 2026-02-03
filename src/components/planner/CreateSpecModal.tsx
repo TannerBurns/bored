@@ -461,9 +461,9 @@ Use Markdown for formatting:
             {isLoading ? 'Creating...' : 'Create Spec'}
           </Button>
         </div>
-        {fullscreenEditor}
       </form>
     </Modal>
+    {fullscreenEditor}
     </>
   );
 }

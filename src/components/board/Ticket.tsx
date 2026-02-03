@@ -41,7 +41,7 @@ export function Ticket({ ticket, onClick }: TicketProps) {
       onClick={handleClick}
       className={cn(
         'glass-intense p-3 rounded-xl cursor-pointer border-l-4 ring-1 transition-all duration-200',
-        'hover:shadow-lg hover:-translate-y-0.5 hover:ring-2',
+        'hover:shadow-lg hover:-translate-y-0.5',
         PRIORITY_BORDER_COLORS[ticket.priority],
         PRIORITY_RING_COLORS[ticket.priority],
         PRIORITY_RING_HOVER_COLORS[ticket.priority],

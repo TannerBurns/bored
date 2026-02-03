@@ -22,10 +22,10 @@ export const PRIORITY_RING_COLORS: Record<Priority, string> = {
 };
 
 export const PRIORITY_RING_HOVER_COLORS: Record<Priority, string> = {
-  low: 'hover:ring-blue-400/80',
-  medium: 'hover:ring-yellow-500/80',
-  high: 'hover:ring-orange-500/80',
-  urgent: 'hover:ring-red-500/80',
+  low: 'hover:ring-2 hover:ring-blue-400/80',
+  medium: 'hover:ring-2 hover:ring-yellow-500/80',
+  high: 'hover:ring-2 hover:ring-orange-500/80',
+  urgent: 'hover:ring-2 hover:ring-red-500/80',
 };
 
 export const PRIORITY_LABELS: Record<Priority, string> = {

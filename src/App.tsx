@@ -728,7 +728,7 @@ function App() {
         {activeNav === 'settings' && (
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Settings Tabs */}
-            <div className="flex gap-1 mb-4">
+            <div className="flex gap-1 mb-3">
               {[
                 { id: 'general', label: 'General' },
                 { id: 'projects', label: 'Projects' },
@@ -739,9 +739,9 @@ function App() {
                 <button
                   key={tab.id}
                   onClick={() => setSettingsTab(tab.id as typeof settingsTab)}
-                  className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 ${
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 ${
                     settingsTab === tab.id
-                      ? 'bg-board-accent text-white shadow-md'
+                      ? 'bg-board-accent text-white shadow-sm'
                       : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
                   }`}
                 >
@@ -751,7 +751,7 @@ function App() {
             </div>
             
             {/* Settings Content */}
-            <div className="flex-1 overflow-auto glass rounded-2xl p-6">
+            <div className="flex-1 overflow-auto glass rounded-lg p-4">
               {settingsTab === 'general' && <GeneralSettings />}
               {settingsTab === 'projects' && <ProjectsList />}
               {settingsTab === 'cursor' && <CursorSettings />}
