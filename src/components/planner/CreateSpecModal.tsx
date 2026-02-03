@@ -4,7 +4,7 @@ import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useSpecStore } from '../../stores/specStore';
-import { getProjects, getBoards } from '../../lib/tauri';
+import { getProjects, getBoards, startConversation } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import type { Project, Board } from '../../types';
 
@@ -36,6 +36,7 @@ export function CreateSpecModal({
   const [targetBoardId, setTargetBoardId] = useState<string>(''); // Empty means same as boardId
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enableBrainstorm, setEnableBrainstorm] = useState(true);
   
   // Markdown editor state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -112,7 +113,7 @@ export function CreateSpecModal({
     }
 
     try {
-      await createSpec({
+      const newSpec = await createSpec({
         boardId,
         targetBoardId: targetBoardId || undefined, // undefined means same as boardId
         projectId: selectedProjectId,
@@ -122,6 +123,16 @@ export function CreateSpecModal({
         model: model || undefined,
       });
       
+      // Start brainstorming session if enabled
+      if (enableBrainstorm && newSpec) {
+        try {
+          await startConversation(newSpec.id);
+        } catch (convErr) {
+          console.error('Failed to start conversation:', convErr);
+          // Don't fail the whole flow, spec is created
+        }
+      }
+      
       setName('');
       setUserInput('');
       setAgentPref('any');
@@ -129,6 +140,7 @@ export function CreateSpecModal({
       setTargetBoardId('');
       setIsPreviewMode(false);
       setIsFullscreen(false);
+      setEnableBrainstorm(true);
       onOpenChange(false);
     } catch (err) {
       setError(String(err));
@@ -445,6 +457,25 @@ Use Markdown for formatting:
             </select>
             <p className="mt-1 text-xs text-board-text-muted">
               Select AI model for agent runs
+            </p>
+          </div>
+        </div>
+
+        {/* Brainstorm toggle */}
+        <div className="flex items-center gap-3 p-3 glass-subtle rounded-lg">
+          <input
+            type="checkbox"
+            id="enableBrainstorm"
+            checked={enableBrainstorm}
+            onChange={(e) => setEnableBrainstorm(e.target.checked)}
+            className="w-4 h-4 rounded border-board-border text-board-accent focus:ring-board-accent"
+          />
+          <div>
+            <label htmlFor="enableBrainstorm" className="block text-sm font-medium text-board-text cursor-pointer">
+              Start with brainstorming session
+            </label>
+            <p className="text-xs text-board-text-muted">
+              Chat with AI to refine requirements before exploration
             </p>
           </div>
         </div>

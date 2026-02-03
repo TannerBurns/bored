@@ -275,6 +275,7 @@ export interface EpicProgress {
 
 export type SpecStatus = 
   | 'draft'
+  | 'conversing'  // In brainstorming conversation
   | 'exploring'
   | 'planning'
   | 'awaiting_approval'
@@ -434,4 +435,29 @@ export interface PlanTicket {
 export interface ProjectPlan {
   overview: string;
   epics: PlanEpic[];
+}
+
+// ===== Conversation Types (Spec Brainstorming) =====
+
+export type ConversationRole = 'user' | 'assistant' | 'system';
+
+/** A message in a spec brainstorming conversation */
+export interface ConversationMessage {
+  id: string;
+  specId: string;
+  role: ConversationRole;
+  content: string;
+  createdAt: Date;
+}
+
+/** Structured spec result from conversation completion */
+export interface StructuredSpec {
+  /** The refined user requirements */
+  requirements: string;
+  /** Key decisions made during conversation */
+  decisions: string[];
+  /** Any constraints or limitations identified */
+  constraints: string[];
+  /** Technical approach notes */
+  technicalNotes?: string;
 }

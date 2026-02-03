@@ -7,6 +7,7 @@ import { MarkdownViewer } from '../common/MarkdownViewer';
 import { PlanViewer } from './PlanViewer';
 import { LiveLogPanel } from './LiveLogPanel';
 import { EpicProgressPanel } from './EpicProgressPanel';
+import { ConversationView } from './ConversationView';
 import { logger } from '../../lib/logger';
 import { cn } from '../../lib/utils';
 import type { Spec, Exploration, SpecStatus, SpecProgress } from '../../types';
@@ -17,6 +18,10 @@ interface SpecDetailProps {
 }
 
 const statusMessages: Record<string, { title: string; subtitle: string; variant?: 'info' | 'error' | 'warning' }> = {
+  conversing: {
+    title: 'Brainstorming session active',
+    subtitle: 'Chat with the AI to refine your requirements before exploration',
+  },
   exploring: {
     title: 'Analyzing codebase...',
     subtitle: 'The agent is exploring your project to understand its structure',
@@ -351,6 +356,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
+  const isConversing = spec.status === 'conversing';
   const canStart = spec.status === 'draft';
   const canRetry = spec.status === 'failed';
   const canApprove = spec.status === 'awaiting_approval' && spec.planMarkdown;
@@ -363,6 +369,48 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
   const isHalted = spec.status === 'halted';
   const isCompleted = spec.status === 'completed';
   const isProcessing = ['exploring', 'planning', 'executing'].includes(spec.status);
+
+  // Handle conversation completion
+  const handleConversationComplete = async () => {
+    const updated = await getSpec(spec.id);
+    setCurrentSpec(updated);
+  };
+
+  // If in conversing status, show conversation view
+  if (isConversing) {
+    return (
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
+          <div>
+            <h2 className="text-lg font-semibold text-board-text">
+              {spec.name}
+            </h2>
+            <p className="text-sm text-board-text-muted capitalize flex items-center gap-2">
+              Status: 
+              <span className="glass-subtle px-2 py-0.5 rounded-full text-xs">
+                Brainstorming
+              </span>
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={onClose} variant="secondary">
+              Close
+            </Button>
+          </div>
+        </div>
+
+        {/* Conversation View */}
+        <div className="flex-1 overflow-hidden p-4">
+          <ConversationView
+            spec={spec}
+            onComplete={handleConversationComplete}
+            onSkip={handleConversationComplete}
+          />
+        </div>
+      </div>
+    );
+  }
   
   // Pause/resume controls
   const canPause = isWorking;

@@ -1,3 +1,4 @@
+pub mod brainstorm;
 pub mod claude;
 pub mod cursor;
 pub mod diagnostic;

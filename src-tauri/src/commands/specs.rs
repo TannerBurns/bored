@@ -10,7 +10,10 @@ use crate::agents::planner::{PlannerAgent, PlannerConfig};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
-use crate::db::{CreateSpec, Database, Exploration, Spec, SpecProgress, SpecStatus, UpdateSpec};
+use crate::db::{
+    ConversationMessage, ConversationRole, CreateConversationMessage, CreateSpec, Database,
+    Exploration, Spec, SpecProgress, SpecStatus, UpdateSpec,
+};
 use crate::lifecycle::epic::{check_spec_completion_by_id, on_epic_moved_to_ready};
 
 /// Input for creating a spec
@@ -561,4 +564,267 @@ pub async fn get_spec_eta(
     db: State<'_, Arc<Database>>,
 ) -> Result<crate::db::SpecEta, String> {
     crate::agents::eta::calculate_eta(&db.inner().clone(), &spec_id)
+}
+
+// ===== Conversation Commands =====
+
+/// Get all conversation messages for a spec
+#[tauri::command]
+pub async fn get_conversation_messages(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<ConversationMessage>, String> {
+    db.get_conversation_messages(&spec_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Send a user message in a conversation and trigger brainstorm agent response
+#[tauri::command]
+pub async fn send_conversation_message(
+    spec_id: String,
+    content: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+    api_url: State<'_, String>,
+    api_token: State<'_, String>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
+) -> Result<ConversationMessage, String> {
+    tracing::info!("Sending conversation message for spec {}", spec_id);
+
+    // Get spec to validate it exists and is in conversing state
+    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
+
+    if spec.status != SpecStatus::Conversing {
+        return Err(format!(
+            "Cannot send message: spec is in '{}' status, expected 'conversing'",
+            spec.status.as_str()
+        ));
+    }
+
+    // Save the user message
+    let user_msg = db
+        .create_conversation_message(&CreateConversationMessage {
+            spec_id: spec_id.clone(),
+            role: ConversationRole::User,
+            content: content.clone(),
+        })
+        .map_err(|e| e.to_string())?;
+
+    // Broadcast the user message
+    let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+        spec_id: spec_id.clone(),
+        message_id: user_msg.id.clone(),
+        role: "user".to_string(),
+        content: content.clone(),
+    });
+
+    // Get project for the spec
+    let project = db
+        .get_project(&spec.project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
+
+    // Get Claude API config if using Claude
+    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+
+    // Get all messages for context
+    let messages = db
+        .get_conversation_messages(&spec_id)
+        .map_err(|e| e.to_string())?;
+
+    // Run brainstorm agent to get response
+    let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
+        spec_id: spec_id.clone(),
+        user_input: spec.user_input.clone(),
+        repo_path: std::path::PathBuf::from(&project.path),
+        api_url: api_url.inner().clone(),
+        api_token: api_token.inner().clone(),
+        claude_api_config,
+        agent_kind: match spec.agent_pref.as_deref() {
+            Some("cursor") => AgentKind::Cursor,
+            _ => AgentKind::Claude,
+        },
+        model: spec.model.clone(),
+        timeout_secs: 120,
+    };
+
+    let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
+        db.inner().clone(),
+        brainstorm_config,
+        event_tx.inner().clone(),
+    );
+
+    match brainstorm_agent.process_message(&messages).await {
+        Ok(response) => {
+            // Check if conversation is complete
+            if response.is_complete {
+                // Update spec with structured requirements and transition to exploring
+                if let Some(structured) = &response.structured_spec {
+                    // Append the structured requirements to user_input
+                    let enhanced_input = format!(
+                        "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}",
+                        spec.user_input,
+                        structured.requirements,
+                        structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
+                        structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
+                        structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes\n{}", n)).unwrap_or_default()
+                    );
+
+                    db.update_spec(
+                        &spec_id,
+                        &UpdateSpec {
+                            user_input: Some(enhanced_input),
+                            status: Some(SpecStatus::Draft), // Move to draft for exploration
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+
+                    // Broadcast completion event
+                    let _ = event_tx.send(LiveEvent::ConversationComplete {
+                        spec_id: spec_id.clone(),
+                        structured_spec: serde_json::to_value(structured).unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Brainstorm agent error: {}", e);
+            // Save error as system message
+            let _ = db.create_conversation_message(&CreateConversationMessage {
+                spec_id: spec_id.clone(),
+                role: ConversationRole::System,
+                content: format!("Error: {}", e),
+            });
+        }
+    }
+
+    Ok(user_msg)
+}
+
+/// Start a conversation for a spec (transitions from draft to conversing)
+#[tauri::command]
+pub async fn start_conversation(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+    api_url: State<'_, String>,
+    api_token: State<'_, String>,
+    claude_api_state: State<'_, ClaudeApiSettingsState>,
+) -> Result<ConversationMessage, String> {
+    tracing::info!("Starting conversation for spec {}", spec_id);
+
+    // Get spec and validate it's in draft state
+    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
+
+    if spec.status != SpecStatus::Draft {
+        return Err(format!(
+            "Cannot start conversation: spec is in '{}' status, expected 'draft'",
+            spec.status.as_str()
+        ));
+    }
+
+    // Update status to conversing
+    db.set_spec_status(&spec_id, SpecStatus::Conversing)
+        .map_err(|e| e.to_string())?;
+
+    // Create initial system message
+    let system_msg = db
+        .create_conversation_message(&CreateConversationMessage {
+            spec_id: spec_id.clone(),
+            role: ConversationRole::System,
+            content: "Starting brainstorming session...".to_string(),
+        })
+        .map_err(|e| e.to_string())?;
+
+    // Broadcast the system message
+    let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+        spec_id: spec_id.clone(),
+        message_id: system_msg.id.clone(),
+        role: "system".to_string(),
+        content: system_msg.content.clone(),
+    });
+
+    // Get project for the spec
+    let project = db
+        .get_project(&spec.project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
+
+    // Get Claude API config
+    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+
+    // Run brainstorm agent to generate initial questions
+    let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
+        spec_id: spec_id.clone(),
+        user_input: spec.user_input.clone(),
+        repo_path: std::path::PathBuf::from(&project.path),
+        api_url: api_url.inner().clone(),
+        api_token: api_token.inner().clone(),
+        claude_api_config,
+        agent_kind: match spec.agent_pref.as_deref() {
+            Some("cursor") => AgentKind::Cursor,
+            _ => AgentKind::Claude,
+        },
+        model: spec.model.clone(),
+        timeout_secs: 120,
+    };
+
+    let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
+        db.inner().clone(),
+        brainstorm_config,
+        event_tx.inner().clone(),
+    );
+
+    // Generate initial clarifying questions
+    match brainstorm_agent.start_conversation().await {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("Failed to start conversation: {}", e);
+            // Save error as system message
+            let _ = db.create_conversation_message(&CreateConversationMessage {
+                spec_id: spec_id.clone(),
+                role: ConversationRole::System,
+                content: format!("Error starting conversation: {}", e),
+            });
+        }
+    }
+
+    // Broadcast spec update
+    let _ = event_tx.send(LiveEvent::SpecUpdated {
+        spec_id: spec_id.clone(),
+    });
+
+    Ok(system_msg)
+}
+
+/// Skip conversation and go directly to exploration (for users who don't want brainstorming)
+#[tauri::command]
+pub async fn skip_conversation(
+    spec_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+) -> Result<(), String> {
+    tracing::info!("Skipping conversation for spec {}", spec_id);
+
+    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
+
+    if spec.status != SpecStatus::Draft && spec.status != SpecStatus::Conversing {
+        return Err(format!(
+            "Cannot skip conversation: spec is in '{}' status",
+            spec.status.as_str()
+        ));
+    }
+
+    // Just keep the spec in draft - user can start exploration directly
+    if spec.status == SpecStatus::Conversing {
+        db.set_spec_status(&spec_id, SpecStatus::Draft)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = event_tx.send(LiveEvent::SpecUpdated {
+        spec_id: spec_id.clone(),
+    });
+
+    Ok(())
 }

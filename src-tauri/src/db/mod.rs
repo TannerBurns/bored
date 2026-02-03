@@ -1,5 +1,6 @@
 mod boards;
 mod comments;
+mod conversations;
 mod events;
 pub mod models;
 mod projects;
@@ -92,6 +93,71 @@ impl Database {
             // For fresh databases (version 0), create all tables
             if current_version == 0 {
                 conn.execute_batch(CREATE_TABLES)?;
+            }
+
+            // Migration from version 1 to 2: Add conversation_messages table and 'conversing' status
+            if current_version < 2 {
+                tracing::info!("Running migration to version 2: conversation_messages table");
+                
+                // Create conversation_messages table
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS conversation_messages (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
+                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_conversation_messages_spec ON conversation_messages(spec_id);
+                    CREATE INDEX IF NOT EXISTS idx_conversation_messages_created ON conversation_messages(spec_id, created_at);
+                    "#
+                )?;
+                
+                // Recreate specs table with 'conversing' status in CHECK constraint
+                // First check if we need to migrate (if table exists and doesn't have conversing status)
+                let specs_exists: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='specs'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if specs_exists {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE specs_v2 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                            name TEXT NOT NULL,
+                            user_input TEXT NOT NULL,
+                            status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'conversing', 'exploring', 'planning', 'awaiting_approval', 'approved', 'executing', 'executed', 'working', 'paused', 'halted', 'completed', 'failed')),
+                            agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
+                            model TEXT,
+                            exploration_log TEXT,
+                            plan_markdown TEXT,
+                            plan_json TEXT,
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            work_started_at TEXT,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO specs_v2 SELECT * FROM specs;
+                        DROP TABLE specs;
+                        ALTER TABLE specs_v2 RENAME TO specs;
+
+                        CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                        CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                        CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
+                        "#
+                    )?;
+                }
             }
 
             conn.execute(

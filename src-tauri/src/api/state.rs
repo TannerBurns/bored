@@ -95,6 +95,17 @@ pub enum LiveEvent {
         /// Timestamp
         timestamp: String,
     },
+    // Conversation events (spec brainstorming)
+    ConversationMessageAdded {
+        spec_id: String,
+        message_id: String,
+        role: String,
+        content: String,
+    },
+    ConversationComplete {
+        spec_id: String,
+        structured_spec: serde_json::Value,
+    },
 }
 
 /// Shared application state for the API server

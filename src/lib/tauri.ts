@@ -354,3 +354,25 @@ export async function factoryReset(): Promise<void> {
 export async function repairSpecsTable(): Promise<string> {
   return invoke('repair_specs_table');
 }
+
+// Conversation (brainstorming) functions
+import type { ConversationMessage } from '../types';
+
+export async function getConversationMessages(specId: string): Promise<ConversationMessage[]> {
+  return invoke('get_conversation_messages', { specId });
+}
+
+export async function sendConversationMessage(
+  specId: string,
+  content: string
+): Promise<ConversationMessage> {
+  return invoke('send_conversation_message', { specId, content });
+}
+
+export async function startConversation(specId: string): Promise<ConversationMessage> {
+  return invoke('start_conversation', { specId });
+}
+
+export async function skipConversation(specId: string): Promise<void> {
+  return invoke('skip_conversation', { specId });
+}

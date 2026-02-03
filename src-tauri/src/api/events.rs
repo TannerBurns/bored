@@ -108,6 +108,8 @@ fn event_matches_filter(
             LiveEvent::PlanExecutionStarted { .. } => "plan_execution_started",
             LiveEvent::PlanExecutionCompleted { .. } => "plan_execution_completed",
             LiveEvent::PlannerLogEntry { .. } => "planner_log_entry",
+            LiveEvent::ConversationMessageAdded { .. } => "conversation_message_added",
+            LiveEvent::ConversationComplete { .. } => "conversation_complete",
         };
 
         if !types.iter().any(|t| t == event_type) {

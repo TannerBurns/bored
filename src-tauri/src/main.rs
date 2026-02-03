@@ -363,6 +363,11 @@ fn main() {
             commands::specs::resume_spec_work,
             commands::specs::halt_spec_work,
             commands::specs::get_spec_eta,
+            // Conversation (brainstorming) commands
+            commands::specs::get_conversation_messages,
+            commands::specs::send_conversation_message,
+            commands::specs::start_conversation,
+            commands::specs::skip_conversation,
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,

@@ -635,6 +635,8 @@ pub enum SpecStatus {
     /// Initial state - user has created but not started exploration
     #[default]
     Draft,
+    /// In brainstorming conversation - refining requirements
+    Conversing,
     /// Agent is exploring the codebase
     Exploring,
     /// Agent is generating the plan
@@ -663,6 +665,7 @@ impl SpecStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             SpecStatus::Draft => "draft",
+            SpecStatus::Conversing => "conversing",
             SpecStatus::Exploring => "exploring",
             SpecStatus::Planning => "planning",
             SpecStatus::AwaitingApproval => "awaiting_approval",
@@ -680,6 +683,7 @@ impl SpecStatus {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "draft" => Some(SpecStatus::Draft),
+            "conversing" => Some(SpecStatus::Conversing),
             "exploring" => Some(SpecStatus::Exploring),
             "planning" => Some(SpecStatus::Planning),
             "awaiting_approval" => Some(SpecStatus::AwaitingApproval),
@@ -757,7 +761,7 @@ pub struct CreateSpec {
 }
 
 /// Update a spec
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSpec {
     pub name: Option<String>,
@@ -914,6 +918,70 @@ pub enum EtaConfidence {
     Medium,
     /// Good sample size for reliable estimate
     High,
+}
+
+// ===== Conversation System (Spec Brainstorming) =====
+
+/// Role in a conversation message
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationRole {
+    User,
+    Assistant,
+    System,
+}
+
+impl ConversationRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConversationRole::User => "user",
+            ConversationRole::Assistant => "assistant",
+            ConversationRole::System => "system",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "user" => Some(ConversationRole::User),
+            "assistant" => Some(ConversationRole::Assistant),
+            "system" => Some(ConversationRole::System),
+            _ => None,
+        }
+    }
+}
+
+/// A message in a spec brainstorming conversation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMessage {
+    pub id: String,
+    pub spec_id: String,
+    pub role: ConversationRole,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Create a new conversation message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateConversationMessage {
+    pub spec_id: String,
+    pub role: ConversationRole,
+    pub content: String,
+}
+
+/// Structured spec result from conversation completion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredSpec {
+    /// The refined user requirements
+    pub requirements: String,
+    /// Key decisions made during conversation
+    pub decisions: Vec<String>,
+    /// Any constraints or limitations identified
+    pub constraints: Vec<String>,
+    /// Technical approach notes
+    pub technical_notes: Option<String>,
 }
 
 #[cfg(test)]
