@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../../../lib/utils';
 import { MarkdownViewer } from '../../common/MarkdownViewer';
@@ -10,6 +10,8 @@ export interface CommentsSectionProps {
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onOpenFullscreenComment: (comment: Comment) => void;
   onOpenCreateCommentModal: (initialContent: string) => void;
+  /** When this value changes, the inline comment input will be cleared */
+  clearInputTrigger?: number;
 }
 
 export function CommentsSection({
@@ -18,9 +20,17 @@ export function CommentsSection({
   onAddComment,
   onOpenFullscreenComment,
   onOpenCreateCommentModal,
+  clearInputTrigger,
 }: CommentsSectionProps) {
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Clear the inline input when the trigger changes (e.g., after modal submission)
+  useEffect(() => {
+    if (clearInputTrigger !== undefined && clearInputTrigger > 0) {
+      setNewComment('');
+    }
+  }, [clearInputTrigger]);
 
   const ticketComments = comments.filter((c) => c.ticketId === ticketId);
 

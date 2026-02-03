@@ -41,6 +41,7 @@ export function TicketModal({
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
   const [createCommentInitialContent, setCreateCommentInitialContent] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [commentClearTrigger, setCommentClearTrigger] = useState(0);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
 
@@ -95,8 +96,12 @@ export function TicketModal({
 
   const handleDelete = async () => {
     if (!onDelete) return;
-    await onDelete(ticket.id);
-    onClose();
+    try {
+      await onDelete(ticket.id);
+      onClose();
+    } catch {
+      // Don't close modal on error - let user see the failure and retry
+    }
   };
 
   return (
@@ -224,6 +229,7 @@ export function TicketModal({
               setCreateCommentInitialContent(initialContent);
               setIsCreateCommentModalOpen(true);
             }}
+            clearInputTrigger={commentClearTrigger}
           />
         </div>
 
@@ -280,6 +286,8 @@ export function TicketModal({
         }}
         onSubmit={async (body) => {
           await onAddComment(ticket.id, body);
+          // Clear the inline comment input after successful modal submission
+          setCommentClearTrigger((prev) => prev + 1);
         }}
         initialContent={createCommentInitialContent}
       />
