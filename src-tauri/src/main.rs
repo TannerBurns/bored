@@ -372,3 +372,68 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_allowed_url_allows_localhost_dev_server() {
+        let url = url::Url::parse("http://localhost:1420").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_127_0_0_1_dev_server() {
+        let url = url::Url::parse("http://127.0.0.1:1420").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_localhost_wrong_port() {
+        let url = url::Url::parse("http://localhost:3000").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_localhost_no_port() {
+        let url = url::Url::parse("http://localhost/").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_tauri_scheme() {
+        let url = url::Url::parse("tauri://localhost/index.html").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_allows_about_scheme() {
+        let url = url::Url::parse("about:blank").unwrap();
+        assert!(is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_https() {
+        let url = url::Url::parse("https://example.com").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_http() {
+        let url = url::Url::parse("http://malicious.com/steal-data").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_external_with_path() {
+        let url = url::Url::parse("https://github.com/user/repo").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+
+    #[test]
+    fn is_allowed_url_blocks_javascript_scheme() {
+        let url = url::Url::parse("javascript:alert(1)").unwrap();
+        assert!(!is_allowed_url(&url));
+    }
+}
