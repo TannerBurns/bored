@@ -1,4 +1,4 @@
-import type { Ticket, Column, Comment } from '../../types';
+import type { Ticket, Column, Comment } from '../../../types';
 
 export interface AgentLogEvent {
   runId: string;
@@ -43,4 +43,17 @@ export interface TicketModalProps {
   onRunWithAgent?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
+}
+
+export interface AgentLog {
+  stream: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface RunEvent {
+  id: string;
+  eventType: unknown;
+  payload: unknown;
+  createdAt: string;
 }
