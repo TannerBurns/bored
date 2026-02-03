@@ -128,6 +128,26 @@ export interface AgentRun {
   resumedFromRunId?: string;
 }
 
+/** An agent run with additional context for display (board, project, ticket info) */
+export interface AgentRunWithContext extends AgentRun {
+  /** The ticket title */
+  ticketTitle: string;
+  /** The board ID this run's ticket belongs to */
+  boardId: string;
+  /** The board name */
+  boardName: string;
+  /** The project ID (if the ticket has one) */
+  projectId?: string;
+  /** The project name (if the ticket has one) */
+  projectName?: string;
+  /** The current stage name for multi-stage workflows (if running) */
+  currentStage?: string;
+  /** Number of completed stages (sub-runs with status = finished) */
+  completedStages: number;
+  /** Total number of stages (all sub-runs) */
+  totalStages: number;
+}
+
 export interface AgentEvent {
   id: string;
   runId: string;
@@ -195,22 +215,6 @@ export interface WorkerQueueStatus {
   readyCount: number;
   inProgressCount: number;
   workerCount: number;
-}
-
-// Validation types
-export interface ValidationCheck {
-  name: string;
-  passed: boolean;
-  message: string;
-  fixAction?: string;
-  isWarning?: boolean;
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  checks: ValidationCheck[];
-  errors: string[];
-  warnings: string[];
 }
 
 // Task Queue System types

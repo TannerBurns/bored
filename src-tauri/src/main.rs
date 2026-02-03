@@ -279,6 +279,7 @@ fn main() {
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
             commands::runs::get_recent_runs,
+            commands::runs::get_recent_runs_with_context,
             commands::runs::get_agent_run,
             commands::runs::cancel_agent_run,
             commands::runs::cleanup_stale_runs,

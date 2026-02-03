@@ -1,4 +1,4 @@
-use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
+use crate::db::models::{AgentRun, AgentRunWithContext, AgentType, CreateRun, RunStatus};
 use crate::db::{parse_datetime, Database, DbError};
 
 impl Database {
@@ -237,6 +237,77 @@ impl Database {
                         parent_run_id: row.get(10)?,
                         stage: row.get(11)?,
                         resumed_from_run_id: row.get(12)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(runs)
+        })
+    }
+
+    /// Get recent runs with full context (board, project, ticket info) for the runs view.
+    /// This eliminates the need for client-side lookups and works across all boards.
+    pub fn get_recent_runs_with_context(&self, limit: u32) -> Result<Vec<AgentRunWithContext>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT 
+                    r.id, r.ticket_id, r.agent_type, r.repo_path, r.status, 
+                    r.started_at, r.ended_at, r.exit_code, r.summary_md, r.metadata_json,
+                    r.parent_run_id, r.stage, r.resumed_from_run_id,
+                    t.title as ticket_title,
+                    t.board_id,
+                    b.name as board_name,
+                    t.project_id,
+                    p.name as project_name,
+                    (SELECT stage FROM agent_runs sub 
+                     WHERE sub.parent_run_id = r.id AND sub.status = 'running' 
+                     ORDER BY sub.started_at DESC LIMIT 1) as current_stage,
+                    (SELECT COUNT(*) FROM agent_runs sub 
+                     WHERE sub.parent_run_id = r.id AND sub.status = 'finished') as completed_stages,
+                    (SELECT COUNT(*) FROM agent_runs sub 
+                     WHERE sub.parent_run_id = r.id) as total_stages
+                FROM agent_runs r
+                JOIN tickets t ON r.ticket_id = t.id
+                JOIN boards b ON t.board_id = b.id
+                LEFT JOIN projects p ON t.project_id = p.id
+                WHERE r.parent_run_id IS NULL
+                ORDER BY r.started_at DESC
+                LIMIT ?"#,
+            )?;
+
+            let runs = stmt
+                .query_map([limit], |row| {
+                    let agent_type_str: String = row.get(2)?;
+                    let status_str: String = row.get(4)?;
+                    let metadata_json: Option<String> = row.get(9)?;
+
+                    Ok(AgentRunWithContext {
+                        run: AgentRun {
+                            id: row.get(0)?,
+                            ticket_id: row.get(1)?,
+                            agent_type: match agent_type_str.as_str() {
+                                "cursor" => AgentType::Cursor,
+                                _ => AgentType::Claude,
+                            },
+                            repo_path: row.get(3)?,
+                            status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
+                            started_at: parse_datetime(row.get(5)?),
+                            ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
+                            exit_code: row.get(7)?,
+                            summary_md: row.get(8)?,
+                            metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                            parent_run_id: row.get(10)?,
+                            stage: row.get(11)?,
+                            resumed_from_run_id: row.get(12)?,
+                        },
+                        ticket_title: row.get(13)?,
+                        board_id: row.get(14)?,
+                        board_name: row.get(15)?,
+                        project_id: row.get(16)?,
+                        project_name: row.get(17)?,
+                        current_stage: row.get(18)?,
+                        completed_stages: row.get::<_, i64>(19)? as u32,
+                        total_stages: row.get::<_, i64>(20)? as u32,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -622,5 +693,301 @@ mod tests {
         let parsed: RunArtifacts = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.commit_hash, artifacts.commit_hash);
         assert_eq!(parsed.files_changed, artifacts.files_changed);
+    }
+
+    fn temp_dir_path() -> String {
+        std::env::temp_dir().to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_returns_empty_when_no_runs() {
+        let db = create_test_db();
+        let result = db.get_recent_runs_with_context(10).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_returns_run_with_ticket_and_board_info() {
+        use crate::db::models::CreateProject;
+
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test Project".to_string(),
+                path: temp_dir_path(),
+                preferred_agent: None,
+                requires_git: false,
+            })
+            .unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let result = &results[0];
+        assert_eq!(result.run.id, run.id);
+        assert_eq!(result.ticket_title, "Test Ticket");
+        assert_eq!(result.board_id, board.id);
+        assert_eq!(result.board_name, "Test Board");
+        assert_eq!(result.project_id, Some(project.id.clone()));
+        assert_eq!(result.project_name, Some("Test Project".to_string()));
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_handles_run_without_project() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "No Project Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Claude,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].project_id, None);
+        assert_eq!(results[0].project_name, None);
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_excludes_sub_runs() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let parent_run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Create a sub-run
+        db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: Some(parent_run.id.clone()),
+            stage: Some("code_review".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        // Only the parent run should be returned
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].run.id, parent_run.id);
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_calculates_stage_counts() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let parent_run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Create 3 sub-runs, 2 finished
+        let sub1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent_run.id.clone()),
+                stage: Some("build".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&sub1.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+
+        let sub2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent_run.id.clone()),
+                stage: Some("test".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&sub2.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+
+        // Third sub-run is still running
+        db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: Some(parent_run.id.clone()),
+            stage: Some("review".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].total_stages, 3);
+        assert_eq!(results[0].completed_stages, 2);
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_respects_limit() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        // Create 5 tickets with runs
+        for i in 0..5 {
+            let ticket = db
+                .create_ticket(&CreateTicket {
+                    board_id: board.id.clone(),
+                    column_id: columns[0].id.clone(),
+                    title: format!("Ticket {}", i),
+                    description_md: "".to_string(),
+                    priority: Priority::Low,
+                    labels: vec![],
+                    project_id: None,
+                    agent_pref: None,
+                    workflow_type: WorkflowType::default(),
+                    model: None,
+                    branch_name: None,
+                    is_epic: false,
+                    epic_id: None,
+                    depends_on_epic_id: None,
+                    depends_on_epic_ids: vec![],
+                    spec_version_id: None,
+                })
+                .unwrap();
+
+            db.create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Cursor,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+        }
+
+        let results = db.get_recent_runs_with_context(3).unwrap();
+        assert_eq!(results.len(), 3);
     }
 }

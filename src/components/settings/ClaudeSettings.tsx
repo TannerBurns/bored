@@ -17,6 +17,7 @@ import {
 import type { ClaudeStatus, ClaudeApiSettings } from '../../lib/tauri';
 import type { Project } from '../../types';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { ClaudeIcon } from '../common';
 
 export function ClaudeSettings() {
   const [status, setStatus] = useState<ClaudeStatus | null>(null);
@@ -263,7 +264,10 @@ export function ClaudeSettings() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-board-text">Claude Code Integration</h2>
+      <h2 className="text-lg font-semibold text-board-text flex items-center gap-2">
+        <ClaudeIcon size={20} className="text-[#da7756]" />
+        Claude Code Integration
+      </h2>
 
       {error && (
         <div className="bg-status-error/10 border border-status-error/30 text-status-error px-3 py-2 rounded-lg text-sm">
