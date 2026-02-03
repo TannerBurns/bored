@@ -203,16 +203,10 @@ export function WorkerPanel({ projects }: Props) {
     }
   };
 
-  const formatDate = (date: Date | string | undefined) => {
-    if (!date) return 'Never';
-    const d = typeof date === 'string' ? new Date(date) : date;
-    return d.toLocaleTimeString();
-  };
-
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-board-text">Agent Workers</h2>
+        <h2 className="text-lg font-semibold text-board-text">Agent Workers</h2>
         {workers.length > 0 && (
           <Button
             onClick={handleStopAll}
@@ -225,62 +219,62 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {error && (
-        <div className="glass rounded-xl p-4 ring-1 ring-status-error/50 glow-error">
+        <div className="glass rounded-lg px-3 py-2 ring-1 ring-status-error/50">
           <p className="text-status-error text-sm">{error}</p>
         </div>
       )}
 
       {/* Queue Status Cards */}
-      <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-medium text-board-text-muted mb-4">Queue Status</h3>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="glass-intense rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-board-text">{queueStatus.readyCount}</div>
-            <div className="text-sm text-board-text-muted mt-1">Ready</div>
+      <div className="glass rounded-lg p-3">
+        <h3 className="text-xs font-medium text-board-text-muted uppercase tracking-wide mb-2">Queue Status</h3>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="glass-intense rounded-lg px-3 py-2 text-center">
+            <div className="text-2xl font-bold text-board-text">{queueStatus.readyCount}</div>
+            <div className="text-xs text-board-text-muted">Ready</div>
           </div>
-          <div className="glass-intense rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-status-warning">{queueStatus.inProgressCount}</div>
-            <div className="text-sm text-board-text-muted mt-1">In Progress</div>
+          <div className="glass-intense rounded-lg px-3 py-2 text-center">
+            <div className="text-2xl font-bold text-status-warning">{queueStatus.inProgressCount}</div>
+            <div className="text-xs text-board-text-muted">In Progress</div>
           </div>
-          <div className="glass-intense rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-status-success">{queueStatus.workerCount}</div>
-            <div className="text-sm text-board-text-muted mt-1">Workers</div>
+          <div className="glass-intense rounded-lg px-3 py-2 text-center">
+            <div className="text-2xl font-bold text-status-success">{queueStatus.workerCount}</div>
+            <div className="text-xs text-board-text-muted">Workers</div>
           </div>
         </div>
       </div>
 
       {/* Start New Worker */}
-      <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-medium text-board-text-muted mb-4">Start New Worker</h3>
+      <div className="glass rounded-lg p-3">
+        <h3 className="text-xs font-medium text-board-text-muted uppercase tracking-wide mb-2">Start New Worker</h3>
 
-        <div className="space-y-4">
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2 cursor-pointer group">
+        <div className="space-y-3">
+          <div className="flex gap-4">
+            <label className="flex items-center gap-1.5 cursor-pointer group">
               <input
                 type="radio"
                 name="agentType"
                 checked={newWorkerType === 'cursor'}
                 onChange={() => setNewWorkerType('cursor')}
-                className="w-4 h-4 text-board-accent focus:ring-board-accent"
+                className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-board-text group-hover:text-board-accent transition-colors">Cursor</span>
+              <span className="text-sm text-board-text group-hover:text-board-accent transition-colors">Cursor</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer group">
+            <label className="flex items-center gap-1.5 cursor-pointer group">
               <input
                 type="radio"
                 name="agentType"
                 checked={newWorkerType === 'claude'}
                 onChange={() => setNewWorkerType('claude')}
-                className="w-4 h-4 text-board-accent focus:ring-board-accent"
+                className="w-3.5 h-3.5 text-board-accent focus:ring-board-accent"
               />
-              <span className="text-board-text group-hover:text-board-accent transition-colors">Claude</span>
+              <span className="text-sm text-board-text group-hover:text-board-accent transition-colors">Claude</span>
             </label>
           </div>
 
           <select
             value={newWorkerProject}
             onChange={(e) => setNewWorkerProject(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl text-sm text-board-text bg-board-surface border border-board-border focus:border-board-accent focus:outline-none focus:ring-2 focus:ring-board-accent/30 transition-all duration-200"
+            className="w-full px-2.5 py-1.5 rounded-lg text-sm text-board-text bg-board-surface border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/30 transition-all"
           >
             <option value="">All projects (no filter)</option>
             {projects.map((project) => (
@@ -293,22 +287,22 @@ export function WorkerPanel({ projects }: Props) {
           {/* Validation Status */}
           {newWorkerProject && validationResult && (
             <div className={cn(
-              'glass rounded-xl p-4 ring-1',
-              validationResult.valid ? 'ring-status-success/50 glow-success' : 'ring-status-error/50 glow-error'
+              'glass rounded-lg px-3 py-2 ring-1',
+              validationResult.valid ? 'ring-status-success/50' : 'ring-status-error/50'
             )}>
-              <div className="flex items-center gap-2 mb-2">
-                <span className={cn('w-2 h-2 rounded-full', validationResult.valid ? 'bg-status-success' : 'bg-status-error')} />
-                <span className={cn('font-medium', validationResult.valid ? 'text-status-success' : 'text-status-error')}>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className={cn('w-1.5 h-1.5 rounded-full', validationResult.valid ? 'bg-status-success' : 'bg-status-error')} />
+                <span className={cn('text-sm font-medium', validationResult.valid ? 'text-status-success' : 'text-status-error')}>
                   {validationResult.valid ? 'Environment Ready' : 'Environment Issues'}
                 </span>
               </div>
               
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {validationResult.checks.map((check) => (
-                  <div key={check.name} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
+                  <div key={check.name} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
                       <span className={cn(
-                        'w-1.5 h-1.5 rounded-full',
+                        'w-1 h-1 rounded-full',
                         check.isWarning ? 'bg-status-warning' : check.passed ? 'bg-status-success' : 'bg-status-error'
                       )} />
                       <span className="text-board-text-secondary">{check.message}</span>
@@ -328,9 +322,9 @@ export function WorkerPanel({ projects }: Props) {
               </div>
 
               {validationResult.warnings.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-board-border">
+                <div className="mt-2 pt-2 border-t border-board-border">
                   <span className="text-xs text-status-warning font-medium">Warnings:</span>
-                  <ul className="mt-1 space-y-1">
+                  <ul className="mt-0.5 space-y-0.5">
                     {validationResult.warnings.map((warning, i) => (
                       <li key={i} className="text-xs text-board-text-muted">{warning}</li>
                     ))}
@@ -341,18 +335,18 @@ export function WorkerPanel({ projects }: Props) {
           )}
 
           {isValidating && (
-            <div className="text-sm text-board-text-muted text-center glass-subtle rounded-xl py-3">
+            <div className="text-xs text-board-text-muted text-center glass-subtle rounded-lg py-2">
               Validating environment...
             </div>
           )}
 
           {validationError && (
-            <div className="glass rounded-xl p-4 ring-1 ring-status-error/50">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-status-error" />
-                <span className="font-medium text-status-error">Validation Error</span>
+            <div className="glass rounded-lg px-3 py-2 ring-1 ring-status-error/50">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-status-error" />
+                <span className="text-sm font-medium text-status-error">Validation Error</span>
               </div>
-              <p className="text-sm text-board-text-secondary mt-2">{validationError}</p>
+              <p className="text-xs text-board-text-secondary mt-1">{validationError}</p>
             </div>
           )}
 
@@ -368,52 +362,48 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {/* Active Workers */}
-      <div className="glass rounded-xl p-5">
-        <h3 className="text-sm font-medium text-board-text-muted mb-4">Active Workers</h3>
+      <div className="glass rounded-lg p-3">
+        <h3 className="text-xs font-medium text-board-text-muted uppercase tracking-wide mb-2">Active Workers</h3>
 
         {workers.length === 0 ? (
-          <div className="text-center py-8 glass-subtle rounded-xl">
+          <div className="text-center py-4 glass-subtle rounded-lg">
             <div className="text-board-text-muted text-sm">No workers running</div>
-            <p className="text-board-text-muted/60 text-xs mt-1">Start a worker above to begin processing tickets</p>
+            <p className="text-board-text-muted/60 text-xs mt-0.5">Start a worker above to begin processing tickets</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {workers.map((worker) => {
               const project = projects.find((p) => p.id === worker.projectId);
               return (
                 <div
                   key={worker.id}
-                  className="flex items-center justify-between glass-intense rounded-xl p-4"
+                  className="flex items-center justify-between glass-intense rounded-lg px-3 py-2"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span
                         className={cn(
-                          'w-2.5 h-2.5 rounded-full',
+                          'w-2 h-2 rounded-full',
                           getStatusColor(worker.status),
                           getStatusGlow(worker.status)
                         )}
                       />
-                      <span className="font-medium text-board-text">
+                      <span className="font-medium text-sm text-board-text">
                         {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
                       </span>
-                      <span className="text-xs text-board-text-muted px-2 py-0.5 glass-subtle rounded-full">
+                      <span className="text-xs text-board-text-muted px-1.5 py-0.5 glass-subtle rounded">
                         {worker.status}
                       </span>
                     </div>
-                    <div className="text-xs text-board-text-muted mt-1.5 truncate">
-                      {project ? project.name : 'All projects'} •{' '}
-                      {worker.ticketsProcessed} processed
+                    <div className="text-xs text-board-text-muted mt-0.5 truncate">
+                      {project ? project.name : 'All projects'} · {worker.ticketsProcessed} processed
                     </div>
                     {worker.currentTicketId && (
-                      <div className="text-xs text-board-accent mt-1 truncate flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-board-accent animate-pulse" />
+                      <div className="text-xs text-board-accent mt-0.5 truncate flex items-center gap-1">
+                        <span className="w-1 h-1 rounded-full bg-board-accent animate-pulse" />
                         Working on: {worker.currentTicketId.substring(0, 8)}...
                       </div>
                     )}
-                    <div className="text-xs text-board-text-muted/60 mt-1">
-                      Last poll: {formatDate(worker.lastPollAt)}
-                    </div>
                   </div>
                   <Button
                     onClick={() => handleStopWorker(worker.id, worker.status === 'running' && !!worker.currentTicketId)}
@@ -430,14 +420,12 @@ export function WorkerPanel({ projects }: Props) {
       </div>
 
       {/* Info Card */}
-      <div className="glass rounded-xl p-4 text-sm ring-1 ring-status-info/30">
-        <h4 className="font-medium text-status-info mb-2">How Workers Operate</h4>
-        <ul className="text-board-text-secondary space-y-1 list-disc list-inside">
-          <li>Workers continuously poll for tickets in the Ready column</li>
+      <div className="glass rounded-lg px-3 py-2 text-xs ring-1 ring-status-info/20">
+        <h4 className="font-medium text-status-info mb-1">How Workers Operate</h4>
+        <ul className="text-board-text-secondary space-y-0.5 list-disc list-inside">
+          <li>Workers poll for tickets in the Ready column</li>
           <li>Each ticket is locked while being processed</li>
-          <li>Heartbeats prevent lock expiration during work</li>
           <li>On completion, tickets move to Review or Blocked</li>
-          <li>Expired locks are automatically recovered</li>
         </ul>
       </div>
     </div>

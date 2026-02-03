@@ -565,13 +565,13 @@ function App() {
         {activeNav === 'agents' && (
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Agents Tabs */}
-            <div className="flex gap-1 mb-4">
+            <div className="flex gap-1 mb-3">
               {[
                 { 
                   id: 'workers', 
                   label: 'Workers',
                   icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                       <circle cx="9" cy="7" r="4" />
                       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
@@ -583,7 +583,7 @@ function App() {
                   id: 'runs', 
                   label: 'Runs',
                   icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polygon points="5 3 19 12 5 21 5 3" />
                     </svg>
                   ),
@@ -593,9 +593,9 @@ function App() {
                 <button
                   key={tab.id}
                   onClick={() => setAgentsTab(tab.id as typeof agentsTab)}
-                  className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200 flex items-center gap-2 ${
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
                     agentsTab === tab.id
-                      ? 'bg-board-accent text-white shadow-md'
+                      ? 'bg-board-accent text-white shadow-sm'
                       : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
                   }`}
                 >
@@ -616,42 +616,42 @@ function App() {
 
             {/* Workers Tab Content */}
             {agentsTab === 'workers' && (
-              <div className="flex-1 overflow-auto glass rounded-2xl">
+              <div className="flex-1 overflow-auto glass rounded-lg">
                 <WorkerPanel projects={projects} />
               </div>
             )}
 
             {/* Runs Tab Content */}
             {agentsTab === 'runs' && (
-              <div className="flex-1 overflow-auto glass rounded-2xl p-6">
+              <div className="flex-1 overflow-auto glass rounded-lg p-4">
                 {/* Active Runs Section */}
                 {tickets.filter((t) => t.lockedByRunId).length > 0 && (
-                  <div className="mb-6">
-                    <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
+                  <div className="mb-4">
+                    <h4 className="text-xs font-medium text-board-text-secondary uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
                       Active Runs
                     </h4>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       {tickets
                         .filter((t) => t.lockedByRunId)
                         .map((ticket) => (
                           <div
                             key={ticket.id}
-                            className="p-3 glass-intense rounded-xl flex items-center justify-between glow-warning"
+                            className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between"
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-board-text truncate">{ticket.title}</span>
+                                <span className="font-medium text-sm text-board-text truncate">{ticket.title}</span>
                                 <span className="text-xs text-board-text-muted font-mono shrink-0">
                                   #{ticket.id.slice(0, 8)}
                                 </span>
                               </div>
-                              <span className="text-sm text-board-text-muted">
+                              <span className="text-xs text-board-text-muted">
                                 Running with {ticket.agentPref || 'agent'}
                               </span>
                             </div>
-                            <span className="text-status-warning text-sm flex items-center gap-1">
-                              <span className="inline-block w-2 h-2 bg-status-warning rounded-full animate-pulse" />
+                            <span className="text-status-warning text-xs flex items-center gap-1">
+                              <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
                               In Progress
                             </span>
                           </div>
@@ -662,17 +662,17 @@ function App() {
                 
                 {/* Recent Runs Section */}
                 <div>
-                  <h4 className="text-sm font-medium text-board-text-secondary uppercase tracking-wide mb-3">
+                  <h4 className="text-xs font-medium text-board-text-secondary uppercase tracking-wide mb-2">
                     Recent Runs
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {recentRuns.length === 0 ? (
-                      <div className="glass-subtle rounded-xl p-8 text-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-board-text-muted mb-3">
+                      <div className="glass-subtle rounded-lg p-6 text-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-board-text-muted mb-2">
                           <polygon points="5 3 19 12 5 21 5 3" />
                         </svg>
                         <p className="text-board-text-muted text-sm">No runs yet</p>
-                        <p className="text-board-text-muted text-xs mt-1">Start a run from a ticket to see activity</p>
+                        <p className="text-board-text-muted text-xs mt-0.5">Start a run from a ticket to see activity</p>
                       </div>
                     ) : (
                       recentRuns.map((run) => {
@@ -694,24 +694,24 @@ function App() {
                         return (
                           <div
                             key={run.id}
-                            className="p-3 glass-intense rounded-xl flex items-center justify-between hover:shadow-md transition-all duration-200"
+                            className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between hover:bg-board-card-hover transition-colors"
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-board-text truncate">
+                                <span className="font-medium text-sm text-board-text truncate">
                                   {ticket?.title || 'Unknown Ticket'}
                                 </span>
                                 <span className="text-xs text-board-text-muted font-mono shrink-0">
                                   #{run.ticketId.slice(0, 8)}
                                 </span>
                               </div>
-                              <span className="text-sm text-board-text-muted">
-                                {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} &middot; {timeAgo}
+                              <span className="text-xs text-board-text-muted">
+                                {run.agentType === 'cursor' ? 'Cursor' : 'Claude'} · {timeAgo}
                                 {duration && ` · ${duration}`}
                               </span>
                             </div>
-                            <span className={`${status.color} text-sm flex items-center gap-1 shrink-0`}>
-                              <span className={`inline-block w-2 h-2 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
+                            <span className={`${status.color} text-xs flex items-center gap-1 shrink-0`}>
+                              <span className={`inline-block w-1.5 h-1.5 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
                               {status.label}
                             </span>
                           </div>
