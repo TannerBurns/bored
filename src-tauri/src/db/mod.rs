@@ -9,7 +9,7 @@ pub mod schema;
 mod spec_versions;
 mod specs;
 pub mod tasks;
-mod tickets;
+pub mod tickets;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
