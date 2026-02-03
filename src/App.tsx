@@ -77,11 +77,11 @@ const navItems = [
     label: 'Agents',
     icon: (
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 8V4H8" />
-        <rect x="8" y="8" width="8" height="8" rx="2" />
-        <path d="M12 16v4h4" />
-        <path d="M8 12H4" />
-        <path d="M20 12h-4" />
+        <rect x="3" y="11" width="18" height="10" rx="2" />
+        <circle cx="12" cy="5" r="2" />
+        <path d="M12 7v4" />
+        <line x1="8" y1="16" x2="8" y2="16" />
+        <line x1="16" y1="16" x2="16" y2="16" />
       </svg>
     ),
   },
@@ -93,7 +93,7 @@ function App() {
   const [recentRuns, setRecentRuns] = useState<AgentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState<'general' | 'projects' | 'cursor' | 'claude' | 'data'>('general');
-  const [agentsTab, setAgentsTab] = useState<'runs' | 'workers'>('runs');
+  const [agentsTab, setAgentsTab] = useState<'workers' | 'runs'>('workers');
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
@@ -568,16 +568,6 @@ function App() {
             <div className="flex gap-1 mb-4">
               {[
                 { 
-                  id: 'runs', 
-                  label: 'Runs',
-                  icon: (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                  ),
-                  badge: tickets.filter((t) => t.lockedByRunId).length || undefined,
-                },
-                { 
                   id: 'workers', 
                   label: 'Workers',
                   icon: (
@@ -593,6 +583,16 @@ function App() {
                       <path d="M16.95 7.05l2.83-2.83" />
                     </svg>
                   ),
+                },
+                { 
+                  id: 'runs', 
+                  label: 'Runs',
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                  ),
+                  badge: tickets.filter((t) => t.lockedByRunId).length || undefined,
                 },
               ].map((tab) => (
                 <button
@@ -618,6 +618,13 @@ function App() {
                 </button>
               ))}
             </div>
+
+            {/* Workers Tab Content */}
+            {agentsTab === 'workers' && (
+              <div className="flex-1 overflow-auto glass rounded-2xl">
+                <WorkerPanel projects={projects} />
+              </div>
+            )}
 
             {/* Runs Tab Content */}
             {agentsTab === 'runs' && (
@@ -718,13 +725,6 @@ function App() {
                     )}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Workers Tab Content */}
-            {agentsTab === 'workers' && (
-              <div className="flex-1 overflow-auto glass rounded-2xl">
-                <WorkerPanel projects={projects} />
               </div>
             )}
           </div>
