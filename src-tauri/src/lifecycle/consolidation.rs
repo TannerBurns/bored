@@ -47,6 +47,17 @@ pub(super) fn populate_consolidation_tickets(
 
     let children = db.get_epic_children(&epic.id)?;
     for child in children {
+        // Skip merge-dependencies tickets - they have their own specialized description
+        // from build_merge_description that should not be overwritten
+        if child.labels.contains(&"merge-dependencies".to_string()) {
+            tracing::debug!(
+                "Consolidation epic {}: skipping merge-dependencies ticket {} (preserving specialized description)",
+                epic.id,
+                child.id
+            );
+            continue;
+        }
+
         db.update_ticket(
             &child.id,
             &UpdateTicket {
@@ -357,6 +368,7 @@ fn build_merge_description(epic: &Ticket, dependency_branches: &[(String, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{CreateProject, CreateSpec, CreateSpecVersion, CreateTicket};
 
     #[test]
     fn test_order_epics_by_dependencies_empty() {
@@ -374,5 +386,177 @@ mod tests {
         ];
         let result = order_epics_by_dependencies(&epics, &db).unwrap();
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_populate_consolidation_tickets_skips_merge_dependencies_ticket() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+        // Create a project first (required for spec)
+        // Use /tmp which exists on most systems
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test Project".to_string(),
+                path: "/tmp".to_string(),
+                preferred_agent: None,
+                requires_git: false,
+            })
+            .unwrap();
+
+        // Create a spec and version for the consolidation epic
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: None,
+                project_id: project.id.clone(),
+                name: "Test Spec".to_string(),
+                user_input: "Test input".to_string(),
+                agent_pref: None,
+                model: None,
+                settings: serde_json::Value::Null,
+            })
+            .unwrap();
+        let version = db
+            .create_spec_version(&CreateSpecVersion {
+                spec_id: spec.id.clone(),
+            })
+            .unwrap();
+
+        // Create a dependency epic with a completed child that has a branch
+        let dep_epic = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: done.id.clone(),
+                title: "Dependency Epic".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec!["consolidation".to_string()],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: true,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: Some(version.id.clone()),
+            })
+            .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: done.id.clone(),
+            title: "Dep Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: Some("feat/dep-branch".to_string()),
+            is_epic: false,
+            epic_id: Some(dep_epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        // Create a consolidation epic
+        let consolidation_epic = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Consolidation Epic".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec!["consolidation".to_string()],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: true,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: Some(version.id.clone()),
+            })
+            .unwrap();
+
+        // Create a merge-dependencies ticket with specialized description
+        let merge_description = "## Merge Dependency Branches\n\nSpecialized instructions here.";
+        let merge_ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Merge Dependencies".to_string(),
+                description_md: merge_description.to_string(),
+                priority: Priority::High,
+                labels: vec![
+                    "auto-generated".to_string(),
+                    "merge-dependencies".to_string(),
+                ],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::MultiStage,
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(consolidation_epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        // Create a regular child ticket
+        let regular_child = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Regular Child".to_string(),
+                description_md: "Original description".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(consolidation_epic.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        // Call populate_consolidation_tickets
+        populate_consolidation_tickets(&db, &consolidation_epic).unwrap();
+
+        // Verify merge-dependencies ticket's description is PRESERVED
+        let updated_merge = db.get_ticket(&merge_ticket.id).unwrap();
+        assert_eq!(
+            updated_merge.description_md, merge_description,
+            "Merge-dependencies ticket description should NOT be overwritten"
+        );
+
+        // Verify regular child's description WAS updated
+        let updated_regular = db.get_ticket(&regular_child.id).unwrap();
+        assert!(
+            updated_regular.description_md.contains("Branch Consolidation Task"),
+            "Regular child description should be updated with consolidation instructions"
+        );
+        assert_ne!(
+            updated_regular.description_md, "Original description",
+            "Regular child description should have been changed"
+        );
     }
 }
