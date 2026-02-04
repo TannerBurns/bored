@@ -33,6 +33,9 @@ pub enum DbError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    #[error("Migration error: {0}")]
+    Migration(String),
 }
 
 #[derive(Clone)]
@@ -76,13 +79,18 @@ impl Database {
     fn migrate(&self) -> Result<(), DbError> {
         let conn = self.conn.lock().map_err(|e| DbError::Lock(e.to_string()))?;
 
+        // Query current schema version, handling the case where the table doesn't exist yet
         let current_version: i32 = conn
             .query_row(
                 "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
                 [],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                // Table might not exist yet (fresh database)
+                tracing::debug!("Could not read schema_version (likely fresh db): {}", e);
+                0
+            });
 
         if current_version < SCHEMA_VERSION {
             tracing::info!(
@@ -90,6 +98,13 @@ impl Database {
                 current_version,
                 SCHEMA_VERSION
             );
+            
+            // Start a transaction for atomicity - if any migration step fails,
+            // all changes will be rolled back automatically
+            conn.execute("BEGIN EXCLUSIVE TRANSACTION", [])?;
+            
+            // Use a closure to ensure we can rollback on any error
+            let migration_result = (|| -> Result<(), DbError> {
 
             // For fresh databases (version 0), create all tables
             if current_version == 0 {
@@ -482,7 +497,27 @@ impl Database {
                 [SCHEMA_VERSION],
             )?;
 
-            tracing::info!("Database migration complete");
+            Ok(())
+            })(); // End of migration closure
+            
+            // Handle the migration result - commit on success, rollback on failure
+            match migration_result {
+                Ok(()) => {
+                    conn.execute("COMMIT", [])?;
+                    tracing::info!("Database migration complete - committed successfully");
+                }
+                Err(e) => {
+                    tracing::error!("Migration failed, rolling back: {}", e);
+                    // Attempt rollback - if this fails too, log it but return the original error
+                    if let Err(rollback_err) = conn.execute("ROLLBACK", []) {
+                        tracing::error!("Rollback also failed: {}", rollback_err);
+                    }
+                    return Err(DbError::Migration(format!(
+                        "Migration from version {} to {} failed: {}. Database has been rolled back to version {}.",
+                        current_version, SCHEMA_VERSION, e, current_version
+                    )));
+                }
+            }
         }
 
         Ok(())

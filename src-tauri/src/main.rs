@@ -156,7 +156,25 @@ fn main() {
             }
 
             let db_path = app_data_dir.join("agent-kanban.db");
-            let database = Arc::new(db::Database::open(db_path).expect("Failed to open database"));
+            let database = match db::Database::open(db_path.clone()) {
+                Ok(db) => Arc::new(db),
+                Err(e) => {
+                    tracing::error!("Failed to open database at {:?}: {}", db_path, e);
+                    // Provide detailed error message for common issues
+                    let error_msg = match &e {
+                        db::DbError::Migration(msg) => format!(
+                            "Database migration failed. {}\n\nThe database file is at: {:?}\n\nYou may need to restore from a backup or delete the database to start fresh.",
+                            msg, db_path
+                        ),
+                        db::DbError::Sqlite(sqlite_err) => format!(
+                            "SQLite error: {}\n\nDatabase file: {:?}\n\nThis could indicate database corruption. Check file permissions or disk space.",
+                            sqlite_err, db_path
+                        ),
+                        _ => format!("Database error: {}", e),
+                    };
+                    panic!("{}", error_msg);
+                }
+            };
 
             let db_for_cleanup = database.clone();
             tauri::async_runtime::spawn(async move {
