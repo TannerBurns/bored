@@ -364,21 +364,44 @@ impl Database {
 
     /// Check if an epic already has a merge-dependencies ticket injected
     pub fn has_merge_dependencies_ticket(&self, epic_id: &str) -> Result<bool, DbError> {
+        Ok(self.get_merge_dependencies_ticket(epic_id)?.is_some())
+    }
+
+    /// Get the merge-dependencies ticket for an epic if one exists.
+    /// Returns the ticket regardless of its order_in_epic value.
+    pub fn get_merge_dependencies_ticket(&self, epic_id: &str) -> Result<Option<Ticket>, DbError> {
         self.with_conn(|conn| {
             // Match exact JSON element boundaries to avoid false positives from labels
             // like "merge-dependencies-v2". The label in JSON appears as either:
             // - "merge-dependencies"] (last element)
             // - "merge-dependencies", (followed by another element)
-            let count: i32 = conn.query_row(
-                r#"SELECT COUNT(*) FROM tickets 
-                   WHERE epic_id = ? AND (
-                       labels_json LIKE '%"merge-dependencies"]%' OR
-                       labels_json LIKE '%"merge-dependencies",%'
-                   )"#,
-                [epic_id],
-                |row| row.get(0),
-            )?;
-            Ok(count > 0)
+            let ticket_id: Option<String> = conn
+                .query_row(
+                    r#"SELECT id FROM tickets 
+                       WHERE epic_id = ? AND (
+                           labels_json LIKE '%"merge-dependencies"]%' OR
+                           labels_json LIKE '%"merge-dependencies",%'
+                       )"#,
+                    [epic_id],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            match ticket_id {
+                Some(id) => {
+                    // Note: We can't call get_ticket here as it would cause deadlock
+                    // with the current connection. Return just the ID wrapped in a marker.
+                    // The caller should fetch the full ticket outside with_conn.
+                    Ok(Some(id))
+                }
+                None => Ok(None),
+            }
+        })
+        .and_then(|maybe_id: Option<String>| {
+            match maybe_id {
+                Some(id) => self.get_ticket(&id).map(Some),
+                None => Ok(None),
+            }
         })
     }
 

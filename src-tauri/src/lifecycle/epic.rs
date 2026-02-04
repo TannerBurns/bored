@@ -98,14 +98,37 @@ pub fn on_epic_moved_to_ready(
         }
     }
 
-    // Inject merge ticket for multi-dependency epics (idempotent)
-    if epic.depends_on_epic_ids.len() > 1 && !db.has_merge_dependencies_ticket(&epic.id)? {
-        if let Err(e) = inject_merge_dependencies_ticket(db, epic) {
-            tracing::warn!(
-                "Epic {}: failed to inject merge dependencies ticket: {}",
-                epic.id,
-                e
-            );
+    // Inject or repair merge ticket for multi-dependency epics
+    if epic.depends_on_epic_ids.len() > 1 {
+        match db.get_merge_dependencies_ticket(&epic.id)? {
+            Some(merge_ticket) => {
+                // Ticket exists - check if it's properly formed (order_in_epic == 0)
+                if merge_ticket.order_in_epic != Some(0) {
+                    tracing::warn!(
+                        "Epic {}: merge-dependencies ticket {} has order {:?}, repairing to 0",
+                        epic.id,
+                        merge_ticket.id,
+                        merge_ticket.order_in_epic
+                    );
+                    if let Err(e) = db.set_ticket_order_in_epic(&merge_ticket.id, 0) {
+                        tracing::error!(
+                            "Epic {}: failed to repair merge-dependencies ticket order: {}",
+                            epic.id,
+                            e
+                        );
+                    }
+                }
+            }
+            None => {
+                // No merge ticket exists - inject one
+                if let Err(e) = inject_merge_dependencies_ticket(db, epic) {
+                    tracing::warn!(
+                        "Epic {}: failed to inject merge dependencies ticket: {}",
+                        epic.id,
+                        e
+                    );
+                }
+            }
         }
     }
 
@@ -858,5 +881,128 @@ mod tests {
 
         // Should NOT have merge-dependencies ticket
         assert!(!db.has_merge_dependencies_ticket(&single_dep.id).unwrap());
+    }
+
+    #[test]
+    fn test_malformed_merge_ticket_is_repaired() {
+        // This test verifies that if a merge-dependencies ticket exists with the wrong
+        // order_in_epic (e.g., due to a partial failure during injection), it gets repaired
+        // when on_epic_moved_to_ready is called again.
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+        // Create two dependency epics in Done with children that have branches
+        let dep1 = create_test_epic(&db, &board.id, &done.id);
+        let dep2 = create_test_epic(&db, &board.id, &done.id);
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: done.id.clone(),
+            title: "Dep1 Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: Some("feat/dep1-branch".to_string()),
+            is_epic: false,
+            epic_id: Some(dep1.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: done.id.clone(),
+            title: "Dep2 Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: Some("feat/dep2-branch".to_string()),
+            is_epic: false,
+            epic_id: Some(dep2.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        // Create epic with multiple dependencies in Ready
+        let multi_dep = create_epic_with_multi_dependencies(
+            &db,
+            &board.id,
+            &ready.id,
+            vec![dep1.id.clone(), dep2.id.clone()],
+        );
+
+        // Manually create a MALFORMED merge-dependencies ticket (wrong order)
+        let malformed_merge = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: backlog.id.clone(),
+                title: "Merge dependency branches".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::High,
+                labels: vec![
+                    "auto-generated".to_string(),
+                    "merge-dependencies".to_string(),
+                ],
+                project_id: None,
+                agent_pref: None,
+                workflow_type: WorkflowType::MultiStage,
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: Some(multi_dep.id.clone()),
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        // Set it to a WRONG order (simulating partial failure)
+        db.set_ticket_order_in_epic(&malformed_merge.id, 5).unwrap();
+
+        // Verify it has wrong order
+        let ticket_before = db.get_ticket(&malformed_merge.id).unwrap();
+        assert_eq!(
+            ticket_before.order_in_epic,
+            Some(5),
+            "Ticket should have wrong order before repair"
+        );
+
+        // Call on_epic_moved_to_ready - should repair the malformed ticket
+        let _ = on_epic_moved_to_ready(&db, &multi_dep);
+
+        // Verify the ticket now has correct order
+        let ticket_after = db.get_ticket(&malformed_merge.id).unwrap();
+        assert_eq!(
+            ticket_after.order_in_epic,
+            Some(0),
+            "Malformed merge-dependencies ticket should be repaired to order 0"
+        );
+
+        // Verify only one merge-dependencies ticket exists (no duplicate created)
+        let children = db.get_epic_children(&multi_dep.id).unwrap();
+        let merge_count = children
+            .iter()
+            .filter(|c| c.labels.contains(&"merge-dependencies".to_string()))
+            .count();
+        assert_eq!(
+            merge_count, 1,
+            "Should still have exactly one merge ticket after repair"
+        );
     }
 }

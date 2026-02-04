@@ -999,6 +999,96 @@ fn has_merge_dependencies_ticket_ignores_similar_labels() {
 }
 
 #[test]
+fn get_merge_dependencies_ticket_returns_ticket_when_exists() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // No ticket yet
+    assert!(db.get_merge_dependencies_ticket(&epic.id).unwrap().is_none());
+
+    // Create merge-dependencies ticket
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "Merge all the things".to_string(),
+            priority: Priority::High,
+            labels: vec![
+                "auto-generated".to_string(),
+                "merge-dependencies".to_string(),
+            ],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Should now return the ticket
+    let result = db.get_merge_dependencies_ticket(&epic.id).unwrap();
+    assert!(result.is_some());
+    let ticket = result.unwrap();
+    assert_eq!(ticket.id, merge_ticket.id);
+    assert!(ticket.labels.contains(&"merge-dependencies".to_string()));
+}
+
+#[test]
+fn get_merge_dependencies_ticket_returns_ticket_regardless_of_order() {
+    // This test verifies that get_merge_dependencies_ticket returns the ticket
+    // even if its order_in_epic is wrong (e.g., due to a partial injection failure).
+    // This is important for the repair logic.
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create merge-dependencies ticket
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec!["merge-dependencies".to_string()],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Set to a wrong order (simulating partial failure)
+    db.set_ticket_order_in_epic(&merge_ticket.id, 99).unwrap();
+
+    // Should still return the ticket even with wrong order
+    let result = db.get_merge_dependencies_ticket(&epic.id).unwrap();
+    assert!(result.is_some());
+    let ticket = result.unwrap();
+    assert_eq!(ticket.id, merge_ticket.id);
+    assert_eq!(ticket.order_in_epic, Some(99)); // Order is wrong but ticket is returned
+}
+
+#[test]
 fn get_all_dependency_branches_returns_branches_from_all_deps() {
     let db = create_test_db();
     let board = db.create_board("Board").unwrap();
