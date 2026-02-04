@@ -795,21 +795,108 @@ pub async fn resume_spec_work(
     Ok(())
 }
 
-/// Halt work on a spec version - stops and resets to Halted status
+/// Halt work on a spec version - stops all running agents, resets ticket state, and moves
+/// non-Done tickets back to Backlog. This allows a clean restart via start_spec_work.
 #[tauri::command]
 pub async fn halt_spec_work(
     spec_id: String,
     db: State<'_, Arc<Database>>,
+    running_agents: State<'_, crate::commands::runs::RunningAgents>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
 ) -> Result<(), String> {
     tracing::info!("Halting work for spec {}", spec_id);
 
-    // Get latest version
+    // Get spec and latest version
+    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
     let version = db
         .get_latest_spec_version(&spec_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "No version found for spec".to_string())?;
 
+    // Use target_board_id if set, otherwise fall back to board_id
+    let board_id = spec.target_board_id.as_ref().unwrap_or(&spec.board_id);
+
+    // Find the Backlog column for this board
+    let backlog_column = db
+        .find_column_by_name(board_id, "Backlog")
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Backlog column not found".to_string())?;
+
+    // Get all tickets for this spec version
+    let tickets = db
+        .get_spec_version_tickets(&version.id)
+        .map_err(|e| e.to_string())?;
+
+    // Get columns to check which tickets are in Done
+    let columns = db.get_columns(board_id).map_err(|e| e.to_string())?;
+    let done_column_id = columns
+        .iter()
+        .find(|c| c.name == "Done")
+        .map(|c| c.id.clone());
+
+    for ticket in &tickets {
+        // Cancel any running agent and reset run state
+        if let Some(ref run_id) = ticket.locked_by_run_id {
+            tracing::info!(
+                "Aborting running ticket {} (run {}) as part of spec {} halt",
+                ticket.id,
+                run_id,
+                spec_id
+            );
+
+            // Cancel via handle if available
+            {
+                let handles = running_agents
+                    .handles
+                    .lock()
+                    .expect("running agents mutex poisoned");
+                if let Some(handle) = handles.get(run_id) {
+                    handle.cancel();
+                    tracing::info!("Cancelled handle for run {} (spec halt)", run_id);
+                }
+            }
+
+            // Update run status to Aborted
+            if let Err(e) = db.update_run_status(
+                run_id,
+                crate::db::RunStatus::Aborted,
+                None,
+                Some("Aborted via spec halt"),
+            ) {
+                tracing::warn!("Failed to update run {} status to aborted: {}", run_id, e);
+            }
+
+            // Reset any in-progress tasks for this run
+            if let Err(e) = db.reset_tasks_for_run(run_id) {
+                tracing::warn!("Failed to reset tasks for run {}: {}", run_id, e);
+            }
+
+            // Unlock the ticket
+            if let Err(e) = db.unlock_ticket(&ticket.id) {
+                tracing::warn!("Failed to unlock ticket {}: {}", ticket.id, e);
+            }
+        }
+
+        // Move non-Done tickets back to Backlog
+        let is_done = done_column_id
+            .as_ref()
+            .map(|done_id| ticket.column_id == *done_id)
+            .unwrap_or(false);
+
+        if !is_done {
+            if let Err(e) = db.move_ticket(&ticket.id, &backlog_column.id) {
+                tracing::warn!("Failed to move ticket {} to Backlog: {}", ticket.id, e);
+            } else {
+                tracing::info!(
+                    "Moved ticket {} to Backlog as part of spec {} halt",
+                    ticket.id,
+                    spec_id
+                );
+            }
+        }
+    }
+
+    // Now update the spec version status and clear pause state
     db.halt_spec_version_work(&version.id)
         .map_err(|e| e.to_string())?;
 
