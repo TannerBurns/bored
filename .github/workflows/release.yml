@@ -213,12 +213,26 @@ jobs:
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
           
+          # Debug: Show what files exist in bundle directory
+          echo "=== Bundle directory contents ==="
+          find "$BUNDLE_DIR" -type f -name "*.sig" -o -name "*.tar.gz" -o -name "*.zip" 2>/dev/null || echo "Bundle dir not found or empty"
+          echo "================================="
+          
           # Platform-specific configuration
           case "${{ matrix.name }}" in
             macOS)
               # Universal binary covers both architectures
-              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.app.tar.gz.sig" | head -1)
-              TAR_FILE=$(find "$BUNDLE_DIR" -name "*.app.tar.gz" ! -name "*.sig" | head -1)
+              # Look for .tar.gz.sig in macos subdirectory
+              SIG_FILE=$(find "$BUNDLE_DIR" -type f -name "*.tar.gz.sig" 2>/dev/null | head -1)
+              TAR_FILE=$(find "$BUNDLE_DIR" -type f -name "*.tar.gz" ! -name "*.sig" 2>/dev/null | head -1)
+              
+              if [ -z "$SIG_FILE" ] || [ -z "$TAR_FILE" ]; then
+                echo "ERROR: Could not find signature or tar.gz files for macOS"
+                echo "SIG_FILE: $SIG_FILE"
+                echo "TAR_FILE: $TAR_FILE"
+                exit 1
+              fi
+              
               TAR_NAME=$(basename "$TAR_FILE")
               SIGNATURE=$(cat "$SIG_FILE")
               URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/${TAR_NAME}"
@@ -232,8 +246,16 @@ jobs:
                 '{version: $version, notes: $notes, pub_date: $pub_date, platforms: {"darwin-aarch64": {signature: $sig, url: $url}, "darwin-x86_64": {signature: $sig, url: $url}}}' > latest.json
               ;;
             Linux)
-              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.AppImage.tar.gz.sig" | head -1)
-              TAR_FILE=$(find "$BUNDLE_DIR" -name "*.AppImage.tar.gz" ! -name "*.sig" | head -1)
+              SIG_FILE=$(find "$BUNDLE_DIR" -type f -name "*.AppImage.tar.gz.sig" 2>/dev/null | head -1)
+              TAR_FILE=$(find "$BUNDLE_DIR" -type f -name "*.AppImage.tar.gz" ! -name "*.sig" 2>/dev/null | head -1)
+              
+              if [ -z "$SIG_FILE" ] || [ -z "$TAR_FILE" ]; then
+                echo "ERROR: Could not find signature or tar.gz files for Linux"
+                echo "SIG_FILE: $SIG_FILE"
+                echo "TAR_FILE: $TAR_FILE"
+                exit 1
+              fi
+              
               TAR_NAME=$(basename "$TAR_FILE")
               SIGNATURE=$(cat "$SIG_FILE")
               URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/${TAR_NAME}"
@@ -247,8 +269,16 @@ jobs:
               ;;
             Windows)
               # Prefer NSIS installer for updates
-              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.nsis.zip.sig" | head -1)
-              ZIP_FILE=$(find "$BUNDLE_DIR" -name "*.nsis.zip" ! -name "*.sig" | head -1)
+              SIG_FILE=$(find "$BUNDLE_DIR" -type f -name "*-setup.nsis.zip.sig" 2>/dev/null | head -1)
+              ZIP_FILE=$(find "$BUNDLE_DIR" -type f -name "*-setup.nsis.zip" ! -name "*.sig" 2>/dev/null | head -1)
+              
+              if [ -z "$SIG_FILE" ] || [ -z "$ZIP_FILE" ]; then
+                echo "ERROR: Could not find signature or zip files for Windows"
+                echo "SIG_FILE: $SIG_FILE"
+                echo "ZIP_FILE: $ZIP_FILE"
+                exit 1
+              fi
+              
               ZIP_NAME=$(basename "$ZIP_FILE")
               SIGNATURE=$(cat "$SIG_FILE")
               URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/${ZIP_NAME}"
