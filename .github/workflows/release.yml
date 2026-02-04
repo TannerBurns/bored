@@ -182,7 +182,7 @@ jobs:
         with:
           name: updater-json-${{ matrix.name }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/**/latest.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Get version from tag
         id: version
@@ -252,6 +252,14 @@ jobs:
           echo "Found updater JSON files:"
           find updater-artifacts -name "latest.json" -type f
           
+          # Count found files and fail if none exist
+          FILE_COUNT=$(find updater-artifacts -name "latest.json" -type f | wc -l)
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "ERROR: No latest.json files found in artifacts. Cannot create valid updater manifest."
+            exit 1
+          fi
+          echo "Found $FILE_COUNT updater JSON file(s)"
+          
           # Start with empty platforms object
           MERGED='{"platforms":{}}'
           
@@ -276,6 +284,12 @@ jobs:
           
           echo "Merged latest.json:"
           echo "$MERGED" | jq .
+          
+          # Validate the merged JSON has required fields
+          if [ "$(echo "$MERGED" | jq -r '.version // empty')" = "" ]; then
+            echo "ERROR: Merged JSON is missing required 'version' field"
+            exit 1
+          fi
           
           # Write merged file
           echo "$MERGED" | jq . > latest.json

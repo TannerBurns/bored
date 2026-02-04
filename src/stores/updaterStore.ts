@@ -40,6 +40,7 @@ function clearDismissedVersion(): void {
 interface UpdaterState {
   state: UpdateState;
   isDismissed: boolean;
+  isChecking: boolean;
   isDownloading: boolean;
   
   // Actions
@@ -54,9 +55,14 @@ interface UpdaterState {
 export const useUpdaterStore = create<UpdaterState>()((set, get) => ({
   state: { status: 'idle' },
   isDismissed: false,
+  isChecking: false,
   isDownloading: false,
 
   checkForUpdates: async () => {
+    // Guard against concurrent invocations
+    if (get().isChecking) return;
+    set({ isChecking: true });
+    
     try {
       set({ state: { status: 'checking' } });
       const update = await check();
@@ -92,6 +98,8 @@ export const useUpdaterStore = create<UpdaterState>()((set, get) => ({
       set({ 
         state: { status: 'error', message: friendlyMessage } 
       });
+    } finally {
+      set({ isChecking: false });
     }
   },
 
