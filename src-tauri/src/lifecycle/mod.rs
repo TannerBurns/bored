@@ -1,3 +1,4 @@
+mod consolidation;
 pub mod epic;
 pub mod rules;
 pub mod state;

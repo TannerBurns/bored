@@ -3,22 +3,39 @@
 //! Handles determining the base branch for tickets based on:
 //! - Previous sibling branches (chain branching within an epic)
 //! - Cross-epic dependency branches
+//! - Merge-dependencies tickets (which branch from main)
 
 use std::sync::Arc;
 
 use crate::db::{Database, Ticket};
 
+#[cfg(test)]
+use crate::db::{CreateTicket, Priority, WorkflowType};
+
+fn is_merge_dependencies_ticket(ticket: &Ticket) -> bool {
+    // Only check the label, not order_in_epic. During injection, merge-dependencies
+    // tickets may temporarily have non-zero order before repair logic fixes it.
+    // The label is the definitive marker for these tickets.
+    ticket.labels.contains(&"merge-dependencies".to_string())
+}
+
 /// Determine the base branch for a ticket based on epic chain branching rules.
-///
-/// For epic child tickets, we implement chain branching where each ticket
-/// branches from the previous sibling's branch (if available) rather than
-/// the default branch.
+/// Merge-dependencies tickets branch from main; other epic children chain from siblings.
 pub fn get_base_branch_for_ticket(
     db: &Arc<Database>,
     ticket: &Ticket,
     worker_id: &str,
 ) -> Option<String> {
     ticket.epic_id.as_ref()?;
+
+    if is_merge_dependencies_ticket(ticket) {
+        tracing::info!(
+            "Worker {} ticket {} is a merge-dependencies ticket, using default branch",
+            worker_id,
+            ticket.id
+        );
+        return None;
+    }
 
     match db.get_previous_epic_sibling(&ticket.id) {
         Ok(Some(prev_sibling)) => {
@@ -80,5 +97,151 @@ fn get_cross_epic_base_branch(
             );
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_ticket(labels: Vec<String>, order_in_epic: Option<i32>, epic_id: Option<String>) -> Ticket {
+        Ticket {
+            id: "t1".to_string(),
+            board_id: "b1".to_string(),
+            column_id: "c1".to_string(),
+            title: "Test".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            locked_by_run_id: None,
+            lock_expires_at: None,
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id,
+            order_in_epic,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+            paused_at: None,
+            paused_at_stage: None,
+            paused_run_id: None,
+        }
+    }
+
+    #[test]
+    fn is_merge_dependencies_ticket_true_when_label_present() {
+        let ticket = make_ticket(
+            vec!["merge-dependencies".to_string()],
+            Some(0),
+            Some("epic-1".to_string()),
+        );
+        assert!(is_merge_dependencies_ticket(&ticket));
+    }
+
+    #[test]
+    fn is_merge_dependencies_ticket_false_without_label() {
+        let ticket = make_ticket(
+            vec!["other-label".to_string()],
+            Some(0),
+            Some("epic-1".to_string()),
+        );
+        assert!(!is_merge_dependencies_ticket(&ticket));
+    }
+
+    #[test]
+    fn is_merge_dependencies_ticket_true_regardless_of_order() {
+        // Merge-dependencies tickets should be detected by label alone,
+        // regardless of order_in_epic value. This handles the race condition
+        // where the ticket is processed before repair logic fixes the order.
+        let ticket = make_ticket(
+            vec!["merge-dependencies".to_string()],
+            Some(5), // Any order value
+            Some("epic-1".to_string()),
+        );
+        assert!(is_merge_dependencies_ticket(&ticket));
+    }
+
+    #[test]
+    fn is_merge_dependencies_ticket_true_when_order_is_none() {
+        // Should still detect merge-dependencies ticket even with NULL order
+        let ticket = make_ticket(
+            vec!["merge-dependencies".to_string()],
+            None,
+            Some("epic-1".to_string()),
+        );
+        assert!(is_merge_dependencies_ticket(&ticket));
+    }
+
+    #[test]
+    fn get_base_branch_returns_none_for_non_epic_child() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let ticket = make_ticket(vec![], None, None); // No epic_id
+        
+        let result = get_base_branch_for_ticket(&db, &ticket, "worker-1");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn get_base_branch_returns_none_for_merge_dependencies_ticket() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+        // Create an epic
+        let epic = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Epic".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        }).unwrap();
+
+        // Create a merge-dependencies ticket
+        let merge_ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Deps".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec!["merge-dependencies".to_string()],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        }).unwrap();
+
+        // Set order_in_epic to 0
+        db.set_ticket_order_in_epic(&merge_ticket.id, 0).unwrap();
+
+        // Re-fetch to get updated ticket
+        let updated = db.get_ticket(&merge_ticket.id).unwrap();
+
+        let result = get_base_branch_for_ticket(&db, &updated, "worker-1");
+        assert!(result.is_none(), "Merge-dependencies tickets should use default branch");
     }
 }

@@ -834,3 +834,564 @@ fn get_spec_epics_with_branches_returns_empty_for_no_epics() {
     let epics_with_branches = db.get_spec_epics_with_branches(&version.id).unwrap();
     assert!(epics_with_branches.is_empty());
 }
+
+#[test]
+fn shift_epic_children_order_shifts_all_children() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create children - they'll get order 0, 1, 2
+    let child1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+    let child2 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 2");
+    let child3 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 3");
+
+    assert_eq!(child1.order_in_epic, Some(0));
+    assert_eq!(child2.order_in_epic, Some(1));
+    assert_eq!(child3.order_in_epic, Some(2));
+
+    // Shift all by 1
+    db.shift_epic_children_order(&epic.id, 1).unwrap();
+
+    // Verify orders are now 1, 2, 3
+    let updated1 = db.get_ticket(&child1.id).unwrap();
+    let updated2 = db.get_ticket(&child2.id).unwrap();
+    let updated3 = db.get_ticket(&child3.id).unwrap();
+
+    assert_eq!(updated1.order_in_epic, Some(1));
+    assert_eq!(updated2.order_in_epic, Some(2));
+    assert_eq!(updated3.order_in_epic, Some(3));
+}
+
+#[test]
+fn set_ticket_order_in_epic_updates_order() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    let child = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child");
+
+    assert_eq!(child.order_in_epic, Some(0));
+
+    // Set to a different order
+    db.set_ticket_order_in_epic(&child.id, 5).unwrap();
+
+    let updated = db.get_ticket(&child.id).unwrap();
+    assert_eq!(updated.order_in_epic, Some(5));
+}
+
+#[test]
+fn has_merge_dependencies_ticket_returns_false_when_none() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // No merge-dependencies ticket exists
+    assert!(!db.has_merge_dependencies_ticket(&epic.id).unwrap());
+}
+
+#[test]
+fn has_merge_dependencies_ticket_returns_true_when_exists() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a child with merge-dependencies label
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Merge Dependencies".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::High,
+        labels: vec![
+            "auto-generated".to_string(),
+            "merge-dependencies".to_string(),
+        ],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: Some(epic.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Should now find the merge-dependencies ticket
+    assert!(db.has_merge_dependencies_ticket(&epic.id).unwrap());
+}
+
+#[test]
+fn has_merge_dependencies_ticket_ignores_similar_labels() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a child with a similar but NOT exact label
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Not a merge deps ticket".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![
+            "merge-dependencies-v2".to_string(), // Similar but not exact
+        ],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: Some(epic.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Should NOT find a merge-dependencies ticket (similar label doesn't count)
+    assert!(
+        !db.has_merge_dependencies_ticket(&epic.id).unwrap(),
+        "Similar labels like 'merge-dependencies-v2' should not match"
+    );
+
+    // Now add the exact label
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Real merge deps".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::High,
+        labels: vec!["merge-dependencies".to_string()],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: Some(epic.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Now it should find the exact match
+    assert!(db.has_merge_dependencies_ticket(&epic.id).unwrap());
+}
+
+#[test]
+fn get_merge_dependencies_ticket_returns_ticket_when_exists() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // No ticket yet
+    assert!(db.get_merge_dependencies_ticket(&epic.id).unwrap().is_none());
+
+    // Create merge-dependencies ticket
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "Merge all the things".to_string(),
+            priority: Priority::High,
+            labels: vec![
+                "auto-generated".to_string(),
+                "merge-dependencies".to_string(),
+            ],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Should now return the ticket
+    let result = db.get_merge_dependencies_ticket(&epic.id).unwrap();
+    assert!(result.is_some());
+    let ticket = result.unwrap();
+    assert_eq!(ticket.id, merge_ticket.id);
+    assert!(ticket.labels.contains(&"merge-dependencies".to_string()));
+}
+
+#[test]
+fn get_merge_dependencies_ticket_returns_ticket_regardless_of_order() {
+    // This test verifies that get_merge_dependencies_ticket returns the ticket
+    // even if its order_in_epic is wrong (e.g., due to a partial injection failure).
+    // This is important for the repair logic.
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create merge-dependencies ticket
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec!["merge-dependencies".to_string()],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Set to a wrong order (simulating partial failure)
+    db.set_ticket_order_in_epic(&merge_ticket.id, 99).unwrap();
+
+    // Should still return the ticket even with wrong order
+    let result = db.get_merge_dependencies_ticket(&epic.id).unwrap();
+    assert!(result.is_some());
+    let ticket = result.unwrap();
+    assert_eq!(ticket.id, merge_ticket.id);
+    assert_eq!(ticket.order_in_epic, Some(99)); // Order is wrong but ticket is returned
+}
+
+#[test]
+fn get_all_dependency_branches_returns_branches_from_all_deps() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    // Create two dependency epics with children that have branches
+    let dep_epic1 = create_epic_ticket(&db, &board.id, &done.id, "Dep Epic 1");
+    let dep_epic2 = create_epic_ticket(&db, &board.id, &done.id, "Dep Epic 2");
+
+    // Add completed children with branches to each dependency epic
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: done.id.clone(),
+        title: "Child of Epic 1".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: Some("feat/epic1-branch".to_string()),
+        is_epic: false,
+        epic_id: Some(dep_epic1.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: done.id.clone(),
+        title: "Child of Epic 2".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: Some("feat/epic2-branch".to_string()),
+        is_epic: false,
+        epic_id: Some(dep_epic2.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Create an epic that depends on BOTH dependency epics
+    let multi_dep_epic = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Multi-Dep Epic".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+            depends_on_epic_id: Some(dep_epic1.id.clone()), // Primary
+            depends_on_epic_ids: vec![dep_epic1.id.clone(), dep_epic2.id.clone()], // All
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Get all dependency branches
+    let branches = db.get_all_dependency_branches(&multi_dep_epic.id).unwrap();
+
+    assert_eq!(branches.len(), 2);
+    
+    // Verify both branches are returned
+    let branch_names: Vec<_> = branches.iter().map(|(_, _, b)| b.as_str()).collect();
+    assert!(branch_names.contains(&"feat/epic1-branch"));
+    assert!(branch_names.contains(&"feat/epic2-branch"));
+}
+
+#[test]
+fn get_all_dependency_branches_returns_empty_when_no_deps() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "No Deps Epic");
+
+    let branches = db.get_all_dependency_branches(&epic.id).unwrap();
+    assert!(branches.is_empty());
+}
+
+#[test]
+fn shift_epic_children_order_handles_null_order_values() {
+    // This test verifies that shift_epic_children_order also fixes legacy tickets
+    // that have NULL order_in_epic values, which would otherwise sort before order 0
+    // in SQLite's default ascending sort (NULL sorts first).
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a child ticket normally (will get order 0)
+    let normal_child = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Normal Child");
+    assert_eq!(normal_child.order_in_epic, Some(0));
+
+    // Create a "legacy" ticket without an epic, then manually set its epic_id
+    // via raw SQL to simulate a legacy ticket with NULL order_in_epic
+    let legacy_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None, // No epic initially
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Now manually add it to the epic with NULL order_in_epic (simulating legacy data)
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy_ticket.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    // Verify the legacy ticket has NULL order_in_epic
+    let legacy = db.get_ticket(&legacy_ticket.id).unwrap();
+    assert!(
+        legacy.order_in_epic.is_none(),
+        "Legacy ticket should have NULL order_in_epic"
+    );
+
+    // Now shift all children by 1 (simulating merge-dependencies injection)
+    db.shift_epic_children_order(&epic.id, 1).unwrap();
+
+    // After the fix, the legacy ticket should have been assigned an order value
+    // (shifted from NULL to a real value), not left as NULL
+    let updated_legacy = db.get_ticket(&legacy_ticket.id).unwrap();
+    let updated_normal = db.get_ticket(&normal_child.id).unwrap();
+
+    // The normal child should have been shifted from 0 to 1
+    assert_eq!(updated_normal.order_in_epic, Some(1));
+
+    // The legacy ticket should now have an order value, not NULL
+    // After the fix, NULL values get assigned max_order + shift (so they sort last)
+    assert!(
+        updated_legacy.order_in_epic.is_some(),
+        "Legacy ticket with NULL order should be assigned a value during shift"
+    );
+}
+
+#[test]
+fn get_next_pending_child_returns_order_zero_before_null() {
+    // This test verifies that get_next_pending_child returns a ticket at order 0
+    // before a legacy ticket with NULL order_in_epic.
+    // In SQLite, NULL sorts first in ASC order by default, so we need NULLS LAST.
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a "legacy" ticket without order, directly via SQL
+    let legacy_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Manually add to epic with NULL order
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy_ticket.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    // Create merge-dependencies ticket at order 0
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec!["merge-dependencies".to_string()],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::MultiStage,
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Set merge ticket to order 0 explicitly
+    db.set_ticket_order_in_epic(&merge_ticket.id, 0).unwrap();
+
+    // get_next_pending_child should return the merge ticket (order 0), not the legacy ticket (NULL)
+    let next = db.get_next_pending_child(&epic.id).unwrap();
+    assert!(next.is_some(), "Should find a pending child");
+    let next_ticket = next.unwrap();
+    assert_eq!(
+        next_ticket.id, merge_ticket.id,
+        "Should return merge ticket at order 0, not legacy ticket with NULL order"
+    );
+}
+
+#[test]
+fn get_epic_children_orders_null_last() {
+    // Verify that get_epic_children orders NULL order_in_epic values AFTER numeric values
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create children with explicit orders
+    let child_0 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 0");
+    let child_1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+
+    // Create a legacy ticket with NULL order
+    let legacy = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    let children = db.get_epic_children(&epic.id).unwrap();
+    assert_eq!(children.len(), 3);
+
+    // Ordered children should come first
+    assert_eq!(children[0].id, child_0.id);
+    assert_eq!(children[1].id, child_1.id);
+    // Legacy ticket with NULL order should be last
+    assert_eq!(children[2].id, legacy.id);
+}
