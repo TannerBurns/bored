@@ -167,7 +167,22 @@ jobs:
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }}
+
+      # Upload latest.json for updater (tauri-action@v0 may not upload it reliably)
+      - name: Upload updater JSON to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # Find and upload all updater JSON files
+          find src-tauri/target -name "latest.json" -type f 2>/dev/null | while read -r json_file; do
+            echo "Found updater JSON: $json_file"
+            # Upload to release, overwriting if exists
+            gh release upload "${{ github.ref_name }}" "$json_file" --clobber || echo "Warning: Could not upload $json_file"
+          done
 
       - name: Get version from tag
         id: version

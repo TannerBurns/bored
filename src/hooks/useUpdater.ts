@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { check, type Update, type DownloadEvent } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
@@ -40,6 +40,10 @@ function clearDismissedVersion(): void {
 export function useUpdater() {
   const [state, setState] = useState<UpdateState>({ status: 'idle' });
   const [isDismissed, setIsDismissed] = useState(false);
+  
+  // Ref to track current state for stable callbacks
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const checkForUpdates = useCallback(async () => {
     try {
@@ -83,9 +87,11 @@ export function useUpdater() {
   }, []);
 
   const downloadAndInstall = useCallback(async (updateToInstall?: Update) => {
+    // Use ref to access current state without creating dependency
+    const currentState = stateRef.current;
     const update = updateToInstall ?? (
-      state.status === 'available' ? state.update : 
-      state.status === 'error' && state.update ? state.update : 
+      currentState.status === 'available' ? currentState.update : 
+      currentState.status === 'error' && currentState.update ? currentState.update : 
       null
     );
     if (!update) return;
@@ -137,7 +143,7 @@ export function useUpdater() {
         update
       });
     }
-  }, [state]);
+  }, []);
 
   const handleRestart = useCallback(async () => {
     try {
@@ -148,11 +154,13 @@ export function useUpdater() {
   }, []);
 
   const dismissUpdate = useCallback(() => {
-    if (state.status === 'available') {
-      setDismissedVersionStorage(state.update.version);
+    // Use ref to access current state without creating dependency
+    const currentState = stateRef.current;
+    if (currentState.status === 'available') {
+      setDismissedVersionStorage(currentState.update.version);
       setIsDismissed(true);
     }
-  }, [state]);
+  }, []);
 
   const undoDismiss = useCallback(() => {
     clearDismissedVersion();
