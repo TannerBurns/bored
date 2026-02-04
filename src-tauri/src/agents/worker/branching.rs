@@ -13,7 +13,10 @@ use crate::db::{Database, Ticket};
 use crate::db::{CreateTicket, Priority, WorkflowType};
 
 fn is_merge_dependencies_ticket(ticket: &Ticket) -> bool {
-    ticket.labels.contains(&"merge-dependencies".to_string()) && ticket.order_in_epic == Some(0)
+    // Only check the label, not order_in_epic. During injection, merge-dependencies
+    // tickets may temporarily have non-zero order before repair logic fixes it.
+    // The label is the definitive marker for these tickets.
+    ticket.labels.contains(&"merge-dependencies".to_string())
 }
 
 /// Determine the base branch for a ticket based on epic chain branching rules.
@@ -133,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn is_merge_dependencies_ticket_true_when_label_and_order_zero() {
+    fn is_merge_dependencies_ticket_true_when_label_present() {
         let ticket = make_ticket(
             vec!["merge-dependencies".to_string()],
             Some(0),
@@ -153,23 +156,27 @@ mod tests {
     }
 
     #[test]
-    fn is_merge_dependencies_ticket_false_when_not_first_child() {
+    fn is_merge_dependencies_ticket_true_regardless_of_order() {
+        // Merge-dependencies tickets should be detected by label alone,
+        // regardless of order_in_epic value. This handles the race condition
+        // where the ticket is processed before repair logic fixes the order.
         let ticket = make_ticket(
             vec!["merge-dependencies".to_string()],
-            Some(1), // Not first
+            Some(5), // Any order value
             Some("epic-1".to_string()),
         );
-        assert!(!is_merge_dependencies_ticket(&ticket));
+        assert!(is_merge_dependencies_ticket(&ticket));
     }
 
     #[test]
-    fn is_merge_dependencies_ticket_false_when_no_order() {
+    fn is_merge_dependencies_ticket_true_when_order_is_none() {
+        // Should still detect merge-dependencies ticket even with NULL order
         let ticket = make_ticket(
             vec!["merge-dependencies".to_string()],
             None,
             Some("epic-1".to_string()),
         );
-        assert!(!is_merge_dependencies_ticket(&ticket));
+        assert!(is_merge_dependencies_ticket(&ticket));
     }
 
     #[test]
