@@ -47,23 +47,6 @@ pub(crate) fn shell_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::{AgentKind, AgentRunConfig};
-    use std::path::PathBuf;
-
-    fn create_test_config() -> AgentRunConfig {
-        AgentRunConfig {
-            kind: AgentKind::Claude,
-            ticket_id: "test-ticket".to_string(),
-            run_id: "test-run".to_string(),
-            repo_path: PathBuf::from("/tmp/test"),
-            prompt: "Test prompt".to_string(),
-            timeout_secs: Some(300),
-            api_url: "http://localhost:7432".to_string(),
-            api_token: "token".to_string(),
-            model: None,
-            claude_api_config: None,
-        }
-    }
 
     // Tests for shell_escape function
     #[test]

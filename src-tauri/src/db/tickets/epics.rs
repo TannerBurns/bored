@@ -295,6 +295,86 @@ impl Database {
         Ok(result)
     }
 
+    /// Get the final branches from ALL dependency epics.
+    /// Returns: Vec<(epic_id, epic_title, branch_name)>
+    pub fn get_all_dependency_branches(
+        &self,
+        epic_id: &str,
+    ) -> Result<Vec<(String, String, String)>, DbError> {
+        let deps_with_titles: Vec<(String, String)> = self.with_conn(|conn| {
+            let deps_json: Option<String> = conn
+                .query_row(
+                    "SELECT depends_on_epic_ids_json FROM tickets WHERE id = ?",
+                    [epic_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+
+            let dep_ids: Vec<String> = deps_json
+                .and_then(|j| serde_json::from_str(&j).ok())
+                .unwrap_or_default();
+
+            let mut result = Vec::new();
+            for dep_id in dep_ids {
+                let title = conn
+                    .query_row(
+                        "SELECT title FROM tickets WHERE id = ?",
+                        [&dep_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .unwrap_or_else(|_| dep_id.clone());
+                result.push((dep_id, title));
+            }
+            Ok(result)
+        })?;
+
+        // Fetch branches outside with_conn to avoid deadlock
+        let mut result = Vec::new();
+        for (dep_id, title) in deps_with_titles {
+            if let Ok(Some(branch)) = self.get_epic_final_branch(&dep_id) {
+                result.push((dep_id, title, branch));
+            }
+        }
+        Ok(result)
+    }
+
+    /// Shift all children's order_in_epic by a given amount (to make room for injected tickets)
+    pub fn shift_epic_children_order(&self, epic_id: &str, shift: i32) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE tickets SET order_in_epic = order_in_epic + ? WHERE epic_id = ?",
+                rusqlite::params![shift, epic_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Set the order_in_epic for a specific ticket
+    pub fn set_ticket_order_in_epic(&self, ticket_id: &str, order: i32) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE tickets SET order_in_epic = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![order, now, ticket_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Check if an epic already has a merge-dependencies ticket injected
+    pub fn has_merge_dependencies_ticket(&self, epic_id: &str) -> Result<bool, DbError> {
+        self.with_conn(|conn| {
+            let count: i32 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets 
+                   WHERE epic_id = ? AND labels_json LIKE '%"merge-dependencies"%'"#,
+                [epic_id],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        })
+    }
+
     /// Get the previous sibling of a child ticket in an epic (for chain branching)
     /// Returns the ticket that is one position before this ticket in the epic's order
     pub fn get_previous_epic_sibling(&self, ticket_id: &str) -> Result<Option<Ticket>, DbError> {

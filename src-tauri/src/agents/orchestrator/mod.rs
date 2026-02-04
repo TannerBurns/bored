@@ -29,6 +29,7 @@ mod comments;
 mod config;
 mod execute;
 mod stages;
+#[cfg(test)]
 mod tests;
 mod ticket;
 
