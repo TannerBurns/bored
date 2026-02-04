@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { cn } from '../../lib/utils';
 import { BoredLogo } from '../common/BoredLogo';
 import type { Board } from '../../types';
@@ -35,7 +36,13 @@ export function Sidebar({
   onSettingsClick,
 }: SidebarProps) {
   const [menuOpenForBoard, setMenuOpenForBoard] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('');
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch app version on mount
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion('unknown'));
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -289,7 +296,7 @@ export function Sidebar({
         </ul>
       </nav>
       <div className="pt-4 border-t border-board-border border-opacity-50">
-        <p className="text-xs text-board-text-muted">v0.1.0</p>
+        <p className="text-xs text-board-text-muted">v{appVersion || '...'}</p>
       </div>
     </aside>
   );
