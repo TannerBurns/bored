@@ -5,7 +5,7 @@ import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
-import { ConfirmModal } from './components/common/ConfirmModal';
+import { ConfirmModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { BoardsView, SettingsView, AgentsView, SpecsView } from './components/views';
 import { useBoardStore } from './stores/boardStore';
@@ -243,6 +243,8 @@ function App() {
           projectId={currentBoard.defaultProjectId}
         />
       )}
+
+      <UpdateNotification />
     </div>
   );
 }

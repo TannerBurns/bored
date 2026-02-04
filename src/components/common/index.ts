@@ -6,3 +6,4 @@ export { FullscreenEditorModal } from './FullscreenEditorModal';
 export { Input } from './Input';
 export { MarkdownViewer } from './MarkdownViewer';
 export { Modal } from './Modal';
+export { UpdateNotification } from './UpdateNotification';
