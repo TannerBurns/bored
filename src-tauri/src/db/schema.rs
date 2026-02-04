@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -13,9 +13,6 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Hook installation status
     cursor_hooks_installed INTEGER NOT NULL DEFAULT 0,
     claude_hooks_installed INTEGER NOT NULL DEFAULT 0,
-    
-    -- Agent preferences for this project
-    preferred_agent TEXT CHECK(preferred_agent IN ('cursor', 'claude', 'any')),
     
     -- Safety settings
     allow_shell_commands INTEGER NOT NULL DEFAULT 1,
@@ -65,7 +62,6 @@ CREATE TABLE IF NOT EXISTS specs (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     user_input TEXT NOT NULL,
-    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
     model TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -111,7 +107,6 @@ CREATE TABLE IF NOT EXISTS tickets (
     locked_by_run_id TEXT,
     lock_expires_at TEXT,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-    agent_pref TEXT CHECK(agent_pref IN ('cursor', 'claude', 'any')),
     workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
     model TEXT,
     branch_name TEXT,

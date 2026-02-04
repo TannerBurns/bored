@@ -16,7 +16,6 @@ const createMockTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
   projectId: 'proj-1',
-  agentPref: 'cursor',
   model: 'sonnet-4',
   branchName: 'feat/test',
   ...overrides,
@@ -42,20 +41,10 @@ describe('useTicketEdit', () => {
       expect(result.current.editPriority).toBe('medium');
       expect(result.current.editLabels).toBe('bug, frontend');
       expect(result.current.editProjectId).toBe('proj-1');
-      expect(result.current.editAgentPref).toBe('cursor');
       expect(result.current.editModel).toBe('sonnet-4');
       expect(result.current.editBranchName).toBe('feat/test');
       expect(result.current.editColumnId).toBe('col-1');
       expect(result.current.isSaving).toBe(false);
-    });
-
-    it('defaults agentPref to any when not set', () => {
-      const ticket = createMockTicket({ agentPref: undefined });
-      const { result } = renderHook(() =>
-        useTicketEdit({ ticket, onUpdate: mockOnUpdate })
-      );
-
-      expect(result.current.editAgentPref).toBe('any');
     });
 
     it('defaults optional fields to empty string', () => {
@@ -164,7 +153,6 @@ describe('useTicketEdit', () => {
         labels: ['bug', 'frontend'],
         projectId: 'proj-1',
         workflowType: 'multi_stage',
-        agentPref: 'cursor',
         model: 'sonnet-4',
         branchName: 'feat/test',
         columnId: 'col-1',

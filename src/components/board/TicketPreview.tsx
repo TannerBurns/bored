@@ -83,15 +83,14 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
         </div>
       )}
       
-      <div className="flex items-center justify-between text-xs text-board-text-muted">
-        <span className="bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full font-medium">{ticket.agentPref || 'any'}</span>
-        {ticket.lockedByRunId && (
+      {ticket.lockedByRunId && (
+        <div className="flex items-center justify-end text-xs text-board-text-muted">
           <span className="text-status-warning font-medium flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
             Running
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -96,8 +96,6 @@ pub struct Spec {
     pub project_id: String,
     pub name: String,
     pub user_input: String,
-    /// Preferred agent type for executing the plan
-    pub agent_pref: Option<String>,
     /// Preferred model for the agent
     pub model: Option<String>,
     /// Settings for this spec (auto_approve, etc.)
@@ -149,8 +147,6 @@ pub struct CreateSpec {
     pub project_id: String,
     pub name: String,
     pub user_input: String,
-    /// Preferred agent type (cursor, claude, any)
-    pub agent_pref: Option<String>,
     /// Preferred model
     pub model: Option<String>,
     #[serde(default)]
@@ -163,7 +159,6 @@ pub struct CreateSpec {
 pub struct UpdateSpec {
     pub name: Option<String>,
     pub user_input: Option<String>,
-    pub agent_pref: Option<String>,
     pub model: Option<String>,
     pub settings: Option<serde_json::Value>,
 }

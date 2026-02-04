@@ -32,20 +32,6 @@ export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
         </div>
       )}
 
-      {/* Agent preference */}
-      <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-1">
-          Agent Preference
-        </h3>
-        <span className="text-sm text-board-text-secondary">
-          {ticket.agentPref === 'cursor'
-            ? 'Cursor'
-            : ticket.agentPref === 'claude'
-            ? 'Claude Code'
-            : 'Any'}
-        </span>
-      </div>
-
       {/* AI Model */}
       <div>
         <h3 className="text-sm font-medium text-board-text-muted mb-1">

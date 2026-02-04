@@ -107,9 +107,6 @@ function RunsContent({ tickets, recentRuns }: { tickets: Ticket[]; recentRuns: A
                       #{ticket.id.slice(0, 8)}
                     </span>
                   </div>
-                  <span className="text-xs text-board-text-muted">
-                    Running with {ticket.agentPref || 'agent'}
-                  </span>
                 </div>
                 <span className="text-status-warning text-xs flex items-center gap-1">
                   <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />

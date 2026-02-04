@@ -156,9 +156,8 @@ mod tests {
         let project = db
             .create_project(&CreateProject {
                 name: "Test Project".to_string(),
-                path: temp_dir_path(),
-                preferred_agent: None,
-                requires_git: true,
+            path: temp_dir_path(),
+            requires_git: true,
             })
             .unwrap();
 
@@ -173,7 +172,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Test Spec".to_string(),
                 user_input: "Build a feature".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::json!({}),
             })

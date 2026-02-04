@@ -148,14 +148,13 @@ impl Worker {
             ) {
                 if diag.total_ready > 0 {
                     tracing::debug!(
-                        "Worker {} found no eligible tickets: {} total in Ready (paused={}, locked={}, epics={}, wrong_project={}, wrong_agent={}, eligible={})",
+                        "Worker {} found no eligible tickets: {} total in Ready (paused={}, locked={}, epics={}, wrong_project={}, eligible={})",
                         self.id,
                         diag.total_ready,
                         diag.paused,
                         diag.locked,
                         diag.epics,
                         diag.wrong_project,
-                        diag.wrong_agent_pref,
                         diag.eligible
                     );
                 }

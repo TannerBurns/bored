@@ -18,9 +18,6 @@ export function ProjectsList() {
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
   const [parentPath, setParentPath] = useState('');
-  const [preferredAgent, setPreferredAgent] = useState<
-    'cursor' | 'claude' | 'any' | ''
-  >('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [gitStatus, setGitStatus] = useState<'unknown' | 'checking' | 'initialized' | 'not_initialized'>('unknown');
@@ -104,7 +101,6 @@ export function ProjectsList() {
       await createProject({
         name: newName.trim(),
         path: fullPath,
-        preferredAgent: preferredAgent || undefined,
       });
       resetForm();
       await loadProjects();
@@ -119,7 +115,6 @@ export function ProjectsList() {
     setNewName('');
     setNewPath('');
     setParentPath('');
-    setPreferredAgent('');
     setAddMode('none');
     setGitStatus('unknown');
     setError(null);
@@ -133,7 +128,6 @@ export function ProjectsList() {
       await createProject({
         name: newName.trim(),
         path: newPath.trim(),
-        preferredAgent: preferredAgent || undefined,
       });
       resetForm();
       await loadProjects();
@@ -265,25 +259,6 @@ export function ProjectsList() {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">
-              Preferred Agent
-            </label>
-            <select
-              value={preferredAgent}
-              onChange={(e) =>
-                setPreferredAgent(
-                  e.target.value as 'cursor' | 'claude' | 'any' | ''
-                )
-              }
-              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none"
-            >
-              <option value="">No preference</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude">Claude</option>
-              <option value="any">Any</option>
-            </select>
-          </div>
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
@@ -339,25 +314,6 @@ export function ProjectsList() {
               </p>
             )}
           </div>
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">
-              Preferred Agent
-            </label>
-            <select
-              value={preferredAgent}
-              onChange={(e) =>
-                setPreferredAgent(
-                  e.target.value as 'cursor' | 'claude' | 'any' | ''
-                )
-              }
-              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none"
-            >
-              <option value="">No preference</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude">Claude</option>
-              <option value="any">Any</option>
-            </select>
-          </div>
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
@@ -397,11 +353,6 @@ export function ProjectsList() {
                 {project.claudeHooksInstalled && (
                   <span className="text-xs bg-status-success/20 text-status-success px-1.5 py-0.5 rounded">
                     Claude
-                  </span>
-                )}
-                {project.preferredAgent && (
-                  <span className="text-xs bg-board-surface-raised text-board-text-secondary px-1.5 py-0.5 rounded">
-                    {project.preferredAgent}
                   </span>
                 )}
                 {!project.allowShellCommands && (

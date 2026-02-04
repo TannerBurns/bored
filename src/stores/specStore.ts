@@ -207,7 +207,6 @@ export const useSpecStore = create<SpecState>((set, get) => ({
           projectId: input.projectId,
           name: input.name,
           userInput: input.userInput,
-          agentPref: input.agentPref,
           model: input.model,
         },
       });
@@ -239,7 +238,6 @@ export const useSpecStore = create<SpecState>((set, get) => ({
         id,
         name: updates.name,
         userInput: updates.userInput,
-        agentPref: updates.agentPref,
         model: updates.model,
       });
       

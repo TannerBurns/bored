@@ -1,4 +1,4 @@
-use crate::db::{AgentPref, AgentType, Column, Priority, Ticket, WorkflowType};
+use crate::db::{AgentType, Column, Priority, Ticket, WorkflowType};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,6 @@ pub struct CreateTicketRequest {
     #[serde(default)]
     pub labels: Vec<String>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     #[serde(default)]
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
@@ -35,7 +34,6 @@ pub struct UpdateTicketRequest {
     pub priority: Option<Priority>,
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
     pub branch_name: Option<String>,

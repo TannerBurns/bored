@@ -158,7 +158,7 @@ impl Database {
     pub fn reserve_next_ticket(
         &self,
         project_filter: Option<&str>,
-        agent_type: AgentKind,
+        _agent_type: AgentKind,
         run_id: &str,
         lock_expires_at: DateTime<Utc>,
     ) -> Result<Option<Ticket>, DbError> {
@@ -167,8 +167,6 @@ impl Database {
             let now = Utc::now();
             let now_str = now.to_rfc3339();
             let expires_str = lock_expires_at.to_rfc3339();
-
-            let agent_type_str = agent_type.as_str();
 
             // Excludes epics (workers process children) and paused tickets
             let affected = tx.execute(
@@ -182,11 +180,6 @@ impl Database {
                          AND t.paused_at IS NULL
                          AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
                          AND (?4 IS NULL OR t.project_id = ?4)
-                         AND (
-                             t.agent_pref IS NULL 
-                             OR t.agent_pref = 'any' 
-                             OR t.agent_pref = ?5
-                         )
                        ORDER BY 
                          CASE t.priority 
                            WHEN 'urgent' THEN 0 
@@ -198,7 +191,7 @@ impl Database {
                        LIMIT 1
                    )
                    AND (locked_by_run_id IS NULL OR lock_expires_at < ?3)"#,
-                rusqlite::params![run_id, expires_str, now_str, project_filter, agent_type_str],
+                rusqlite::params![run_id, expires_str, now_str, project_filter],
             )?;
 
             if affected == 0 {
@@ -209,7 +202,7 @@ impl Database {
             let ticket = tx.query_row(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE locked_by_run_id = ?1
@@ -228,10 +221,9 @@ impl Database {
     pub fn get_ready_ticket_diagnostics(
         &self,
         project_filter: Option<&str>,
-        agent_type: AgentKind,
+        _agent_type: AgentKind,
     ) -> Result<ReadyTicketDiagnostics, DbError> {
         self.with_conn(|conn| {
-            let agent_type_str = agent_type.as_str();
             let now_str = Utc::now().to_rfc3339();
 
             // Count tickets in Ready column
@@ -298,23 +290,6 @@ impl Database {
                 0
             };
 
-            // Count with incompatible agent preference
-            let wrong_agent_pref: i64 = conn
-                .query_row(
-                    r#"SELECT COUNT(*) FROM tickets t
-                   JOIN columns c ON t.column_id = c.id
-                   WHERE c.name = 'Ready'
-                     AND t.is_epic = 0
-                     AND t.paused_at IS NULL
-                     AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
-                     AND t.agent_pref IS NOT NULL
-                     AND t.agent_pref != 'any'
-                     AND t.agent_pref != ?"#,
-                    rusqlite::params![&now_str, agent_type_str],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-
             // Count eligible (what reserve_next_ticket would match)
             let eligible: i64 = conn
                 .query_row(
@@ -324,9 +299,8 @@ impl Database {
                      AND t.is_epic = 0
                      AND t.paused_at IS NULL
                      AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
-                     AND (? IS NULL OR t.project_id = ?)
-                     AND (t.agent_pref IS NULL OR t.agent_pref = 'any' OR t.agent_pref = ?)"#,
-                    rusqlite::params![&now_str, project_filter, project_filter, agent_type_str],
+                     AND (? IS NULL OR t.project_id = ?)"#,
+                    rusqlite::params![&now_str, project_filter, project_filter],
                     |row| row.get(0),
                 )
                 .unwrap_or(0);
@@ -337,7 +311,6 @@ impl Database {
                 locked,
                 epics,
                 wrong_project,
-                wrong_agent_pref,
                 eligible,
             })
         })

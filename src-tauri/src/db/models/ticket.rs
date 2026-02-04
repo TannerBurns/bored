@@ -33,33 +33,6 @@ impl Priority {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentPref {
-    Cursor,
-    Claude,
-    Any,
-}
-
-impl AgentPref {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AgentPref::Cursor => "cursor",
-            AgentPref::Claude => "claude",
-            AgentPref::Any => "any",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "cursor" => Some(AgentPref::Cursor),
-            "claude" => Some(AgentPref::Claude),
-            "any" => Some(AgentPref::Any),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ticket {
@@ -75,7 +48,6 @@ pub struct Ticket {
     pub locked_by_run_id: Option<String>,
     pub lock_expires_at: Option<DateTime<Utc>>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
@@ -121,7 +93,6 @@ pub struct CreateTicket {
     pub priority: Priority,
     pub labels: Vec<String>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
@@ -149,7 +120,6 @@ pub struct UpdateTicket {
     pub priority: Option<Priority>,
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
     pub branch_name: Option<String>,
@@ -247,30 +217,6 @@ mod tests {
         }
     }
 
-    mod agent_pref_tests {
-        use super::*;
-
-        #[test]
-        fn as_str_returns_lowercase() {
-            assert_eq!(AgentPref::Cursor.as_str(), "cursor");
-            assert_eq!(AgentPref::Claude.as_str(), "claude");
-            assert_eq!(AgentPref::Any.as_str(), "any");
-        }
-
-        #[test]
-        fn parse_valid_values() {
-            assert_eq!(AgentPref::parse("cursor"), Some(AgentPref::Cursor));
-            assert_eq!(AgentPref::parse("claude"), Some(AgentPref::Claude));
-            assert_eq!(AgentPref::parse("any"), Some(AgentPref::Any));
-        }
-
-        #[test]
-        fn parse_invalid_returns_none() {
-            assert_eq!(AgentPref::parse(""), None);
-            assert_eq!(AgentPref::parse("other"), None);
-        }
-    }
-
     mod ticket_tests {
         use super::*;
 
@@ -288,7 +234,6 @@ mod tests {
                 locked_by_run_id: None,
                 lock_expires_at: None,
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

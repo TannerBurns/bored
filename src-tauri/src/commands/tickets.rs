@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::db::{
-    AgentPref, AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
+    AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
     Ticket, UpdateTicket, WorkflowType,
 };
 
@@ -19,7 +19,6 @@ pub struct CreateTicketInput {
     pub priority: Priority,
     pub labels: Vec<String>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     #[serde(default)]
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
@@ -46,7 +45,6 @@ pub struct UpdateTicketInput {
     pub priority: Option<Priority>,
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
-    pub agent_pref: Option<AgentPref>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
     pub branch_name: Option<String>,
@@ -80,7 +78,6 @@ pub async fn create_ticket(
         priority: ticket.priority,
         labels: ticket.labels,
         project_id: ticket.project_id,
-        agent_pref: ticket.agent_pref,
         workflow_type: ticket.workflow_type.unwrap_or_default(),
         model: ticket.model,
         branch_name: ticket.branch_name,
@@ -184,7 +181,6 @@ pub async fn update_ticket(
         priority: updates.priority,
         labels: updates.labels,
         project_id: updates.project_id,
-        agent_pref: updates.agent_pref,
         workflow_type: updates.workflow_type,
         model: updates.model,
         branch_name: updates.branch_name,

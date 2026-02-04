@@ -90,7 +90,6 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

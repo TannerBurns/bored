@@ -29,7 +29,6 @@ const mockSpec: SpecWithVersion = {
   projectId: 'project-1',
   name: 'Test Spec',
   userInput: 'Build a feature',
-  agentPref: 'claude',
   model: 'opus',
   settings: {},
   createdAt: new Date('2024-01-01'),

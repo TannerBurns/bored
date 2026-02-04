@@ -296,7 +296,6 @@ pub(super) fn inject_merge_dependencies_ticket(
             "merge-dependencies".to_string(),
         ],
         project_id: epic.project_id.clone(),
-        agent_pref: epic.agent_pref.clone(),
         workflow_type: WorkflowType::MultiStage,
         model: epic.model.clone(),
         branch_name: None,
@@ -421,7 +420,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test Project".to_string(),
                 path: "/tmp".to_string(),
-                preferred_agent: None,
                 requires_git: false,
             })
             .unwrap();
@@ -434,7 +432,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Test Spec".to_string(),
                 user_input: "Test input".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::Value::Null,
             })
@@ -455,7 +452,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec!["consolidation".to_string()],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -475,7 +471,6 @@ mod tests {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: Some("feat/dep-branch".to_string()),
@@ -497,7 +492,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec!["consolidation".to_string()],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -523,7 +517,6 @@ mod tests {
                     "merge-dependencies".to_string(),
                 ],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::MultiStage,
                 model: None,
                 branch_name: None,
@@ -545,7 +538,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

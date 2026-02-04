@@ -172,7 +172,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -227,7 +226,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -280,7 +278,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -373,7 +370,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -394,7 +390,6 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -449,7 +444,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test Project".to_string(),
                 path: std::env::temp_dir().to_string_lossy().to_string(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -484,7 +478,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test Project".to_string(),
                 path: std::env::temp_dir().to_string_lossy().to_string(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();

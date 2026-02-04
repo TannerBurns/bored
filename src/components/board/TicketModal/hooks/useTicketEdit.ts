@@ -19,8 +19,6 @@ export interface UseTicketEditReturn {
   setEditLabels: (labels: string) => void;
   editProjectId: string;
   setEditProjectId: (id: string) => void;
-  editAgentPref: 'cursor' | 'claude' | 'any';
-  setEditAgentPref: (pref: 'cursor' | 'claude' | 'any') => void;
   editModel: string;
   setEditModel: (model: string) => void;
   editBranchName: string;
@@ -39,7 +37,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
   const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>(ticket.priority);
   const [editLabels, setEditLabels] = useState(ticket.labels.join(', '));
   const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
-  const [editAgentPref, setEditAgentPref] = useState<'cursor' | 'claude' | 'any'>(ticket.agentPref || 'any');
   const [editModel, setEditModel] = useState<string>(ticket.model || '');
   const [editBranchName, setEditBranchName] = useState<string>(ticket.branchName || '');
   const [editColumnId, setEditColumnId] = useState<string>(ticket.columnId);
@@ -51,7 +48,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
-    setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
     setEditBranchName(ticket.branchName || '');
     setEditColumnId(ticket.columnId);
@@ -64,7 +60,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
-    setEditAgentPref(ticket.agentPref || 'any');
     setEditModel(ticket.model || '');
     setEditBranchName(ticket.branchName || '');
     setEditColumnId(ticket.columnId);
@@ -85,7 +80,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
         labels,
         projectId: editProjectId,
         workflowType: 'multi_stage',
-        agentPref: editAgentPref,
         model: editModel || undefined,
         branchName: editBranchName || undefined,
         columnId: editColumnId,
@@ -102,7 +96,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     editPriority,
     editLabels,
     editProjectId,
-    editAgentPref,
     editModel,
     editBranchName,
     editColumnId,
@@ -122,8 +115,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditLabels,
     editProjectId,
     setEditProjectId,
-    editAgentPref,
-    setEditAgentPref,
     editModel,
     setEditModel,
     editBranchName,

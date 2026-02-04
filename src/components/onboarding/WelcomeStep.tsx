@@ -24,7 +24,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
   const [newName, setNewName] = useState('');
   const [newPath, setNewPath] = useState('');
   const [parentPath, setParentPath] = useState('');
-  const [preferredAgent, setPreferredAgent] = useState<'cursor' | 'claude' | 'any' | ''>('');
   const [error, setError] = useState<string | null>(null);
   const [gitStatus, setGitStatus] = useState<'unknown' | 'checking' | 'initialized' | 'not_initialized'>('unknown');
   const [initializingGit, setInitializingGit] = useState(false);
@@ -81,7 +80,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
     setNewName('');
     setNewPath('');
     setParentPath('');
-    setPreferredAgent('');
     setAddMode('none');
     setGitStatus('unknown');
     setError(null);
@@ -95,7 +93,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
       await createProject({
         name: newName.trim(),
         path: newPath.trim(),
-        preferredAgent: preferredAgent || undefined,
       });
       resetForm();
       await onProjectAdded();
@@ -115,7 +112,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
       await createProject({
         name: newName.trim(),
         path: fullPath,
-        preferredAgent: preferredAgent || undefined,
       });
       resetForm();
       await onProjectAdded();
@@ -307,20 +303,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
             </div>
           )}
 
-          <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Preferred Agent</label>
-            <select
-              value={preferredAgent}
-              onChange={(e) => setPreferredAgent(e.target.value as 'cursor' | 'claude' | 'any' | '')}
-              className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none"
-            >
-              <option value="">No preference</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude">Claude Code</option>
-              <option value="any">Any</option>
-            </select>
-          </div>
-
           <button
             onClick={handleAddExisting}
             disabled={!newName.trim() || !newPath.trim() || gitStatus !== 'initialized'}
@@ -380,20 +362,6 @@ export function WelcomeStep({ projects, onProjectAdded, onNext, onSkip }: Welcom
                 <code className="bg-board-surface-raised px-1.5 py-0.5 rounded">{parentPath}/{newName}</code>
               </p>
             )}
-          </div>
-
-          <div>
-            <label className="block text-sm text-board-text-secondary mb-1.5">Preferred Agent</label>
-            <select
-              value={preferredAgent}
-              onChange={(e) => setPreferredAgent(e.target.value as 'cursor' | 'claude' | 'any' | '')}
-              className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text border border-board-border focus:border-board-accent focus:outline-none"
-            >
-              <option value="">No preference</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude">Claude Code</option>
-              <option value="any">Any</option>
-            </select>
           </div>
 
           <button

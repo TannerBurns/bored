@@ -81,7 +81,6 @@ export function DataSettings() {
       // Reset the settings store to defaults
       useSettingsStore.setState({
         theme: 'dark',
-        defaultAgentPref: 'any',
       });
       
       // Reset the board store to empty state
