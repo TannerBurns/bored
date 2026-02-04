@@ -106,10 +106,13 @@ export function useUpdater() {
       return;
     }
     
+    // Capture validated update in a const to ensure type safety throughout the function
+    const validatedUpdate: Update = update;
+    
     try {
-      setState({ status: 'downloading', progress: 0, downloaded: 0, contentLength: null, update });
+      setState({ status: 'downloading', progress: 0, downloaded: 0, contentLength: null, update: validatedUpdate });
       
-      await update.downloadAndInstall((event: DownloadEvent) => {
+      await validatedUpdate.downloadAndInstall((event: DownloadEvent) => {
         switch (event.event) {
           case 'Started':
             setState({ 
@@ -117,32 +120,36 @@ export function useUpdater() {
               progress: 0, 
               downloaded: 0, 
               contentLength: event.data.contentLength ?? null, 
-              update 
+              update: validatedUpdate 
             });
             break;
-          case 'Progress':
+          case 'Progress': {
+            // Capture event data outside setState to avoid closure issues with rapid calls
+            const chunkLength = event.data.chunkLength;
             setState((prev) => {
               if (prev.status !== 'downloading') return prev;
               
-              const newDownloaded = prev.downloaded + event.data.chunkLength;
+              const newDownloaded = prev.downloaded + chunkLength;
               const progress = prev.contentLength 
                 ? Math.round((newDownloaded / prev.contentLength) * 100)
                 : 0;
               
+              // Use prev.update to ensure consistency with current state
               return { 
                 status: 'downloading', 
                 progress: Math.min(progress, 100), 
                 downloaded: newDownloaded,
                 contentLength: prev.contentLength,
-                update 
+                update: prev.update 
               };
             });
             break;
+          }
           case 'Finished':
             // Clear dismissed version when update is ready
             clearDismissedVersion();
             isDownloadingRef.current = false;
-            setState({ status: 'ready', update });
+            setState({ status: 'ready', update: validatedUpdate });
             break;
         }
       });
@@ -152,7 +159,7 @@ export function useUpdater() {
       setState({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Failed to download update',
-        update
+        update: validatedUpdate
       });
     }
   }, []);

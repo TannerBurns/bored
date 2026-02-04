@@ -170,22 +170,19 @@ jobs:
           # GitHub's "latest release" endpoint, which only returns non-prerelease releases.
           # If set to true, the updater would not find beta/RC versions.
           prerelease: false
-          includeUpdaterJson: true
+          # Disabled: We handle updater JSON merging in a separate job to avoid race conditions
+          # when parallel builds each try to upload their own latest.json
+          includeUpdaterJson: false
           args: --target ${{ matrix.target }}
 
-      # Upload latest.json for updater (tauri-action@v0 may not upload it reliably)
-      - name: Upload updater JSON to release
+      # Save platform-specific updater JSON as artifact for later merging
+      - name: Upload updater JSON artifact
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          # Find and upload all updater JSON files
-          find src-tauri/target -name "latest.json" -type f 2>/dev/null | while read -r json_file; do
-            echo "Found updater JSON: $json_file"
-            # Upload to release, overwriting if exists
-            gh release upload "${{ github.ref_name }}" "$json_file" --clobber || echo "Warning: Could not upload $json_file"
-          done
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-json-${{ matrix.name }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/**/latest.json
+          if-no-files-found: warn
 
       - name: Get version from tag
         id: version
@@ -232,9 +229,67 @@ jobs:
         run: |
           security delete-keychain $RUNNER_TEMP/signing.keychain-db || true
 
+  # Merge platform-specific updater JSONs into a single file
+  merge-updater-json:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all updater JSON artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-json-*
+          path: updater-artifacts
+          merge-multiple: false
+
+      - name: Merge updater JSONs
+        run: |
+          # Find all latest.json files from artifacts
+          echo "Found updater JSON files:"
+          find updater-artifacts -name "latest.json" -type f
+          
+          # Start with empty platforms object
+          MERGED='{"platforms":{}}'
+          
+          for json_file in $(find updater-artifacts -name "latest.json" -type f); do
+            echo "Processing: $json_file"
+            cat "$json_file"
+            echo ""
+            
+            # Extract version, notes, pub_date from first file (should be same across all)
+            if [ "$(echo "$MERGED" | jq -r '.version // empty')" = "" ]; then
+              VERSION=$(jq -r '.version' "$json_file")
+              NOTES=$(jq -r '.notes // ""' "$json_file")
+              PUB_DATE=$(jq -r '.pub_date // ""' "$json_file")
+              MERGED=$(echo "$MERGED" | jq --arg v "$VERSION" --arg n "$NOTES" --arg p "$PUB_DATE" \
+                '. + {version: $v, notes: $n, pub_date: $p}')
+            fi
+            
+            # Merge platforms from this file into the combined object
+            MERGED=$(echo "$MERGED" | jq --slurpfile new "$json_file" \
+              '.platforms += ($new[0].platforms // {})')
+          done
+          
+          echo "Merged latest.json:"
+          echo "$MERGED" | jq .
+          
+          # Write merged file
+          echo "$MERGED" | jq . > latest.json
+
+      - name: Upload merged updater JSON to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Uploading merged latest.json to release ${{ github.ref_name }}"
+          gh release upload "${{ github.ref_name }}" latest.json --clobber --repo ${{ github.repository }}
+
   # Cleanup old releases after all builds complete
   cleanup:
-    needs: build
+    needs: [build, merge-updater-json]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
