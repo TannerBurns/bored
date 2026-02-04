@@ -97,9 +97,11 @@ export function GeneralSettings() {
   const [appVersion, setAppVersion] = useState<string>('');
   const {
     state: updateState,
+    isDismissed,
     checkForUpdates,
     downloadAndInstall,
     handleRestart,
+    undoDismiss,
   } = useUpdater();
 
   useEffect(() => {
@@ -457,7 +459,7 @@ export function GeneralSettings() {
               </div>
             )}
 
-            {updateState.status === 'available' && (
+            {updateState.status === 'available' && !isDismissed && (
               <button
                 onClick={() => downloadAndInstall()}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-all shadow-sm"
@@ -465,6 +467,20 @@ export function GeneralSettings() {
                 <DownloadIcon className="w-4 h-4" />
                 Update to {updateState.update.version}
               </button>
+            )}
+
+            {updateState.status === 'available' && isDismissed && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-board-text-muted">
+                  v{updateState.update.version} dismissed
+                </span>
+                <button
+                  onClick={undoDismiss}
+                  className="px-2 py-1 text-xs glass rounded text-board-text hover:glass-intense transition-all"
+                >
+                  Show Update
+                </button>
+              </div>
             )}
 
             {updateState.status === 'downloading' && (
@@ -502,7 +518,7 @@ export function GeneralSettings() {
             )}
           </div>
 
-          {updateState.status === 'available' && (
+          {updateState.status === 'available' && !isDismissed && (
             <p className="text-xs text-board-text-muted">
               A new version is available. Click the button above to download and install.
             </p>
