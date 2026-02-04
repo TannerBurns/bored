@@ -44,6 +44,9 @@ export function useUpdater() {
   // Ref to track current state for stable callbacks
   const stateRef = useRef(state);
   stateRef.current = state;
+  
+  // Ref to guard against concurrent download invocations
+  const isDownloadingRef = useRef(false);
 
   const checkForUpdates = useCallback(async () => {
     try {
@@ -87,6 +90,10 @@ export function useUpdater() {
   }, []);
 
   const downloadAndInstall = useCallback(async (updateToInstall?: Update) => {
+    // Guard against concurrent invocations - set immediately after check to prevent race conditions
+    if (isDownloadingRef.current) return;
+    isDownloadingRef.current = true;
+    
     // Use ref to access current state without creating dependency
     const currentState = stateRef.current;
     const update = updateToInstall ?? (
@@ -94,7 +101,10 @@ export function useUpdater() {
       currentState.status === 'error' && currentState.update ? currentState.update : 
       null
     );
-    if (!update) return;
+    if (!update) {
+      isDownloadingRef.current = false;
+      return;
+    }
     
     try {
       setState({ status: 'downloading', progress: 0, downloaded: 0, contentLength: null, update });
@@ -131,12 +141,14 @@ export function useUpdater() {
           case 'Finished':
             // Clear dismissed version when update is ready
             clearDismissedVersion();
+            isDownloadingRef.current = false;
             setState({ status: 'ready', update });
             break;
         }
       });
     } catch (error) {
       console.error('Failed to download update:', error);
+      isDownloadingRef.current = false;
       setState({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Failed to download update',

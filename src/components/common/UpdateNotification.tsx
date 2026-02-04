@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useUpdater } from '../../hooks/useUpdater';
-import { cn } from '../../lib/utils';
 
 function DownloadIcon({ className }: { className?: string }) {
   return (
