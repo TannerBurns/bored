@@ -7,3 +7,4 @@ export { ConversationView } from './ConversationView';
 export { MessageList } from './MessageList';
 export { MessageInput } from './MessageInput';
 export { VersionsList } from './VersionsList';
+export { ExecutionGraph } from './ExecutionGraph';

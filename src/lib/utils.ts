@@ -28,3 +28,13 @@ export function formatDuration(startedAt: Date, endedAt: Date): string {
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
 }
+
+/**
+ * Normalize dependsOn to always be an array of strings.
+ * Handles old format (string | null) and new format (string[]).
+ */
+export function normalizeDependencies(dependsOn: string[] | string | null | undefined): string[] {
+  if (!dependsOn) return [];
+  if (Array.isArray(dependsOn)) return dependsOn.filter(d => d && d.length > 0);
+  return [dependsOn];
+}
