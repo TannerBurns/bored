@@ -13,7 +13,6 @@ pub mod validation;
 pub mod worker;
 pub mod worktree;
 
-// Re-exports for backward compatibility
 pub use planner::{
     PlannerAgent, PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult,
 };
@@ -22,7 +21,6 @@ pub use spawner::{
     run_agent, run_agent_with_cancel_callback, run_agent_with_capture, CancelHandle,
     OnSpawnCallback, SpawnError,
 };
-// Claude module re-exports
 pub use claude::{
     build_command as build_claude_command, check_global_hooks_installed as check_claude_global_hooks,
     check_project_commands_installed as check_claude_project_commands,
@@ -41,7 +39,6 @@ pub use claude::{
     is_claude_available, local_settings_path, project_settings_path, user_settings_path,
     ClaudeSettings, HooksConfig as ClaudeHooksConfig, COMMAND_TEMPLATES as CLAUDE_COMMAND_TEMPLATES,
 };
-// Cursor module re-exports
 pub use cursor::{
     build_command as build_cursor_command,
     check_global_hooks_installed as check_cursor_global_hooks,
@@ -62,10 +59,35 @@ pub use cursor::{
     is_cursor_available, CursorSettings, HooksConfig as CursorHooksConfig,
     COMMAND_TEMPLATES as CURSOR_COMMAND_TEMPLATES,
 };
-// Brainstorm module re-exports
 pub use brainstorm::{
     BrainstormAgent, BrainstormConfig, BrainstormError, BrainstormResponse,
     build_conversation_prompt, build_initial_prompt, parse_response, response_has_questions,
+};
+pub use runner::{
+    create_cancel_handles, execute_agent_run, AgentCompleteEvent, AgentErrorEvent, AgentLogEvent,
+    CancelHandlesMap, RunnerConfig, RunnerResult,
+};
+pub use prompt::{
+    generate_branch_name_generation_prompt, generate_branch_prompt, generate_command_prompt,
+    generate_custom_prompt, generate_get_branch_name_prompt, generate_implement_prompt,
+    generate_plan_prompt, generate_system_prompt, generate_task_implement_prompt,
+    generate_task_plan_prompt, generate_task_prompt, generate_ticket_prompt,
+    generate_ticket_prompt_full, generate_ticket_prompt_with_workflow,
+    parse_branch_name_from_output,
+};
+pub use diagnostic::{
+    build_diagnostic_prompt, classify_worktree_error, create_fallback_diagnostic_comment,
+    run_diagnostic_agent, DiagnosticContext, DiagnosticError,
+};
+pub use eta::{calculate_eta, calculate_remaining_time, calculate_timing_stats};
+pub use plan_validation::{
+    build_clarification_message_prompt, build_plan_validation_prompt,
+    generate_clarification_message, parse_validation_response, validate_plan_for_clarification,
+    PlanValidationConfig, PlanValidationError, PlanValidationResult,
+};
+pub use validation::{
+    is_environment_valid, is_environment_valid_with_options, validate_worker_environment,
+    validate_worker_environment_with_options, ValidationCheck, ValidationResult,
 };
 
 use serde::{Deserialize, Serialize};
