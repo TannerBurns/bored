@@ -151,25 +151,6 @@ export interface AgentEvent {
   createdAt: Date;
 }
 
-export interface NormalizedEvent {
-  runId: string;
-  ticketId: string;
-  agentType: AgentType;
-  eventType: 
-    | 'command_requested'
-    | 'command_executed'
-    | 'file_read'
-    | 'file_edited'
-    | 'run_started'
-    | 'run_stopped'
-    | 'error';
-  payload: {
-    raw?: string;
-    structured?: Record<string, unknown>;
-  };
-  timestamp: Date;
-}
-
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 
 export interface CreateTicketInput {
@@ -229,12 +210,6 @@ export interface Task {
   completedAt?: Date;
 }
 
-export interface CreateTaskInput {
-  ticketId: string;
-  title?: string;
-  content?: string;
-}
-
 export interface TaskCounts {
   pending: number;
   inProgress: number;
@@ -282,9 +257,6 @@ export type SpecVersionStatus =
   | 'halted'    // Work halted (can be restarted from beginning)
   | 'completed'
   | 'failed';
-
-/** Alias for backward compatibility */
-export type SpecStatus = SpecVersionStatus;
 
 /** Status of a single ticket within an epic */
 export interface SpecTicketStatus {
@@ -457,9 +429,3 @@ export interface ConversationMessage {
   createdAt: Date;
 }
 
-export interface StructuredSpec {
-  requirements: string;
-  decisions: string[];
-  constraints: string[];
-  technicalNotes?: string;
-}
