@@ -262,13 +262,17 @@ pub(super) fn inject_merge_dependencies_ticket(
         ));
     }
 
-    let description = build_merge_description(epic, &dependency_branches);
-
-    db.shift_epic_children_order(&epic.id, 1)?;
-
+    // Lookup column BEFORE shifting children to avoid corrupting order_in_epic
+    // if this lookup fails. The caller swallows errors, so a partial mutation
+    // would leave children with shifted orders and no merge ticket.
     let backlog_column = db
         .find_column_by_name(&epic.board_id, "Backlog")?
         .ok_or_else(|| DbError::NotFound("Backlog column not found".to_string()))?;
+
+    let description = build_merge_description(epic, &dependency_branches);
+
+    // Now safe to shift - we've validated all preconditions
+    db.shift_epic_children_order(&epic.id, 1)?;
 
     let merge_ticket = db.create_ticket(&CreateTicket {
         board_id: epic.board_id.clone(),
