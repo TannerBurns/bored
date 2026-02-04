@@ -101,6 +101,12 @@ fn copy_hook_script(
 }
 
 fn main() {
+    // Fix PATH for bundled apps on macOS/Linux
+    // When launched from Finder, apps get a minimal PATH that doesn't include
+    // directories where CLI tools like `cursor` and `claude` are installed
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fix_path_env::fix().ok();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
