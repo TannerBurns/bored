@@ -4,7 +4,6 @@ pub mod conversations;
 pub mod cursor;
 pub mod projects;
 pub mod runs;
-pub mod seed;
 pub mod specs;
 pub mod tasks;
 pub mod tickets;
@@ -37,7 +36,6 @@ pub use workers::{
     get_commands_path, get_worker_queue_status, get_workers, install_commands_to_project,
     install_commands_to_user, start_worker, stop_all_workers, stop_worker, validate_worker,
 };
-pub use seed::{clear_demo_data, seed_demo_data};
 
 /// API configuration returned to the frontend
 #[derive(Debug, Clone, serde::Serialize)]

@@ -411,9 +411,6 @@ fn main() {
             commands::tickets::resume_ticket,
             commands::tickets::is_ticket_paused,
             commands::tickets::get_paused_tickets,
-            // Demo data seeding
-            commands::seed::seed_demo_data,
-            commands::seed::clear_demo_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

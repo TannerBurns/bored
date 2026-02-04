@@ -70,7 +70,7 @@ Organize your work with drag-and-drop simplicity. Tickets flow through columns: 
 Click **"Build with"** on any ticket to spawn a Cursor or Claude Code agent. Agents receive the task description, work in your project directory, and report progress in real-time.
 
 <p align="center">
-  <img src="docs/images/screenshot-agent-running.png" alt="Agent Running" width="700">
+  <img src="docs/images/screenshot-ticket-detail.png" alt="Agent Running" width="700">
 </p>
 
 ### Real-Time Event Timeline
@@ -78,7 +78,7 @@ Click **"Build with"** on any ticket to spawn a Cursor or Claude Code agent. Age
 Watch agents work with a live feed of their actions: file edits, shell commands, status changes, and more.
 
 <p align="center">
-  <img src="docs/images/screenshot-ticket-detail.png" alt="Ticket Detail" width="700">
+  <img src="docs/images/screenshot-agent-running.png" alt="Ticket Detail" width="700">
 </p>
 
 ### Automated Workers
@@ -222,10 +222,6 @@ Access settings through the sidebar:
 - **Cursor** — Cursor agent configuration
 - **Claude Code** — Claude agent configuration
 - **Data** — Database management
-
-<p align="center">
-  <img src="docs/images/screenshot-settings.png" alt="Settings" width="700">
-</p>
 
 ---
 
