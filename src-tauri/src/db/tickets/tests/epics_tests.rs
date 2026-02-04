@@ -1186,3 +1186,212 @@ fn get_all_dependency_branches_returns_empty_when_no_deps() {
     let branches = db.get_all_dependency_branches(&epic.id).unwrap();
     assert!(branches.is_empty());
 }
+
+#[test]
+fn shift_epic_children_order_handles_null_order_values() {
+    // This test verifies that shift_epic_children_order also fixes legacy tickets
+    // that have NULL order_in_epic values, which would otherwise sort before order 0
+    // in SQLite's default ascending sort (NULL sorts first).
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a child ticket normally (will get order 0)
+    let normal_child = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Normal Child");
+    assert_eq!(normal_child.order_in_epic, Some(0));
+
+    // Create a "legacy" ticket without an epic, then manually set its epic_id
+    // via raw SQL to simulate a legacy ticket with NULL order_in_epic
+    let legacy_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None, // No epic initially
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Now manually add it to the epic with NULL order_in_epic (simulating legacy data)
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy_ticket.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    // Verify the legacy ticket has NULL order_in_epic
+    let legacy = db.get_ticket(&legacy_ticket.id).unwrap();
+    assert!(
+        legacy.order_in_epic.is_none(),
+        "Legacy ticket should have NULL order_in_epic"
+    );
+
+    // Now shift all children by 1 (simulating merge-dependencies injection)
+    db.shift_epic_children_order(&epic.id, 1).unwrap();
+
+    // After the fix, the legacy ticket should have been assigned an order value
+    // (shifted from NULL to a real value), not left as NULL
+    let updated_legacy = db.get_ticket(&legacy_ticket.id).unwrap();
+    let updated_normal = db.get_ticket(&normal_child.id).unwrap();
+
+    // The normal child should have been shifted from 0 to 1
+    assert_eq!(updated_normal.order_in_epic, Some(1));
+
+    // The legacy ticket should now have an order value, not NULL
+    // After the fix, NULL values get assigned max_order + shift (so they sort last)
+    assert!(
+        updated_legacy.order_in_epic.is_some(),
+        "Legacy ticket with NULL order should be assigned a value during shift"
+    );
+}
+
+#[test]
+fn get_next_pending_child_returns_order_zero_before_null() {
+    // This test verifies that get_next_pending_child returns a ticket at order 0
+    // before a legacy ticket with NULL order_in_epic.
+    // In SQLite, NULL sorts first in ASC order by default, so we need NULLS LAST.
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a "legacy" ticket without order, directly via SQL
+    let legacy_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy Child".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Manually add to epic with NULL order
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy_ticket.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    // Create merge-dependencies ticket at order 0
+    let merge_ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Merge Dependencies".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::High,
+            labels: vec!["merge-dependencies".to_string()],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::MultiStage,
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: Some(epic.id.clone()),
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    // Set merge ticket to order 0 explicitly
+    db.set_ticket_order_in_epic(&merge_ticket.id, 0).unwrap();
+
+    // get_next_pending_child should return the merge ticket (order 0), not the legacy ticket (NULL)
+    let next = db.get_next_pending_child(&epic.id).unwrap();
+    assert!(next.is_some(), "Should find a pending child");
+    let next_ticket = next.unwrap();
+    assert_eq!(
+        next_ticket.id, merge_ticket.id,
+        "Should return merge ticket at order 0, not legacy ticket with NULL order"
+    );
+}
+
+#[test]
+fn get_epic_children_orders_null_last() {
+    // Verify that get_epic_children orders NULL order_in_epic values AFTER numeric values
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create children with explicit orders
+    let child_0 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 0");
+    let child_1 = create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "Child 1");
+
+    // Create a legacy ticket with NULL order
+    let legacy = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            agent_pref: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    db.with_conn(|conn| {
+        conn.execute(
+            "UPDATE tickets SET epic_id = ? WHERE id = ?",
+            rusqlite::params![epic.id, legacy.id],
+        )?;
+        Ok::<_, crate::db::DbError>(())
+    })
+    .unwrap();
+
+    let children = db.get_epic_children(&epic.id).unwrap();
+    assert_eq!(children.len(), 3);
+
+    // Ordered children should come first
+    assert_eq!(children[0].id, child_0.id);
+    assert_eq!(children[1].id, child_1.id);
+    // Legacy ticket with NULL order should be last
+    assert_eq!(children[2].id, legacy.id);
+}

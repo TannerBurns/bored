@@ -4,6 +4,9 @@ use rusqlite::OptionalExtension;
 
 impl Database {
     /// Get all children of an epic, ordered by order_in_epic
+    ///
+    /// Note: Uses COALESCE to sort NULL order_in_epic values last (after all numeric values).
+    /// This handles legacy tickets that may have NULL order_in_epic.
     pub fn get_epic_children(&self, epic_id: &str) -> Result<Vec<Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -13,7 +16,7 @@ impl Database {
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ?
-                   ORDER BY order_in_epic ASC, created_at ASC"#,
+                   ORDER BY COALESCE(order_in_epic, 2147483647) ASC, created_at ASC"#,
             )?;
 
             let rows = stmt.query_map([epic_id], Self::map_ticket_row)?;
@@ -22,6 +25,10 @@ impl Database {
     }
 
     /// Get the next pending child ticket for an epic (first child in Backlog)
+    ///
+    /// Note: Uses COALESCE to sort NULL order_in_epic values last (after all numeric values).
+    /// This ensures injected tickets at order 0 (like merge-dependencies) are returned
+    /// before legacy tickets with NULL order.
     pub fn get_next_pending_child(&self, epic_id: &str) -> Result<Option<Ticket>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -33,7 +40,7 @@ impl Database {
                    FROM tickets t
                    JOIN columns c ON t.column_id = c.id
                    WHERE t.epic_id = ? AND c.name = 'Backlog'
-                   ORDER BY t.order_in_epic ASC, t.created_at ASC
+                   ORDER BY COALESCE(t.order_in_epic, 2147483647) ASC, t.created_at ASC
                    LIMIT 1"#,
             )?;
 
@@ -340,11 +347,34 @@ impl Database {
     }
 
     /// Shift all children's order_in_epic by a given amount (to make room for injected tickets)
+    ///
+    /// This function also handles legacy tickets with NULL order_in_epic values.
+    /// In SQLite, NULL + N = NULL, so we first assign NULL-order tickets a value
+    /// at the end of the order (max_order + 1 + shift), then shift all non-NULL values.
     pub fn shift_epic_children_order(&self, epic_id: &str, shift: i32) -> Result<(), DbError> {
         self.with_conn(|conn| {
+            // First, get the current max order to assign to NULL-order tickets
+            let max_order: Option<i32> = conn
+                .query_row(
+                    "SELECT MAX(order_in_epic) FROM tickets WHERE epic_id = ?",
+                    [epic_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
+            // Assign NULL-order tickets a position at the end (after the shift)
+            // They get max_order + 1 + shift so they remain after all shifted tickets
+            let null_order_value = max_order.unwrap_or(-1) + 1 + shift;
+            let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
-                "UPDATE tickets SET order_in_epic = order_in_epic + ? WHERE epic_id = ?",
-                rusqlite::params![shift, epic_id],
+                "UPDATE tickets SET order_in_epic = ?, updated_at = ? WHERE epic_id = ? AND order_in_epic IS NULL",
+                rusqlite::params![null_order_value, now, epic_id],
+            )?;
+
+            // Then shift all tickets (now all have non-NULL orders)
+            conn.execute(
+                "UPDATE tickets SET order_in_epic = order_in_epic + ? WHERE epic_id = ? AND order_in_epic != ?",
+                rusqlite::params![shift, epic_id, null_order_value],
             )?;
             Ok(())
         })
