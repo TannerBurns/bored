@@ -25,7 +25,6 @@ pub struct CreateSpecInput {
     pub project_id: String,
     pub name: String,
     pub user_input: String,
-    pub agent_pref: Option<String>,
     pub model: Option<String>,
 }
 
@@ -48,7 +47,6 @@ pub async fn create_spec(
         project_id: input.project_id,
         name: input.name,
         user_input: input.user_input,
-        agent_pref: input.agent_pref,
         model: input.model,
         settings: serde_json::json!({}),
     })
@@ -78,7 +76,6 @@ pub async fn update_spec(
     id: String,
     name: Option<String>,
     user_input: Option<String>,
-    agent_pref: Option<String>,
     model: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Spec, String> {
@@ -89,7 +86,6 @@ pub async fn update_spec(
         &UpdateSpec {
             name,
             user_input,
-            agent_pref,
             model,
             settings: None,
         },
@@ -433,18 +429,11 @@ pub async fn start_planner(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
 
-    // Determine agent kind from parameter, spec preference, or default
+    // Determine agent kind from parameter or default to Claude
     let agent_kind = match input.agent_kind.as_deref() {
         Some("cursor") => AgentKind::Cursor,
         Some("claude") => AgentKind::Claude,
-        _ => {
-            // Use spec's agent_pref or default to Claude
-            match spec.agent_pref.as_deref() {
-                Some("cursor") => AgentKind::Cursor,
-                Some("claude") => AgentKind::Claude,
-                _ => AgentKind::Claude,
-            }
-        }
+        _ => AgentKind::Claude,
     };
 
     // Get Claude API config if using Claude agent

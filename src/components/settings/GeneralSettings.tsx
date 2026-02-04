@@ -37,12 +37,6 @@ const themeOptions = [
   { value: 'system', label: 'System', description: 'Match your OS', Icon: MonitorIcon },
 ] as const;
 
-const agentOptions = [
-  { value: 'any', label: 'Any', description: 'No preference - use any available agent' },
-  { value: 'cursor', label: 'Cursor', description: 'Prefer Cursor agent' },
-  { value: 'claude', label: 'Claude', description: 'Prefer Claude Code agent' },
-] as const;
-
 const plannerModelOptions = [
   { value: 'default', label: 'Default', description: 'Use default model' },
   { value: 'opus', label: 'Opus', description: 'Most capable, higher cost' },
@@ -111,8 +105,6 @@ export function GeneralSettings() {
   const { 
     theme, 
     setTheme, 
-    defaultAgentPref, 
-    setDefaultAgentPref,
     plannerAutoApprove,
     setPlannerAutoApprove,
     plannerModel,
@@ -138,53 +130,6 @@ export function GeneralSettings() {
         <p className="text-xs text-board-text-muted mt-0.5">
           Configure general application settings.
         </p>
-      </div>
-
-      {/* Default Agent Preference Section */}
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-board-text">Default Agent Preference</h3>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Set the default agent preference for new tickets.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          {agentOptions.map((option) => {
-            const isSelected = defaultAgentPref === option.value;
-            return (
-              <button
-                key={option.value}
-                onClick={() => setDefaultAgentPref(option.value)}
-                className={cn(
-                  'group relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-all duration-200',
-                  isSelected
-                    ? 'glass-intense ring-1 ring-board-accent'
-                    : 'glass hover:glass-intense'
-                )}
-              >
-                <div className="text-center">
-                  <span className={cn(
-                    'block text-sm font-medium',
-                    isSelected ? 'text-board-accent' : 'text-board-text'
-                  )}>
-                    {option.label}
-                  </span>
-                  <span className="block text-xs text-board-text-muted">
-                    {option.description}
-                  </span>
-                </div>
-                {isSelected && (
-                  <div className="absolute top-1.5 right-1.5">
-                    <svg className="w-4 h-4 text-board-accent" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                    </svg>
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Spec Agent Settings Section */}

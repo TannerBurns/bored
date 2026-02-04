@@ -7,9 +7,6 @@ export interface Project {
   cursorHooksInstalled: boolean;
   claudeHooksInstalled: boolean;
   
-  // Preferences
-  preferredAgent?: 'cursor' | 'claude' | 'any';
-  
   // Safety settings
   allowShellCommands: boolean;
   allowFileWrites: boolean;
@@ -25,12 +22,10 @@ export interface Project {
 export interface CreateProjectInput {
   name: string;
   path: string;
-  preferredAgent?: 'cursor' | 'claude' | 'any';
 }
 
 export interface UpdateProjectInput {
   name?: string;
-  preferredAgent?: 'cursor' | 'claude' | 'any';
   allowShellCommands?: boolean;
   allowFileWrites?: boolean;
   blockedPatterns?: string[];
@@ -68,7 +63,6 @@ export interface Ticket {
   lockedByRunId?: string;
   lockExpiresAt?: Date;
   projectId?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
   workflowType?: WorkflowType;
   model?: string;
   /** The git branch name for this ticket (agent-generated) */
@@ -185,7 +179,6 @@ export interface CreateTicketInput {
   labels: string[];
   columnId: string;
   projectId?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
   workflowType?: WorkflowType;
   model?: string;
   /** Optional pre-defined branch name (if not provided, will be AI-generated on first run) */
@@ -347,8 +340,6 @@ export interface Spec {
   projectId: string;
   name: string;
   userInput: string;
-  /** Preferred agent type for executing the plan */
-  agentPref?: 'cursor' | 'claude' | 'any';
   /** Preferred model for the agent */
   model?: string;
   /** Settings for this spec (auto_approve, etc.) */
@@ -421,8 +412,6 @@ export interface CreateSpecInput {
   projectId: string;
   name: string;
   userInput: string;
-  /** Preferred agent type */
-  agentPref?: 'cursor' | 'claude' | 'any';
   /** Preferred model */
   model?: string;
 }
@@ -430,7 +419,6 @@ export interface CreateSpecInput {
 export interface UpdateSpecInput {
   name?: string;
   userInput?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
   model?: string;
 }
 

@@ -7,7 +7,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#,
@@ -34,7 +34,7 @@ impl Database {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
-                              lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                              lock_expires_at, project_id, workflow_type, model, branch_name,
                               is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                        FROM tickets WHERE id = ?"#,
@@ -62,7 +62,6 @@ impl Database {
                 Some(id) => Some(id.as_str()),
                 None => existing.project_id.as_deref(), // Keep existing
             };
-            let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
             let workflow_type = updates
                 .workflow_type
                 .as_ref()
@@ -124,7 +123,7 @@ impl Database {
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, agent_pref = ?, workflow_type = ?, model = ?, branch_name = ?, 
+                       project_id = ?, workflow_type = ?, model = ?, branch_name = ?, 
                        column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
                        depends_on_epic_id = ?, depends_on_epic_ids_json = ?, spec_version_id = ?, updated_at = ?
                    WHERE id = ?"#,
@@ -134,7 +133,6 @@ impl Database {
                     priority.as_str(),
                     labels_json,
                     project_id,
-                    agent_pref.map(|p| p.as_str()),
                     workflow_type.as_str(),
                     model,
                     branch_name,
@@ -154,7 +152,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#,
@@ -210,10 +208,10 @@ impl Database {
             conn.execute(
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
-                    created_at, updated_at, project_id, agent_pref, workflow_type, model, branch_name,
+                    created_at, updated_at, project_id, workflow_type, model, branch_name,
                     is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                     paused_at, paused_at_stage, paused_run_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -225,7 +223,6 @@ impl Database {
                     now.to_rfc3339(),
                     now.to_rfc3339(),
                     ticket.project_id,
-                    ticket.agent_pref.as_ref().map(|p| p.as_str()),
                     ticket.workflow_type.as_str(),
                     ticket.model,
                     ticket.branch_name,
@@ -251,7 +248,6 @@ impl Database {
                 locked_by_run_id: None,
                 lock_expires_at: None,
                 project_id: ticket.project_id.clone(),
-                agent_pref: ticket.agent_pref.clone(),
                 workflow_type: ticket.workflow_type.clone(),
                 model: ticket.model.clone(),
                 branch_name: ticket.branch_name.clone(),
@@ -326,7 +322,7 @@ impl Database {
                 Some(_) => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                            lock_expires_at, project_id, workflow_type, model, branch_name,
                             is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
@@ -334,7 +330,7 @@ impl Database {
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, agent_pref, workflow_type, model, branch_name,
+                            lock_expires_at, project_id, workflow_type, model, branch_name,
                             is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? ORDER BY created_at"

@@ -111,7 +111,6 @@ pub async fn create_ticket(
         priority: req.priority,
         labels: req.labels,
         project_id: req.project_id,
-        agent_pref: req.agent_pref,
         workflow_type: req.workflow_type.unwrap_or_default(),
         model: req.model,
         branch_name: req.branch_name,
@@ -157,7 +156,6 @@ pub async fn update_ticket(
             priority: req.priority,
             labels: req.labels,
             project_id: req.project_id,
-            agent_pref: req.agent_pref,
             workflow_type: req.workflow_type,
             model: req.model,
             branch_name: req.branch_name,
@@ -597,15 +595,6 @@ pub async fn queue_next(
                 let project_id = project.map(|p| p.id);
                 if ticket.project_id != project_id {
                     continue;
-                }
-            }
-
-            if let Some(ref pref) = ticket.agent_pref {
-                use crate::db::AgentPref;
-                match pref {
-                    AgentPref::Cursor if req.agent_type != crate::db::AgentType::Cursor => continue,
-                    AgentPref::Claude if req.agent_type != crate::db::AgentType::Claude => continue,
-                    _ => {}
                 }
             }
 

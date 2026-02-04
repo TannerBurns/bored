@@ -13,8 +13,6 @@ export interface TicketEditFormProps {
   setEditLabels: (labels: string) => void;
   editProjectId: string;
   setEditProjectId: (id: string) => void;
-  editAgentPref: 'cursor' | 'claude' | 'any';
-  setEditAgentPref: (pref: 'cursor' | 'claude' | 'any') => void;
   editModel: string;
   setEditModel: (model: string) => void;
   editBranchName: string;
@@ -33,8 +31,6 @@ export function TicketEditForm({
   setEditLabels,
   editProjectId,
   setEditProjectId,
-  editAgentPref,
-  setEditAgentPref,
   editModel,
   setEditModel,
   editBranchName,
@@ -100,20 +96,6 @@ export function TicketEditForm({
               {project.name}
             </option>
           ))}
-        </select>
-      </div>
-
-      {/* Agent preference */}
-      <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-2">Agent Preference</h3>
-        <select
-          value={editAgentPref}
-          onChange={(e) => setEditAgentPref(e.target.value as 'cursor' | 'claude' | 'any')}
-          className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-        >
-          <option value="any">Any Agent</option>
-          <option value="cursor">Cursor</option>
-          <option value="claude">Claude Code</option>
         </select>
       </div>
 

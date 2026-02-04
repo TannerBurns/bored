@@ -152,7 +152,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
         priority: input.priority,
         labels: input.labels,
         projectId: input.projectId,
-        agentPref: input.agentPref,
         workflowType: input.workflowType,
         model: input.model,
         branchName: input.branchName,

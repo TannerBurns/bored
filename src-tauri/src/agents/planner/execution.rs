@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
 use crate::db::{
-    AgentPref, CreateTicket, Database, Priority, ProjectPlan, Spec, SpecVersion,
+    CreateTicket, Database, Priority, ProjectPlan, Spec, SpecVersion,
     SpecVersionStatus, WorkflowType,
 };
 
@@ -22,7 +22,6 @@ struct EpicCreationContext<'a> {
     column_id: &'a str,
     project_id: &'a str,
     version_id: &'a str,
-    agent_pref: Option<AgentPref>,
     model: Option<String>,
 }
 
@@ -158,9 +157,6 @@ impl PlanExecutor {
         let mut epic_ids = Vec::new();
         let mut ticket_ids = Vec::new();
 
-        // Convert spec's agent_pref string to AgentPref enum
-        let agent_pref = spec.agent_pref.as_ref().and_then(|s| AgentPref::parse(s));
-
         // Create epics and their child tickets in dependency order
         for plan_epic in sorted_epics {
             let (epic_id, child_ticket_ids) = self.create_epic_with_tickets(EpicCreationContext {
@@ -170,7 +166,6 @@ impl PlanExecutor {
                 column_id: &backlog_column.id,
                 project_id: &spec.project_id,
                 version_id: &version.id,
-                agent_pref: agent_pref.clone(),
                 model: spec.model.clone(),
             })?;
 
@@ -217,7 +212,6 @@ impl PlanExecutor {
             column_id,
             project_id,
             version_id,
-            agent_pref,
             model,
         } = ctx;
 
@@ -244,7 +238,6 @@ impl PlanExecutor {
                 priority: Priority::Medium,
                 labels: vec!["plan-generated".to_string()],
                 project_id: Some(project_id.to_string()),
-                agent_pref: agent_pref.clone(),
                 workflow_type: WorkflowType::MultiStage,
                 model: model.clone(),
                 branch_name: None,
@@ -278,7 +271,6 @@ impl PlanExecutor {
                     priority: Priority::Medium,
                     labels: vec!["plan-generated".to_string()],
                     project_id: Some(project_id.to_string()),
-                    agent_pref: agent_pref.clone(),
                     workflow_type: WorkflowType::MultiStage,
                     model: model.clone(),
                     branch_name: None,

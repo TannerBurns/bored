@@ -208,7 +208,6 @@ interface Ticket {
   lockedByRunId?: string;
   lockExpiresAt?: string;
   projectId?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
 }
 
 interface CreateTicketRequest {
@@ -219,7 +218,6 @@ interface CreateTicketRequest {
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   labels?: string[];
   projectId?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
 }
 
 interface UpdateTicketRequest {
@@ -228,7 +226,6 @@ interface UpdateTicketRequest {
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   labels?: string[];
   projectId?: string;
-  agentPref?: 'cursor' | 'claude' | 'any';
 }
 
 interface AgentRun {

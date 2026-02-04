@@ -124,18 +124,15 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     try {
       const model = spec.model 
         || (plannerModel === 'default' ? undefined : plannerModel);
-      const agentKind = spec.agentPref || undefined;
       
       logger.info('Starting planner', { 
         specId: spec.id, 
-        agentKind,
         model,
       });
       
       await invoke('start_planner', {
         input: {
           specId: spec.id,
-          agentKind,
           maxExplorations: plannerMaxExplorations,
           autoApprove: plannerAutoApprove,
           model,

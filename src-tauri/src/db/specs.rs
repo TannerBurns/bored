@@ -14,8 +14,8 @@ impl Database {
 
             conn.execute(
                 r#"INSERT INTO specs 
-                   (id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, board_id, target_board_id, project_id, name, user_input, model, settings_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     id,
                     input.board_id,
@@ -23,7 +23,6 @@ impl Database {
                     input.project_id,
                     input.name,
                     input.user_input,
-                    input.agent_pref,
                     input.model,
                     settings_json,
                     now.to_rfc3339(),
@@ -38,7 +37,6 @@ impl Database {
                 project_id: input.project_id.clone(),
                 name: input.name.clone(),
                 user_input: input.user_input.clone(),
-                agent_pref: input.agent_pref.clone(),
                 model: input.model.clone(),
                 settings: input.settings.clone(),
                 created_at: now,
@@ -71,7 +69,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, 
-                          agent_pref, model, settings_json, created_at, updated_at
+                          model, settings_json, created_at, updated_at
                    FROM specs WHERE id = ?"#,
             )?;
 
@@ -103,7 +101,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, 
-                          agent_pref, model, settings_json, created_at, updated_at
+                          model, settings_json, created_at, updated_at
                    FROM specs WHERE board_id = ?
                    ORDER BY created_at DESC"#,
             )?;
@@ -136,7 +134,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, 
-                          agent_pref, model, settings_json, created_at, updated_at
+                          model, settings_json, created_at, updated_at
                    FROM specs
                    ORDER BY created_at DESC"#,
             )?;
@@ -171,7 +169,7 @@ impl Database {
             let existing = {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, target_board_id, project_id, name, user_input, 
-                              agent_pref, model, settings_json, created_at, updated_at
+                              model, settings_json, created_at, updated_at
                        FROM specs WHERE id = ?"#,
                 )?;
                 stmt.query_row([id], Self::map_spec_row)
@@ -186,7 +184,6 @@ impl Database {
             let now = chrono::Utc::now();
             let name = updates.name.as_ref().unwrap_or(&existing.name);
             let user_input = updates.user_input.as_ref().unwrap_or(&existing.user_input);
-            let agent_pref = updates.agent_pref.as_ref().or(existing.agent_pref.as_ref());
             let model = updates.model.as_ref().or(existing.model.as_ref());
             let settings = updates.settings.as_ref().unwrap_or(&existing.settings);
 
@@ -195,15 +192,15 @@ impl Database {
 
             conn.execute(
                 r#"UPDATE specs 
-                   SET name = ?, user_input = ?, agent_pref = ?, model = ?, settings_json = ?, updated_at = ?
+                   SET name = ?, user_input = ?, model = ?, settings_json = ?, updated_at = ?
                    WHERE id = ?"#,
-                rusqlite::params![name, user_input, agent_pref, model, settings_json, now.to_rfc3339(), id],
+                rusqlite::params![name, user_input, model, settings_json, now.to_rfc3339(), id],
             )?;
 
             // Re-query to return updated
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, target_board_id, project_id, name, user_input, 
-                          agent_pref, model, settings_json, created_at, updated_at
+                          model, settings_json, created_at, updated_at
                    FROM specs WHERE id = ?"#,
             )?;
             stmt.query_row([id], Self::map_spec_row)
@@ -307,9 +304,9 @@ impl Database {
 
     fn map_spec_row(row: &rusqlite::Row) -> rusqlite::Result<Spec> {
         // Column order: 0-id, 1-board_id, 2-target_board_id, 3-project_id, 4-name, 5-user_input,
-        //               6-agent_pref, 7-model, 8-settings_json, 9-created_at, 10-updated_at
+        //               6-model, 7-settings_json, 8-created_at, 9-updated_at
         let settings_str: String = row
-            .get::<_, Option<String>>(8)?
+            .get::<_, Option<String>>(7)?
             .unwrap_or_else(|| "{}".to_string());
         let settings =
             serde_json::from_str(&settings_str).unwrap_or_else(|_| serde_json::json!({}));
@@ -321,11 +318,10 @@ impl Database {
             project_id: row.get(3)?,
             name: row.get(4)?,
             user_input: row.get(5)?,
-            agent_pref: row.get(6)?,
-            model: row.get(7)?,
+            model: row.get(6)?,
             settings,
-            created_at: parse_datetime(row.get(9)?),
-            updated_at: parse_datetime(row.get(10)?),
+            created_at: parse_datetime(row.get(8)?),
+            updated_at: parse_datetime(row.get(9)?),
         })
     }
 }
@@ -347,7 +343,6 @@ mod tests {
         db.create_project(&CreateProject {
             name: "Test Project".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: false,
         })
         .unwrap()
@@ -366,7 +361,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Feature Plan".to_string(),
                 user_input: "I want to add a new authentication system".to_string(),
-                agent_pref: Some("claude".to_string()),
                 model: Some("opus".to_string()),
                 settings: serde_json::json!({}),
             })
@@ -374,7 +368,6 @@ mod tests {
 
         assert_eq!(spec.name, "Feature Plan");
         assert_eq!(spec.project_id, project.id);
-        assert_eq!(spec.agent_pref, Some("claude".to_string()));
         assert_eq!(spec.model, Some("opus".to_string()));
 
         let fetched = db.get_spec(&spec.id).unwrap();
@@ -406,7 +399,6 @@ mod tests {
             project_id: project.id.clone(),
             name: "Plan 1".to_string(),
             user_input: "Input 1".to_string(),
-            agent_pref: None,
             model: None,
             settings: serde_json::json!({}),
         })
@@ -418,7 +410,6 @@ mod tests {
             project_id: project.id.clone(),
             name: "Plan 2".to_string(),
             user_input: "Input 2".to_string(),
-            agent_pref: None,
             model: None,
             settings: serde_json::json!({}),
         })
@@ -441,7 +432,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Original".to_string(),
                 user_input: "Original input".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::json!({}),
             })
@@ -453,7 +443,6 @@ mod tests {
                 &UpdateSpec {
                     name: Some("Updated".to_string()),
                     user_input: None,
-                    agent_pref: Some("cursor".to_string()),
                     model: Some("sonnet".to_string()),
                     settings: None,
                 },
@@ -462,7 +451,6 @@ mod tests {
 
         assert_eq!(updated.name, "Updated");
         assert_eq!(updated.user_input, "Original input");
-        assert_eq!(updated.agent_pref, Some("cursor".to_string()));
         assert_eq!(updated.model, Some("sonnet".to_string()));
     }
 
@@ -479,7 +467,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Plan".to_string(),
                 user_input: "Input".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::json!({}),
             })
@@ -515,7 +502,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Plan".to_string(),
                 user_input: "Input".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::json!({}),
             })
@@ -540,7 +526,6 @@ mod tests {
                 project_id: project.id.clone(),
                 name: "Plan".to_string(),
                 user_input: "Input".to_string(),
-                agent_pref: None,
                 model: None,
                 settings: serde_json::json!({}),
             })

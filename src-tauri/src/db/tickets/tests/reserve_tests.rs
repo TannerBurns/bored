@@ -1,6 +1,6 @@
 use super::{create_test_db, setup_board_with_ready_ticket, temp_dir_path};
 use crate::agents::AgentKind;
-use crate::db::models::{AgentPref, CreateProject, CreateTicket, Priority, WorkflowType};
+use crate::db::models::{CreateProject, CreateTicket, Priority, WorkflowType};
 use chrono::{Duration, Utc};
 
 #[test]
@@ -35,7 +35,6 @@ fn reserve_next_ticket_returns_none_when_no_ready_tickets() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -95,56 +94,12 @@ fn reserve_next_ticket_takes_expired_lock() {
 }
 
 #[test]
-fn reserve_next_ticket_respects_agent_pref_cursor() {
-    let db = create_test_db();
-    let board = db.create_board("Board").unwrap();
-    let columns = db.get_columns(&board.id).unwrap();
-    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-
-    // Create a ticket that prefers Claude
-    db.create_ticket(&CreateTicket {
-        board_id: board.id.clone(),
-        column_id: ready.id.clone(),
-        title: "Claude Only".to_string(),
-        description_md: "".to_string(),
-        priority: Priority::Medium,
-        labels: vec![],
-        project_id: None,
-        agent_pref: Some(AgentPref::Claude),
-        workflow_type: WorkflowType::default(),
-        model: None,
-        branch_name: None,
-        is_epic: false,
-        epic_id: None,
-        depends_on_epic_id: None,
-        depends_on_epic_ids: vec![],
-        spec_version_id: None,
-    })
-    .unwrap();
-
-    let expires = Utc::now() + Duration::minutes(30);
-
-    // Cursor worker should not get this ticket
-    let cursor_result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires)
-        .unwrap();
-    assert!(cursor_result.is_none());
-
-    // Claude worker should get this ticket
-    let claude_result = db
-        .reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires)
-        .unwrap();
-    assert!(claude_result.is_some());
-}
-
-#[test]
 fn reserve_next_ticket_respects_project_filter() {
     let db = create_test_db();
     let project = db
         .create_project(&CreateProject {
             name: "Test Project".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: true,
         })
         .unwrap();
@@ -162,7 +117,6 @@ fn reserve_next_ticket_respects_project_filter() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: Some(project.id.clone()),
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -206,7 +160,6 @@ fn reserve_next_ticket_prioritizes_by_priority_and_age() {
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -228,7 +181,6 @@ fn reserve_next_ticket_prioritizes_by_priority_and_age() {
             priority: Priority::Urgent,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -251,142 +203,6 @@ fn reserve_next_ticket_prioritizes_by_priority_and_age() {
 }
 
 #[test]
-fn reserve_next_ticket_respects_agent_pref_claude() {
-    let db = create_test_db();
-    let board = db.create_board("Board").unwrap();
-    let columns = db.get_columns(&board.id).unwrap();
-    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-
-    // Create a ticket that prefers Cursor
-    db.create_ticket(&CreateTicket {
-        board_id: board.id.clone(),
-        column_id: ready.id.clone(),
-        title: "Cursor Only".to_string(),
-        description_md: "".to_string(),
-        priority: Priority::Medium,
-        labels: vec![],
-        project_id: None,
-        agent_pref: Some(AgentPref::Cursor),
-        workflow_type: WorkflowType::default(),
-        model: None,
-        branch_name: None,
-        is_epic: false,
-        epic_id: None,
-        depends_on_epic_id: None,
-        depends_on_epic_ids: vec![],
-        spec_version_id: None,
-    })
-    .unwrap();
-
-    let expires = Utc::now() + Duration::minutes(30);
-
-    // Claude worker should not get this ticket
-    let claude_result = db
-        .reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires)
-        .unwrap();
-    assert!(claude_result.is_none());
-
-    // Cursor worker should get this ticket
-    let cursor_result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires)
-        .unwrap();
-    assert!(cursor_result.is_some());
-}
-
-#[test]
-fn reserve_next_ticket_any_pref_works_for_both_agents() {
-    let db = create_test_db();
-    let board = db.create_board("Board").unwrap();
-    let columns = db.get_columns(&board.id).unwrap();
-    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-
-    // Create ticket with 'any' preference
-    let ticket1 = db
-        .create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "Any Agent".to_string(),
-            description_md: "".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: Some(AgentPref::Any),
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_version_id: None,
-        })
-        .unwrap();
-
-    let expires = Utc::now() + Duration::minutes(30);
-
-    // Cursor worker should get the ticket
-    let cursor_result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires)
-        .unwrap();
-    assert!(cursor_result.is_some());
-    assert_eq!(cursor_result.unwrap().id, ticket1.id);
-
-    // Unlock and try with Claude
-    db.unlock_ticket(&ticket1.id).unwrap();
-
-    let claude_result = db
-        .reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires)
-        .unwrap();
-    assert!(claude_result.is_some());
-    assert_eq!(claude_result.unwrap().id, ticket1.id);
-}
-
-#[test]
-fn reserve_next_ticket_null_pref_works_for_both_agents() {
-    let db = create_test_db();
-    let board = db.create_board("Board").unwrap();
-    let columns = db.get_columns(&board.id).unwrap();
-    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
-
-    // Create ticket with no agent preference (NULL)
-    let ticket = db
-        .create_ticket(&CreateTicket {
-            board_id: board.id.clone(),
-            column_id: ready.id.clone(),
-            title: "No Preference".to_string(),
-            description_md: "".to_string(),
-            priority: Priority::Medium,
-            labels: vec![],
-            project_id: None,
-            agent_pref: None,
-            workflow_type: WorkflowType::default(),
-            model: None,
-            branch_name: None,
-            is_epic: false,
-            epic_id: None,
-            depends_on_epic_id: None,
-            depends_on_epic_ids: vec![],
-            spec_version_id: None,
-        })
-        .unwrap();
-
-    let expires = Utc::now() + Duration::minutes(30);
-
-    // Both agents should be able to claim it
-    let cursor_result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "cursor-run", expires)
-        .unwrap();
-    assert!(cursor_result.is_some());
-
-    db.unlock_ticket(&ticket.id).unwrap();
-
-    let claude_result = db
-        .reserve_next_ticket(None, AgentKind::Claude, "claude-run", expires)
-        .unwrap();
-    assert!(claude_result.is_some());
-}
-
-#[test]
 fn reserve_next_ticket_skips_epic_tickets() {
     let db = create_test_db();
     let board = db.create_board("Board").unwrap();
@@ -402,7 +218,6 @@ fn reserve_next_ticket_skips_epic_tickets() {
         priority: Priority::High,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -443,7 +258,6 @@ fn reserve_next_ticket_picks_child_ticket_not_epic() {
             priority: Priority::High,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -465,7 +279,6 @@ fn reserve_next_ticket_picks_child_ticket_not_epic() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -509,7 +322,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -530,7 +342,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -552,7 +363,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -575,7 +385,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -589,27 +398,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
     let expires = Utc::now() + Duration::minutes(30);
     db.lock_ticket(&locked.id, "run-2", expires).unwrap();
 
-    // 5. Ticket with Claude agent pref (not eligible for Cursor)
-    db.create_ticket(&CreateTicket {
-        board_id: board.id.clone(),
-        column_id: ready.id.clone(),
-        title: "Claude Only".to_string(),
-        description_md: "".to_string(),
-        priority: Priority::Medium,
-        labels: vec![],
-        project_id: None,
-        agent_pref: Some(AgentPref::Claude),
-        workflow_type: WorkflowType::default(),
-        model: None,
-        branch_name: None,
-        is_epic: false,
-        epic_id: None,
-        depends_on_epic_id: None,
-        depends_on_epic_ids: vec![],
-        spec_version_id: None,
-    })
-    .unwrap();
-
     // Create a ticket in Backlog (not in Ready)
     db.create_ticket(&CreateTicket {
         board_id: board.id.clone(),
@@ -619,7 +407,6 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -636,11 +423,10 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
         .get_ready_ticket_diagnostics(None, AgentKind::Cursor)
         .unwrap();
 
-    assert_eq!(diag.total_ready, 5); // 5 tickets in Ready column
+    assert_eq!(diag.total_ready, 4); // 4 tickets in Ready column
     assert_eq!(diag.paused, 1); // 1 paused ticket
     assert_eq!(diag.locked, 1); // 1 locked ticket
     assert_eq!(diag.epics, 1); // 1 epic
-    assert_eq!(diag.wrong_agent_pref, 1); // 1 with Claude pref (not matching Cursor)
     assert_eq!(diag.eligible, 1); // Only 1 eligible for Cursor
 }
 
@@ -657,7 +443,6 @@ fn get_ready_ticket_diagnostics_with_project_filter() {
         .create_project(&CreateProject {
             name: "My Project".to_string(),
             path: temp1.to_string_lossy().to_string(),
-            preferred_agent: None,
             requires_git: false,
         })
         .unwrap();
@@ -666,7 +451,6 @@ fn get_ready_ticket_diagnostics_with_project_filter() {
         .create_project(&CreateProject {
             name: "Other Project".to_string(),
             path: temp2.to_string_lossy().to_string(),
-            preferred_agent: None,
             requires_git: false,
         })
         .unwrap();
@@ -684,7 +468,6 @@ fn get_ready_ticket_diagnostics_with_project_filter() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: Some(project1.id.clone()),
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -705,7 +488,6 @@ fn get_ready_ticket_diagnostics_with_project_filter() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: Some(project2.id.clone()),
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,

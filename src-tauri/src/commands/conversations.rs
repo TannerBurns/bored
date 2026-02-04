@@ -101,10 +101,8 @@ pub async fn send_conversation_message(
         .get_conversation_messages(&spec_id)
         .map_err(|e| e.to_string())?;
 
-    let agent_kind = match spec.agent_pref.as_deref() {
-        Some("cursor") => AgentKind::Cursor,
-        _ => AgentKind::Claude,
-    };
+    // Default to Claude for conversation agent
+    let agent_kind = AgentKind::Claude;
 
     // Build plan trigger config for when spec completes (before brainstorm_config takes ownership)
     let plan_trigger = PlanTriggerConfig {
@@ -271,10 +269,7 @@ pub async fn start_conversation(
         api_url: api_url.inner().clone(),
         api_token: api_token.inner().clone(),
         claude_api_config,
-        agent_kind: match spec.agent_pref.as_deref() {
-            Some("cursor") => AgentKind::Cursor,
-            _ => AgentKind::Claude,
-        },
+        agent_kind: AgentKind::Claude,
         model: spec.model.clone(),
         timeout_secs: 120,
     };

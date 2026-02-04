@@ -16,8 +16,6 @@ interface CreateSpecModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type AgentPref = 'cursor' | 'claude' | 'any';
-
 export function CreateSpecModal({
   boardId,
   projectId: defaultProjectId,
@@ -27,7 +25,6 @@ export function CreateSpecModal({
   const { createSpec, isLoading } = useSpecStore();
   const [name, setName] = useState('');
   const [userInput, setUserInput] = useState('');
-  const [agentPref, setAgentPref] = useState<AgentPref>('any');
   const [model, setModel] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || '');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -118,14 +115,12 @@ export function CreateSpecModal({
         projectId: selectedProjectId,
         name: name.trim(),
         userInput: userInput.trim(),
-        agentPref: agentPref !== 'any' ? agentPref : undefined,
         model: model || undefined,
       });
       
       // Reset form and close immediately - ConversationView will handle starting the conversation
       setName('');
       setUserInput('');
-      setAgentPref('any');
       setModel('');
       setTargetBoardId('');
       setIsPreviewMode(false);
@@ -417,41 +412,24 @@ Use Markdown for formatting:
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-board-text-secondary mb-1">
-              Agent Preference
-            </label>
-            <select
-              value={agentPref}
-              onChange={(e) => setAgentPref(e.target.value as AgentPref)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-            >
-              <option value="any">Any Agent</option>
-              <option value="cursor">Cursor</option>
-              <option value="claude">Claude Code</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-board-text-secondary mb-1">
-              AI Model
-            </label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-            >
-              <option value="">Default (auto)</option>
-              <option value="opus-4.5">Opus 4.5</option>
-              <option value="sonnet-4.5">Sonnet 4.5</option>
-              <option value="sonnet-4">Sonnet 4</option>
-              <option value="haiku-4.5">Haiku 4.5</option>
-            </select>
-            <p className="mt-1 text-xs text-board-text-muted">
-              Select AI model for agent runs
-            </p>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-board-text-secondary mb-1">
+            AI Model
+          </label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
+          >
+            <option value="">Default (auto)</option>
+            <option value="opus-4.5">Opus 4.5</option>
+            <option value="sonnet-4.5">Sonnet 4.5</option>
+            <option value="sonnet-4">Sonnet 4</option>
+            <option value="haiku-4.5">Haiku 4.5</option>
+          </select>
+          <p className="mt-1 text-xs text-board-text-muted">
+            Select AI model for agent runs
+          </p>
         </div>
 
         {/* Main branch note */}

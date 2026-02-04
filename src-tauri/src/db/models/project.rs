@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::AgentPref;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -11,7 +9,6 @@ pub struct Project {
     pub path: String,
     pub cursor_hooks_installed: bool,
     pub claude_hooks_installed: bool,
-    pub preferred_agent: Option<AgentPref>,
     pub allow_shell_commands: bool,
     pub allow_file_writes: bool,
     pub blocked_patterns: Vec<String>,
@@ -28,7 +25,6 @@ pub struct Project {
 pub struct CreateProject {
     pub name: String,
     pub path: String,
-    pub preferred_agent: Option<AgentPref>,
     /// Whether this project requires git (defaults to true if not specified)
     #[serde(default = "default_requires_git")]
     pub requires_git: bool,
@@ -42,7 +38,6 @@ fn default_requires_git() -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProject {
     pub name: Option<String>,
-    pub preferred_agent: Option<AgentPref>,
     pub allow_shell_commands: Option<bool>,
     pub allow_file_writes: Option<bool>,
     pub blocked_patterns: Option<Vec<String>>,
@@ -61,7 +56,6 @@ mod tests {
             path: "/tmp".to_string(),
             cursor_hooks_installed: true,
             claude_hooks_installed: false,
-            preferred_agent: Some(AgentPref::Cursor),
             allow_shell_commands: true,
             allow_file_writes: false,
             blocked_patterns: vec!["*.log".to_string()],
@@ -73,16 +67,14 @@ mod tests {
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains("\"cursorHooksInstalled\":true"));
         assert!(json.contains("\"allowFileWrites\":false"));
-        assert!(json.contains("\"preferredAgent\":\"cursor\""));
         assert!(json.contains("\"requiresGit\":true"));
     }
 
     #[test]
     fn create_project_deserializes_from_camel_case() {
-        let json = r#"{"name":"Proj","path":"/tmp","preferredAgent":"claude"}"#;
+        let json = r#"{"name":"Proj","path":"/tmp"}"#;
         let input: CreateProject = serde_json::from_str(json).unwrap();
         assert_eq!(input.name, "Proj");
-        assert_eq!(input.preferred_agent, Some(AgentPref::Claude));
         // requires_git should default to true when not specified
         assert!(input.requires_git);
     }

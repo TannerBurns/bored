@@ -1,7 +1,7 @@
 //! Tests for CRUD operations on tickets.
 
 use super::{create_test_db, temp_dir_path};
-use crate::db::models::{AgentPref, CreateProject, CreateTicket, Priority, UpdateTicket, WorkflowType};
+use crate::db::models::{CreateProject, CreateTicket, Priority, UpdateTicket, WorkflowType};
 use crate::db::DbError;
 
 #[test]
@@ -19,7 +19,6 @@ fn create_ticket_with_all_fields() {
             priority: Priority::High,
             labels: vec!["bug".to_string()],
             project_id: None,
-            agent_pref: Some(AgentPref::Cursor),
             workflow_type: WorkflowType::MultiStage,
             model: None,
             branch_name: None,
@@ -34,7 +33,6 @@ fn create_ticket_with_all_fields() {
     assert_eq!(ticket.title, "Test Ticket");
     assert_eq!(ticket.priority, Priority::High);
     assert_eq!(ticket.labels, vec!["bug"]);
-    assert_eq!(ticket.agent_pref, Some(AgentPref::Cursor));
     assert_eq!(ticket.workflow_type, WorkflowType::MultiStage);
 }
 
@@ -52,7 +50,6 @@ fn get_tickets_for_board() {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
-        agent_pref: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,
@@ -83,7 +80,6 @@ fn move_ticket_to_column() {
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -112,7 +108,6 @@ fn set_ticket_project() {
         .create_project(&CreateProject {
             name: "Proj".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: true,
         })
         .unwrap();
@@ -126,7 +121,6 @@ fn set_ticket_project() {
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -160,7 +154,6 @@ fn get_ticket_by_id() {
             priority: Priority::High,
             labels: vec!["test".to_string()],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -200,7 +193,6 @@ fn update_ticket_partial() {
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -221,7 +213,6 @@ fn update_ticket_partial() {
                 priority: Some(Priority::Urgent),
                 labels: None,
                 project_id: None,
-                agent_pref: None,
                 workflow_type: None,
                 model: None,
                 branch_name: None,
@@ -253,7 +244,6 @@ fn update_ticket_not_found() {
             priority: None,
             labels: None,
             project_id: None,
-            agent_pref: None,
             workflow_type: None,
             model: None,
             branch_name: None,
@@ -277,7 +267,6 @@ fn update_ticket_clears_project_with_empty_string() {
         .create_project(&CreateProject {
             name: "Test Project".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: true,
         })
         .unwrap();
@@ -291,7 +280,6 @@ fn update_ticket_clears_project_with_empty_string() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: Some(project.id.clone()),
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -314,7 +302,6 @@ fn update_ticket_clears_project_with_empty_string() {
                 priority: None,
                 labels: None,
                 project_id: Some(String::new()), // Empty string clears project
-                agent_pref: None,
                 workflow_type: None,
                 model: None,
                 branch_name: None,
@@ -341,7 +328,6 @@ fn update_ticket_keeps_project_when_none() {
         .create_project(&CreateProject {
             name: "Test Project".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: true,
         })
         .unwrap();
@@ -355,7 +341,6 @@ fn update_ticket_keeps_project_when_none() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: Some(project.id.clone()),
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -376,7 +361,6 @@ fn update_ticket_keeps_project_when_none() {
                 priority: None,
                 labels: None,
                 project_id: None, // None means keep existing
-                agent_pref: None,
                 workflow_type: None,
                 model: None,
                 branch_name: None,
@@ -410,7 +394,6 @@ fn delete_ticket_success() {
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -450,7 +433,6 @@ fn set_ticket_branch_success() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -496,7 +478,6 @@ fn set_ticket_branch_updates_timestamp() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -534,7 +515,6 @@ fn create_ticket_with_branch_name() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: Some("feat/preset/my-branch".to_string()),
@@ -574,7 +554,6 @@ fn create_ticket_auto_creates_initial_task() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -610,7 +589,6 @@ fn create_ticket_truncates_long_title_for_task() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -648,7 +626,6 @@ fn create_ticket_truncates_utf8_title_safely() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -685,7 +662,6 @@ fn create_ticket_empty_description_creates_task_with_no_content() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,

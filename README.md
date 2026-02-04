@@ -10,7 +10,7 @@ Bored provides a visual Kanban board where you can:
 - **Assign tickets to AI agents** (Cursor or Claude Code) that automatically work on your codebase
 - **Track agent progress** in real-time through lifecycle hooks and events
 - **Run workers** that continuously process tickets from the queue
-- **Organize work across multiple projects** with per-project settings and agent preferences
+- **Organize work across multiple projects** with per-project settings
 
 ## Screenshots
 
@@ -81,7 +81,6 @@ Automated workers continuously process tickets:
 ### Project Management
 
 Register local repositories as projects:
-- Set preferred agent (Cursor, Claude, or any)
 - Configure safety settings (shell commands, file writes)
 - Install agent hooks per-project
 - Block specific file patterns

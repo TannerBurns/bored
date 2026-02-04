@@ -319,6 +319,164 @@ impl Database {
                 } // end if specs_has_old_format
             }
 
+            // Migration from version 3 to 4: Remove agent_pref/preferred_agent columns
+            if current_version < 4 {
+                tracing::info!("Running migration to version 4: remove agent preference columns");
+                
+                // SQLite doesn't support DROP COLUMN before version 3.35.0
+                // We need to recreate tables without the columns
+                
+                // Check if projects table has preferred_agent column
+                let projects_has_pref: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='preferred_agent'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if projects_has_pref {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE projects_v4 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            name TEXT NOT NULL,
+                            path TEXT NOT NULL UNIQUE,
+                            cursor_hooks_installed INTEGER NOT NULL DEFAULT 0,
+                            claude_hooks_installed INTEGER NOT NULL DEFAULT 0,
+                            allow_shell_commands INTEGER NOT NULL DEFAULT 1,
+                            allow_file_writes INTEGER NOT NULL DEFAULT 1,
+                            blocked_patterns_json TEXT NOT NULL DEFAULT '[]',
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            requires_git INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO projects_v4 (id, name, path, cursor_hooks_installed, claude_hooks_installed,
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json, settings_json,
+                            requires_git, created_at, updated_at)
+                        SELECT id, name, path, cursor_hooks_installed, claude_hooks_installed,
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json, settings_json,
+                            requires_git, created_at, updated_at FROM projects;
+
+                        DROP TABLE projects;
+                        ALTER TABLE projects_v4 RENAME TO projects;
+
+                        CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
+                        "#
+                    )?;
+                    tracing::info!("Removed preferred_agent from projects table");
+                }
+                
+                // Check if tickets table has agent_pref column
+                let tickets_has_pref: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('tickets') WHERE name='agent_pref'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if tickets_has_pref {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE tickets_v4 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                            column_id TEXT NOT NULL REFERENCES columns(id) ON DELETE RESTRICT,
+                            title TEXT NOT NULL,
+                            description_md TEXT NOT NULL DEFAULT '',
+                            priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high', 'urgent')),
+                            labels_json TEXT NOT NULL DEFAULT '[]',
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            locked_by_run_id TEXT,
+                            lock_expires_at TEXT,
+                            project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                            workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
+                            model TEXT,
+                            branch_name TEXT,
+                            is_epic INTEGER NOT NULL DEFAULT 0,
+                            epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                            order_in_epic INTEGER,
+                            depends_on_epic_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                            depends_on_epic_ids_json TEXT,
+                            spec_version_id TEXT REFERENCES spec_versions(id) ON DELETE SET NULL,
+                            paused_at TEXT,
+                            paused_at_stage TEXT,
+                            paused_run_id TEXT
+                        );
+
+                        INSERT INTO tickets_v4 (id, board_id, column_id, title, description_md, priority, labels_json,
+                            created_at, updated_at, locked_by_run_id, lock_expires_at, project_id, workflow_type,
+                            model, branch_name, is_epic, epic_id, order_in_epic, depends_on_epic_id,
+                            depends_on_epic_ids_json, spec_version_id, paused_at, paused_at_stage, paused_run_id)
+                        SELECT id, board_id, column_id, title, description_md, priority, labels_json,
+                            created_at, updated_at, locked_by_run_id, lock_expires_at, project_id, workflow_type,
+                            model, branch_name, is_epic, epic_id, order_in_epic, depends_on_epic_id,
+                            depends_on_epic_ids_json, spec_version_id, paused_at, paused_at_stage, paused_run_id
+                        FROM tickets;
+
+                        DROP TABLE tickets;
+                        ALTER TABLE tickets_v4 RENAME TO tickets;
+
+                        CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
+                        CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
+                        CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_tickets_spec_version ON tickets(spec_version_id) WHERE spec_version_id IS NOT NULL;
+                        "#
+                    )?;
+                    tracing::info!("Removed agent_pref from tickets table");
+                }
+                
+                // Check if specs table has agent_pref column
+                let specs_has_pref: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('specs') WHERE name='agent_pref'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+                
+                if specs_has_pref {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE specs_v4 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                            target_board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                            name TEXT NOT NULL,
+                            user_input TEXT NOT NULL,
+                            model TEXT,
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO specs_v4 (id, board_id, target_board_id, project_id, name, user_input,
+                            model, settings_json, created_at, updated_at)
+                        SELECT id, board_id, target_board_id, project_id, name, user_input,
+                            model, settings_json, created_at, updated_at FROM specs;
+
+                        DROP TABLE specs;
+                        ALTER TABLE specs_v4 RENAME TO specs;
+
+                        CREATE INDEX IF NOT EXISTS idx_specs_board ON specs(board_id);
+                        CREATE INDEX IF NOT EXISTS idx_specs_target_board ON specs(target_board_id);
+                        CREATE INDEX IF NOT EXISTS idx_specs_project ON specs(project_id);
+                        "#
+                    )?;
+                    tracing::info!("Removed agent_pref from specs table");
+                }
+                
+                tracing::info!("Migration to version 4 complete: agent preference columns removed");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -531,15 +689,14 @@ impl Database {
                     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     user_input TEXT NOT NULL,
-                    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
                     model TEXT,
                     settings_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
-                INSERT INTO specs_repaired (id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at)
-                SELECT id, board_id, target_board_id, project_id, name, user_input, agent_pref, model, settings_json, created_at, updated_at FROM specs;
+                INSERT INTO specs_repaired (id, board_id, target_board_id, project_id, name, user_input, model, settings_json, created_at, updated_at)
+                SELECT id, board_id, target_board_id, project_id, name, user_input, model, settings_json, created_at, updated_at FROM specs;
 
                 DROP TABLE specs;
                 ALTER TABLE specs_repaired RENAME TO specs;
@@ -609,7 +766,6 @@ impl Database {
                     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     user_input TEXT NOT NULL,
-                    agent_pref TEXT CHECK(agent_pref IS NULL OR agent_pref IN ('cursor', 'claude', 'any')),
                     model TEXT,
                     settings_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -667,7 +823,6 @@ mod tests {
                 .create_project(&CreateProject {
                     name: "Test".to_string(),
                     path: temp_dir_path(),
-                    preferred_agent: None,
                     requires_git: true,
                 })
                 .unwrap();

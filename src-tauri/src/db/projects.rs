@@ -1,4 +1,4 @@
-use crate::db::models::{AgentPref, CreateProject, Project, ReadinessCheck, UpdateProject};
+use crate::db::models::{CreateProject, Project, ReadinessCheck, UpdateProject};
 use crate::db::{parse_datetime, Database, DbError};
 
 impl Database {
@@ -29,13 +29,12 @@ impl Database {
 
             conn.execute(
                 r#"INSERT INTO projects 
-                   (id, name, path, preferred_agent, requires_git, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+                   (id, name, path, requires_git, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)"#,
                 rusqlite::params![
                     project_id,
                     input.name,
                     canonical_path,
-                    input.preferred_agent.as_ref().map(|p| p.as_str()),
                     input.requires_git as i32,
                     now.to_rfc3339(),
                     now.to_rfc3339(),
@@ -48,7 +47,6 @@ impl Database {
                 path: canonical_path,
                 cursor_hooks_installed: false,
                 claude_hooks_installed: false,
-                preferred_agent: input.preferred_agent.clone(),
                 allow_shell_commands: true,
                 allow_file_writes: true,
                 blocked_patterns: vec![],
@@ -64,7 +62,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT id, name, path, cursor_hooks_installed, claude_hooks_installed,
-                          preferred_agent, allow_shell_commands, allow_file_writes,
+                          allow_shell_commands, allow_file_writes,
                           blocked_patterns_json, settings_json, created_at, updated_at,
                           requires_git
                    FROM projects ORDER BY name"#,
@@ -72,9 +70,8 @@ impl Database {
 
             let projects = stmt
                 .query_map([], |row| {
-                    let blocked_json: String = row.get(8)?;
-                    let settings_json: String = row.get(9)?;
-                    let pref_str: Option<String> = row.get(5)?;
+                    let blocked_json: String = row.get(7)?;
+                    let settings_json: String = row.get(8)?;
 
                     Ok(Project {
                         id: row.get(0)?,
@@ -82,15 +79,14 @@ impl Database {
                         path: row.get(2)?,
                         cursor_hooks_installed: row.get::<_, i32>(3)? != 0,
                         claude_hooks_installed: row.get::<_, i32>(4)? != 0,
-                        preferred_agent: pref_str.and_then(|s| AgentPref::parse(&s)),
-                        allow_shell_commands: row.get::<_, i32>(6)? != 0,
-                        allow_file_writes: row.get::<_, i32>(7)? != 0,
+                        allow_shell_commands: row.get::<_, i32>(5)? != 0,
+                        allow_file_writes: row.get::<_, i32>(6)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
                         settings: serde_json::from_str(&settings_json)
                             .unwrap_or(serde_json::json!({})),
-                        requires_git: row.get::<_, i32>(12).unwrap_or(1) != 0,
-                        created_at: parse_datetime(row.get(10)?),
-                        updated_at: parse_datetime(row.get(11)?),
+                        requires_git: row.get::<_, i32>(11).unwrap_or(1) != 0,
+                        created_at: parse_datetime(row.get(9)?),
+                        updated_at: parse_datetime(row.get(10)?),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -125,13 +121,6 @@ impl Database {
                 conn.execute(
                     "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
                     rusqlite::params![name, now, project_id],
-                )?;
-            }
-
-            if let Some(ref pref) = input.preferred_agent {
-                conn.execute(
-                    "UPDATE projects SET preferred_agent = ?, updated_at = ? WHERE id = ?",
-                    rusqlite::params![pref.as_str(), now, project_id],
                 )?;
             }
 
@@ -304,7 +293,6 @@ mod tests {
         let result = db.create_project(&CreateProject {
             name: "Bad".to_string(),
             path: "/nonexistent/path/12345".to_string(),
-            preferred_agent: None,
             requires_git: true,
         });
 
@@ -321,7 +309,6 @@ mod tests {
         let result = db.create_project(&CreateProject {
             name: "Bad".to_string(),
             path: file_path.to_string_lossy().to_string(),
-            preferred_agent: None,
             requires_git: true,
         });
 
@@ -339,7 +326,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp.clone(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -360,7 +346,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -389,7 +374,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -410,7 +394,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -436,7 +419,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -447,7 +429,6 @@ mod tests {
             &project.id,
             &UpdateProject {
                 name: None,
-                preferred_agent: None,
                 allow_shell_commands: None,
                 allow_file_writes: None,
                 blocked_patterns: Some(vec!["*.log".to_string(), "node_modules".to_string()]),
@@ -468,7 +449,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Proj".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -485,7 +465,6 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: Some(project.id.clone()),
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -512,7 +491,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Proj".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -530,7 +508,6 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -565,7 +542,6 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: None,
-                agent_pref: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -589,7 +565,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "No Git Project".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: false,
             })
             .unwrap();
@@ -609,7 +584,6 @@ mod tests {
             .create_project(&CreateProject {
                 name: "Test".to_string(),
                 path: temp_dir_path(),
-                preferred_agent: None,
                 requires_git: true,
             })
             .unwrap();
@@ -621,7 +595,6 @@ mod tests {
             &project.id,
             &UpdateProject {
                 name: None,
-                preferred_agent: None,
                 allow_shell_commands: None,
                 allow_file_writes: None,
                 blocked_patterns: None,

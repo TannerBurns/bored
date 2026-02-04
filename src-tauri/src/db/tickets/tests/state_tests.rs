@@ -110,7 +110,6 @@ fn get_paused_tickets_returns_only_paused() {
         .create_project(&CreateProject {
             name: "Test".to_string(),
             path: temp_dir_path(),
-            preferred_agent: None,
             requires_git: false,
         })
         .unwrap();
@@ -125,7 +124,6 @@ fn get_paused_tickets_returns_only_paused() {
             project_id: project.id.clone(),
             name: "Test".to_string(),
             user_input: "Test".to_string(),
-            agent_pref: None,
             model: None,
             settings: serde_json::json!({}),
         })
@@ -144,7 +142,6 @@ fn get_paused_tickets_returns_only_paused() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -165,7 +162,6 @@ fn get_paused_tickets_returns_only_paused() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -208,7 +204,6 @@ fn reserve_next_ticket_skips_paused_tickets() {
             priority: Priority::High,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -229,7 +224,6 @@ fn reserve_next_ticket_skips_paused_tickets() {
             priority: Priority::Medium,
             labels: vec![],
             project_id: None,
-            agent_pref: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
