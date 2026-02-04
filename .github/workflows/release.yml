@@ -166,6 +166,9 @@ jobs:
           releaseName: 'Bored ${{ github.ref_name }}'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: false
+          # NOTE: Always false, even for beta/RC releases. Tauri's updater fetches from
+          # GitHub's "latest release" endpoint, which only returns non-prerelease releases.
+          # If set to true, the updater would not find beta/RC versions.
           prerelease: false
           includeUpdaterJson: true
           args: --target ${{ matrix.target }}
