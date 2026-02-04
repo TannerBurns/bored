@@ -263,7 +263,8 @@ jobs:
           # Start with empty platforms object
           MERGED='{"platforms":{}}'
           
-          for json_file in $(find updater-artifacts -name "latest.json" -type f); do
+          # Use null-terminated strings to safely handle filenames with spaces/special chars
+          while IFS= read -r -d '' json_file; do
             echo "Processing: $json_file"
             cat "$json_file"
             echo ""
@@ -280,7 +281,7 @@ jobs:
             # Merge platforms from this file into the combined object
             MERGED=$(echo "$MERGED" | jq --slurpfile new "$json_file" \
               '.platforms += ($new[0].platforms // {})')
-          done
+          done < <(find updater-artifacts -name "latest.json" -type f -print0)
           
           echo "Merged latest.json:"
           echo "$MERGED" | jq .
