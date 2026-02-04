@@ -148,19 +148,21 @@ export function useUpdater() {
           case 'Finished':
             // Clear dismissed version when update is ready
             clearDismissedVersion();
-            isDownloadingRef.current = false;
             setState({ status: 'ready', update: validatedUpdate });
             break;
         }
       });
     } catch (error) {
       console.error('Failed to download update:', error);
-      isDownloadingRef.current = false;
       setState({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Failed to download update',
         update: validatedUpdate
       });
+    } finally {
+      // Always reset the guard to allow future download attempts,
+      // regardless of success, failure, or if 'Finished' event was never emitted
+      isDownloadingRef.current = false;
     }
   }, []);
 
