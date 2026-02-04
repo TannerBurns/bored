@@ -936,6 +936,69 @@ fn has_merge_dependencies_ticket_returns_true_when_exists() {
 }
 
 #[test]
+fn has_merge_dependencies_ticket_ignores_similar_labels() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+
+    // Create a child with a similar but NOT exact label
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Not a merge deps ticket".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![
+            "merge-dependencies-v2".to_string(), // Similar but not exact
+        ],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: Some(epic.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Should NOT find a merge-dependencies ticket (similar label doesn't count)
+    assert!(
+        !db.has_merge_dependencies_ticket(&epic.id).unwrap(),
+        "Similar labels like 'merge-dependencies-v2' should not match"
+    );
+
+    // Now add the exact label
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Real merge deps".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::High,
+        labels: vec!["merge-dependencies".to_string()],
+        project_id: None,
+        agent_pref: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: Some(epic.id.clone()),
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    // Now it should find the exact match
+    assert!(db.has_merge_dependencies_ticket(&epic.id).unwrap());
+}
+
+#[test]
 fn get_all_dependency_branches_returns_branches_from_all_deps() {
     let db = create_test_db();
     let board = db.create_board("Board").unwrap();

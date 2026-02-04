@@ -365,9 +365,16 @@ impl Database {
     /// Check if an epic already has a merge-dependencies ticket injected
     pub fn has_merge_dependencies_ticket(&self, epic_id: &str) -> Result<bool, DbError> {
         self.with_conn(|conn| {
+            // Match exact JSON element boundaries to avoid false positives from labels
+            // like "merge-dependencies-v2". The label in JSON appears as either:
+            // - "merge-dependencies"] (last element)
+            // - "merge-dependencies", (followed by another element)
             let count: i32 = conn.query_row(
                 r#"SELECT COUNT(*) FROM tickets 
-                   WHERE epic_id = ? AND labels_json LIKE '%"merge-dependencies"%'"#,
+                   WHERE epic_id = ? AND (
+                       labels_json LIKE '%"merge-dependencies"]%' OR
+                       labels_json LIKE '%"merge-dependencies",%'
+                   )"#,
                 [epic_id],
                 |row| row.get(0),
             )?;
