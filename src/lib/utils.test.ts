@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cn, getTimeAgo, formatDuration } from './utils';
+import { cn, getTimeAgo, formatDuration, normalizeDependencies } from './utils';
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -117,5 +117,39 @@ describe('formatDuration', () => {
     const end = new Date('2024-01-17T12:30:00Z');
 
     expect(formatDuration(start, end)).toBe('60h 30m');
+  });
+});
+
+describe('normalizeDependencies', () => {
+  it('returns empty array for null', () => {
+    expect(normalizeDependencies(null)).toEqual([]);
+  });
+
+  it('returns empty array for undefined', () => {
+    expect(normalizeDependencies(undefined)).toEqual([]);
+  });
+
+  it('returns empty array for empty string', () => {
+    expect(normalizeDependencies('')).toEqual([]);
+  });
+
+  it('wraps string in array (legacy format)', () => {
+    expect(normalizeDependencies('Epic A')).toEqual(['Epic A']);
+  });
+
+  it('returns array as-is when valid', () => {
+    expect(normalizeDependencies(['Epic A', 'Epic B'])).toEqual(['Epic A', 'Epic B']);
+  });
+
+  it('returns empty array for empty array', () => {
+    expect(normalizeDependencies([])).toEqual([]);
+  });
+
+  it('filters out empty strings from array', () => {
+    expect(normalizeDependencies(['Epic A', '', 'Epic B', ''])).toEqual(['Epic A', 'Epic B']);
+  });
+
+  it('filters out null-ish values from array', () => {
+    expect(normalizeDependencies(['Epic A', null as unknown as string, 'Epic B'])).toEqual(['Epic A', 'Epic B']);
   });
 });
