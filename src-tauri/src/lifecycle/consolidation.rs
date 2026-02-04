@@ -254,6 +254,11 @@ pub(super) fn inject_merge_dependencies_ticket(
     db: &Arc<Database>,
     epic: &Ticket,
 ) -> Result<String, DbError> {
+    // === PHASE 1: Validation and precondition checks (read-only) ===
+    // All preconditions must be validated BEFORE any mutations to avoid leaving
+    // the database in an inconsistent state if later operations fail.
+    // The caller swallows errors, so partial mutations would be permanent.
+
     let dependency_branches = db.get_all_dependency_branches(&epic.id)?;
 
     if dependency_branches.is_empty() {
@@ -262,17 +267,23 @@ pub(super) fn inject_merge_dependencies_ticket(
         ));
     }
 
-    // Lookup column BEFORE shifting children to avoid corrupting order_in_epic
-    // if this lookup fails. The caller swallows errors, so a partial mutation
-    // would leave children with shifted orders and no merge ticket.
     let backlog_column = db
         .find_column_by_name(&epic.board_id, "Backlog")?
         .ok_or_else(|| DbError::NotFound("Backlog column not found".to_string()))?;
 
+    // === PHASE 2: Pure computation (no side effects) ===
     let description = build_merge_description(epic, &dependency_branches);
 
-    // Now safe to shift - we've validated all preconditions
-    db.shift_epic_children_order(&epic.id, 1)?;
+    // === PHASE 3: Mutations in safe order ===
+    // Create the ticket FIRST, before shifting children. This ensures:
+    // - If create_ticket fails: no side effects (children unmodified)
+    // - If shift fails after create: ticket exists (has_merge_dependencies_ticket returns true)
+    //   so retries are blocked, preventing unbounded order growth
+    // - If set_order fails: same as above, ticket exists at wrong position but retries blocked
+    //
+    // The old order (shift -> create -> set_order) was dangerous because if create_ticket
+    // failed after shift succeeded, children would be permanently shifted with no ticket,
+    // and retries would shift them again.
 
     let merge_ticket = db.create_ticket(&CreateTicket {
         board_id: epic.board_id.clone(),
@@ -296,6 +307,10 @@ pub(super) fn inject_merge_dependencies_ticket(
         spec_version_id: epic.spec_version_id.clone(),
     })?;
 
+    // Shift ALL children (including the just-created merge ticket) by 1
+    db.shift_epic_children_order(&epic.id, 1)?;
+
+    // Then set the merge ticket's order to 0, making it first
     db.set_ticket_order_in_epic(&merge_ticket.id, 0)?;
 
     db.create_comment(&CreateComment {
