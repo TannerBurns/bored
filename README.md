@@ -85,6 +85,34 @@ Watch agents work with a live feed of their actions: file edits, shell commands,
 
 Set up workers to continuously process tickets from the queue. Workers automatically pick up tickets from the Ready column and run agents on them — perfect for batch processing or overnight runs.
 
+### Multi-Stage Workflow
+
+When an agent works on a ticket, it goes through a structured multi-stage workflow designed to produce high-quality, well-tested code:
+
+```
+Branch → Plan → Validate → Implement → Review → QA → Commit
+```
+
+| Stage | What Happens |
+|-------|--------------|
+| **Branch** | Creates a dedicated git branch for the work |
+| **Plan** | AI generates a detailed implementation plan based on the ticket |
+| **Validate** | Checks if the plan needs clarification (moves to Blocked if so) |
+| **Implement** | Executes the implementation following the plan |
+| **Code Review** | Iterative loop: reviews code, fixes issues, repeats until clean |
+| **QA** | Runs cleanup, removes debug code, executes tests, reviews changes |
+| **Commit** | Stages and commits all changes with a detailed message |
+
+**Automatic ticket transitions:** Tickets move through columns as work progresses:
+- **Ready → In Progress** when the workflow starts
+- **In Progress → Review** when entering QA
+- **Review → Done** on successful completion
+- **Any → Blocked** if clarification is needed
+
+**Pause & Resume:** Workflows can be paused at any stage and resumed later. The agent picks up exactly where it left off, with full context from previous stages preserved.
+
+**Retries & Timeouts:** Each stage has configurable retry limits and timeouts to handle transient failures gracefully.
+
 ---
 
 ## Quick Start
