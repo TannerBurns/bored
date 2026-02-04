@@ -128,11 +128,39 @@ jobs:
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           
-          # Convert pre-release versions to semver + MSI compatible format
-          # e.g., 1.0.0-beta.8 -> 1.0.8 (uses major.minor.prerelease-number)
-          # This satisfies both semver (X.Y.Z) and Windows MSI (numeric only)
-          if [[ "$TAG_VERSION" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+-(alpha|beta|rc)\.([0-9]+)$ ]]; then
-            VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[4]}"
+          # Convert pre-release versions to MSI-compatible format
+          # Pre-releases MUST sort BEFORE their target stable version
+          # Strategy: Decrement minor (or major) and encode pre-release info in patch
+          # e.g., 2.0.0-beta.5 → 1.999.205 (less than 2.0.0)
+          # e.g., 2.1.0-beta.5 → 2.0.205 (less than 2.1.0)
+          if [[ "$TAG_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-(alpha|beta|rc)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            TYPE="${BASH_REMATCH[4]}"
+            NUM="${BASH_REMATCH[5]}"
+            
+            # Type codes: alpha=1, beta=2, rc=3 (ensures alpha < beta < rc ordering)
+            case "$TYPE" in
+              alpha) TYPE_CODE=1 ;;
+              beta)  TYPE_CODE=2 ;;
+              rc)    TYPE_CODE=3 ;;
+            esac
+            
+            # Encode patch, type, and pre-release number into a single value
+            # Formula: patch*500 + type*100 + N (allows patch 0-99, N 0-99, within MSI limit 65535)
+            ENCODED=$((PATCH * 500 + TYPE_CODE * 100 + NUM))
+            
+            # Decrement minor (or major if minor is 0) to ensure pre-release < stable
+            if [ "$MINOR" -gt 0 ]; then
+              VERSION="${MAJOR}.$((MINOR - 1)).${ENCODED}"
+            elif [ "$MAJOR" -gt 0 ]; then
+              VERSION="$((MAJOR - 1)).999.${ENCODED}"
+            else
+              # Edge case: 0.0.Z-type.N - cannot create version lower than 0.0.0
+              echo "::warning::Pre-release of 0.0.X cannot be encoded lower than 0.0.0 stable"
+              VERSION="0.0.${ENCODED}"
+            fi
           else
             VERSION="$TAG_VERSION"
           fi
