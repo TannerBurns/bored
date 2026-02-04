@@ -70,7 +70,8 @@ export function useUpdater() {
       }
       
       let friendlyMessage = errorMessage;
-      if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+      const lowerErrorMessage = errorMessage.toLowerCase();
+      if (lowerErrorMessage.includes('network') || lowerErrorMessage.includes('fetch')) {
         friendlyMessage = 'Unable to connect. Check your internet connection.';
       }
       
