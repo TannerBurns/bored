@@ -1,99 +1,156 @@
-# Bored
+<p align="center">
+  <img src="docs/images/logo.svg" alt="Bored Logo" width="128" height="128">
+</p>
 
-A local-first desktop application for managing coding tasks with AI agents. Create tickets on a Kanban board and let Cursor or Claude Code automatically work on them.
+<h1 align="center">Bored</h1>
 
-## What It Does
+<p align="center">
+  <strong>Let AI agents handle your coding tasks</strong>
+</p>
 
-Bored provides a visual Kanban board where you can:
+<p align="center">
+  <a href="#installation"><img alt="macOS" src="https://img.shields.io/badge/macOS-000000?style=flat&logo=apple&logoColor=white"></a>
+  <a href="#installation"><img alt="Windows" src="https://img.shields.io/badge/Windows-0078D6?style=flat&logo=windows&logoColor=white"></a>
+  <a href="#installation"><img alt="Linux" src="https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black"></a>
+  <a href="LICENSE.txt"><img alt="License" src="https://img.shields.io/badge/license-Proprietary-blue"></a>
+</p>
 
-- **Create and manage coding tickets** with descriptions, priorities, and labels
-- **Assign tickets to AI agents** (Cursor or Claude Code) that automatically work on your codebase
-- **Track agent progress** in real-time through lifecycle hooks and events
-- **Run workers** that continuously process tickets from the queue
-- **Organize work across multiple projects** with per-project settings
+<p align="center">
+  A local-first desktop app for managing coding tasks with AI agents.<br>
+  Plan features with AI, generate work plans, and let <strong>Cursor</strong> or <strong>Claude Code</strong> build them autonomously.
+</p>
 
-## Screenshots
+---
 
-*Coming soon*
+<p align="center">
+  <img src="docs/images/screenshot-board.png" alt="Bored Kanban Board" width="800">
+</p>
+
+---
+
+## Why Bored?
+
+| | Manual Coding | With Bored |
+|---|---|---|
+| **Planning** | Write specs manually | AI brainstorms and generates work plans |
+| **Task Breakdown** | Break down features yourself | AI creates epics and tickets automatically |
+| **Implementation** | Code everything yourself | Agents implement tickets autonomously |
+| **Progress Tracking** | Check terminal output | Real-time event timeline and dashboards |
+| **Multi-tasking** | One task at a time | Queue tickets, workers process them in parallel |
+
+---
+
+## Key Features
+
+### Spec Builder: Plan and Execute Large Features
+
+The Spec Builder is Bored's most powerful feature. Describe what you want to build, and AI will:
+
+1. **Brainstorm** — Chat with AI to refine your requirements
+2. **Explore** — AI analyzes your codebase to understand its structure
+3. **Plan** — Generate a detailed work plan with epics and tickets
+4. **Execute** — Create tickets automatically and work through them
+
+Perfect for features that would normally take days or weeks to implement manually.
+
+<p align="center">
+  <img src="docs/images/screenshot-specs.png" alt="Spec Builder" width="700">
+</p>
+
+### Visual Kanban Board
+
+Organize your work with drag-and-drop simplicity. Tickets flow through columns: **Backlog** → **Ready** → **In Progress** → **Review** → **Done**.
+
+<p align="center">
+  <img src="docs/images/screenshot-board.png" alt="Kanban Board" width="700">
+</p>
+
+### AI Agent Integration
+
+Click **"Build with"** on any ticket to spawn a Cursor or Claude Code agent. Agents receive the task description, work in your project directory, and report progress in real-time.
+
+<p align="center">
+  <img src="docs/images/screenshot-ticket-detail.png" alt="Agent Running" width="700">
+</p>
+
+### Real-Time Event Timeline
+
+Watch agents work with a live feed of their actions: file edits, shell commands, status changes, and more.
+
+<p align="center">
+  <img src="docs/images/screenshot-agent-running.png" alt="Ticket Detail" width="700">
+</p>
+
+### Automated Workers
+
+Set up workers to continuously process tickets from the queue. Workers automatically pick up tickets from the Ready column and run agents on them — perfect for batch processing or overnight runs.
+
+---
+
+## Quick Start
+
+1. **Download** the latest release for your platform
+2. **Create a Board** to organize your work
+3. **Add a Project** — point to a local repository
+4. **Start Building:**
+   - **Single tickets:** Create a ticket, click **"Build with"** → Cursor or Claude
+   - **Large features:** Create a Spec, brainstorm with AI, approve the plan, and watch it execute
+
+---
+
+## How the Spec Builder Works
+
+The Spec Builder transforms high-level feature descriptions into working code:
+
+```
+Your Idea → Brainstorm → Explore Codebase → Generate Plan → Create Epics & Tickets → Execute
+```
+
+### Example Workflow
+
+1. **Create a Spec**: "Add user authentication with OAuth support"
+2. **Brainstorm**: AI asks clarifying questions — which providers? Session vs JWT? Password reset flow?
+3. **Explore**: AI scans your codebase to understand existing patterns
+4. **Plan**: AI generates a structured plan with epics:
+   - Epic 1: Core authentication (login, logout, session management)
+   - Epic 2: OAuth integration (Google, GitHub)
+   - Epic 3: Password reset flow
+5. **Approve**: Review and approve the plan (or iterate)
+6. **Execute**: AI creates tickets and starts working through them
+
+Each epic becomes a set of tickets on your board, with dependencies tracked automatically.
+
+---
 
 ## Installation
 
-### Prerequisites
+### Download Release
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://rustup.rs/) 1.70+
-- [Cursor](https://cursor.sh/) and/or [Claude Code](https://claude.ai/code) installed
+Download the latest release for your platform from the [Releases](https://github.com/TannerBurns/bored/releases) page.
 
 ### Build from Source
 
+**Prerequisites:**
+- [Node.js](https://nodejs.org/) 18+
+- [pnpm](https://pnpm.io/) 8+
+- [Rust](https://rustup.rs/) 1.70+
+
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bored.git
+git clone https://github.com/TannerBurns/bored.git
 cd bored
 
 # Install dependencies
-npm install
+pnpm install
 
 # Run in development mode
-npm run tauri dev
+pnpm tauri dev
 
 # Build for production
-npm run tauri build
+pnpm tauri build
 ```
 
-## Getting Started
-
-1. **Create a Board** - Click "Create Your First Board" to set up a Kanban board
-2. **Add a Project** - Go to Settings > Projects and add a local repository path
-3. **Create a Ticket** - Click "New Ticket" and describe a coding task
-4. **Run an Agent** - Open a ticket and click "Run with Cursor" or "Run with Claude"
-5. **Watch it Work** - Monitor agent progress in the ticket timeline
-
-## Features
-
-### Kanban Board
-
-Drag-and-drop tickets between columns:
-- **Backlog** - Future work, not ready for agents
-- **Ready** - Queued for agent pickup
-- **In Progress** - Currently being worked by an agent
-- **Blocked** - Failed or needs attention
-- **Review** - Completed, awaiting approval
-- **Done** - Finished
-
-### Agent Integration
-
-Spawn AI coding agents directly from tickets:
-- **Cursor Agent** - Uses Cursor's agent mode to work on tasks
-- **Claude Code** - Uses Claude's CLI to work on tasks
-
-Agents receive the ticket description as their prompt and work in the associated project directory.
-
-### Workers
-
-Automated workers continuously process tickets:
-- Poll for tickets in the Ready column
-- Lock tickets during processing to prevent conflicts
-- Send heartbeats to maintain locks
-- Automatically transition tickets based on outcomes
-- Recover expired locks for orphaned tickets
-
-### Project Management
-
-Register local repositories as projects:
-- Configure safety settings (shell commands, file writes)
-- Install agent hooks per-project
-- Block specific file patterns
-
-### Real-time Events
-
-Track agent activity through the event timeline:
-- File edits and reads
-- Shell commands executed
-- Run status changes
-- Error messages
-
-Events are streamed via Server-Sent Events (SSE) from the local API.
+---
 
 ## Architecture
 
@@ -121,86 +178,73 @@ Events are streamed via Server-Sent Events (SSE) from the local API.
                         Local API
 ```
 
-## Technology Stack
+The app runs a local HTTP API that receives lifecycle events from agent hook scripts. This enables real-time tracking without requiring any external services.
+
+---
+
+## Tech Stack
 
 | Component | Technology |
 |-----------|------------|
-| Desktop Framework | Tauri 1.x |
+| Desktop Framework | Tauri 2.x |
 | Frontend | React 18 + TypeScript |
 | Build Tool | Vite |
 | Styling | Tailwind CSS 4 |
 | State Management | Zustand |
 | Drag & Drop | dnd-kit |
-| Backend Runtime | Rust |
+| Backend | Rust |
 | HTTP Server | Axum |
-| Database | SQLite (rusqlite) |
-| Async Runtime | Tokio |
+| Database | SQLite |
 
-## Project Structure
-
-```
-bored/
-├── src/                      # React frontend
-│   ├── components/
-│   │   ├── board/           # Kanban board components
-│   │   ├── common/          # Shared UI components
-│   │   ├── layout/          # App layout (sidebar, header)
-│   │   ├── runs/            # Agent run views
-│   │   ├── settings/        # Settings panels
-│   │   ├── timeline/        # Event timeline
-│   │   └── workers/         # Worker management
-│   ├── hooks/               # React hooks
-│   ├── stores/              # Zustand state stores
-│   ├── types/               # TypeScript types
-│   └── lib/                 # Utilities and API
-├── src-tauri/               # Rust backend
-│   ├── src/
-│   │   ├── agents/          # Agent orchestration
-│   │   ├── api/             # HTTP API server
-│   │   ├── commands/        # Tauri IPC commands
-│   │   ├── db/              # Database layer
-│   │   └── lifecycle/       # Ticket state machine
-│   └── scripts/             # Hook scripts for agents
-└── scripts/                 # Shared hook scripts
-```
+---
 
 ## Configuration
 
 ### Agent Hooks
 
-Agent hooks intercept lifecycle events and report them to the application:
+Bored uses hook scripts to receive events from AI agents:
 
 **Cursor Hooks:**
-- `beforeShellExecution` - Before running shell commands
-- `afterFileEdit` - After editing files
-- `stop` - When the agent stops
+- `beforeShellExecution` — Before running shell commands
+- `afterFileEdit` — After editing files
+- `stop` — When the agent stops
 
 **Claude Hooks:**
-- `PreToolUse` / `PostToolUse` - Before/after tool calls
-- `Stop` - When the agent stops
-- `UserPromptSubmit` - When prompts are submitted
+- `PreToolUse` / `PostToolUse` — Before/after tool calls
+- `Stop` — When the agent stops
+- `UserPromptSubmit` — When prompts are submitted
 
 ### Settings
 
 Access settings through the sidebar:
-- **General** - Theme (light/dark/system)
-- **Projects** - Manage registered repositories
-- **Cursor** - Cursor agent configuration
-- **Claude Code** - Claude agent configuration
-- **Data** - Database management
+- **General** — Theme (light/dark/system)
+- **Projects** — Manage registered repositories
+- **Cursor** — Cursor agent configuration
+- **Claude Code** — Claude agent configuration
+- **Data** — Database management
+
+---
 
 ## Development
 
 ```bash
 # Run tests
-npm run test
+pnpm test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm test:watch
+
+# Type checking
+pnpm typecheck
+
+# Lint
+pnpm lint
 
 # Run the app in development
-npm run tauri dev
+pnpm tauri dev
 ```
+
+---
 
 ## License
 
