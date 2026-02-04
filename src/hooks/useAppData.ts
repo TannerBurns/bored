@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useBoardStore } from '../stores/boardStore';
 import { useSpecStore } from '../stores/specStore';
 import { getProjects, getBoards, getTickets, getApiConfig, getRecentRunsWithContext, getColumns } from '../lib/tauri';
@@ -13,6 +13,7 @@ interface UseAppDataResult {
   apiConfig: { url: string; token: string } | null;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
   setRecentRuns: React.Dispatch<React.SetStateAction<AgentRunWithContext[]>>;
+  loadProjects: () => Promise<void>;
 }
 
 export function useAppData(
@@ -25,6 +26,15 @@ export function useAppData(
   const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
 
   const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const projectsData = await getProjects();
+      setProjects(projectsData);
+    } catch (error) {
+      logger.error('Failed to load projects:', error);
+    }
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -86,6 +96,7 @@ export function useAppData(
     apiConfig,
     setProjects,
     setRecentRuns,
+    loadProjects,
   };
 }
 
