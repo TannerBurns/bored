@@ -8,6 +8,7 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { BoardsView, SettingsView, AgentsView, SpecsView } from './components/views';
+import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
@@ -24,6 +25,7 @@ function App() {
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
+  const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
 
   const { theme } = useSettingsStore();
   const {
@@ -62,10 +64,20 @@ function App() {
     }
   }, [theme]);
 
-  const { projects, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns } = useAppData(
+  const { projects, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns, loadProjects } = useAppData(
     setColumns,
     setTickets
   );
+  
+  // Activate onboarding when data is loaded and no projects/boards exist
+  // Once activated, it stays open until explicitly completed/dismissed
+  useEffect(() => {
+    if (isDataLoaded && onboardingActive === null) {
+      setOnboardingActive(projects.length === 0 && boards.length === 0);
+    }
+  }, [isDataLoaded, projects.length, boards.length, onboardingActive]);
+  
+  const showOnboarding = onboardingActive === true;
 
   useSpecSync(apiConfig?.url || '', apiConfig?.token || '');
   useAgentsData(activeNav, setProjects, setRecentRuns);
@@ -241,6 +253,14 @@ function App() {
           onOpenChange={setIsCreateSpecModalOpen}
           boardId={currentBoard.id}
           projectId={currentBoard.defaultProjectId}
+        />
+      )}
+
+      {showOnboarding && (
+        <OnboardingWizard
+          projects={projects}
+          onComplete={() => setOnboardingActive(false)}
+          onProjectsChange={loadProjects}
         />
       )}
 
