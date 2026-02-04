@@ -110,13 +110,10 @@ pub fn on_epic_moved_to_ready(
                         merge_ticket.id,
                         merge_ticket.order_in_epic
                     );
-                    if let Err(e) = db.set_ticket_order_in_epic(&merge_ticket.id, 0) {
-                        tracing::error!(
-                            "Epic {}: failed to repair merge-dependencies ticket order: {}",
-                            epic.id,
-                            e
-                        );
-                    }
+                    // Propagate error - if repair fails, we must not continue because
+                    // get_next_pending_child would return the wrong ticket, skipping
+                    // the merge-dependencies step
+                    db.set_ticket_order_in_epic(&merge_ticket.id, 0)?;
                 }
             }
             None => {
