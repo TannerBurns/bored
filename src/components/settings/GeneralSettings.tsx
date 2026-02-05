@@ -38,9 +38,8 @@ const themeOptions = [
 ] as const;
 
 const plannerModelOptions = [
-  { value: 'default', label: 'Default', description: 'Use default model' },
-  { value: 'opus', label: 'Opus', description: 'Most capable, higher cost' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Balanced capability and speed' },
+  { value: 'opus', label: 'Opus 4.6', description: 'Default' },
+  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Faster, lower cost' },
 ] as const;
 
 function RefreshIcon({ className }: { className?: string }) {
@@ -219,7 +218,7 @@ export function GeneralSettings() {
           <label className="block text-sm font-medium text-board-text mb-1.5">
             Spec Agent Model
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {plannerModelOptions.map((option) => {
               const isSelected = plannerModel === option.value;
               return (

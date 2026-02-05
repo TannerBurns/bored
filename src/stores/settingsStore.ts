@@ -6,7 +6,7 @@ interface SettingsState {
   
   // Planner settings
   plannerAutoApprove: boolean;
-  plannerModel: 'default' | 'opus' | 'sonnet';
+  plannerModel: 'opus' | 'sonnet';
   plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
@@ -24,7 +24,7 @@ interface SettingsState {
   
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
-  setPlannerModel: (model: 'default' | 'opus' | 'sonnet') => void;
+  setPlannerModel: (model: 'opus' | 'sonnet') => void;
   setPlannerMaxExplorations: (max: number) => void;
   setPlannerTimeoutMinutes: (min: number) => void;
   setPlannerMaxRetries: (max: number) => void;
@@ -50,7 +50,7 @@ export const useSettingsStore = create<SettingsState>()(
       
       // Planner defaults
       plannerAutoApprove: false,
-      plannerModel: 'default',
+      plannerModel: 'opus',
       plannerMaxExplorations: 10,
       plannerTimeoutMinutes: 5,
       plannerMaxRetries: 2,

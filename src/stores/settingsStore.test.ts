@@ -36,7 +36,7 @@ describe('useSettingsStore', () => {
     beforeEach(() => {
       useSettingsStore.setState({
         plannerAutoApprove: false,
-        plannerModel: 'default',
+        plannerModel: 'opus',
         plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 5,
         plannerMaxRetries: 2,
@@ -49,7 +49,7 @@ describe('useSettingsStore', () => {
     it('has correct planner defaults', () => {
       const state = useSettingsStore.getState();
       expect(state.plannerAutoApprove).toBe(false);
-      expect(state.plannerModel).toBe('default');
+      expect(state.plannerModel).toBe('opus');
       expect(state.plannerMaxExplorations).toBe(10);
       expect(state.plannerTimeoutMinutes).toBe(5);
       expect(state.plannerMaxRetries).toBe(2);
