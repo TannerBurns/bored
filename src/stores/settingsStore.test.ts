@@ -36,7 +36,7 @@ describe('useSettingsStore', () => {
     beforeEach(() => {
       useSettingsStore.setState({
         plannerAutoApprove: false,
-        plannerModel: 'default',
+        plannerModel: 'opus',
         plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 5,
         plannerMaxRetries: 2,
@@ -49,7 +49,7 @@ describe('useSettingsStore', () => {
     it('has correct planner defaults', () => {
       const state = useSettingsStore.getState();
       expect(state.plannerAutoApprove).toBe(false);
-      expect(state.plannerModel).toBe('default');
+      expect(state.plannerModel).toBe('opus');
       expect(state.plannerMaxExplorations).toBe(10);
       expect(state.plannerTimeoutMinutes).toBe(5);
       expect(state.plannerMaxRetries).toBe(2);
@@ -106,6 +106,35 @@ describe('useSettingsStore', () => {
     it('sets stage max retries', () => {
       useSettingsStore.getState().setStageMaxRetries(3);
       expect(useSettingsStore.getState().stageMaxRetries).toBe(3);
+    });
+  });
+
+  describe('persist migration', () => {
+    it('migrates plannerModel from "default" to "opus"', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus');
+    });
+
+    it('preserves valid plannerModel values during migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+
+      const migratedOpus = options.migrate!(
+        { plannerModel: 'opus' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migratedOpus.plannerModel).toBe('opus');
+
+      const migratedSonnet = options.migrate!(
+        { plannerModel: 'sonnet' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migratedSonnet.plannerModel).toBe('sonnet');
     });
   });
 

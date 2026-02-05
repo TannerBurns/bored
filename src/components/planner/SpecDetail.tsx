@@ -122,8 +122,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     setIsStarting(true);
     setError(null);
     try {
-      const model = spec.model 
-        || (plannerModel === 'default' ? undefined : plannerModel);
+      const model = spec.model || plannerModel;
       
       logger.info('Starting planner', { 
         specId: spec.id, 

@@ -6,7 +6,7 @@ interface SettingsState {
   
   // Planner settings
   plannerAutoApprove: boolean;
-  plannerModel: 'default' | 'opus' | 'sonnet';
+  plannerModel: 'opus' | 'sonnet';
   plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
@@ -24,7 +24,7 @@ interface SettingsState {
   
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
-  setPlannerModel: (model: 'default' | 'opus' | 'sonnet') => void;
+  setPlannerModel: (model: 'opus' | 'sonnet') => void;
   setPlannerMaxExplorations: (max: number) => void;
   setPlannerTimeoutMinutes: (min: number) => void;
   setPlannerMaxRetries: (max: number) => void;
@@ -50,7 +50,7 @@ export const useSettingsStore = create<SettingsState>()(
       
       // Planner defaults
       plannerAutoApprove: false,
-      plannerModel: 'default',
+      plannerModel: 'opus',
       plannerMaxExplorations: 10,
       plannerTimeoutMinutes: 5,
       plannerMaxRetries: 2,
@@ -88,6 +88,17 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
+      version: 1,
+      migrate(persistedState, version) {
+        const state = persistedState as Record<string, unknown>;
+        if (version === 0) {
+          // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
+          if (state.plannerModel === 'default') {
+            state.plannerModel = 'opus';
+          }
+        }
+        return state as unknown as SettingsState;
+      },
     }
   )
 );

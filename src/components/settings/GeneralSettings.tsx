@@ -38,9 +38,8 @@ const themeOptions = [
 ] as const;
 
 const plannerModelOptions = [
-  { value: 'default', label: 'Default', description: 'Use default model' },
-  { value: 'opus', label: 'Opus', description: 'Most capable, higher cost' },
-  { value: 'sonnet', label: 'Sonnet', description: 'Balanced capability and speed' },
+  { value: 'opus', label: 'Opus 4.6', description: 'Most capable', isDefault: true },
+  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
 ] as const;
 
 function RefreshIcon({ className }: { className?: string }) {
@@ -219,7 +218,7 @@ export function GeneralSettings() {
           <label className="block text-sm font-medium text-board-text mb-1.5">
             Spec Agent Model
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {plannerModelOptions.map((option) => {
               const isSelected = plannerModel === option.value;
               return (
@@ -233,11 +232,18 @@ export function GeneralSettings() {
                       : 'glass hover:glass-intense'
                   )}
                 >
-                  <span className={cn(
-                    'text-sm font-medium',
-                    isSelected ? 'text-board-accent' : 'text-board-text'
-                  )}>
-                    {option.label}
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn(
+                      'text-sm font-medium',
+                      isSelected ? 'text-board-accent' : 'text-board-text'
+                    )}>
+                      {option.label}
+                    </span>
+                    {option.isDefault && (
+                      <span className="text-[10px] font-medium px-1.5 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">
+                        default
+                      </span>
+                    )}
                   </span>
                   <span className="text-xs text-board-text-muted">
                     {option.description}
