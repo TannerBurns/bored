@@ -2,6 +2,9 @@
 
 use super::super::AgentRunConfig;
 
+/// Default model used when none is explicitly specified
+const DEFAULT_MODEL: &str = "opus-4.6";
+
 /// Map normalized model name to Claude Code format
 /// e.g., "opus-4.5" -> "claude-opus-4-5"
 fn map_model_for_claude(model: &str) -> String {
@@ -9,7 +12,6 @@ fn map_model_for_claude(model: &str) -> String {
         "opus-4.6" => "claude-opus-4-6".to_string(),
         "opus-4.5" => "claude-opus-4-5".to_string(),
         "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-        "sonnet-4" => "claude-sonnet-4".to_string(),
         "haiku-4.5" => "claude-haiku-4-5".to_string(),
         other => other.to_string(),
     }
@@ -34,7 +36,11 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     if let Some(model) = model_to_use {
         args.push("--model".to_string());
         args.push(model);
-    } else if let Some(ref model) = config.model {
+    } else {
+        let model = config
+            .model
+            .as_deref()
+            .unwrap_or(DEFAULT_MODEL);
         args.push("--model".to_string());
         args.push(map_model_for_claude(model));
     }
@@ -158,7 +164,6 @@ mod tests {
             ("opus-4.6", "claude-opus-4-6"),
             ("opus-4.5", "claude-opus-4-5"),
             ("sonnet-4.5", "claude-sonnet-4-5"),
-            ("sonnet-4", "claude-sonnet-4"),
             ("haiku-4.5", "claude-haiku-4-5"),
             ("unknown-model", "unknown-model"),
         ];
@@ -177,10 +182,14 @@ mod tests {
     }
 
     #[test]
-    fn build_command_no_model_when_none() {
+    fn build_command_defaults_to_opus_4_6_when_none() {
         let config = create_test_config();
         let (_, args) = build_command(&config);
-        assert!(!args.contains(&"--model".to_string()));
+        assert!(args.contains(&"--model".to_string()));
+        assert!(
+            args.contains(&"claude-opus-4-6".to_string()),
+            "Should default to claude-opus-4-6 when no model specified"
+        );
     }
 
     #[test]

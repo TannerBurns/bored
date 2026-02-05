@@ -118,12 +118,8 @@ async fn generate_ai_branch_name(
         tracing::warn!("Failed to create branch-gen sub-run: {}", e);
     }
 
-    // Use agent-appropriate model for branch generation
-    // Cursor doesn't recognize Claude model names, so only set model for Claude agent
-    let model = match agent_kind {
-        AgentKind::Claude => Some("claude-opus-4-6".to_string()),
-        AgentKind::Cursor => None, // Let Cursor use its default model
-    };
+    // Default to Opus 4.6 for branch generation unless overridden
+    let model: Option<String> = None; // build_command defaults to opus-4.6
 
     let config = AgentRunConfig {
         kind: agent_kind,

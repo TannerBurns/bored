@@ -16,7 +16,7 @@ const createMockTicket = (overrides: Partial<Ticket> = {}): Ticket => ({
   createdAt: new Date('2024-01-01'),
   updatedAt: new Date('2024-01-01'),
   projectId: 'proj-1',
-  model: 'sonnet-4',
+  model: 'sonnet-4.5',
   branchName: 'feat/test',
   ...overrides,
 });
@@ -41,7 +41,7 @@ describe('useTicketEdit', () => {
       expect(result.current.editPriority).toBe('medium');
       expect(result.current.editLabels).toBe('bug, frontend');
       expect(result.current.editProjectId).toBe('proj-1');
-      expect(result.current.editModel).toBe('sonnet-4');
+      expect(result.current.editModel).toBe('sonnet-4.5');
       expect(result.current.editBranchName).toBe('feat/test');
       expect(result.current.editColumnId).toBe('col-1');
       expect(result.current.isSaving).toBe(false);
@@ -153,7 +153,7 @@ describe('useTicketEdit', () => {
         labels: ['bug', 'frontend'],
         projectId: 'proj-1',
         workflowType: 'multi_stage',
-        model: 'sonnet-4',
+        model: 'sonnet-4.5',
         branchName: 'feat/test',
         columnId: 'col-1',
       });
