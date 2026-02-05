@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { ClaudeIcon, CursorIcon } from '../common';
+import { useCliAvailability } from '../../hooks/useCliAvailability';
 
 interface BuildWithDropdownProps {
   onSelect: (agent: 'cursor' | 'claude') => void;
@@ -14,6 +15,7 @@ export function BuildWithDropdown({
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
+  const { cursorAvailable, claudeAvailable } = useCliAvailability();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -118,18 +120,32 @@ export function BuildWithDropdown({
           openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
         }`}>
           <button
-            onClick={() => handleSelect('cursor')}
-            className="w-full text-left px-3 py-2.5 text-sm text-board-text hover:bg-board-card-hover transition-colors flex items-center gap-3"
+            onClick={() => cursorAvailable && handleSelect('cursor')}
+            disabled={!cursorAvailable}
+            title={!cursorAvailable ? 'Cursor CLI not available' : undefined}
+            className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-3 ${
+              cursorAvailable
+                ? 'text-board-text hover:bg-board-card-hover cursor-pointer'
+                : 'text-board-text-muted cursor-not-allowed opacity-50'
+            }`}
           >
-            <CursorIcon className="text-board-text-secondary" />
+            <CursorIcon className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
             <span>Cursor</span>
+            {!cursorAvailable && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
           </button>
           <button
-            onClick={() => handleSelect('claude')}
-            className="w-full text-left px-3 py-2.5 text-sm text-board-text hover:bg-board-card-hover transition-colors flex items-center gap-3"
+            onClick={() => claudeAvailable && handleSelect('claude')}
+            disabled={!claudeAvailable}
+            title={!claudeAvailable ? 'Claude CLI not available' : undefined}
+            className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-3 ${
+              claudeAvailable
+                ? 'text-board-text hover:bg-board-card-hover cursor-pointer'
+                : 'text-board-text-muted cursor-not-allowed opacity-50'
+            }`}
           >
-            <ClaudeIcon className="text-[#da7756]" />
+            <ClaudeIcon className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
             <span>Claude</span>
+            {!claudeAvailable && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
           </button>
         </div>
       )}

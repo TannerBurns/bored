@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { ProjectsList, CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from '../settings';
+import { CursorSettings, ClaudeSettings, GeneralSettings, DataSettings } from '../settings';
 
-type SettingsTab = 'general' | 'projects' | 'cursor' | 'claude' | 'data';
+type SettingsTab = 'general' | 'cursor' | 'claude' | 'data';
 
 const SETTINGS_TABS = [
   { id: 'general', label: 'General' },
-  { id: 'projects', label: 'Projects' },
   { id: 'cursor', label: 'Cursor' },
   { id: 'claude', label: 'Claude Code' },
   { id: 'data', label: 'Data' },
@@ -34,7 +33,6 @@ export function SettingsView() {
       
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
         {settingsTab === 'general' && <GeneralSettings />}
-        {settingsTab === 'projects' && <ProjectsList />}
         {settingsTab === 'cursor' && <CursorSettings />}
         {settingsTab === 'claude' && <ClaudeSettings />}
         {settingsTab === 'data' && <DataSettings />}

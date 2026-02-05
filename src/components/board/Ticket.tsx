@@ -6,10 +6,11 @@ import type { Ticket as TicketType } from '../../types';
 
 interface TicketProps {
   ticket: TicketType;
+  projectName?: string;
   onClick?: () => void;
 }
 
-export function Ticket({ ticket, onClick }: TicketProps) {
+export function Ticket({ ticket, projectName, onClick }: TicketProps) {
   const {
     attributes,
     listeners,
@@ -108,9 +109,27 @@ export function Ticket({ ticket, onClick }: TicketProps) {
         </div>
       )}
       
-      <div className="flex items-center justify-end text-xs text-board-text-muted">
-        <div className="flex items-center gap-2">
-          {!ticket.projectId && (
+      <div className="flex items-center justify-between text-xs text-board-text-muted">
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          {projectName ? (
+            <span className="flex items-center gap-1 text-board-text-muted truncate" title={projectName}>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="flex-shrink-0"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="truncate">{projectName}</span>
+            </span>
+          ) : (
             <span className="text-status-warning flex items-center gap-1">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -130,6 +149,8 @@ export function Ticket({ ticket, onClick }: TicketProps) {
               <span>No project</span>
             </span>
           )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
           {ticket.lockedByRunId && (
             <span className="text-status-warning font-medium flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />

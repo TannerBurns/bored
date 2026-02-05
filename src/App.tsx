@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { TicketModal } from './components/board/TicketModal';
@@ -7,7 +7,7 @@ import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { BoardsView, SettingsView, AgentsView, SpecsView } from './components/views';
+import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -68,6 +68,14 @@ function App() {
     setColumns,
     setTickets
   );
+
+  // Create a map of project IDs to project names for efficient lookup
+  const projectMap = useMemo(() => {
+    return projects.reduce((acc, project) => {
+      acc[project.id] = project.name;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [projects]);
   
   // Activate onboarding when data is loaded and no projects/boards exist
   // Once activated, it stays open until explicitly completed/dismissed
@@ -171,6 +179,7 @@ function App() {
             hasBoards={boards.length > 0}
             columns={columns}
             tickets={tickets}
+            projectMap={projectMap}
             onTicketMove={handleTicketMove}
             onTicketClick={handleTicketClick}
             onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
@@ -185,8 +194,10 @@ function App() {
         )}
 
         {activeNav === 'agents' && (
-          <AgentsView tickets={tickets} recentRuns={recentRuns} />
+          <AgentsView recentRuns={recentRuns} />
         )}
+
+        {activeNav === 'projects' && <ProjectsView />}
 
         {activeNav === 'settings' && <SettingsView />}
       </main>
