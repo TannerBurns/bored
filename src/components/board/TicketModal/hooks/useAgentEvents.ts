@@ -399,13 +399,16 @@ export function useAgentEvents({
         .filter(r => r.parentRunId === runId && r.stage)
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
       
+      // Must match the order in orchestrator/mod.rs should_skip_stage()
       const stageOrder = [
         'branch-gen', 'branch', 
         'plan', 'plan-validation',
         'implement', 
         'code-review', 'code-review-fix',
         'deslop', 'cleanup', 'unit-tests', 
-        'review-changes', 'add-and-commit'
+        'cleanup-post-tests', 'review-changes',
+        'cleanup-post-review', 'review-changes-final',
+        'add-and-commit'
       ];
       
       const latestSubRun = subRuns[0];
