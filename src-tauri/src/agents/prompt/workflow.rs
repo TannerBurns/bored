@@ -39,7 +39,7 @@ pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
 
     if let Some(content) = cmd_content {
         format!(
-            r#"Execute the following command: /{command}
+            r#"Execute the following command: /{base_command}
 
 ## Command Instructions
 
@@ -242,5 +242,34 @@ mod tests {
         // They should all contain review-specific content
         assert!(review_prompt.contains("Review") || review_prompt.contains("review"));
         assert!(final_prompt.contains("Review") || final_prompt.contains("review"));
+    }
+
+    #[test]
+    fn contextual_stages_show_base_command_in_prompt_header() {
+        // Verify that the prompt header shows the base command, not the contextual stage name
+        let post_tests_prompt =
+            generate_command_prompt("cleanup-post-tests", Path::new("/nonexistent"));
+        let post_review_prompt =
+            generate_command_prompt("cleanup-post-review", Path::new("/nonexistent"));
+        let review_final_prompt =
+            generate_command_prompt("review-changes-final", Path::new("/nonexistent"));
+
+        // Should show "/cleanup" not "/cleanup-post-tests"
+        assert!(
+            post_tests_prompt.contains("/cleanup") && !post_tests_prompt.contains("/cleanup-post"),
+            "cleanup-post-tests should show /cleanup in header, not /cleanup-post-tests"
+        );
+        assert!(
+            post_review_prompt.contains("/cleanup")
+                && !post_review_prompt.contains("/cleanup-post"),
+            "cleanup-post-review should show /cleanup in header, not /cleanup-post-review"
+        );
+
+        // Should show "/review-changes" not "/review-changes-final"
+        assert!(
+            review_final_prompt.contains("/review-changes")
+                && !review_final_prompt.contains("/review-changes-final"),
+            "review-changes-final should show /review-changes in header, not /review-changes-final"
+        );
     }
 }
