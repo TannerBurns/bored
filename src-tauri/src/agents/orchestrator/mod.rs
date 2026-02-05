@@ -170,17 +170,20 @@ impl WorkflowOrchestrator {
                 // Must match the order in TicketModal.tsx handlePauseTicket()
                 let stage_order = [
                     "branch-gen",
-                    "branch", // Branch creation
+                    "branch",
                     "plan",
-                    "plan-validation", // Planning (validation is a sub-step)
-                    "implement",       // Implementation
+                    "plan-validation",
+                    "implement",
                     "code-review",
-                    "code-review-fix", // Code review loop
+                    "code-review-fix",
                     "deslop",
                     "cleanup",
-                    "unit-tests", // QA stages
+                    "unit-tests",
+                    "cleanup-post-tests",
                     "review-changes",
-                    "add-and-commit", // Final stages
+                    "cleanup-post-review",
+                    "review-changes-final",
+                    "add-and-commit",
                 ];
 
                 // Find the index of the resume stage

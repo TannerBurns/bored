@@ -55,7 +55,10 @@ pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "deslop",
     "cleanup",
     "unit-tests",
+    "cleanup-post-tests",
     "review-changes",
+    "cleanup-post-review",
+    "review-changes-final",
     "add-and-commit",
 ];
 
