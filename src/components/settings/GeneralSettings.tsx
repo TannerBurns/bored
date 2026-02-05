@@ -226,22 +226,24 @@ export function GeneralSettings() {
                   key={option.value}
                   onClick={() => setPlannerModel(option.value)}
                   className={cn(
-                    'relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-200',
+                    'flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-200',
                     isSelected
                       ? 'glass-intense ring-1 ring-board-accent'
                       : 'glass hover:glass-intense'
                   )}
                 >
-                  {option.isDefault && (
-                    <span className="absolute -top-1.5 -right-1.5 text-[10px] font-medium px-1.5 py-0 rounded-full bg-board-accent text-white leading-relaxed">
-                      default
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn(
+                      'text-sm font-medium',
+                      isSelected ? 'text-board-accent' : 'text-board-text'
+                    )}>
+                      {option.label}
                     </span>
-                  )}
-                  <span className={cn(
-                    'text-sm font-medium',
-                    isSelected ? 'text-board-accent' : 'text-board-text'
-                  )}>
-                    {option.label}
+                    {option.isDefault && (
+                      <span className="text-[10px] font-medium px-1.5 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">
+                        default
+                      </span>
+                    )}
                   </span>
                   <span className="text-xs text-board-text-muted">
                     {option.description}
