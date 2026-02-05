@@ -38,8 +38,8 @@ const themeOptions = [
 ] as const;
 
 const plannerModelOptions = [
-  { value: 'opus', label: 'Opus 4.6', description: 'Default' },
-  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Faster, lower cost' },
+  { value: 'opus', label: 'Opus 4.6 (default)', description: 'Most capable' },
+  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable' },
 ] as const;
 
 function RefreshIcon({ className }: { className?: string }) {
