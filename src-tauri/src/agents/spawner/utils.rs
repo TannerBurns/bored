@@ -120,7 +120,7 @@ mod tests {
                 auth_token: Some("my-auth-token".to_string()),
                 api_key: Some("my-api-key".to_string()),
                 base_url: Some("https://custom.api.com".to_string()),
-                model_override: Some("claude-opus-4-5".to_string()),
+                model_override: Some("claude-opus-4-6".to_string()),
             }),
         };
         let env_vars = build_env_vars(&config);

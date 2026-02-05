@@ -58,7 +58,7 @@ export function ApiConfigSection({ apiSettings }: ApiConfigSectionProps) {
           </label>
           <input
             type="text"
-            placeholder="e.g., claude-opus-4-5"
+            placeholder="e.g., claude-opus-4-6"
             value={apiSettings.modelOverride}
             onChange={(e) => apiSettings.setModelOverride(e.target.value)}
             className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"

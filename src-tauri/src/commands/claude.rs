@@ -277,7 +277,7 @@ mod tests {
             auth_token: Some("token123".to_string()),
             api_key: Some("key456".to_string()),
             base_url: Some("https://api.example.com".to_string()),
-            model_override: Some("claude-opus-4-5".to_string()),
+            model_override: Some("claude-opus-4-6".to_string()),
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("authToken"));
