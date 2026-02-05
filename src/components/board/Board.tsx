@@ -17,11 +17,12 @@ import type { Column as ColumnType, Ticket as TicketType } from '../../types';
 interface BoardProps {
   columns: ColumnType[];
   tickets: TicketType[];
+  projectMap?: Record<string, string>;
   onTicketMove: (ticketId: string, newColumnId: string) => void;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardProps) {
+export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClick }: BoardProps) {
   const [activeTicket, setActiveTicket] = useState<TicketType | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -96,6 +97,7 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
                 key={column.id}
                 column={column}
                 tickets={getTicketsForColumn(column.id)}
+                projectMap={projectMap}
                 onTicketClick={onTicketClick}
               />
             ))}
@@ -104,7 +106,11 @@ export function Board({ columns, tickets, onTicketMove, onTicketClick }: BoardPr
         <DragOverlay dropAnimation={null}>
           {activeTicket && (
             <div className="rotate-2 scale-105 transition-transform duration-150">
-              <TicketPreview ticket={activeTicket} isDragging />
+              <TicketPreview
+                ticket={activeTicket}
+                projectName={activeTicket.projectId ? projectMap?.[activeTicket.projectId] : undefined}
+                isDragging
+              />
             </div>
           )}
         </DragOverlay>

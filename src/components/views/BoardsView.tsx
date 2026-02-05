@@ -6,6 +6,7 @@ interface BoardsViewProps {
   hasBoards: boolean;
   columns: Column[];
   tickets: Ticket[];
+  projectMap?: Record<string, string>;
   onTicketMove: (ticketId: string, newColumnId: string) => void;
   onTicketClick: (ticket: Ticket) => void;
   onCreateBoardClick: () => void;
@@ -16,6 +17,7 @@ export function BoardsView({
   hasBoards,
   columns,
   tickets,
+  projectMap,
   onTicketMove,
   onTicketClick,
   onCreateBoardClick,
@@ -77,6 +79,7 @@ export function BoardsView({
       <Board
         columns={columns}
         tickets={tickets}
+        projectMap={projectMap}
         onTicketMove={onTicketMove}
         onTicketClick={onTicketClick}
       />

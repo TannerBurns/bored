@@ -4,6 +4,7 @@ import type { Ticket as TicketType } from '../../types';
 
 interface TicketPreviewProps {
   ticket: TicketType;
+  projectName?: string;
   isDragging?: boolean;
 }
 
@@ -12,7 +13,7 @@ interface TicketPreviewProps {
  * Unlike Ticket, this component does not use useSortable since DragOverlay
  * renders outside of SortableContext.
  */
-export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
+export function TicketPreview({ ticket, projectName, isDragging }: TicketPreviewProps) {
   return (
     <div
       className={cn(
@@ -83,14 +84,56 @@ export function TicketPreview({ ticket, isDragging }: TicketPreviewProps) {
         </div>
       )}
       
-      {ticket.lockedByRunId && (
-        <div className="flex items-center justify-end text-xs text-board-text-muted">
-          <span className="text-status-warning font-medium flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
-            Running
-          </span>
+      <div className="flex items-center justify-between text-xs text-board-text-muted">
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          {projectName ? (
+            <span className="flex items-center gap-1 text-board-text-muted truncate">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="flex-shrink-0"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="truncate">{projectName}</span>
+            </span>
+          ) : (
+            <span className="text-status-warning flex items-center gap-1">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span>No project</span>
+            </span>
+          )}
         </div>
-      )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {ticket.lockedByRunId && (
+            <span className="text-status-warning font-medium flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
+              Running
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

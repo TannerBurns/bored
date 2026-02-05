@@ -110,9 +110,13 @@ export function ProjectsList() {
         name: newName.trim(),
         path: fullPath,
       });
-      await autoSetupProject(project.id, fullPath);
+      const setupWarning = await autoSetupProject(project.id, fullPath);
       resetForm();
       await loadProjects();
+      // Set warning after resetForm() so it's not cleared
+      if (setupWarning) {
+        setError(setupWarning);
+      }
     } catch (e) {
       setError(`Failed to create project: ${e}`);
     } finally {
@@ -131,15 +135,21 @@ export function ProjectsList() {
     setSetupStatus(null);
   };
 
-  const autoSetupProject = async (projectId: string, projectPath: string): Promise<void> => {
+  const autoSetupProject = async (projectId: string, projectPath: string): Promise<string | null> => {
     const warnings: string[] = [];
     const cursorHookPath = await getHookScriptPath();
     const claudeHookPath = await getClaudeHookScriptPath();
+
+    let cursorHooksInstalled = false;
+    let claudeHooksInstalled = false;
 
     setSetupStatus('Installing Cursor hooks...');
     try {
       if (cursorHookPath) {
         await installCursorHooksProject(cursorHookPath, projectPath);
+        cursorHooksInstalled = true;
+      } else {
+        warnings.push('Cursor hooks: hook script path not available');
       }
     } catch (e) {
       warnings.push(`Cursor hooks: ${e}`);
@@ -156,6 +166,9 @@ export function ProjectsList() {
     try {
       if (claudeHookPath) {
         await installClaudeHooksProject(claudeHookPath, projectPath);
+        claudeHooksInstalled = true;
+      } else {
+        warnings.push('Claude hooks: hook script path not available');
       }
     } catch (e) {
       warnings.push(`Claude hooks: ${e}`);
@@ -170,15 +183,16 @@ export function ProjectsList() {
 
     setSetupStatus('Finalizing...');
     try {
-      await updateProjectHooks(projectId, true, true);
+      await updateProjectHooks(projectId, cursorHooksInstalled, claudeHooksInstalled);
     } catch (e) {
       warnings.push(`Update status: ${e}`);
     }
 
     setSetupStatus(null);
     if (warnings.length > 0) {
-      setError(`Project created with some setup warnings: ${warnings.join('; ')}`);
+      return `Project created with some setup warnings: ${warnings.join('; ')}`;
     }
+    return null;
   };
 
   const handleAdd = async () => {
@@ -192,9 +206,13 @@ export function ProjectsList() {
         name: newName.trim(),
         path: newPath.trim(),
       });
-      await autoSetupProject(project.id, newPath.trim());
+      const setupWarning = await autoSetupProject(project.id, newPath.trim());
       resetForm();
       await loadProjects();
+      // Set warning after resetForm() so it's not cleared
+      if (setupWarning) {
+        setError(setupWarning);
+      }
     } catch (e) {
       setError(`Failed to add project: ${e}`);
     } finally {

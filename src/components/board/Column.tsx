@@ -7,10 +7,11 @@ import type { Column as ColumnType, Ticket as TicketType } from '../../types';
 interface ColumnProps {
   column: ColumnType;
   tickets: TicketType[];
+  projectMap?: Record<string, string>;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Column({ column, tickets, onTicketClick }: ColumnProps) {
+export function Column({ column, tickets, projectMap, onTicketClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
   });
@@ -56,6 +57,7 @@ export function Column({ column, tickets, onTicketClick }: ColumnProps) {
             <Ticket
               key={ticket.id}
               ticket={ticket}
+              projectName={ticket.projectId ? projectMap?.[ticket.projectId] : undefined}
               onClick={() => onTicketClick?.(ticket)}
             />
           ))}

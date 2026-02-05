@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { WorkerPanel } from '../workers';
 import { getTimeAgo, formatDuration } from '../../lib/utils';
-import type { Ticket, AgentRunWithContext, RunStatus } from '../../types';
+import type { AgentRunWithContext, RunStatus } from '../../types';
 import { ClaudeIcon, CursorIcon } from '../common/AgentIcons';
 
 interface AgentsViewProps {
-  tickets: Ticket[];
   recentRuns: AgentRunWithContext[];
 }
 
@@ -35,16 +34,16 @@ const AGENTS_TABS = [
   },
 ];
 
-export function AgentsView({ tickets, recentRuns }: AgentsViewProps) {
+export function AgentsView({ recentRuns }: AgentsViewProps) {
   const [agentsTab, setAgentsTab] = useState<AgentsTab>('workers');
   
-  const activeTicketCount = tickets.filter((t) => t.lockedByRunId).length;
+  const activeRunCount = recentRuns.filter((r) => r.status === 'running' || r.status === 'queued').length;
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       <div className="flex gap-1 mb-3">
         {AGENTS_TABS.map((tab) => {
-          const badge = tab.id === 'runs' && activeTicketCount > 0 ? activeTicketCount : undefined;
+          const badge = tab.id === 'runs' && activeRunCount > 0 ? activeRunCount : undefined;
           return (
             <button
               key={tab.id}
@@ -78,43 +77,27 @@ export function AgentsView({ tickets, recentRuns }: AgentsViewProps) {
       )}
 
       {agentsTab === 'runs' && (
-        <RunsContent tickets={tickets} recentRuns={recentRuns} />
+        <RunsContent recentRuns={recentRuns} />
       )}
     </div>
   );
 }
 
-function RunsContent({ tickets, recentRuns }: { tickets: Ticket[]; recentRuns: AgentRunWithContext[] }) {
-  const activeTickets = tickets.filter((t) => t.lockedByRunId);
+function RunsContent({ recentRuns }: { recentRuns: AgentRunWithContext[] }) {
+  // Split runs into active (running/queued) and completed
+  const activeRuns = recentRuns.filter((r) => r.status === 'running' || r.status === 'queued');
+  const completedRuns = recentRuns.filter((r) => r.status !== 'running' && r.status !== 'queued');
 
   return (
     <div className="flex-1 overflow-auto glass rounded-lg p-4">
-      {activeTickets.length > 0 && (
+      {activeRuns.length > 0 && (
         <div className="mb-4">
           <h4 className="text-xs font-medium text-board-text-secondary uppercase tracking-wide mb-2 flex items-center gap-1.5">
             <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
             Active Runs
           </h4>
           <div className="space-y-1.5">
-            {activeTickets.map((ticket) => (
-              <div
-                key={ticket.id}
-                className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-board-text truncate">{ticket.title}</span>
-                    <span className="text-xs text-board-text-muted font-mono shrink-0">
-                      #{ticket.id.slice(0, 8)}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-status-warning text-xs flex items-center gap-1">
-                  <span className="inline-block w-1.5 h-1.5 bg-status-warning rounded-full animate-pulse" />
-                  In Progress
-                </span>
-              </div>
-            ))}
+            {activeRuns.map((run) => <RunItem key={run.id} run={run} />)}
           </div>
         </div>
       )}
@@ -124,7 +107,7 @@ function RunsContent({ tickets, recentRuns }: { tickets: Ticket[]; recentRuns: A
           Recent Runs
         </h4>
         <div className="space-y-1.5">
-          {recentRuns.length === 0 ? (
+          {completedRuns.length === 0 ? (
             <div className="glass-subtle rounded-lg p-6 text-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-board-text-muted mb-2">
                 <polygon points="5 3 19 12 5 21 5 3" />
@@ -133,7 +116,7 @@ function RunsContent({ tickets, recentRuns }: { tickets: Ticket[]; recentRuns: A
               <p className="text-board-text-muted text-xs mt-0.5">Start a run from a ticket to see activity</p>
             </div>
           ) : (
-            recentRuns.map((run) => <RunItem key={run.id} run={run} />)
+            completedRuns.map((run) => <RunItem key={run.id} run={run} />)
           )}
         </div>
       </div>
