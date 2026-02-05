@@ -29,7 +29,18 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         config.repo_path.to_string_lossy().to_string(),
     ];
 
-    if let Some(ref model) = config.model {
+    // Prioritize model_override from Claude API settings, then fall back to config.model
+    let model_to_use = config
+        .claude_api_config
+        .as_ref()
+        .and_then(|c| c.model_override.as_ref())
+        .filter(|s| !s.is_empty())
+        .cloned();
+
+    if let Some(model) = model_to_use {
+        args.push("--model".to_string());
+        args.push(model);
+    } else if let Some(ref model) = config.model {
         args.push("--model".to_string());
         args.push(map_model_for_cursor(model));
     }
@@ -218,5 +229,59 @@ mod tests {
         let config = create_test_config();
         let (_, args) = build_command(&config);
         assert!(!args.contains(&"--model".to_string()));
+    }
+
+    #[test]
+    fn build_command_uses_model_override_when_present() {
+        let mut config = create_test_config();
+        config.model = Some("sonnet-4".to_string());
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            model_override: Some("custom-model-override".to_string()),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--model".to_string()));
+        // model_override should take priority over config.model
+        assert!(
+            args.contains(&"custom-model-override".to_string()),
+            "model_override should be used instead of config.model"
+        );
+        assert!(
+            !args.contains(&"claude-sonnet-4".to_string()),
+            "config.model should not be used when model_override is set"
+        );
+    }
+
+    #[test]
+    fn build_command_ignores_empty_model_override() {
+        let mut config = create_test_config();
+        config.model = Some("sonnet-4".to_string());
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            model_override: Some("".to_string()),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--model".to_string()));
+        // Empty model_override should fall back to config.model
+        assert!(
+            args.contains(&"claude-sonnet-4".to_string()),
+            "Should fall back to config.model when model_override is empty"
+        );
+    }
+
+    #[test]
+    fn build_command_falls_back_to_config_model_without_override() {
+        let mut config = create_test_config();
+        config.model = Some("opus-4.5".to_string());
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            model_override: None,
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--model".to_string()));
+        assert!(
+            args.contains(&"claude-opus-4-5".to_string()),
+            "Should fall back to config.model when model_override is None"
+        );
     }
 }
