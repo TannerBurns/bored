@@ -64,10 +64,79 @@ fn stage_event_serializes() {
 
 #[test]
 fn multi_stage_workflow_has_expected_stages() {
+    // Basic stages
     assert!(MULTI_STAGE_WORKFLOW.contains(&"branch"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"plan"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"implement"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"add-and-commit"));
+
+    // QA stages
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"deslop"));
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"cleanup"));
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"unit-tests"));
+
+    // Contextual repeated stages for cleanup/review cycles
+    assert!(
+        MULTI_STAGE_WORKFLOW.contains(&"cleanup-post-tests"),
+        "Missing cleanup-post-tests stage"
+    );
+    assert!(
+        MULTI_STAGE_WORKFLOW.contains(&"review-changes"),
+        "Missing review-changes stage"
+    );
+    assert!(
+        MULTI_STAGE_WORKFLOW.contains(&"cleanup-post-review"),
+        "Missing cleanup-post-review stage"
+    );
+    assert!(
+        MULTI_STAGE_WORKFLOW.contains(&"review-changes-final"),
+        "Missing review-changes-final stage"
+    );
+}
+
+#[test]
+fn multi_stage_workflow_correct_order() {
+    let expected_qa_order = [
+        "deslop",
+        "cleanup",
+        "unit-tests",
+        "cleanup-post-tests",
+        "review-changes",
+        "cleanup-post-review",
+        "review-changes-final",
+        "add-and-commit",
+    ];
+
+    let positions: Vec<_> = expected_qa_order
+        .iter()
+        .map(|stage| {
+            MULTI_STAGE_WORKFLOW
+                .iter()
+                .position(|s| s == stage)
+                .unwrap_or_else(|| panic!("Stage '{}' not found in workflow", stage))
+        })
+        .collect();
+
+    for i in 1..positions.len() {
+        assert!(
+            positions[i] > positions[i - 1],
+            "Stage '{}' should come after '{}' but doesn't",
+            expected_qa_order[i],
+            expected_qa_order[i - 1]
+        );
+    }
+}
+
+#[test]
+fn multi_stage_workflow_all_stages_unique() {
+    let mut seen = std::collections::HashSet::new();
+    for stage in MULTI_STAGE_WORKFLOW {
+        assert!(
+            seen.insert(stage),
+            "Duplicate stage found: {}",
+            stage
+        );
+    }
 }
 
 #[test]

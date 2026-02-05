@@ -2,20 +2,35 @@
 
 use std::path::Path;
 
+/// Extract the base command name from a contextual stage name.
+/// e.g., "cleanup-post-tests" -> "cleanup", "review-changes-final" -> "review-changes"
+fn get_base_command(stage: &str) -> &str {
+    if stage.starts_with("cleanup") {
+        "cleanup"
+    } else if stage.starts_with("review-changes") {
+        "review-changes"
+    } else {
+        stage
+    }
+}
+
 /// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
 pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
+    // Map contextual stage names to base command names for file lookup
+    let base_command = get_base_command(command);
+
     // Try to read the command file content from various locations
     let locations = [
         repo_path
             .join(".cursor/rules")
-            .join(format!("{}.md", command)),
+            .join(format!("{}.md", base_command)),
         repo_path
             .join(".claude/commands")
-            .join(format!("{}.md", command)),
+            .join(format!("{}.md", base_command)),
         // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
-            .join(format!("{}.md", command)),
+            .join(format!("{}.md", base_command)),
     ];
 
     let cmd_content = locations
@@ -24,7 +39,7 @@ pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
 
     if let Some(content) = cmd_content {
         format!(
-            r#"Execute the following command: /{command}
+            r#"Execute the following command: /{base_command}
 
 ## Command Instructions
 
@@ -35,7 +50,7 @@ Execute these instructions carefully. When complete, report what was done.
         )
     } else {
         // Fallback prompts if command file not found
-        get_fallback_command_prompt(command)
+        get_fallback_command_prompt(base_command)
     }
 }
 
@@ -172,5 +187,125 @@ mod tests {
             // Should contain content from the file, not fallback
             assert!(prompt.contains("Execute the following command"));
         }
+    }
+
+    #[test]
+    fn format_macro_with_raw_string_interpolates_variables() {
+        // This test verifies that format!() with raw string literals correctly
+        // interpolates variables. Raw strings in Rust only affect escape sequence
+        // handling, NOT macro variable interpolation.
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let cleanup_file = manifest_dir.join("scripts/commands/cleanup.md");
+
+        if cleanup_file.exists() {
+            let prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
+
+            // The format! macro should interpolate {base_command} to "cleanup"
+            // If raw strings blocked interpolation, we'd see literal "{base_command}"
+            assert!(
+                !prompt.contains("{base_command}"),
+                "Variable was not interpolated - prompt contains literal '{{base_command}}'"
+            );
+            assert!(
+                !prompt.contains("{content}"),
+                "Variable was not interpolated - prompt contains literal '{{content}}'"
+            );
+
+            // Verify the actual interpolation worked
+            assert!(
+                prompt.contains("/cleanup"),
+                "base_command should be interpolated to '/cleanup'"
+            );
+
+            // The file content should be present (not the literal "{content}")
+            assert!(
+                prompt.contains("senior engineer"),
+                "File content should be interpolated into prompt"
+            );
+        }
+    }
+
+    #[test]
+    fn get_base_command_returns_cleanup_for_cleanup_variants() {
+        assert_eq!(get_base_command("cleanup"), "cleanup");
+        assert_eq!(get_base_command("cleanup-post-tests"), "cleanup");
+        assert_eq!(get_base_command("cleanup-post-review"), "cleanup");
+    }
+
+    #[test]
+    fn get_base_command_returns_review_changes_for_variants() {
+        assert_eq!(get_base_command("review-changes"), "review-changes");
+        assert_eq!(get_base_command("review-changes-final"), "review-changes");
+    }
+
+    #[test]
+    fn get_base_command_returns_unchanged_for_other_commands() {
+        assert_eq!(get_base_command("deslop"), "deslop");
+        assert_eq!(get_base_command("unit-tests"), "unit-tests");
+        assert_eq!(get_base_command("add-and-commit"), "add-and-commit");
+        assert_eq!(get_base_command("implement"), "implement");
+        assert_eq!(get_base_command("plan"), "plan");
+    }
+
+    #[test]
+    fn contextual_cleanup_stages_use_cleanup_prompt() {
+        // All cleanup variants should get the cleanup prompt (bundled or fallback)
+        let cleanup_prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
+        let post_tests_prompt = generate_command_prompt("cleanup-post-tests", Path::new("/nonexistent"));
+        let post_review_prompt = generate_command_prompt("cleanup-post-review", Path::new("/nonexistent"));
+
+        // They should all contain cleanup-specific content (bundled file uses "lint", fallback uses "linting")
+        assert!(
+            cleanup_prompt.contains("lint") || cleanup_prompt.contains("cleanup"),
+            "cleanup prompt missing expected content"
+        );
+        assert!(
+            post_tests_prompt.contains("lint") || post_tests_prompt.contains("cleanup"),
+            "cleanup-post-tests prompt missing expected content"
+        );
+        assert!(
+            post_review_prompt.contains("lint") || post_review_prompt.contains("cleanup"),
+            "cleanup-post-review prompt missing expected content"
+        );
+    }
+
+    #[test]
+    fn contextual_review_stages_use_review_changes_prompt() {
+        // All review-changes variants should get the review-changes fallback prompt
+        let review_prompt = generate_command_prompt("review-changes", Path::new("/nonexistent"));
+        let final_prompt = generate_command_prompt("review-changes-final", Path::new("/nonexistent"));
+
+        // They should all contain review-specific content
+        assert!(review_prompt.contains("Review") || review_prompt.contains("review"));
+        assert!(final_prompt.contains("Review") || final_prompt.contains("review"));
+    }
+
+    #[test]
+    fn contextual_stages_show_base_command_in_prompt_header() {
+        // Verify that the prompt header shows the base command, not the contextual stage name
+        let post_tests_prompt =
+            generate_command_prompt("cleanup-post-tests", Path::new("/nonexistent"));
+        let post_review_prompt =
+            generate_command_prompt("cleanup-post-review", Path::new("/nonexistent"));
+        let review_final_prompt =
+            generate_command_prompt("review-changes-final", Path::new("/nonexistent"));
+
+        // Should show "/cleanup" not "/cleanup-post-tests"
+        assert!(
+            post_tests_prompt.contains("/cleanup") && !post_tests_prompt.contains("/cleanup-post"),
+            "cleanup-post-tests should show /cleanup in header, not /cleanup-post-tests"
+        );
+        assert!(
+            post_review_prompt.contains("/cleanup")
+                && !post_review_prompt.contains("/cleanup-post"),
+            "cleanup-post-review should show /cleanup in header, not /cleanup-post-review"
+        );
+
+        // Should show "/review-changes" not "/review-changes-final"
+        assert!(
+            review_final_prompt.contains("/review-changes")
+                && !review_final_prompt.contains("/review-changes-final"),
+            "review-changes-final should show /review-changes in header, not /review-changes-final"
+        );
     }
 }

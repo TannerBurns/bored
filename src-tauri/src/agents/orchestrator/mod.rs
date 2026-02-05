@@ -167,20 +167,23 @@ impl WorkflowOrchestrator {
             Some(resume_stage) => {
                 // Define the stage order. Stages before the resume point are skipped.
                 // This includes both the main workflow stages and the code-review stages.
-                // Must match the order in TicketModal.tsx handlePauseTicket()
+                // Must match the order in useAgentEvents.ts handlePauseTicket()
                 let stage_order = [
                     "branch-gen",
-                    "branch", // Branch creation
+                    "branch",
                     "plan",
-                    "plan-validation", // Planning (validation is a sub-step)
-                    "implement",       // Implementation
+                    "plan-validation",
+                    "implement",
                     "code-review",
-                    "code-review-fix", // Code review loop
+                    "code-review-fix",
                     "deslop",
                     "cleanup",
-                    "unit-tests", // QA stages
+                    "unit-tests",
+                    "cleanup-post-tests",
                     "review-changes",
-                    "add-and-commit", // Final stages
+                    "cleanup-post-review",
+                    "review-changes-final",
+                    "add-and-commit",
                 ];
 
                 // Find the index of the resume stage
