@@ -121,7 +121,7 @@ async fn generate_ai_branch_name(
     // Use agent-appropriate model for branch generation
     // Cursor doesn't recognize Claude model names, so only set model for Claude agent
     let model = match agent_kind {
-        AgentKind::Claude => Some("claude-opus-4-5".to_string()),
+        AgentKind::Claude => Some("claude-opus-4-6".to_string()),
         AgentKind::Cursor => None, // Let Cursor use its default model
     };
 

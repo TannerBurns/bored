@@ -2,6 +2,19 @@
 
 use super::super::AgentRunConfig;
 
+/// Map normalized model name to Claude format for Cursor
+/// e.g., "opus-4.5" -> "claude-opus-4-5"
+fn map_model_for_cursor(model: &str) -> String {
+    match model {
+        "opus-4.6" => "claude-opus-4-6".to_string(),
+        "opus-4.5" => "claude-opus-4-5".to_string(),
+        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+        "sonnet-4" => "claude-sonnet-4".to_string(),
+        "haiku-4.5" => "claude-haiku-4-5".to_string(),
+        other => other.to_string(),
+    }
+}
+
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
     let mut args = vec![
@@ -18,7 +31,7 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
 
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
-        args.push(model.clone());
+        args.push(map_model_for_cursor(model));
     }
 
     args.push(config.prompt.clone());
@@ -172,8 +185,32 @@ mod tests {
         config.model = Some("sonnet-4.5".to_string());
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--model".to_string()));
-        // Cursor uses the normalized format directly
-        assert!(args.contains(&"sonnet-4.5".to_string()));
+        // Cursor maps normalized format to Claude format
+        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
+    }
+
+    #[test]
+    fn build_command_maps_model_names_correctly() {
+        let test_cases = [
+            ("opus-4.6", "claude-opus-4-6"),
+            ("opus-4.5", "claude-opus-4-5"),
+            ("sonnet-4.5", "claude-sonnet-4-5"),
+            ("sonnet-4", "claude-sonnet-4"),
+            ("haiku-4.5", "claude-haiku-4-5"),
+            ("unknown-model", "unknown-model"),
+        ];
+
+        for (input, expected) in test_cases {
+            let mut config = create_test_config();
+            config.model = Some(input.to_string());
+            let (_, args) = build_command(&config);
+            assert!(
+                args.contains(&expected.to_string()),
+                "Expected {} to be mapped to {}",
+                input,
+                expected
+            );
+        }
     }
 
     #[test]

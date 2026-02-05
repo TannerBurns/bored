@@ -292,12 +292,12 @@ mod tests {
             auth_token: Some("auth123".to_string()),
             api_key: Some("key456".to_string()),
             base_url: Some("https://custom.api.com".to_string()),
-            model_override: Some("claude-opus-4-5".to_string()),
+            model_override: Some("claude-opus-4-6".to_string()),
         };
         assert_eq!(config.auth_token.as_deref(), Some("auth123"));
         assert_eq!(config.api_key.as_deref(), Some("key456"));
         assert_eq!(config.base_url.as_deref(), Some("https://custom.api.com"));
-        assert_eq!(config.model_override.as_deref(), Some("claude-opus-4-5"));
+        assert_eq!(config.model_override.as_deref(), Some("claude-opus-4-6"));
     }
 
     #[test]

@@ -143,8 +143,8 @@ describe('useSettingsStore', () => {
     });
 
     it('sets model override', () => {
-      useSettingsStore.getState().setClaudeModelOverride('claude-opus-4-5');
-      expect(useSettingsStore.getState().claudeModelOverride).toBe('claude-opus-4-5');
+      useSettingsStore.getState().setClaudeModelOverride('claude-opus-4-6');
+      expect(useSettingsStore.getState().claudeModelOverride).toBe('claude-opus-4-6');
     });
 
     it('sets all API settings at once', () => {
