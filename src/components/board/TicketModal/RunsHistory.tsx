@@ -1,6 +1,7 @@
 import { cn } from '../../../lib/utils';
 import type { AgentRun } from '../../../types';
 import type { RunEvent } from './types';
+import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
 
 /** Normalize eventType which can be string or {custom: "value"} */
 function getEventTypeString(eventType: unknown): string {
@@ -98,7 +99,12 @@ function CurrentRunSection({
         >
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full flex-shrink-0 bg-status-warning animate-pulse" />
-            <span className="text-board-text-secondary">
+            <span className="text-board-text-secondary flex items-center gap-1">
+              {currentRun.agentType === 'cursor' ? (
+                <CursorIcon size={14} className="text-board-text-secondary" />
+              ) : (
+                <ClaudeIcon size={14} className="text-[#da7756]" />
+              )}
               {currentRun.agentType === 'cursor' ? 'Cursor' : 'Claude'}
               {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
             </span>
@@ -191,7 +197,12 @@ function PreviousRunsSection({
                       'bg-board-text-muted'
                     )}
                   />
-                  <span className="text-board-text-secondary">
+                  <span className="text-board-text-secondary flex items-center gap-1">
+                    {run.agentType === 'cursor' ? (
+                      <CursorIcon size={14} className="text-board-text-secondary" />
+                    ) : (
+                      <ClaudeIcon size={14} className="text-[#da7756]" />
+                    )}
                     {run.agentType === 'cursor' ? 'Cursor' : 'Claude'}
                     {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
                     {run.resumedFromRunId && <span className="text-blue-400 ml-1">(Resumed)</span>}

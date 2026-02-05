@@ -7,7 +7,7 @@ import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { BoardsView, SettingsView, AgentsView, SpecsView } from './components/views';
+import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
@@ -187,6 +187,8 @@ function App() {
         {activeNav === 'agents' && (
           <AgentsView tickets={tickets} recentRuns={recentRuns} />
         )}
+
+        {activeNav === 'projects' && <ProjectsView />}
 
         {activeNav === 'settings' && <SettingsView />}
       </main>

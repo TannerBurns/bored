@@ -2,11 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildWithDropdown } from './BuildWithDropdown';
 
+// Mock the useCliAvailability hook
+const mockUseCliAvailability = vi.fn();
+vi.mock('../../hooks/useCliAvailability', () => ({
+  useCliAvailability: () => mockUseCliAvailability(),
+}));
+
 describe('BuildWithDropdown', () => {
   const mockOnSelect = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: both CLIs available
+    mockUseCliAvailability.mockReturnValue({
+      cursorAvailable: true,
+      claudeAvailable: true,
+      loading: false,
+    });
   });
 
   it('renders Build with button', () => {
@@ -114,5 +126,120 @@ describe('BuildWithDropdown', () => {
     
     fireEvent.click(button);
     expect(screen.queryByText('Cursor')).not.toBeInTheDocument();
+  });
+
+  describe('CLI availability', () => {
+    it('does not call onSelect when Cursor CLI is unavailable', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: false,
+        claudeAvailable: true,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      const cursorButton = screen.getByText('Cursor').closest('button');
+      expect(cursorButton).toBeDisabled();
+
+      fireEvent.click(cursorButton!);
+      expect(mockOnSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not call onSelect when Claude CLI is unavailable', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: true,
+        claudeAvailable: false,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      const claudeButton = screen.getByText('Claude').closest('button');
+      expect(claudeButton).toBeDisabled();
+
+      fireEvent.click(claudeButton!);
+      expect(mockOnSelect).not.toHaveBeenCalled();
+    });
+
+    it('shows "(not installed)" text when Cursor CLI is unavailable', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: false,
+        claudeAvailable: true,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      expect(screen.getByText('(not installed)')).toBeInTheDocument();
+    });
+
+    it('shows "(not installed)" text when Claude CLI is unavailable', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: true,
+        claudeAvailable: false,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      expect(screen.getByText('(not installed)')).toBeInTheDocument();
+    });
+
+    it('shows both as unavailable when both CLIs are not installed', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: false,
+        claudeAvailable: false,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      const notInstalledLabels = screen.getAllByText('(not installed)');
+      expect(notInstalledLabels).toHaveLength(2);
+
+      const cursorButton = screen.getByText('Cursor').closest('button');
+      const claudeButton = screen.getByText('Claude').closest('button');
+      expect(cursorButton).toBeDisabled();
+      expect(claudeButton).toBeDisabled();
+    });
+
+    it('allows Cursor selection when available but Claude is not', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: true,
+        claudeAvailable: false,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      const cursorButton = screen.getByText('Cursor').closest('button');
+      expect(cursorButton).not.toBeDisabled();
+
+      fireEvent.click(screen.getByText('Cursor'));
+      expect(mockOnSelect).toHaveBeenCalledWith('cursor');
+    });
+
+    it('allows Claude selection when available but Cursor is not', () => {
+      mockUseCliAvailability.mockReturnValue({
+        cursorAvailable: false,
+        claudeAvailable: true,
+        loading: false,
+      });
+
+      render(<BuildWithDropdown onSelect={mockOnSelect} />);
+      fireEvent.click(screen.getByText('Build with'));
+
+      const claudeButton = screen.getByText('Claude').closest('button');
+      expect(claudeButton).not.toBeDisabled();
+
+      fireEvent.click(screen.getByText('Claude'));
+      expect(mockOnSelect).toHaveBeenCalledWith('claude');
+    });
   });
 });

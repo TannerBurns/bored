@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { WorkerPanel } from '../workers';
 import { getTimeAgo, formatDuration } from '../../lib/utils';
 import type { Ticket, AgentRunWithContext, RunStatus } from '../../types';
+import { ClaudeIcon, CursorIcon } from '../common/AgentIcons';
 
 interface AgentsViewProps {
   tickets: Ticket[];
@@ -180,7 +181,14 @@ function RunItem({ run }: { run: AgentRunWithContext }) {
               <span>·</span>
             </>
           )}
-          <span>{run.agentType === 'cursor' ? 'Cursor' : 'Claude'}</span>
+          <span className="flex items-center gap-1">
+            {run.agentType === 'cursor' ? (
+              <CursorIcon size={12} className="text-board-text-muted" />
+            ) : (
+              <ClaudeIcon size={12} className="text-[#da7756]" />
+            )}
+            {run.agentType === 'cursor' ? 'Cursor' : 'Claude'}
+          </span>
           <span>·</span>
           <span>{timeAgo}</span>
           {duration && (

@@ -7,6 +7,12 @@ import {
   checkGitStatus,
   initGitRepo,
   createProjectFolder,
+  getHookScriptPath,
+  getClaudeHookScriptPath,
+  installCursorHooksProject,
+  installClaudeHooksProject,
+  installCommandsToProject,
+  updateProjectHooks,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
 
@@ -23,6 +29,7 @@ export function ProjectsList() {
   const [gitStatus, setGitStatus] = useState<'unknown' | 'checking' | 'initialized' | 'not_initialized'>('unknown');
   const [initializingGit, setInitializingGit] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<string | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -95,19 +102,22 @@ export function ProjectsList() {
     if (!parentPath.trim() || !newName.trim()) return;
 
     setCreatingProject(true);
+    setError(null);
     try {
       const fullPath = await createProjectFolder(parentPath.trim(), newName.trim());
       await initGitRepo(fullPath);
-      await createProject({
+      const project = await createProject({
         name: newName.trim(),
         path: fullPath,
       });
+      await autoSetupProject(project.id, fullPath);
       resetForm();
       await loadProjects();
     } catch (e) {
       setError(`Failed to create project: ${e}`);
     } finally {
       setCreatingProject(false);
+      setSetupStatus(null);
     }
   };
 
@@ -118,21 +128,78 @@ export function ProjectsList() {
     setAddMode('none');
     setGitStatus('unknown');
     setError(null);
+    setSetupStatus(null);
+  };
+
+  const autoSetupProject = async (projectId: string, projectPath: string): Promise<void> => {
+    const warnings: string[] = [];
+    const cursorHookPath = await getHookScriptPath();
+    const claudeHookPath = await getClaudeHookScriptPath();
+
+    setSetupStatus('Installing Cursor hooks...');
+    try {
+      if (cursorHookPath) {
+        await installCursorHooksProject(cursorHookPath, projectPath);
+      }
+    } catch (e) {
+      warnings.push(`Cursor hooks: ${e}`);
+    }
+
+    setSetupStatus('Installing Cursor commands...');
+    try {
+      await installCommandsToProject('cursor', projectPath);
+    } catch (e) {
+      warnings.push(`Cursor commands: ${e}`);
+    }
+
+    setSetupStatus('Installing Claude hooks...');
+    try {
+      if (claudeHookPath) {
+        await installClaudeHooksProject(claudeHookPath, projectPath);
+      }
+    } catch (e) {
+      warnings.push(`Claude hooks: ${e}`);
+    }
+
+    setSetupStatus('Installing Claude commands...');
+    try {
+      await installCommandsToProject('claude', projectPath);
+    } catch (e) {
+      warnings.push(`Claude commands: ${e}`);
+    }
+
+    setSetupStatus('Finalizing...');
+    try {
+      await updateProjectHooks(projectId, true, true);
+    } catch (e) {
+      warnings.push(`Update status: ${e}`);
+    }
+
+    setSetupStatus(null);
+    if (warnings.length > 0) {
+      setError(`Project created with some setup warnings: ${warnings.join('; ')}`);
+    }
   };
 
   const handleAdd = async () => {
     if (!newName.trim() || !newPath.trim()) return;
     if (gitStatus !== 'initialized') return;
 
+    setCreatingProject(true);
+    setError(null);
     try {
-      await createProject({
+      const project = await createProject({
         name: newName.trim(),
         path: newPath.trim(),
       });
+      await autoSetupProject(project.id, newPath.trim());
       resetForm();
       await loadProjects();
     } catch (e) {
       setError(`Failed to add project: ${e}`);
+    } finally {
+      setCreatingProject(false);
+      setSetupStatus(null);
     }
   };
 
@@ -259,19 +326,27 @@ export function ProjectsList() {
             </div>
           )}
 
+          {setupStatus && (
+            <div className="text-xs text-board-text-muted flex items-center gap-1.5">
+              <span className="animate-spin">⟳</span>
+              {setupStatus}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
-              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors"
+              disabled={creatingProject}
+              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               onClick={handleAdd}
-              disabled={!newName.trim() || !newPath.trim() || gitStatus !== 'initialized'}
+              disabled={!newName.trim() || !newPath.trim() || gitStatus !== 'initialized' || creatingProject}
               className="px-2 py-1 text-xs bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Add Project
+              {creatingProject ? 'Setting up...' : 'Add Project'}
             </button>
           </div>
         </div>
@@ -314,10 +389,19 @@ export function ProjectsList() {
               </p>
             )}
           </div>
+
+          {setupStatus && (
+            <div className="text-xs text-board-text-muted flex items-center gap-1.5">
+              <span className="animate-spin">⟳</span>
+              {setupStatus}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
-              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors"
+              disabled={creatingProject}
+              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -326,7 +410,7 @@ export function ProjectsList() {
               disabled={!parentPath.trim() || !newName.trim() || creatingProject}
               className="px-2 py-1 text-xs bg-status-success text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {creatingProject ? 'Creating...' : 'Create & Initialize'}
+              {creatingProject ? 'Setting up...' : 'Create & Initialize'}
             </button>
           </div>
         </div>

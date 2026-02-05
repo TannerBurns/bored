@@ -6,9 +6,11 @@ import { ClaudeIcon, CursorIcon } from '../common';
 import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useCliAvailability } from '../../hooks/useCliAvailability';
 
 export function WorkerPanel() {
   const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
+  const { cursorAvailable, claudeAvailable } = useCliAvailability();
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
     readyCount: 0,
@@ -181,10 +183,11 @@ export function WorkerPanel() {
         
         <div className="space-y-3">
           {/* Cursor worker count */}
-          <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
+          <div className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!cursorAvailable ? 'opacity-50' : ''}`}>
             <span className="text-sm font-medium text-board-text flex items-center gap-2">
-              <CursorIcon size={16} className="text-board-text-secondary" />
+              <CursorIcon size={16} className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
               Cursor Workers
+              {!cursorAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
             </span>
             <input
               type="number"
@@ -192,15 +195,17 @@ export function WorkerPanel() {
               max={10}
               value={cursorCount}
               onChange={(e) => setCursorCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
-              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+              disabled={!cursorAvailable}
+              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
           
           {/* Claude worker count */}
-          <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
+          <div className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!claudeAvailable ? 'opacity-50' : ''}`}>
             <span className="text-sm font-medium text-board-text flex items-center gap-2">
-              <ClaudeIcon size={16} className="text-[#da7756]" />
+              <ClaudeIcon size={16} className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
               Claude Workers
+              {!claudeAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
             </span>
             <input
               type="number"
@@ -208,7 +213,8 @@ export function WorkerPanel() {
               max={10}
               value={claudeCount}
               onChange={(e) => setClaudeCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
-              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+              disabled={!claudeAvailable}
+              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
           
