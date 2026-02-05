@@ -88,6 +88,17 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
+      version: 1,
+      migrate(persistedState, version) {
+        const state = persistedState as Record<string, unknown>;
+        if (version === 0) {
+          // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
+          if (state.plannerModel === 'default') {
+            state.plannerModel = 'opus';
+          }
+        }
+        return state as unknown as SettingsState;
+      },
     }
   )
 );

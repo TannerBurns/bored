@@ -109,6 +109,35 @@ describe('useSettingsStore', () => {
     });
   });
 
+  describe('persist migration', () => {
+    it('migrates plannerModel from "default" to "opus"', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus');
+    });
+
+    it('preserves valid plannerModel values during migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+
+      const migratedOpus = options.migrate!(
+        { plannerModel: 'opus' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migratedOpus.plannerModel).toBe('opus');
+
+      const migratedSonnet = options.migrate!(
+        { plannerModel: 'sonnet' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migratedSonnet.plannerModel).toBe('sonnet');
+    });
+  });
+
   describe('claude API settings', () => {
     beforeEach(() => {
       useSettingsStore.setState({
