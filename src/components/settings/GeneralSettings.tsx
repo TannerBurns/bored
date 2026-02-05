@@ -38,8 +38,8 @@ const themeOptions = [
 ] as const;
 
 const plannerModelOptions = [
-  { value: 'opus', label: 'Opus 4.6 (default)', description: 'Most capable' },
-  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable' },
+  { value: 'opus', label: 'Opus 4.6', description: 'Most capable', isDefault: true },
+  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
 ] as const;
 
 function RefreshIcon({ className }: { className?: string }) {
@@ -226,12 +226,17 @@ export function GeneralSettings() {
                   key={option.value}
                   onClick={() => setPlannerModel(option.value)}
                   className={cn(
-                    'flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-200',
+                    'relative flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-200',
                     isSelected
                       ? 'glass-intense ring-1 ring-board-accent'
                       : 'glass hover:glass-intense'
                   )}
                 >
+                  {option.isDefault && (
+                    <span className="absolute -top-1.5 -right-1.5 text-[10px] font-medium px-1.5 py-0 rounded-full bg-board-accent text-white leading-relaxed">
+                      default
+                    </span>
+                  )}
                   <span className={cn(
                     'text-sm font-medium',
                     isSelected ? 'text-board-accent' : 'text-board-text'
