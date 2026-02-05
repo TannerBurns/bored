@@ -422,7 +422,6 @@ Use Markdown for formatting:
             className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
           >
             <option value="">Default (Opus 4.6)</option>
-            <option value="opus-4.6">Opus 4.6</option>
             <option value="opus-4.5">Opus 4.5</option>
             <option value="sonnet-4.5">Sonnet 4.5</option>
             <option value="haiku-4.5">Haiku 4.5</option>
