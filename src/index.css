@@ -287,30 +287,22 @@ body {
    SCROLLBAR STYLING
    ============================================ */
 
-/* Custom scrollbar for glass surfaces */
-.glass::-webkit-scrollbar,
-.glass-subtle::-webkit-scrollbar,
-.glass-intense::-webkit-scrollbar {
+/* Global scrollbar styling for Tauri webview (WebKit/Chromium) */
+*::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.glass::-webkit-scrollbar-track,
-.glass-subtle::-webkit-scrollbar-track,
-.glass-intense::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.glass::-webkit-scrollbar-thumb,
-.glass-subtle::-webkit-scrollbar-thumb,
-.glass-intense::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: var(--app-glass-border);
   border-radius: 3px;
 }
 
-.glass::-webkit-scrollbar-thumb:hover,
-.glass-subtle::-webkit-scrollbar-thumb:hover,
-.glass-intense::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background: var(--app-board-text-muted);
 }
 
