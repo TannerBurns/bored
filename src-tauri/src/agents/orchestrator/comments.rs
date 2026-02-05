@@ -92,9 +92,15 @@ impl WorkflowOrchestrator {
 
     /// Add a comment with the extracted plan for visibility and debugging
     pub(super) fn add_plan_comment(&self, plan: &str) {
+        // The agent's text output often includes exploration/thinking text before the
+        // actual plan, and the plan itself starts with "## Implementation Plan".
+        // Since we wrap the content with that same header below, strip the agent's
+        // header (and any preceding exploration text) to avoid duplication.
+        let plan_body = strip_plan_header(plan);
+
         let comment_text = format!(
             "## Implementation Plan\n\n{}\n\n---\n*This plan was extracted from the planning stage and will guide the implementation.*",
-            plan.trim()
+            plan_body.trim()
         );
         let create_comment = CreateComment {
             ticket_id: self.ticket.id.clone(),
@@ -154,5 +160,84 @@ impl WorkflowOrchestrator {
                 }),
             );
         }
+    }
+}
+
+/// Strip the "## Implementation Plan" header (and any preceding exploration text)
+/// from the agent's plan output.
+///
+/// The agent is prompted to format its plan starting with "## Implementation Plan",
+/// but its raw text output may also include thinking/exploration text before the
+/// plan header. Since `add_plan_comment` wraps the body in its own
+/// "## Implementation Plan" header, we need to extract just the plan content to
+/// avoid duplication.
+///
+/// Uses the *last* occurrence of the header to handle cases where the agent's
+/// exploration text itself contains earlier "## Implementation Plan" mentions.
+fn strip_plan_header(plan: &str) -> &str {
+    const HEADER: &str = "## Implementation Plan";
+
+    // Find the last occurrence — the agent may mention the header in exploration
+    // text before outputting the actual plan.
+    if let Some(pos) = plan.rfind(HEADER) {
+        let after_header = &plan[pos + HEADER.len()..];
+        // Skip optional newlines between the header and the body
+        after_header.trim_start_matches('\n')
+    } else {
+        plan
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_plan_header;
+
+    #[test]
+    fn strips_header_from_clean_plan() {
+        let plan = "## Implementation Plan\n\n### Files to Modify\n- file.rs\n\n### Steps\n1. Do something";
+        let result = strip_plan_header(plan);
+        assert_eq!(result, "### Files to Modify\n- file.rs\n\n### Steps\n1. Do something");
+    }
+
+    #[test]
+    fn strips_exploration_text_and_header() {
+        let plan = "Let me explore the codebase first.\n\nI found the relevant files.\n\n## Implementation Plan\n\n### Steps\n1. Fix the bug";
+        let result = strip_plan_header(plan);
+        assert_eq!(result, "### Steps\n1. Fix the bug");
+    }
+
+    #[test]
+    fn uses_last_occurrence_when_duplicated() {
+        // The agent's exploration text mentions the header, and then the actual plan follows
+        let plan = "Now I have everything. Here's the complete implementation plan:\n\n---\n\n\
+                     ## Implementation Plan\n\n### Analysis\n\nFirst draft...\n\n\
+                     Now I have everything. Here's the complete implementation plan:\n\n---\n\n\
+                     ## Implementation Plan\n\n### Analysis\n\nFinal plan content.";
+        let result = strip_plan_header(plan);
+        assert_eq!(result, "### Analysis\n\nFinal plan content.");
+    }
+
+    #[test]
+    fn returns_plan_unchanged_when_no_header() {
+        let plan = "### Steps\n1. Do something\n2. Do something else";
+        let result = strip_plan_header(plan);
+        assert_eq!(result, plan);
+    }
+
+    #[test]
+    fn handles_empty_input() {
+        assert_eq!(strip_plan_header(""), "");
+    }
+
+    #[test]
+    fn handles_header_only() {
+        let result = strip_plan_header("## Implementation Plan");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn handles_header_with_trailing_newlines() {
+        let result = strip_plan_header("## Implementation Plan\n\n\n");
+        assert_eq!(result, "");
     }
 }
