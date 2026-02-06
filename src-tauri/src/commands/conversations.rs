@@ -294,6 +294,18 @@ pub async fn start_conversation(
 
     let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
 
+    // Build plan trigger config for when spec completes on first message
+    let plan_trigger = PlanTriggerConfig {
+        spec_id: spec_id.clone(),
+        exploration_context: String::new(),
+        repo_path: std::path::PathBuf::from(&project.path),
+        api_url: api_url.inner().clone(),
+        api_token: api_token.inner().clone(),
+        claude_api_config: claude_api_config.clone(),
+        agent_kind: AgentKind::Claude,
+        model: spec.model.clone(),
+    };
+
     let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
         spec_id: spec_id.clone(),
         user_input: spec.user_input.clone(),
@@ -313,7 +325,70 @@ pub async fn start_conversation(
     );
 
     match brainstorm_agent.start_conversation().await {
-        Ok(_) => {}
+        Ok(response) => {
+            if response.is_complete {
+                // Agent completed on first message with structured spec
+                let trigger = response.structured_spec.as_ref().map(|s| {
+                    let mut cfg = plan_trigger.clone();
+                    cfg.exploration_context = s.technical_notes.clone().unwrap_or_default();
+                    cfg
+                });
+                let _ = handle_spec_completion(
+                    &db, &event_tx, &spec_id, &version.id, &spec.user_input,
+                    response.structured_spec.as_ref(),
+                    trigger,
+                );
+            } else if !response.has_questions {
+                // Agent has only observations, no questions — auto-complete
+                tracing::info!("Initial agent response has no questions, requesting spec completion for {}", spec_id);
+
+                let _ = event_tx.send(LiveEvent::BrainstormGeneratingSpec {
+                    spec_id: spec_id.clone(),
+                    version_number: version.version_number,
+                });
+
+                let updated_messages = db
+                    .get_conversation_messages(&spec_id)
+                    .map_err(|e| e.to_string())?;
+
+                let completion_prompt = "Based on your observations and the conversation so far, you have enough information. \
+                    Please produce the final specification JSON block now:\n\
+                    ```json\n{\n  \"spec_complete\": true,\n  \"structured_spec\": {\n    \
+                    \"requirements\": \"...\",\n    \"decisions\": [...],\n    \
+                    \"constraints\": [...],\n    \"technical_notes\": \"...\"\n  }\n}\n```".to_string();
+
+                let completion_messages: Vec<_> = updated_messages.into_iter()
+                    .chain(std::iter::once(crate::db::ConversationMessage {
+                        id: "completion-request".to_string(),
+                        spec_id: spec_id.clone(),
+                        role: ConversationRole::User,
+                        content: completion_prompt,
+                        created_at: chrono::Utc::now(),
+                    }))
+                    .collect();
+
+                match brainstorm_agent.process_message(&completion_messages).await {
+                    Ok(completion_response) => {
+                        if completion_response.is_complete {
+                            let trigger = completion_response.structured_spec.as_ref().map(|s| {
+                                let mut cfg = plan_trigger.clone();
+                                cfg.exploration_context = s.technical_notes.clone().unwrap_or_default();
+                                cfg
+                            });
+                            let _ = handle_spec_completion(
+                                &db, &event_tx, &spec_id, &version.id, &spec.user_input,
+                                completion_response.structured_spec.as_ref(),
+                                trigger,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to get spec completion: {}", e);
+                    }
+                }
+            }
+            // else: has_questions = true — conversation continues normally
+        }
         Err(e) => {
             tracing::error!("Failed to start conversation: {}", e);
             let error_content = format!("Error starting conversation: {}", e);

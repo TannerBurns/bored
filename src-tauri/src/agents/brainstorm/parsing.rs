@@ -107,7 +107,7 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
     // Primary: markdown string (new format)
     if let Some(s) = value.as_str() {
         let trimmed = s.trim();
-        if !trimmed.is_empty() && trimmed.len() > 5 {
+        if !trimmed.is_empty() {
             return trimmed.to_string();
         }
     }
@@ -279,6 +279,24 @@ mod tests {
         assert!(spec.requirements.contains("OAuth"));
         assert_eq!(spec.decisions.len(), 2);
         assert!(response.message.contains("Observations"));
+    }
+
+    #[test]
+    fn parse_structured_json_short_question_string() {
+        // Regression: short question strings (<=5 chars) must not be silently dropped
+        let response_text = r#"```json
+{
+  "spec_complete": false,
+  "observations": "Checked the repo.",
+  "questions": "Why?"
+}
+```"#;
+
+        let response = parse_response(response_text).unwrap();
+        assert!(!response.is_complete);
+        assert!(response.has_questions, "short question string should set has_questions=true");
+        assert!(response.message.contains("## Questions"));
+        assert!(response.message.contains("Why?"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::api::state::LiveEvent;
 use crate::db::{ConversationMessage, ConversationRole, CreateConversationMessage, Database};
 
 use super::spawner;
-use super::{extract_agent_text, AgentRunConfig, LogCallback, LogLine, LogStream};
+use super::{extract_agent_text, AgentRunConfig, LogCallback, LogLine};
 
 // Submodules
 mod config;
@@ -84,23 +84,19 @@ impl BrainstormAgent {
         let spec_id = self.config.spec_id.clone();
 
         let log_callback: Option<Arc<LogCallback>> = Some(Arc::new(Box::new(move |line: LogLine| {
-            // Emit both stdout and stderr for streaming logs
-            // Filter out empty lines and very short lines
             let content = line.content.trim();
             if content.len() > 3 {
-                tracing::debug!(
-                    "Brainstorm log [{}]: {}",
-                    match line.stream {
-                        LogStream::Stdout => "out",
-                        LogStream::Stderr => "err",
-                    },
-                    &content[..content.len().min(80)]
-                );
-                let _ = tx_clone.send(LiveEvent::BrainstormLogEntry {
-                    spec_id: spec_id.clone(),
-                    message: content.to_string(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                });
+                // Try to extract a human-readable summary from JSON log lines
+                let display_message = extract_log_display_message(content);
+                
+                if let Some(msg) = display_message {
+                    tracing::debug!("Brainstorm log: {}", &msg[..msg.len().min(80)]);
+                    let _ = tx_clone.send(LiveEvent::BrainstormLogEntry {
+                        spec_id: spec_id.clone(),
+                        message: msg,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
             }
         })));
 
@@ -142,6 +138,66 @@ impl BrainstormAgent {
         });
 
         Ok(())
+    }
+}
+
+/// Extract a human-readable message from a raw log line.
+/// Claude Code stdout lines are JSON objects like:
+///   {"type":"assistant","message":{"content":[{"type":"text","text":"..."},{"type":"tool_use","name":"Read",...}]}}
+///   {"type":"user","message":{"content":[{"tool_use_id":"...","content":"..."}]}}
+/// We extract tool names, short descriptions, or skip uninteresting lines.
+fn extract_log_display_message(content: &str) -> Option<String> {
+    // Non-JSON lines (e.g., stderr warnings) — show as-is
+    if !content.starts_with('{') {
+        return Some(content.to_string());
+    }
+    
+    let json: serde_json::Value = serde_json::from_str(content).ok()?;
+    let msg_type = json.get("type")?.as_str()?;
+    
+    match msg_type {
+        "assistant" => {
+            // Look for tool_use in the content array to show what the agent is doing
+            let content_arr = json.get("message")?.get("content")?.as_array()?;
+            
+            for item in content_arr {
+                if item.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                    let tool_name = item.get("name").and_then(|n| n.as_str()).unwrap_or("tool");
+                    // Try to get a short description from the input
+                    let detail = item.get("input")
+                        .and_then(|input| {
+                            // Common patterns: file_path, command, query, pattern
+                            input.get("file_path").and_then(|v| v.as_str())
+                                .or_else(|| input.get("path").and_then(|v| v.as_str()))
+                                .or_else(|| input.get("command").and_then(|v| v.as_str()))
+                                .or_else(|| input.get("pattern").and_then(|v| v.as_str()))
+                                .or_else(|| input.get("query").and_then(|v| v.as_str()))
+                        });
+                    
+                    return match detail {
+                        Some(d) => {
+                            let d_short = if d.len() > 60 { &d[..60] } else { d };
+                            Some(format!("{}: {}", tool_name, d_short))
+                        }
+                        None => Some(format!("Using {}", tool_name)),
+                    };
+                }
+            }
+            
+            // Text-only assistant message (no tool use) — skip, will be saved as conversation message
+            None
+        }
+        "system" => {
+            // Init messages
+            let subtype = json.get("subtype").and_then(|s| s.as_str());
+            if subtype == Some("init") {
+                Some("Agent starting...".to_string())
+            } else {
+                None
+            }
+        }
+        // Skip user messages (tool results), they're not interesting for the UI
+        _ => None,
     }
 }
 
