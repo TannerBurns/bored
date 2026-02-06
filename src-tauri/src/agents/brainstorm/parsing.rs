@@ -1,7 +1,5 @@
 //! Response parsing for brainstorm conversations.
 
-use std::fmt::Write;
-
 use crate::db::StructuredSpec;
 
 use super::config::{BrainstormError, BrainstormResponse};
@@ -67,22 +65,23 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             structured_spec: Some(structured_spec),
         }));
     } else {
-        // Not complete: extract observations and questions
-        let questions_text = format_questions(parsed.get("questions"));
-        let has_questions = !questions_text.is_empty();
+        // Not complete: observations and questions are markdown strings
+        let questions = extract_questions_text(parsed.get("questions"));
+        let has_questions = !questions.is_empty();
         
-        // Build a readable message from observations + questions
+        // Build the message — observations and questions are already markdown,
+        // just add section headers and concatenate
         let mut message = String::new();
         if !observations.is_empty() {
             message.push_str("## Observations\n");
             message.push_str(&observations);
         }
-        if !questions_text.is_empty() {
+        if !questions.is_empty() {
             if !message.is_empty() {
                 message.push_str("\n\n");
             }
             message.push_str("## Questions\n");
-            message.push_str(&questions_text);
+            message.push_str(&questions);
         }
         if message.is_empty() {
             message = response.trim().to_string();
@@ -97,25 +96,23 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
     }
 }
 
-/// Format questions from the JSON value into readable markdown.
-/// Supports both structured array format and legacy string format.
-///
-/// Array format (preferred):
-/// ```json
-/// [{"question": "Which approach?", "options": ["A) First", "B) Second"]}]
-/// ```
-///
-/// String format (legacy):
-/// ```json
-/// "1. Which approach?\n   A) First\n   B) Second"
-/// ```
-fn format_questions(value: Option<&serde_json::Value>) -> String {
+/// Extract questions text from the JSON value.
+/// The value is expected to be a markdown string. Also handles legacy array format.
+fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
     let value = match value {
         Some(v) => v,
         None => return String::new(),
     };
     
-    // Structured array format: [{question, options}]
+    // Primary: markdown string (new format)
+    if let Some(s) = value.as_str() {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() && trimmed.len() > 5 {
+            return trimmed.to_string();
+        }
+    }
+    
+    // Legacy: structured array format [{question, options}]
     if let Some(arr) = value.as_array() {
         let mut parts = Vec::new();
         for (i, item) in arr.iter().enumerate() {
@@ -125,7 +122,7 @@ fn format_questions(value: Option<&serde_json::Value>) -> String {
                 if let Some(options) = item.get("options").and_then(|v| v.as_array()) {
                     for opt in options {
                         if let Some(opt_str) = opt.as_str() {
-                            question_block.push_str(&format!("\n   {}", opt_str));
+                            question_block.push_str(&format!("\n   - {}", opt_str));
                         }
                     }
                 }
@@ -133,124 +130,12 @@ fn format_questions(value: Option<&serde_json::Value>) -> String {
                 parts.push(question_block);
             }
         }
-        return parts.join("\n\n");
-    }
-    
-    // Legacy string format — reformat to ensure options are on separate lines
-    if let Some(s) = value.as_str() {
-        let trimmed = s.trim();
-        if !trimmed.is_empty() && trimmed.len() > 5 {
-            return reformat_question_string(trimmed);
+        if !parts.is_empty() {
+            return parts.join("\n\n");
         }
     }
     
     String::new()
-}
-
-/// Reformat a question string to ensure multiple-choice options appear on
-/// separate lines. Models often flatten "A) ... B) ... C) ..." onto one line.
-/// This detects the pattern and inserts line breaks + indentation.
-fn reformat_question_string(text: &str) -> String {
-    let mut result = String::with_capacity(text.len() + 64);
-    let mut in_numbered_question = false;
-    
-    for line in text.lines() {
-        let trimmed = line.trim();
-        
-        // Track whether we're inside a numbered question (e.g. "1. ...")
-        if !trimmed.is_empty() && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-            if let Some(dot_pos) = trimmed.find(". ") {
-                if dot_pos <= 3 {
-                    in_numbered_question = true;
-                }
-            }
-        }
-        
-        if in_numbered_question && contains_inline_options(trimmed) {
-            // Split options onto separate lines
-            let reformatted = split_options_onto_lines(trimmed);
-            if !result.is_empty() {
-                result.push('\n');
-            }
-            result.push_str(&reformatted);
-        } else {
-            if !result.is_empty() {
-                result.push('\n');
-            }
-            result.push_str(line);
-        }
-    }
-    
-    result
-}
-
-/// Check if a line contains multiple inline options like "A) ... B) ... C) ..."
-fn contains_inline_options(line: &str) -> bool {
-    // Must have at least two option markers on the same line
-    let mut count = 0;
-    let bytes = line.as_bytes();
-    for i in 0..bytes.len() {
-        if i + 1 < bytes.len()
-            && bytes[i].is_ascii_alphabetic()
-            && bytes[i].is_ascii_uppercase()
-            && bytes[i + 1] == b')'
-            // Must be preceded by a space or start of line
-            && (i == 0 || bytes[i - 1] == b' ')
-        {
-            count += 1;
-        }
-    }
-    count >= 2
-}
-
-/// Split "... A) first option B) second option C) third option" into separate lines.
-fn split_options_onto_lines(line: &str) -> String {
-    let mut result = String::with_capacity(line.len() + 32);
-    let bytes = line.as_bytes();
-    let mut last_split = 0;
-    
-    for i in 0..bytes.len() {
-        if i + 1 < bytes.len()
-            && bytes[i].is_ascii_uppercase()
-            && bytes[i + 1] == b')'
-            && (i == 0 || bytes[i - 1] == b' ')
-        {
-            // Found an option marker — split before it
-            if last_split < i {
-                let prefix = line[last_split..i].trim();
-                if !prefix.is_empty() {
-                    if !result.is_empty() {
-                        result.push('\n');
-                    }
-                    // If the prefix looks like a question (starts with a digit or text),
-                    // don't indent it. Otherwise indent as an option.
-                    if last_split == 0 {
-                        result.push_str(prefix);
-                    } else {
-                        let _ = write!(result, "   {}", prefix);
-                    }
-                }
-            }
-            last_split = i;
-        }
-    }
-    
-    // Don't forget the last segment
-    if last_split < line.len() {
-        let remaining = line[last_split..].trim();
-        if !remaining.is_empty() {
-            if !result.is_empty() {
-                result.push('\n');
-            }
-            if last_split == 0 {
-                result.push_str(remaining);
-            } else {
-                let _ = write!(result, "   {}", remaining);
-            }
-        }
-    }
-    
-    result
 }
 
 /// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
@@ -327,21 +212,13 @@ mod tests {
     // === New structured JSON format tests ===
 
     #[test]
-    fn parse_structured_json_with_questions_array() {
+    fn parse_structured_json_with_markdown_questions() {
+        // The new format: questions is a markdown string, rendered as-is
         let response_text = r#"```json
 {
   "spec_complete": false,
-  "observations": "Found JWT auth patterns in src/auth/.\nThe API uses middleware for auth checks.",
-  "questions": [
-    {
-      "question": "Which auth provider do you want to support?",
-      "options": ["A) Google", "B) GitHub", "C) Both"]
-    },
-    {
-      "question": "Should sessions be stateless?",
-      "options": ["A) Yes, use JWT", "B) No, use server-side sessions"]
-    }
-  ]
+  "observations": "Found JWT auth patterns in `src/auth/`.\n- The API uses middleware for auth checks.\n- Routes are defined in `src/api/`.",
+  "questions": "1. Which auth provider do you want to support?\n   - A) Google\n   - B) GitHub\n   - C) Both\n\n2. Should sessions be stateless?\n   - A) Yes, use JWT\n   - B) No, use server-side sessions"
 }
 ```"#;
 
@@ -351,21 +228,23 @@ mod tests {
         assert!(response.message.contains("## Observations"));
         assert!(response.message.contains("JWT auth"));
         assert!(response.message.contains("## Questions"));
-        // Verify each question is numbered and options are on separate lines
-        assert!(response.message.contains("1. Which auth provider"));
-        assert!(response.message.contains("\n   A) Google"));
-        assert!(response.message.contains("\n   B) GitHub"));
-        assert!(response.message.contains("2. Should sessions be stateless"));
-        assert!(response.message.contains("\n   A) Yes, use JWT"));
+        assert!(response.message.contains("Which auth provider"));
+        assert!(response.message.contains("Should sessions be stateless"));
     }
 
     #[test]
-    fn parse_structured_json_with_questions_string_legacy() {
+    fn parse_structured_json_with_questions_array_legacy() {
+        // Legacy array format still works
         let response_text = r#"```json
 {
   "spec_complete": false,
   "observations": "Found patterns.",
-  "questions": "1. Which approach?\n   A) First\n   B) Second"
+  "questions": [
+    {
+      "question": "Which approach?",
+      "options": ["A) First", "B) Second"]
+    }
+  ]
 }
 ```"#;
 
@@ -373,49 +252,9 @@ mod tests {
         assert!(!response.is_complete);
         assert!(response.has_questions);
         assert!(response.message.contains("## Questions"));
-        assert!(response.message.contains("Which approach"));
-    }
-
-    #[test]
-    fn parse_structured_json_reformats_flattened_options() {
-        // Simulates the common model behavior of flattening A) B) C) onto one line
-        let response_text = r#"```json
-{
-  "spec_complete": false,
-  "observations": "Found patterns in the codebase.",
-  "questions": "1. Should this be nullable? A) Yes, make it nullable (Recommended) B) No, default to 0.0 C) Use sentinel value\n\n2. Migration strategy? A) New migration file B) Modify existing migration"
-}
-```"#;
-
-        let response = parse_response(response_text).unwrap();
-        assert!(!response.is_complete);
-        assert!(response.has_questions);
-        let msg = &response.message;
-        // Options should be on separate lines, indented
-        assert!(msg.contains("1. Should this be nullable?"));
-        assert!(msg.contains("\n   A) Yes, make it nullable"));
-        assert!(msg.contains("\n   B) No, default to 0.0"));
-        assert!(msg.contains("\n   C) Use sentinel value"));
-        assert!(msg.contains("2. Migration strategy?"));
-        assert!(msg.contains("\n   A) New migration file"));
-        assert!(msg.contains("\n   B) Modify existing migration"));
-    }
-
-    #[test]
-    fn reformat_preserves_already_formatted_questions() {
-        let input = "1. Which approach?\n   A) First\n   B) Second";
-        let result = reformat_question_string(input);
-        assert!(result.contains("1. Which approach?"));
-        assert!(result.contains("\n   A) First"));
-        assert!(result.contains("\n   B) Second"));
-    }
-
-    #[test]
-    fn contains_inline_options_detects_pattern() {
-        assert!(contains_inline_options("Should this work? A) Yes B) No"));
-        assert!(contains_inline_options("Question A) First option B) Second option C) Third"));
-        assert!(!contains_inline_options("Just a normal sentence."));
-        assert!(!contains_inline_options("Only A) one option here"));
+        assert!(response.message.contains("1. Which approach?"));
+        assert!(response.message.contains("- A) First"));
+        assert!(response.message.contains("- B) Second"));
     }
 
     #[test]

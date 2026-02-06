@@ -27,32 +27,34 @@ Explore the repository to understand:
 - Dependencies and tools already in use
 - Any existing similar functionality
 
-### Step 2: Respond with Structured JSON
-Your FINAL text response MUST be a SINGLE JSON code block and nothing else.
+### Step 2: Respond
+Your FINAL text response MUST be ONLY a JSON code block with two or three fields.
+The `observations` and `questions` values are **markdown strings** — write them exactly as you want them displayed, with full markdown formatting (headings, bullet lists, numbered lists, bold, etc.).
 
-When you still have questions to ask:
+When you still have questions to ask, respond with:
 ```json
 {{
   "spec_complete": false,
-  "observations": "What you discovered from exploring the codebase.\n- Key patterns\n- Integration points\n- Existing code relevant to the request",
-  "questions": [
-    {{
-      "question": "Your clarifying question here?",
-      "options": ["A) First option", "B) Second option", "C) Third option"]
-    }},
-    {{
-      "question": "Another question?",
-      "options": ["A) Option A", "B) Option B"]
-    }}
-  ]
+  "observations": "<markdown string>",
+  "questions": "<markdown string>"
 }}
 ```
 
-When you have enough information (usually 3-6 exchanges, or immediately if the request is very clear):
+Example `observations` value:
+```
+I explored the codebase and found:\n- The auth module is in `src/auth/` using JWT tokens\n- API routes follow RESTful conventions in `src/api/`\n- State management uses Zustand stores
+```
+
+Example `questions` value:
+```
+1. Which authentication provider should we integrate?\n   - A) Google OAuth\n   - B) GitHub OAuth\n   - C) Both\n\n2. Should sessions be stateless?\n   - A) Yes, use JWT tokens\n   - B) No, use server-side sessions
+```
+
+When you have enough information (usually 3-6 exchanges, or immediately if the request is very clear), respond with:
 ```json
 {{
   "spec_complete": true,
-  "observations": "Final observations summary",
+  "observations": "<markdown string — final summary>",
   "structured_spec": {{
     "requirements": "Clear summary of what needs to be built",
     "decisions": ["Decision 1 based on user input", "Decision 2 from discussion"],
@@ -62,7 +64,7 @@ When you have enough information (usually 3-6 exchanges, or immediately if the r
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block.
+IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
 
 Start by exploring the codebase, then respond with the JSON block."#,
         user_input
@@ -100,19 +102,15 @@ You have access to explore the codebase to inform your responses.
 3. Respond with structured JSON — either asking follow-up questions or completing the spec
 
 ## Response Format
-Your FINAL text response MUST be a SINGLE JSON code block and nothing else.
+Your FINAL text response MUST be ONLY a JSON code block with two or three fields.
+The `observations` and `questions` values are **markdown strings** — write them exactly as you want them displayed, with full markdown formatting.
 
 When you still have questions:
 ```json
 {{
   "spec_complete": false,
-  "observations": "New insights from the user's response or additional codebase exploration.\n- What you learned\n- Additional patterns discovered\n- Updated understanding",
-  "questions": [
-    {{
-      "question": "Follow-up question?",
-      "options": ["A) Option A", "B) Option B"]
-    }}
-  ]
+  "observations": "<markdown string with your new insights>",
+  "questions": "<markdown string with numbered questions and options as bullet lists>"
 }}
 ```
 
@@ -120,7 +118,7 @@ When you have enough information (you understand scope, integration points, tech
 ```json
 {{
   "spec_complete": true,
-  "observations": "Final observations summary",
+  "observations": "<markdown string — final summary>",
   "structured_spec": {{
     "requirements": "Clear summary of what needs to be built",
     "decisions": ["Decision 1", "Decision 2"],
@@ -130,7 +128,7 @@ When you have enough information (you understand scope, integration points, tech
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block.
+IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
 
 Continue based on the user's latest response."#,
         user_input, conversation_history
