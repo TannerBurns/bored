@@ -327,6 +327,51 @@ pub fn extract_worktree_path_from_error(stderr: &str) -> Option<String> {
     None
 }
 
+/// Resolve the remote default branch ref (e.g., `origin/main` or `origin/master`).
+///
+/// Checks `origin/HEAD` symbolic ref first, then falls back to `origin/main` and
+/// `origin/master`. Returns `None` if no remote default can be determined.
+pub fn resolve_remote_default_branch(repo_path: &Path) -> Option<String> {
+    let symbolic_output = git_command()
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .current_dir(repo_path)
+        .output();
+
+    if let Ok(output) = symbolic_output {
+        if output.status.success() {
+            let full_ref = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // Convert refs/remotes/origin/main -> origin/main
+            if let Some(short_ref) = full_ref.strip_prefix("refs/remotes/") {
+                tracing::debug!(
+                    "Resolved remote default branch via symbolic-ref: {}",
+                    short_ref
+                );
+                return Some(short_ref.to_string());
+            }
+        }
+    }
+
+    for candidate in &["origin/main", "origin/master"] {
+        let verify_output = git_command()
+            .args(["rev-parse", "--verify", candidate])
+            .current_dir(repo_path)
+            .output();
+
+        if let Ok(output) = verify_output {
+            if output.status.success() {
+                tracing::debug!(
+                    "Resolved remote default branch via rev-parse: {}",
+                    candidate
+                );
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    tracing::debug!("Could not resolve remote default branch");
+    None
+}
+
 /// Check if a path is a valid git repository
 pub fn is_git_repo(path: &Path) -> bool {
     if !path.exists() {

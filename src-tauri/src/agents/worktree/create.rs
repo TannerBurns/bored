@@ -7,10 +7,41 @@ use super::branch::branch_exists;
 use super::error::WorktreeError;
 use super::git::{
     create_initial_commit, extract_worktree_path_from_error, get_repo_root, git_command,
-    is_git_repo, is_worktree_conflict_error, repo_has_commits, run_git_with_timeout,
-    GIT_COMMAND_TIMEOUT_SECS,
+    is_git_repo, is_worktree_conflict_error, repo_has_commits, resolve_remote_default_branch,
+    run_git_with_timeout, GIT_COMMAND_TIMEOUT_SECS,
 };
 use super::manage::{force_remove_stale_worktree, is_our_worktree};
+
+/// If the fetch succeeded, resolve the remote default branch and append it as
+/// a start-point to `args`. Logs the outcome in all cases.
+fn maybe_append_remote_start_point(
+    args: &mut Vec<String>,
+    repo_root: &Path,
+    branch_name: &str,
+    fetch_succeeded: bool,
+) {
+    if !fetch_succeeded {
+        tracing::warn!(
+            "Fetch failed, creating branch {} from HEAD (remote refs may be stale)",
+            branch_name
+        );
+        return;
+    }
+
+    if let Some(remote_default) = resolve_remote_default_branch(repo_root) {
+        tracing::info!(
+            "Creating branch {} from remote default branch {}",
+            branch_name,
+            remote_default
+        );
+        args.push(remote_default);
+    } else {
+        tracing::warn!(
+            "Could not determine remote default branch, creating branch {} from HEAD",
+            branch_name
+        );
+    }
+}
 
 /// Check if a fetch error should be propagated (SSH auth, network, timeout).
 /// Returns Some(cloned error) if it should be propagated, None if non-fatal.
@@ -186,6 +217,13 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
             "Creating branch {} from base branch {} (epic chain branching)",
             config.branch_name,
             base_branch
+        );
+    } else {
+        maybe_append_remote_start_point(
+            &mut args,
+            &repo_root,
+            &config.branch_name,
+            fetch_result.is_ok(),
         );
     }
 
@@ -640,14 +678,23 @@ pub fn create_worktree_with_existing_branch(
             }
         } else {
             // Branch doesn't exist anywhere - create it fresh
+            let mut fresh_args = vec![
+                "worktree".to_string(),
+                "add".to_string(),
+                "-b".to_string(),
+                branch_name.to_string(),
+                worktree_path.to_string_lossy().to_string(),
+            ];
+
+            maybe_append_remote_start_point(
+                &mut fresh_args,
+                &repo_root,
+                branch_name,
+                fetch_result.is_ok(),
+            );
+
             let output = git_command()
-                .args([
-                    "worktree",
-                    "add",
-                    "-b",
-                    branch_name,
-                    worktree_path.to_string_lossy().as_ref(),
-                ])
+                .args(&fresh_args)
                 .current_dir(&repo_root)
                 .output()?;
 

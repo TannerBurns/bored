@@ -6,13 +6,11 @@ use super::super::AgentRunConfig;
 const DEFAULT_MODEL: &str = "opus-4.6";
 
 /// Map normalized model name to Claude Code format
-/// e.g., "opus-4.5" -> "claude-opus-4-5"
+/// e.g., "sonnet-4.5" -> "claude-sonnet-4-5"
 fn map_model_for_claude(model: &str) -> String {
     match model {
         "opus-4.6" => "claude-opus-4-6".to_string(),
-        "opus-4.5" => "claude-opus-4-5".to_string(),
         "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-        "haiku-4.5" => "claude-haiku-4-5".to_string(),
         other => other.to_string(),
     }
 }
@@ -44,6 +42,12 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         args.push("--model".to_string());
         args.push(map_model_for_claude(model));
     }
+
+    args.push("--settings".to_string());
+    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
+
+    args.push("--betas".to_string());
+    args.push("context-1m-2025-08-07".to_string());
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -84,6 +88,12 @@ pub fn build_command_with_settings(
         args.push("--permission-mode".to_string());
         args.push(mode.clone());
     }
+
+    args.push("--settings".to_string());
+    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
+
+    args.push("--betas".to_string());
+    args.push("context-1m-2025-08-07".to_string());
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -151,10 +161,10 @@ mod tests {
     #[test]
     fn build_command_includes_model_when_specified() {
         let mut config = create_test_config();
-        config.model = Some("opus-4.5".to_string());
+        config.model = Some("sonnet-4.5".to_string());
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--model".to_string()));
-        assert!(args.contains(&"claude-opus-4-5".to_string()));
+        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
         assert_eq!(args.last(), Some(&"Test prompt".to_string()));
     }
 
@@ -162,9 +172,7 @@ mod tests {
     fn build_command_maps_model_names_correctly() {
         let test_cases = [
             ("opus-4.6", "claude-opus-4-6"),
-            ("opus-4.5", "claude-opus-4-5"),
             ("sonnet-4.5", "claude-sonnet-4-5"),
-            ("haiku-4.5", "claude-haiku-4-5"),
             ("unknown-model", "unknown-model"),
         ];
 
@@ -189,6 +197,20 @@ mod tests {
         assert!(
             args.contains(&"claude-opus-4-6".to_string()),
             "Should default to claude-opus-4-6 when no model specified"
+        );
+    }
+
+    #[test]
+    fn build_command_includes_beta_context_flag() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        let beta_index = args
+            .iter()
+            .position(|a| a == "--betas")
+            .expect("--beta flag must be present");
+        assert_eq!(
+            args[beta_index + 1], "context-1m-2025-08-07",
+            "--beta must be followed by context-1m-2025-08-07"
         );
     }
 
