@@ -35,7 +35,16 @@ When you still have questions to ask:
 {{
   "spec_complete": false,
   "observations": "What you discovered from exploring the codebase.\n- Key patterns\n- Integration points\n- Existing code relevant to the request",
-  "questions": "Your clarifying questions with options.\n\n1. Question one?\n   A) Option A\n   B) Option B\n\n2. Question two?"
+  "questions": [
+    {{
+      "question": "Your clarifying question here?",
+      "options": ["A) First option", "B) Second option", "C) Third option"]
+    }},
+    {{
+      "question": "Another question?",
+      "options": ["A) Option A", "B) Option B"]
+    }}
+  ]
 }}
 ```
 
@@ -53,7 +62,7 @@ When you have enough information (usually 3-6 exchanges, or immediately if the r
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block. Use markdown formatting within the JSON string values (newlines as \n).
+IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block.
 
 Start by exploring the codebase, then respond with the JSON block."#,
         user_input
@@ -98,7 +107,12 @@ When you still have questions:
 {{
   "spec_complete": false,
   "observations": "New insights from the user's response or additional codebase exploration.\n- What you learned\n- Additional patterns discovered\n- Updated understanding",
-  "questions": "Follow-up questions with options.\n\n1. Question?\n   A) Option A\n   B) Option B"
+  "questions": [
+    {{
+      "question": "Follow-up question?",
+      "options": ["A) Option A", "B) Option B"]
+    }}
+  ]
 }}
 ```
 
@@ -116,7 +130,7 @@ When you have enough information (you understand scope, integration points, tech
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block. Use markdown formatting within the JSON string values (newlines as \n).
+IMPORTANT: Your response must contain ONLY the JSON code block. Do not include any text before or after the JSON block.
 
 Continue based on the user's latest response."#,
         user_input, conversation_history

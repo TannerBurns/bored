@@ -39,35 +39,35 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
     
     if is_complete {
         // Completion: extract structured_spec
-        if let Some(spec_value) = parsed.get("structured_spec") {
-            let structured_spec: StructuredSpec = match serde_json::from_value(spec_value.clone()) {
-                Ok(s) => s,
-                Err(e) => return Some(Err(BrainstormError::ParseError(
-                    format!("Failed to parse structured_spec: {}", e)
-                ))),
-            };
-            
-            let message = if observations.is_empty() {
-                "Great! I have enough information to proceed with the specification.".to_string()
-            } else {
-                format!("## Observations\n{}", observations)
-            };
-            
-            return Some(Ok(BrainstormResponse {
-                message,
-                is_complete: true,
-                has_questions: false,
-                structured_spec: Some(structured_spec),
-            }));
-        }
+        let spec_value = match parsed.get("structured_spec") {
+            Some(v) => v,
+            None => return Some(Err(BrainstormError::ParseError(
+                "spec_complete is true but structured_spec is missing".to_string()
+            ))),
+        };
+        let structured_spec: StructuredSpec = match serde_json::from_value(spec_value.clone()) {
+            Ok(s) => s,
+            Err(e) => return Some(Err(BrainstormError::ParseError(
+                format!("Failed to parse structured_spec: {}", e)
+            ))),
+        };
+        
+        let message = if observations.is_empty() {
+            "Great! I have enough information to proceed with the specification.".to_string()
+        } else {
+            format!("## Observations\n{}", observations)
+        };
+        
+        return Some(Ok(BrainstormResponse {
+            message,
+            is_complete: true,
+            has_questions: false,
+            structured_spec: Some(structured_spec),
+        }));
     } else {
         // Not complete: extract observations and questions
-        let questions = parsed.get("questions")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        
-        let has_questions = !questions.is_empty() && questions.len() > 5;
+        let questions_text = format_questions(parsed.get("questions"));
+        let has_questions = !questions_text.is_empty();
         
         // Build a readable message from observations + questions
         let mut message = String::new();
@@ -75,26 +75,74 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             message.push_str("## Observations\n");
             message.push_str(&observations);
         }
-        if !questions.is_empty() {
+        if !questions_text.is_empty() {
             if !message.is_empty() {
                 message.push_str("\n\n");
             }
             message.push_str("## Questions\n");
-            message.push_str(&questions);
+            message.push_str(&questions_text);
         }
         if message.is_empty() {
             message = response.trim().to_string();
         }
         
-        return Some(Ok(BrainstormResponse {
+        Some(Ok(BrainstormResponse {
             message,
             is_complete: false,
             has_questions,
             structured_spec: None,
-        }));
+        }))
+    }
+}
+
+/// Format questions from the JSON value into readable markdown.
+/// Supports both structured array format and legacy string format.
+///
+/// Array format (preferred):
+/// ```json
+/// [{"question": "Which approach?", "options": ["A) First", "B) Second"]}]
+/// ```
+///
+/// String format (legacy):
+/// ```json
+/// "1. Which approach?\n   A) First\n   B) Second"
+/// ```
+fn format_questions(value: Option<&serde_json::Value>) -> String {
+    let value = match value {
+        Some(v) => v,
+        None => return String::new(),
+    };
+    
+    // Structured array format: [{question, options}]
+    if let Some(arr) = value.as_array() {
+        let mut parts = Vec::new();
+        for (i, item) in arr.iter().enumerate() {
+            if let Some(q) = item.get("question").and_then(|v| v.as_str()) {
+                let mut question_block = format!("{}. {}", i + 1, q);
+                
+                if let Some(options) = item.get("options").and_then(|v| v.as_array()) {
+                    for opt in options {
+                        if let Some(opt_str) = opt.as_str() {
+                            question_block.push_str(&format!("\n   {}", opt_str));
+                        }
+                    }
+                }
+                
+                parts.push(question_block);
+            }
+        }
+        return parts.join("\n\n");
     }
     
-    None
+    // Legacy string format
+    if let Some(s) = value.as_str() {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() && trimmed.len() > 5 {
+            return trimmed.to_string();
+        }
+    }
+    
+    String::new()
 }
 
 /// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
@@ -171,12 +219,21 @@ mod tests {
     // === New structured JSON format tests ===
 
     #[test]
-    fn parse_structured_json_with_questions() {
+    fn parse_structured_json_with_questions_array() {
         let response_text = r#"```json
 {
   "spec_complete": false,
   "observations": "Found JWT auth patterns in src/auth/.\nThe API uses middleware for auth checks.",
-  "questions": "1. Which auth provider?\n   A) Google\n   B) GitHub\n   C) Both"
+  "questions": [
+    {
+      "question": "Which auth provider do you want to support?",
+      "options": ["A) Google", "B) GitHub", "C) Both"]
+    },
+    {
+      "question": "Should sessions be stateless?",
+      "options": ["A) Yes, use JWT", "B) No, use server-side sessions"]
+    }
+  ]
 }
 ```"#;
 
@@ -186,7 +243,29 @@ mod tests {
         assert!(response.message.contains("## Observations"));
         assert!(response.message.contains("JWT auth"));
         assert!(response.message.contains("## Questions"));
-        assert!(response.message.contains("auth provider"));
+        // Verify each question is numbered and options are on separate lines
+        assert!(response.message.contains("1. Which auth provider"));
+        assert!(response.message.contains("\n   A) Google"));
+        assert!(response.message.contains("\n   B) GitHub"));
+        assert!(response.message.contains("2. Should sessions be stateless"));
+        assert!(response.message.contains("\n   A) Yes, use JWT"));
+    }
+
+    #[test]
+    fn parse_structured_json_with_questions_string_legacy() {
+        let response_text = r#"```json
+{
+  "spec_complete": false,
+  "observations": "Found patterns.",
+  "questions": "1. Which approach?\n   A) First\n   B) Second"
+}
+```"#;
+
+        let response = parse_response(response_text).unwrap();
+        assert!(!response.is_complete);
+        assert!(response.has_questions);
+        assert!(response.message.contains("## Questions"));
+        assert!(response.message.contains("Which approach"));
     }
 
     #[test]
@@ -226,6 +305,21 @@ mod tests {
         assert!(!response.is_complete);
         assert!(!response.has_questions);
         assert!(response.message.contains("Observations"));
+    }
+
+    #[test]
+    fn parse_structured_json_complete_missing_structured_spec_is_error() {
+        let response_text = r#"```json
+{
+  "spec_complete": true,
+  "observations": "I have everything I need."
+}
+```"#;
+
+        let result = parse_response(response_text);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("structured_spec"));
     }
 
     #[test]
