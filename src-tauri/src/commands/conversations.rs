@@ -37,7 +37,7 @@ pub async fn send_conversation_message(
 ) -> Result<ConversationMessage, String> {
     tracing::info!("Sending conversation message for spec {}", spec_id);
 
-    let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
+    let mut spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
     let mut version = db
         .get_latest_spec_version(&spec_id)
         .map_err(|e| e.to_string())?
@@ -54,6 +54,23 @@ pub async fn send_conversation_message(
         
         // Create a new version for the continued conversation
         version = db.create_new_spec_version(&spec_id).map_err(|e| e.to_string())?;
+        
+        // Reset spec.user_input to the original request, stripping any refined
+        // requirements/decisions from the previous version's brainstorm completion.
+        // Without this, version 2+ would inherit version 1's refined requirements
+        // instead of generating its own from the new conversation.
+        if let Some(sep_idx) = spec.user_input.find("\n\n---\n") {
+            let original_input = spec.user_input[..sep_idx].to_string();
+            db.update_spec(
+                &spec_id,
+                &UpdateSpec {
+                    user_input: Some(original_input.clone()),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            spec.user_input = original_input;
+        }
         
         // Emit event for the new version
         let _ = event_tx.send(LiveEvent::SpecUpdated {
