@@ -6,13 +6,11 @@ use super::super::AgentRunConfig;
 const DEFAULT_MODEL: &str = "opus-4.6";
 
 /// Map normalized model name to Claude format for Cursor
-/// e.g., "opus-4.5" -> "claude-opus-4-5"
+/// e.g., "sonnet-4.5" -> "claude-sonnet-4-5"
 fn map_model_for_cursor(model: &str) -> String {
     match model {
         "opus-4.6" => "claude-opus-4-6".to_string(),
-        "opus-4.5" => "claude-opus-4-5".to_string(),
         "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-        "haiku-4.5" => "claude-haiku-4-5".to_string(),
         other => other.to_string(),
     }
 }
@@ -210,9 +208,7 @@ mod tests {
     fn build_command_maps_model_names_correctly() {
         let test_cases = [
             ("opus-4.6", "claude-opus-4-6"),
-            ("opus-4.5", "claude-opus-4-5"),
             ("sonnet-4.5", "claude-sonnet-4-5"),
-            ("haiku-4.5", "claude-haiku-4-5"),
             ("unknown-model", "unknown-model"),
         ];
 
@@ -281,7 +277,7 @@ mod tests {
     #[test]
     fn build_command_falls_back_to_config_model_without_override() {
         let mut config = create_test_config();
-        config.model = Some("opus-4.5".to_string());
+        config.model = Some("sonnet-4.5".to_string());
         config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
             model_override: None,
             ..Default::default()
@@ -289,7 +285,7 @@ mod tests {
         let (_, args) = build_command(&config);
         assert!(args.contains(&"--model".to_string()));
         assert!(
-            args.contains(&"claude-opus-4-5".to_string()),
+            args.contains(&"claude-sonnet-4-5".to_string()),
             "Should fall back to config.model when model_override is None"
         );
     }
