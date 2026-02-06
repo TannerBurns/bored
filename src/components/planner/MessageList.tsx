@@ -530,83 +530,65 @@ interface ParsedMessage {
 }
 
 function parseAssistantMessage(content: string): ParsedMessage {
-  // Find section boundaries - handle either order (Observations first or Questions first)
+  // Try structured JSON first (new format: {"observations": "...", "questions": "..."})
+  if (content.startsWith('{')) {
+    try {
+      const json = JSON.parse(content);
+      if (json.observations !== undefined || json.questions !== undefined) {
+        return {
+          hasStructure: true,
+          observations: json.observations || null,
+          questions: json.questions || null,
+          preamble: null,
+        };
+      }
+    } catch {
+      // Not valid JSON, fall through to legacy parsing
+    }
+  }
+
+  // Legacy: scan for ## Observations / ## Questions headers
   const observationsStart = content.search(/##\s*Observations/i);
   const questionsStart = content.search(/##\s*Questions/i);
   
   let observations: string | null = null;
   let questions: string | null = null;
   
-  // Extract observations section
   if (observationsStart !== -1) {
-    // Find where content starts (after the heading)
     const headingEnd = content.indexOf('\n', observationsStart);
     if (headingEnd !== -1) {
-      // Find where this section ends (at next ## heading or end of content)
       const afterHeading = content.substring(headingEnd + 1);
-      const nextSectionMatch = afterHeading.search(/##\s*(Observations|Questions)/i);
-      
-      if (nextSectionMatch !== -1) {
-        observations = afterHeading.substring(0, nextSectionMatch).trim();
-      } else {
-        // Check for JSON code block which might end the content
-        const jsonBlockStart = afterHeading.search(/```json/i);
-        if (jsonBlockStart !== -1) {
-          observations = afterHeading.substring(0, jsonBlockStart).trim();
-        } else {
-          observations = afterHeading.trim();
-        }
-      }
+      const nextSection = afterHeading.search(/##\s*(Observations|Questions)/i);
+      const jsonBlock = afterHeading.search(/```json/i);
+      const end = nextSection !== -1 ? nextSection : (jsonBlock !== -1 ? jsonBlock : afterHeading.length);
+      observations = afterHeading.substring(0, end).trim() || null;
     }
   }
   
-  // Extract questions section
   if (questionsStart !== -1) {
-    // Find where content starts (after the heading)
     const headingEnd = content.indexOf('\n', questionsStart);
     if (headingEnd !== -1) {
-      // Find where this section ends (at next ## heading or end of content)
       const afterHeading = content.substring(headingEnd + 1);
-      const nextSectionMatch = afterHeading.search(/##\s*(Observations|Questions)/i);
-      
-      if (nextSectionMatch !== -1) {
-        questions = afterHeading.substring(0, nextSectionMatch).trim();
-      } else {
-        // Check for JSON code block which might end the content
-        const jsonBlockStart = afterHeading.search(/```json/i);
-        if (jsonBlockStart !== -1) {
-          questions = afterHeading.substring(0, jsonBlockStart).trim();
-        } else {
-          questions = afterHeading.trim();
-        }
-      }
+      const nextSection = afterHeading.search(/##\s*(Observations|Questions)/i);
+      const jsonBlock = afterHeading.search(/```json/i);
+      const end = nextSection !== -1 ? nextSection : (jsonBlock !== -1 ? jsonBlock : afterHeading.length);
+      questions = afterHeading.substring(0, end).trim() || null;
     }
   }
   
-  // Check if we found any structure
   const hasStructure = !!(observations || questions);
   
-  // Get any content BEFORE the structured sections (preamble)
   let preamble: string | null = null;
   if (hasStructure) {
-    // Find where the first ## section starts
-    const firstSectionIndex = Math.min(
+    const firstIdx = Math.min(
       observationsStart !== -1 ? observationsStart : Infinity,
       questionsStart !== -1 ? questionsStart : Infinity
     );
-    if (firstSectionIndex > 0 && firstSectionIndex !== Infinity) {
-      const before = content.substring(0, firstSectionIndex).trim();
-      // Only include preamble if it's meaningful (not just whitespace or very short)
-      if (before.length > 20) {
-        preamble = before;
-      }
+    if (firstIdx > 0 && firstIdx !== Infinity) {
+      const before = content.substring(0, firstIdx).trim();
+      if (before.length > 20) preamble = before;
     }
   }
   
-  return {
-    hasStructure,
-    observations,
-    questions,
-    preamble,
-  };
+  return { hasStructure, observations, questions, preamble };
 }

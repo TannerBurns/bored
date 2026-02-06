@@ -52,11 +52,10 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             ))),
         };
         
-        let message = if observations.is_empty() {
-            "Great! I have enough information to proceed with the specification.".to_string()
-        } else {
-            format!("## Observations\n{}", observations)
-        };
+        // Save as structured JSON so the frontend can render directly
+        let message = serde_json::json!({
+            "observations": observations,
+        }).to_string();
         
         return Some(Ok(BrainstormResponse {
             message,
@@ -69,23 +68,12 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
         let questions = extract_questions_text(parsed.get("questions"));
         let has_questions = !questions.is_empty();
         
-        // Build the message — observations and questions are already markdown,
-        // just add section headers and concatenate
-        let mut message = String::new();
-        if !observations.is_empty() {
-            message.push_str("## Observations\n");
-            message.push_str(&observations);
-        }
-        if !questions.is_empty() {
-            if !message.is_empty() {
-                message.push_str("\n\n");
-            }
-            message.push_str("## Questions\n");
-            message.push_str(&questions);
-        }
-        if message.is_empty() {
-            message = response.trim().to_string();
-        }
+        // Save as structured JSON so the frontend can render directly
+        // without needing to re-parse ## headers
+        let message = serde_json::json!({
+            "observations": observations,
+            "questions": questions,
+        }).to_string();
         
         Some(Ok(BrainstormResponse {
             message,
@@ -225,11 +213,11 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(!response.is_complete);
         assert!(response.has_questions);
-        assert!(response.message.contains("## Observations"));
-        assert!(response.message.contains("JWT auth"));
-        assert!(response.message.contains("## Questions"));
-        assert!(response.message.contains("Which auth provider"));
-        assert!(response.message.contains("Should sessions be stateless"));
+        // Message is now JSON with observations and questions as separate fields
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["observations"].as_str().unwrap().contains("JWT auth"));
+        assert!(msg["questions"].as_str().unwrap().contains("Which auth provider"));
+        assert!(msg["questions"].as_str().unwrap().contains("Should sessions be stateless"));
     }
 
     #[test]
@@ -251,10 +239,8 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(!response.is_complete);
         assert!(response.has_questions);
-        assert!(response.message.contains("## Questions"));
-        assert!(response.message.contains("1. Which approach?"));
-        assert!(response.message.contains("- A) First"));
-        assert!(response.message.contains("- B) Second"));
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["questions"].as_str().unwrap().contains("Which approach"));
     }
 
     #[test]
@@ -278,7 +264,8 @@ mod tests {
         let spec = response.structured_spec.unwrap();
         assert!(spec.requirements.contains("OAuth"));
         assert_eq!(spec.decisions.len(), 2);
-        assert!(response.message.contains("Observations"));
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["observations"].as_str().unwrap().contains("Final summary"));
     }
 
     #[test]
@@ -295,8 +282,8 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(!response.is_complete);
         assert!(response.has_questions, "short question string should set has_questions=true");
-        assert!(response.message.contains("## Questions"));
-        assert!(response.message.contains("Why?"));
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert_eq!(msg["questions"].as_str().unwrap(), "Why?");
     }
 
     #[test]
@@ -311,7 +298,8 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(!response.is_complete);
         assert!(!response.has_questions);
-        assert!(response.message.contains("Observations"));
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["observations"].as_str().unwrap().contains("Explored the codebase"));
     }
 
     #[test]
@@ -390,12 +378,11 @@ mod tests {
 
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
-        // With new parser, observations come from JSON or default message
-        assert!(!response.message.is_empty());
+        assert!(response.structured_spec.is_some());
     }
 
     #[test]
-    fn parse_legacy_default_message_when_no_observations() {
+    fn parse_legacy_completion_without_observations() {
         let response_text = r#"```json
 {
   "spec_complete": true,
@@ -409,7 +396,9 @@ mod tests {
 
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
-        assert!(response.message.contains("enough information"));
+        // Message is JSON with empty observations
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert_eq!(msg["observations"].as_str().unwrap(), "");
     }
 
     #[test]

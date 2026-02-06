@@ -240,6 +240,7 @@ pub async fn send_conversation_message(
                 spec_id: spec_id.clone(),
                 structured_spec: serde_json::Value::Null,
             });
+            return Err(format!("Brainstorm agent error: {}", e));
         }
     }
 
@@ -411,6 +412,7 @@ pub async fn start_conversation(
                 spec_id: spec_id.clone(),
                 structured_spec: serde_json::Value::Null,
             });
+            return Err(format!("Failed to start conversation: {}", e));
         }
     }
 

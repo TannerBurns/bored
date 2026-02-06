@@ -90,7 +90,7 @@ impl BrainstormAgent {
                 let display_message = extract_log_display_message(content);
                 
                 if let Some(msg) = display_message {
-                    tracing::debug!("Brainstorm log: {}", &msg[..msg.len().min(80)]);
+                    tracing::debug!("Brainstorm log: {}", truncate_to_char_boundary(&msg, 80));
                     let _ = tx_clone.send(LiveEvent::BrainstormLogEntry {
                         spec_id: spec_id.clone(),
                         message: msg,
@@ -141,6 +141,21 @@ impl BrainstormAgent {
     }
 }
 
+/// Truncate a string to at most `max_bytes` bytes, ensuring the cut
+/// falls on a UTF-8 character boundary. Returns the full string if it
+/// is already within the limit.
+fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // Walk backwards from max_bytes to find a valid char boundary
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Extract a human-readable message from a raw log line.
 /// Claude Code stdout lines are JSON objects like:
 ///   {"type":"assistant","message":{"content":[{"type":"text","text":"..."},{"type":"tool_use","name":"Read",...}]}}
@@ -176,7 +191,7 @@ fn extract_log_display_message(content: &str) -> Option<String> {
                     
                     return match detail {
                         Some(d) => {
-                            let d_short = if d.len() > 60 { &d[..60] } else { d };
+                            let d_short = truncate_to_char_boundary(d, 60);
                             Some(format!("{}: {}", tool_name, d_short))
                         }
                         None => Some(format!("Using {}", tool_name)),
