@@ -42,7 +42,7 @@ export function Modal({ open, onOpenChange, title, description, children, size =
           }}
           className={cn(
             'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
-            'w-full rounded-2xl glass-intense p-6 shadow-2xl',
+            'w-full max-h-[85vh] overflow-y-auto rounded-2xl glass-intense p-6 shadow-2xl',
             'focus:outline-none',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',

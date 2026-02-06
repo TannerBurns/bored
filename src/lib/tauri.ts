@@ -359,11 +359,12 @@ export async function getConversationMessages(specId: string): Promise<Conversat
 
 export async function sendConversationMessage(
   specId: string,
-  content: string
+  content: string,
+  timeoutMinutes?: number
 ): Promise<ConversationMessage> {
-  return invoke('send_conversation_message', { specId, content });
+  return invoke('send_conversation_message', { specId, content, timeoutMinutes });
 }
 
-export async function startConversation(specId: string): Promise<ConversationMessage> {
-  return invoke('start_conversation', { specId });
+export async function startConversation(specId: string, timeoutMinutes?: number): Promise<ConversationMessage> {
+  return invoke('start_conversation', { specId, timeoutMinutes });
 }

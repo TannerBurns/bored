@@ -29,6 +29,7 @@ pub async fn get_conversation_messages(
 pub async fn send_conversation_message(
     spec_id: String,
     content: String,
+    timeout_minutes: Option<u32>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_url: State<'_, String>,
@@ -140,7 +141,7 @@ pub async fn send_conversation_message(
         claude_api_config,
         agent_kind,
         model: spec.model.clone(),
-        timeout_secs: 120,
+        timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
 
     let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
@@ -219,10 +220,25 @@ pub async fn send_conversation_message(
         }
         Err(e) => {
             tracing::error!("Brainstorm agent error: {}", e);
-            let _ = db.create_conversation_message(&CreateConversationMessage {
+            let error_content = format!("Error: {}", e);
+            let error_msg = db.create_conversation_message(&CreateConversationMessage {
                 spec_id: spec_id.clone(),
                 role: ConversationRole::System,
-                content: format!("Error: {}", e),
+                content: error_content.clone(),
+            });
+            // Emit SSE so the frontend sees the error in real-time
+            if let Ok(msg) = &error_msg {
+                let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+                    spec_id: spec_id.clone(),
+                    message_id: msg.id.clone(),
+                    role: "system".to_string(),
+                    content: error_content,
+                });
+            }
+            // Signal conversation complete to clear thinking state
+            let _ = event_tx.send(LiveEvent::ConversationComplete {
+                spec_id: spec_id.clone(),
+                structured_spec: serde_json::Value::Null,
             });
         }
     }
@@ -234,6 +250,7 @@ pub async fn send_conversation_message(
 #[tauri::command]
 pub async fn start_conversation(
     spec_id: String,
+    timeout_minutes: Option<u32>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_url: State<'_, String>,
@@ -286,7 +303,7 @@ pub async fn start_conversation(
         claude_api_config,
         agent_kind: AgentKind::Claude,
         model: spec.model.clone(),
-        timeout_secs: 120,
+        timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
 
     let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
@@ -299,10 +316,25 @@ pub async fn start_conversation(
         Ok(_) => {}
         Err(e) => {
             tracing::error!("Failed to start conversation: {}", e);
-            let _ = db.create_conversation_message(&CreateConversationMessage {
+            let error_content = format!("Error starting conversation: {}", e);
+            let error_msg = db.create_conversation_message(&CreateConversationMessage {
                 spec_id: spec_id.clone(),
                 role: ConversationRole::System,
-                content: format!("Error starting conversation: {}", e),
+                content: error_content.clone(),
+            });
+            // Emit SSE so the frontend sees the error in real-time
+            if let Ok(msg) = &error_msg {
+                let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+                    spec_id: spec_id.clone(),
+                    message_id: msg.id.clone(),
+                    role: "system".to_string(),
+                    content: error_content,
+                });
+            }
+            // Signal conversation complete to clear thinking state
+            let _ = event_tx.send(LiveEvent::ConversationComplete {
+                spec_id: spec_id.clone(),
+                structured_spec: serde_json::Value::Null,
             });
         }
     }

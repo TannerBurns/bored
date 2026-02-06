@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSpecStore } from '../../stores/specStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Button } from '../common/Button';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { ConversationView } from './ConversationView';
 import { VersionsList } from './VersionsList';
 import { logger } from '../../lib/logger';
@@ -109,6 +110,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
   const version = spec.latestVersion;
   const status = version?.status ?? 'conversing';
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -164,11 +166,11 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
-  const handleDelete = async () => {
-    const message = 'Are you sure you want to delete this spec? This cannot be undone.';
-    
-    if (!confirm(message)) return;
-    
+  const handleDeleteClick = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteConfirm = async () => {
     setIsDeleting(true);
     try {
       await deleteSpec(spec.id);
@@ -221,7 +223,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
             </Button>
           )}
           <Button 
-            onClick={handleDelete} 
+            onClick={handleDeleteClick} 
             variant="danger" 
             disabled={isDeleting || isProcessing}
           >
@@ -291,6 +293,17 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title="Delete Spec"
+        message="Are you sure you want to delete this spec? This cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

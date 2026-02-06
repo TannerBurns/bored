@@ -140,19 +140,25 @@ function ThinkingBlock({ logs }: ThinkingBlockProps) {
             </div>
           </div>
           
-          {/* Streaming logs content */}
-          <div className="px-3 py-2.5 font-mono text-xs text-board-text-muted/70 leading-relaxed max-h-32 overflow-y-auto">
+          {/* Streaming logs content - rolling visual effect, no scroll */}
+          <div className="px-3 py-2.5 font-mono text-xs leading-relaxed overflow-hidden">
             {logs.length > 0 ? (
-              <div className="space-y-1">
-                {logs.map((log, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-purple-400/60 select-none">›</span>
-                    <span className={i === logs.length - 1 ? 'animate-pulse' : ''}>{log}</span>
-                  </div>
-                ))}
+              <div className="space-y-0.5">
+                {logs.map((log, i) => {
+                  // Fade older lines: newest is full opacity, oldest fades out
+                  const age = logs.length - 1 - i;
+                  const opacity = age >= 6 ? 'opacity-15' : age >= 4 ? 'opacity-25' : age >= 2 ? 'opacity-40' : age >= 1 ? 'opacity-60' : 'opacity-80';
+                  const isLatest = i === logs.length - 1;
+                  return (
+                    <div key={i} className={`flex items-start gap-2 transition-opacity duration-300 ${isLatest ? 'opacity-100' : opacity}`}>
+                      <span className="text-purple-400/60 select-none">›</span>
+                      <span className={`truncate ${isLatest ? 'animate-pulse text-board-text-muted/80' : 'text-board-text-muted/50'}`}>{log}</span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-board-text-muted/70">
                 <span className="animate-pulse">Exploring codebase and formulating response</span>
                 <span className="inline-flex gap-0.5">
                   <span className="w-1 h-1 bg-board-text-muted/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSpecStore } from '../../stores/specStore';
 import { useBoardStore } from '../../stores/boardStore';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { cn } from '../../lib/utils';
 import type { SpecWithVersion } from '../../types';
 
@@ -38,6 +39,7 @@ export function SpecList({ onSelect }: SpecListProps) {
   const { specs, currentSpec, isLoading, deleteSpec } = useSpecStore();
   const { boards } = useBoardStore();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [specToDelete, setSpecToDelete] = useState<SpecWithVersion | null>(null);
   
   // Helper to get board name by ID
   const getBoardName = (boardId: string) => {
@@ -45,20 +47,22 @@ export function SpecList({ onSelect }: SpecListProps) {
     return board?.name || 'Unknown Board';
   };
 
-  const handleDelete = async (e: React.MouseEvent, spec: SpecWithVersion) => {
+  const handleDeleteClick = (e: React.MouseEvent, spec: SpecWithVersion) => {
     e.stopPropagation(); // Prevent selecting the spec
+    setSpecToDelete(spec);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!specToDelete) return;
     
-    if (!confirm(`Delete spec "${spec.name}"? This cannot be undone.`)) {
-      return;
-    }
-    
-    setDeletingId(spec.id);
+    setDeletingId(specToDelete.id);
     try {
-      await deleteSpec(spec.id);
+      await deleteSpec(specToDelete.id);
     } catch (err) {
       console.error('Failed to delete spec:', err);
     } finally {
       setDeletingId(null);
+      setSpecToDelete(null);
     }
   };
 
@@ -120,7 +124,7 @@ export function SpecList({ onSelect }: SpecListProps) {
                 {statusLabels[spec.latestVersion?.status ?? 'conversing'] || spec.latestVersion?.status || 'conversing'}
               </span>
               <button
-                onClick={(e) => handleDelete(e, spec)}
+                onClick={(e) => handleDeleteClick(e, spec)}
                 disabled={deletingId === spec.id}
                 className={cn(
                   'p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100',
@@ -160,6 +164,17 @@ export function SpecList({ onSelect }: SpecListProps) {
           )}
         </button>
       ))}
+
+      <ConfirmModal
+        open={!!specToDelete}
+        onOpenChange={(open) => { if (!open) setSpecToDelete(null); }}
+        title="Delete Spec"
+        message={`Delete spec "${specToDelete?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setSpecToDelete(null)}
+      />
     </div>
   );
 }

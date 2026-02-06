@@ -52,7 +52,7 @@ export const useSettingsStore = create<SettingsState>()(
       plannerAutoApprove: false,
       plannerModel: 'opus',
       plannerMaxExplorations: 10,
-      plannerTimeoutMinutes: 5,
+      plannerTimeoutMinutes: 10,
       plannerMaxRetries: 2,
       
       // Workflow stage defaults
