@@ -12,6 +12,37 @@ use super::git::{
 };
 use super::manage::{force_remove_stale_worktree, is_our_worktree};
 
+/// If the fetch succeeded, resolve the remote default branch and append it as
+/// a start-point to `args`. Logs the outcome in all cases.
+fn maybe_append_remote_start_point(
+    args: &mut Vec<String>,
+    repo_root: &Path,
+    branch_name: &str,
+    fetch_succeeded: bool,
+) {
+    if !fetch_succeeded {
+        tracing::warn!(
+            "Fetch failed, creating branch {} from HEAD (remote refs may be stale)",
+            branch_name
+        );
+        return;
+    }
+
+    if let Some(remote_default) = resolve_remote_default_branch(repo_root) {
+        tracing::info!(
+            "Creating branch {} from remote default branch {}",
+            branch_name,
+            remote_default
+        );
+        args.push(remote_default);
+    } else {
+        tracing::warn!(
+            "Could not determine remote default branch, creating branch {} from HEAD",
+            branch_name
+        );
+    }
+}
+
 /// Check if a fetch error should be propagated (SSH auth, network, timeout).
 /// Returns Some(cloned error) if it should be propagated, None if non-fatal.
 fn propagate_fetch_error(e: &WorktreeError) -> Option<WorktreeError> {
@@ -172,8 +203,6 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
     // Create the worktree with a new branch
     // Use -B to force create/reset the branch if it exists
     // If base_branch is specified, create the new branch from that branch (for epic chain branching)
-    // Otherwise, use the remote default branch (e.g., origin/main) as the start-point
-    // so the new branch is based on the latest remote state (after the fetch above)
     let mut args = vec![
         "worktree".to_string(),
         "add".to_string(),
@@ -189,25 +218,12 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
             config.branch_name,
             base_branch
         );
-    } else if fetch_result.is_ok() {
-        // Only use remote ref if the fetch succeeded - otherwise the remote refs may be stale
-        if let Some(remote_default) = resolve_remote_default_branch(&repo_root) {
-            args.push(remote_default.clone());
-            tracing::info!(
-                "Creating branch {} from remote default branch {}",
-                config.branch_name,
-                remote_default
-            );
-        } else {
-            tracing::warn!(
-                "Could not determine remote default branch, creating branch {} from HEAD",
-                config.branch_name
-            );
-        }
     } else {
-        tracing::warn!(
-            "Fetch failed, creating branch {} from HEAD (remote refs may be stale)",
-            config.branch_name
+        maybe_append_remote_start_point(
+            &mut args,
+            &repo_root,
+            &config.branch_name,
+            fetch_result.is_ok(),
         );
     }
 
@@ -662,8 +678,6 @@ pub fn create_worktree_with_existing_branch(
             }
         } else {
             // Branch doesn't exist anywhere - create it fresh
-            // Use the remote default branch as start-point so the new branch
-            // is based on the latest remote state (after the fetch above)
             let mut fresh_args = vec![
                 "worktree".to_string(),
                 "add".to_string(),
@@ -672,26 +686,12 @@ pub fn create_worktree_with_existing_branch(
                 worktree_path.to_string_lossy().to_string(),
             ];
 
-            if fetch_result.is_ok() {
-                if let Some(remote_default) = resolve_remote_default_branch(&repo_root) {
-                    fresh_args.push(remote_default.clone());
-                    tracing::info!(
-                        "Creating fresh branch {} from remote default branch {}",
-                        branch_name,
-                        remote_default
-                    );
-                } else {
-                    tracing::warn!(
-                        "Could not determine remote default branch, creating fresh branch {} from HEAD",
-                        branch_name
-                    );
-                }
-            } else {
-                tracing::warn!(
-                    "Fetch failed, creating fresh branch {} from HEAD (remote refs may be stale)",
-                    branch_name
-                );
-            }
+            maybe_append_remote_start_point(
+                &mut fresh_args,
+                &repo_root,
+                branch_name,
+                fetch_result.is_ok(),
+            );
 
             let output = git_command()
                 .args(&fresh_args)

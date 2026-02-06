@@ -329,13 +329,9 @@ pub fn extract_worktree_path_from_error(stderr: &str) -> Option<String> {
 
 /// Resolve the remote default branch ref (e.g., `origin/main` or `origin/master`).
 ///
-/// Strategy:
-/// 1. Try `git symbolic-ref refs/remotes/origin/HEAD` (handles non-standard default branches)
-/// 2. Fall back to checking if `origin/main` exists
-/// 3. Fall back to checking if `origin/master` exists
-/// 4. Return `None` if no remote default can be determined (e.g., no remote configured)
+/// Checks `origin/HEAD` symbolic ref first, then falls back to `origin/main` and
+/// `origin/master`. Returns `None` if no remote default can be determined.
 pub fn resolve_remote_default_branch(repo_path: &Path) -> Option<String> {
-    // Try symbolic-ref first - this respects whatever the remote's default branch is
     let symbolic_output = git_command()
         .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
         .current_dir(repo_path)
@@ -355,7 +351,6 @@ pub fn resolve_remote_default_branch(repo_path: &Path) -> Option<String> {
         }
     }
 
-    // Fall back to checking common default branch names
     for candidate in &["origin/main", "origin/master"] {
         let verify_output = git_command()
             .args(["rev-parse", "--verify", candidate])

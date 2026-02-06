@@ -55,10 +55,8 @@ pub async fn send_conversation_message(
         // Create a new version for the continued conversation
         version = db.create_new_spec_version(&spec_id).map_err(|e| e.to_string())?;
         
-        // Reset spec.user_input to the original request, stripping any refined
-        // requirements/decisions from the previous version's brainstorm completion.
-        // Without this, version 2+ would inherit version 1's refined requirements
-        // instead of generating its own from the new conversation.
+        // Strip refined requirements appended by the previous version's brainstorm
+        // so version 2+ generates fresh ones from the new conversation
         if let Some(sep_idx) = spec.user_input.find("\n\n---\n") {
             let original_input = spec.user_input[..sep_idx].to_string();
             db.update_spec(

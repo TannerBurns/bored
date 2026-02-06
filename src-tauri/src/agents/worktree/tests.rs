@@ -602,3 +602,224 @@ fn test_create_initial_commit_with_existing_files() {
 
     std::fs::remove_dir_all(&temp_dir).ok();
 }
+
+// --- resolve_remote_default_branch tests ---
+
+/// Helper: initialize a git repo at `path` with one commit.
+fn init_repo_with_commit(path: &std::path::Path) {
+    std::fs::create_dir_all(path).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    std::fs::write(path.join("README.md"), "test").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(path)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(path)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .unwrap();
+}
+
+#[test]
+fn test_resolve_remote_default_branch_no_remote() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("resolve_no_remote_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let result = git::resolve_remote_default_branch(&temp_dir);
+    assert_eq!(result, None);
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_resolve_remote_default_branch_nonexistent_path() {
+    let path = std::env::temp_dir().join(format!("nonexistent_{}", uuid::Uuid::new_v4()));
+    let result = git::resolve_remote_default_branch(&path);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_resolve_remote_default_branch_falls_back_to_rev_parse() {
+    let base =
+        std::env::temp_dir().join(format!("resolve_revparse_{}", uuid::Uuid::new_v4()));
+    let remote_dir = base.join("remote");
+    let local_dir = base.join("local");
+
+    // Create "remote" repo with a commit
+    init_repo_with_commit(&remote_dir);
+
+    // Create local repo, add remote, fetch (no symbolic-ref is set by fetch)
+    std::fs::create_dir_all(&local_dir).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["remote", "add", "origin", remote_dir.to_str().unwrap()])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["fetch", "origin"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    let result = git::resolve_remote_default_branch(&local_dir);
+    assert!(result.is_some(), "Expected Some, got None");
+    let branch = result.unwrap();
+    assert!(
+        branch == "origin/main" || branch == "origin/master",
+        "Expected origin/main or origin/master, got {}",
+        branch
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn test_resolve_remote_default_branch_via_symbolic_ref() {
+    let base =
+        std::env::temp_dir().join(format!("resolve_symref_{}", uuid::Uuid::new_v4()));
+    let remote_dir = base.join("remote");
+    let local_dir = base.join("local");
+
+    init_repo_with_commit(&remote_dir);
+
+    std::fs::create_dir_all(&local_dir).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["remote", "add", "origin", remote_dir.to_str().unwrap()])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["fetch", "origin"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    // Discover what remote branch was fetched
+    let branch_output = std::process::Command::new("git")
+        .args(["branch", "-r", "--format=%(refname:short)"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    let remote_branch = String::from_utf8_lossy(&branch_output.stdout)
+        .lines()
+        .find(|l| l.starts_with("origin/") && !l.contains("HEAD"))
+        .unwrap()
+        .to_string();
+
+    // Manually set symbolic-ref (git fetch does not set this; git clone does)
+    std::process::Command::new("git")
+        .args([
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            &format!("refs/remotes/{}", remote_branch),
+        ])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    let result = git::resolve_remote_default_branch(&local_dir);
+    assert_eq!(result, Some(remote_branch));
+
+    std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn test_resolve_remote_default_branch_custom_branch_via_symbolic_ref() {
+    let base =
+        std::env::temp_dir().join(format!("resolve_custom_{}", uuid::Uuid::new_v4()));
+    let remote_dir = base.join("remote");
+    let local_dir = base.join("local");
+
+    // Create remote with a "develop" branch
+    std::fs::create_dir_all(&remote_dir).unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "develop"])
+        .current_dir(&remote_dir)
+        .output()
+        .unwrap();
+    std::fs::write(remote_dir.join("README.md"), "test").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(&remote_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(&remote_dir)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .unwrap();
+
+    // Create local repo, add remote, fetch
+    std::fs::create_dir_all(&local_dir).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["remote", "add", "origin", remote_dir.to_str().unwrap()])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["fetch", "origin"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    // Set symbolic-ref to origin/develop
+    std::process::Command::new("git")
+        .args([
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/develop",
+        ])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    // Should resolve via symbolic-ref to origin/develop (not main/master)
+    let result = git::resolve_remote_default_branch(&local_dir);
+    assert_eq!(result, Some("origin/develop".to_string()));
+
+    // Without symbolic-ref, rev-parse fallback would NOT find origin/main or origin/master
+    // since the remote only has "develop". Verify by removing symbolic-ref.
+    std::process::Command::new("git")
+        .args(["symbolic-ref", "--delete", "refs/remotes/origin/HEAD"])
+        .current_dir(&local_dir)
+        .output()
+        .unwrap();
+
+    let fallback_result = git::resolve_remote_default_branch(&local_dir);
+    assert_eq!(
+        fallback_result, None,
+        "Should return None when only non-standard branch exists and no symbolic-ref"
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}
