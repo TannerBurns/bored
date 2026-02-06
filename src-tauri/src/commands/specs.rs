@@ -10,6 +10,7 @@ use crate::agents::planner::{PlannerAgent, PlannerConfig};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::ApiConnState;
 use crate::db::{
     CreateSpec, Database, Exploration, Spec, SpecProgress, SpecVersion, SpecVersionStatus,
     SpecWithVersion, UpdateSpec,
@@ -416,8 +417,7 @@ pub async fn start_planner(
     input: StartPlannerInput,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
+    api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<String, String> {
     tracing::info!("Starting planner for spec {}", input.spec_id);
@@ -447,8 +447,8 @@ pub async fn start_planner(
         model: input.model.or(spec.model),
         agent_kind,
         repo_path: PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
         claude_api_config,
         timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(300),
         max_retries: input.max_retries.unwrap_or(2),
@@ -472,8 +472,7 @@ pub async fn execute_plan(
     spec_id: String,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
+    api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<Vec<String>, String> {
     tracing::info!("Executing plan for spec {}", spec_id);
@@ -495,8 +494,8 @@ pub async fn execute_plan(
         model: None,
         agent_kind: AgentKind::Claude, // Not used for execution
         repo_path: PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
         claude_api_config,
         timeout_secs: 300, // Not used for execution
         max_retries: 0,    // Not used for execution

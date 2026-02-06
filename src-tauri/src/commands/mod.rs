@@ -37,6 +37,15 @@ pub use workers::{
     install_commands_to_user, start_worker, stop_all_workers, stop_worker, validate_worker,
 };
 
+/// API connection state shared across Tauri commands via managed state.
+/// Bundled as a struct because Tauri keys managed state by type —
+/// two bare `String` values would shadow each other.
+#[derive(Debug, Clone)]
+pub struct ApiConnState {
+    pub url: String,
+    pub token: String,
+}
+
 /// API configuration returned to the frontend
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ApiConfigResponse {

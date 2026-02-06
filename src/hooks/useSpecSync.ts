@@ -65,6 +65,7 @@ export function useSpecSync(
     setExploring,
     setPlanning,
     loadSpecTickets,
+    loadVersions,
     addLogEntry,
     clearLogs,
     addConversationMessage,
@@ -143,6 +144,9 @@ export function useSpecSync(
               if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
                 setPlanning(false);
+                // Reload full versions list so VersionsList/VersionDetail
+                // reflect the newly generated plan
+                loadVersions(spec_id);
               }
             } catch (error) {
               logger.error('Failed to refresh spec after plan generated', error);
@@ -259,6 +263,7 @@ export function useSpecSync(
       getSpec,
       loadAllSpecs,
       loadSpecTickets,
+      loadVersions,
       setCurrentSpec,
       setExploring,
       setPlanning,

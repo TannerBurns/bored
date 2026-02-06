@@ -183,10 +183,7 @@ pub fn extract_agent_text(output: &str) -> String {
 /// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     let mut text_parts = Vec::new();
-    // Track the last assistant message text separately.
-    // The stdout contains one JSON line per conversation turn, so intermediate
-    // assistant messages (tool-use narration like "Let me explore...") appear
-    // before the final response. We only want the LAST assistant message.
+    // Only the last assistant message matters; earlier ones are intermediate tool-use narration.
     let mut last_assistant_text: Option<String> = None;
 
     for line in stream_output.lines() {
@@ -223,10 +220,6 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                         }
                     }
                     "assistant" => {
-                        // Assistant message with content array.
-                        // Each line is a complete conversation turn. Only keep
-                        // the last one — earlier turns are intermediate narration
-                        // during tool use, not the final response.
                         if let Some(text) = json
                             .get("message")
                             .and_then(|m| m.get("content"))
@@ -451,10 +444,6 @@ mod tests {
 
     #[test]
     fn extract_text_uses_only_last_assistant_message() {
-        // Simulates a multi-turn conversation where the agent makes tool calls.
-        // Each assistant turn produces a JSON line. Only the LAST assistant
-        // message should be returned (the final response), not the intermediate
-        // narration from tool-use turns.
         let stream_output = concat!(
             r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Let me explore the codebase..."},{"type":"tool_use","id":"toolu_1","name":"read_file"}]}}"#, "\n",
             r#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","content":"file contents"}]}}"#, "\n",
@@ -471,7 +460,6 @@ mod tests {
 
     #[test]
     fn extract_text_single_assistant_message_still_works() {
-        // A single assistant message (no tool use) should still be extracted
         let stream_output =
             r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Direct response"}]}}"#;
         let result = extract_text_from_stream_json(stream_output);
@@ -480,8 +468,6 @@ mod tests {
 
     #[test]
     fn extract_text_stream_events_preferred_over_assistant() {
-        // If stream_event deltas are present, they should be used
-        // (even if assistant messages are also in the output)
         let stream_output = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Old message"}]}}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Streamed response"}}}
 "#;

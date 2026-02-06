@@ -95,6 +95,7 @@ export function GeneralSettings() {
     downloadAndInstall,
     handleRestart,
     undoDismiss,
+    reset,
   } = useUpdater();
 
   useEffect(() => {
@@ -404,9 +405,18 @@ export function GeneralSettings() {
             )}
 
             {updateState.status === 'no-update' && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-status-success">
-                <CheckCircleIcon className="w-4 h-4" />
-                Up to date
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-status-success">
+                  <CheckCircleIcon className="w-4 h-4" />
+                  Up to date
+                </div>
+                <button
+                  onClick={() => { reset(); checkForUpdates(); }}
+                  className="px-2 py-1 text-xs glass rounded text-board-text hover:glass-intense transition-all"
+                  title="Check again"
+                >
+                  <RefreshIcon className="w-3.5 h-3.5" />
+                </button>
               </div>
             )}
 

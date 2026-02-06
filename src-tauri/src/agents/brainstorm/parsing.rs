@@ -5,31 +5,20 @@ use crate::db::StructuredSpec;
 use super::config::{BrainstormError, BrainstormResponse};
 
 /// Parse an agent response into a BrainstormResponse.
-/// 
-/// Supports two formats:
-/// 1. **Structured JSON** (preferred): The response contains a JSON block with
-///    `spec_complete`, `observations`, `questions`, and optionally `structured_spec`.
-/// 2. **Legacy markdown**: The response uses `## Observations` / `## Questions` headers
-///    with an optional ```json completion block.
+/// Tries structured JSON first, falls back to legacy markdown headers.
 pub fn parse_response(response: &str) -> Result<BrainstormResponse, BrainstormError> {
-    // Try structured JSON parsing first (new format)
     if let Some(result) = try_parse_structured_json(response) {
         return result;
     }
 
-    // Fall back to legacy markdown + JSON fence parsing
     parse_legacy_response(response)
 }
 
 /// Try to parse the response as our structured JSON format.
 /// Returns None if no structured JSON was found, Some(result) if parsed.
 fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse, BrainstormError>> {
-    // Extract JSON from code fence or raw JSON
     let json_str = extract_json_block(response)?;
-    
     let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
-    
-    // Must have spec_complete field to be our structured format
     let is_complete = parsed.get("spec_complete")?.as_bool()?;
     
     let observations = parsed.get("observations")
@@ -38,7 +27,6 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
         .to_string();
     
     if is_complete {
-        // Completion: extract structured_spec
         let spec_value = match parsed.get("structured_spec") {
             Some(v) => v,
             None => return Some(Err(BrainstormError::ParseError(
@@ -52,24 +40,20 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             ))),
         };
         
-        // Save as structured JSON so the frontend can render directly
         let message = serde_json::json!({
             "observations": observations,
         }).to_string();
-        
-        return Some(Ok(BrainstormResponse {
+
+        Some(Ok(BrainstormResponse {
             message,
             is_complete: true,
             has_questions: false,
             structured_spec: Some(structured_spec),
-        }));
+        }))
     } else {
-        // Not complete: observations and questions are markdown strings
         let questions = extract_questions_text(parsed.get("questions"));
         let has_questions = !questions.is_empty();
-        
-        // Save as structured JSON so the frontend can render directly
-        // without needing to re-parse ## headers
+
         let message = serde_json::json!({
             "observations": observations,
             "questions": questions,
@@ -92,7 +76,6 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
         None => return String::new(),
     };
     
-    // Primary: markdown string (new format)
     if let Some(s) = value.as_str() {
         let trimmed = s.trim();
         if !trimmed.is_empty() {
@@ -128,7 +111,6 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
 
 /// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
 fn extract_json_block(response: &str) -> Option<String> {
-    // Try code-fenced JSON first
     if let Some(fence_start) = response.find("```json") {
         let content_start = fence_start + 7;
         if let Some(fence_end) = response[content_start..].find("```") {
@@ -139,7 +121,6 @@ fn extract_json_block(response: &str) -> Option<String> {
         }
     }
     
-    // Try raw JSON with spec_complete
     if let Some(json_start) = response.find("{\"spec_complete\"") {
         let mut depth = 0;
         for (i, c) in response[json_start..].char_indices() {
@@ -197,11 +178,8 @@ pub fn response_has_questions(response: &str) -> bool {
 mod tests {
     use super::*;
 
-    // === New structured JSON format tests ===
-
     #[test]
     fn parse_structured_json_with_markdown_questions() {
-        // The new format: questions is a markdown string, rendered as-is
         let response_text = r#"```json
 {
   "spec_complete": false,
@@ -213,7 +191,6 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(!response.is_complete);
         assert!(response.has_questions);
-        // Message is now JSON with observations and questions as separate fields
         let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
         assert!(msg["observations"].as_str().unwrap().contains("JWT auth"));
         assert!(msg["questions"].as_str().unwrap().contains("Which auth provider"));
@@ -222,7 +199,6 @@ mod tests {
 
     #[test]
     fn parse_structured_json_with_questions_array_legacy() {
-        // Legacy array format still works
         let response_text = r#"```json
 {
   "spec_complete": false,
@@ -270,7 +246,6 @@ mod tests {
 
     #[test]
     fn parse_structured_json_short_question_string() {
-        // Regression: short question strings (<=5 chars) must not be silently dropped
         let response_text = r#"```json
 {
   "spec_complete": false,
@@ -396,7 +371,6 @@ mod tests {
 
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
-        // Message is JSON with empty observations
         let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
         assert_eq!(msg["observations"].as_str().unwrap(), "");
     }
@@ -440,8 +414,6 @@ mod tests {
         let spec = response.structured_spec.unwrap();
         assert!(spec.constraints[0].contains("{nested}"));
     }
-
-    // === response_has_questions tests ===
 
     #[test]
     fn response_has_questions_with_questions_section() {
