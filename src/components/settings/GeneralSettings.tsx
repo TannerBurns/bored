@@ -192,9 +192,9 @@ export function GeneralSettings() {
             <input
               type="number"
               min={1}
-              max={10}
+              max={30}
               value={plannerTimeoutMinutes}
-              onChange={(e) => setPlannerTimeoutMinutes(parseInt(e.target.value) || 5)}
+              onChange={(e) => setPlannerTimeoutMinutes(parseInt(e.target.value) || 10)}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
