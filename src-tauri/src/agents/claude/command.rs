@@ -48,6 +48,9 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     args.push("--settings".to_string());
     args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
 
+    args.push("--beta".to_string());
+    args.push("context-1m-2025-08-07".to_string());
+
     args.push("-p".to_string());
     args.push(config.prompt.clone());
 
@@ -90,6 +93,9 @@ pub fn build_command_with_settings(
 
     args.push("--settings".to_string());
     args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
+
+    args.push("--beta".to_string());
+    args.push("context-1m-2025-08-07".to_string());
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -195,6 +201,20 @@ mod tests {
         assert!(
             args.contains(&"claude-opus-4-6".to_string()),
             "Should default to claude-opus-4-6 when no model specified"
+        );
+    }
+
+    #[test]
+    fn build_command_includes_beta_context_flag() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        let beta_index = args
+            .iter()
+            .position(|a| a == "--beta")
+            .expect("--beta flag must be present");
+        assert_eq!(
+            args[beta_index + 1], "context-1m-2025-08-07",
+            "--beta must be followed by context-1m-2025-08-07"
         );
     }
 
