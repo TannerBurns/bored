@@ -542,7 +542,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   // Brainstorm log management
   addBrainstormLog: (message) => {
     set((state) => ({
-      brainstormLogs: [...state.brainstormLogs.slice(-7), message], // Keep last 8 for rolling visual effect
+      brainstormLogs: [...state.brainstormLogs.slice(-3), message], // Keep last 4 for rolling visual effect
     }));
   },
   

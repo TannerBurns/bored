@@ -147,7 +147,7 @@ function ThinkingBlock({ logs }: ThinkingBlockProps) {
                 {logs.map((log, i) => {
                   // Fade older lines: newest is full opacity, oldest fades out
                   const age = logs.length - 1 - i;
-                  const opacity = age >= 6 ? 'opacity-15' : age >= 4 ? 'opacity-25' : age >= 2 ? 'opacity-40' : age >= 1 ? 'opacity-60' : 'opacity-80';
+                  const opacity = age >= 3 ? 'opacity-15' : age >= 2 ? 'opacity-30' : age >= 1 ? 'opacity-55' : 'opacity-80';
                   const isLatest = i === logs.length - 1;
                   return (
                     <div key={i} className={`flex items-start gap-2 transition-opacity duration-300 ${isLatest ? 'opacity-100' : opacity}`}>
