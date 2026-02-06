@@ -45,6 +45,9 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         args.push(map_model_for_claude(model));
     }
 
+    args.push("--settings".to_string());
+    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
+
     args.push("-p".to_string());
     args.push(config.prompt.clone());
 
@@ -84,6 +87,9 @@ pub fn build_command_with_settings(
         args.push("--permission-mode".to_string());
         args.push(mode.clone());
     }
+
+    args.push("--settings".to_string());
+    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
