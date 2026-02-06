@@ -52,7 +52,7 @@ export const useSettingsStore = create<SettingsState>()(
       plannerAutoApprove: false,
       plannerModel: 'opus',
       plannerMaxExplorations: 10,
-      plannerTimeoutMinutes: 5,
+      plannerTimeoutMinutes: 10,
       plannerMaxRetries: 2,
       
       // Workflow stage defaults
@@ -88,13 +88,19 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 1,
+      version: 2,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
-        if (version === 0) {
+        if (version < 1) {
           // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
           if (state.plannerModel === 'default') {
             state.plannerModel = 'opus';
+          }
+        }
+        if (version < 2) {
+          // v1 -> v2: increase default timeout from 5 to 10 minutes
+          if (state.plannerTimeoutMinutes === 5) {
+            state.plannerTimeoutMinutes = 10;
           }
         }
         return state as unknown as SettingsState;

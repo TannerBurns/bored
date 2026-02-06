@@ -9,6 +9,7 @@ use crate::agents::planner::{PlannerAgent, PlannerConfig};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::ApiConnState;
 use crate::db::{
     ConversationMessage, ConversationRole, CreateConversationMessage, Database,
     SpecVersionStatus, StructuredSpec, UpdateSpec, UpdateSpecVersion,
@@ -29,10 +30,10 @@ pub async fn get_conversation_messages(
 pub async fn send_conversation_message(
     spec_id: String,
     content: String,
+    timeout_minutes: Option<u32>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
+    api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<ConversationMessage, String> {
     tracing::info!("Sending conversation message for spec {}", spec_id);
@@ -119,13 +120,13 @@ pub async fn send_conversation_message(
     // Default to Claude for conversation agent
     let agent_kind = AgentKind::Claude;
 
-    // Build plan trigger config for when spec completes (before brainstorm_config takes ownership)
+    // Before brainstorm_config takes ownership of shared values
     let plan_trigger = PlanTriggerConfig {
         spec_id: spec_id.clone(),
-        exploration_context: String::new(), // Will be filled from structured_spec.technical_notes
+        exploration_context: String::new(),
         repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
         claude_api_config: claude_api_config.clone(),
         agent_kind,
         model: spec.model.clone(),
@@ -135,12 +136,12 @@ pub async fn send_conversation_message(
         spec_id: spec_id.clone(),
         user_input: spec.user_input.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
         claude_api_config,
         agent_kind,
         model: spec.model.clone(),
-        timeout_secs: 120,
+        timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
 
     let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
@@ -152,78 +153,26 @@ pub async fn send_conversation_message(
     match brainstorm_agent.process_message(&messages).await {
         Ok(response) => {
             if response.is_complete {
-                // Agent explicitly completed with structured spec
-                let trigger = response.structured_spec.as_ref().map(|s| {
-                    let mut cfg = plan_trigger.clone();
-                    cfg.exploration_context = s.technical_notes.clone().unwrap_or_default();
-                    cfg
-                });
+                let trigger = response.structured_spec.as_ref()
+                    .map(|s| trigger_from_spec(&plan_trigger, s));
                 handle_spec_completion(
-                    &db, &event_tx, &spec_id, &version.id, &spec.user_input, 
+                    &db, &event_tx, &spec_id, &version.id, &spec.user_input,
                     response.structured_spec.as_ref(),
                     trigger,
                 )?;
             } else if !response.has_questions {
-                // Agent has only observations, no questions - auto-complete
-                tracing::info!("Agent has no questions, requesting spec completion for {}", spec_id);
-                
-                // Emit generating spec event
-                let _ = event_tx.send(LiveEvent::BrainstormGeneratingSpec {
-                    spec_id: spec_id.clone(),
+                let ctx = AutoCompleteCtx {
+                    spec_id: &spec_id, version_id: &version.id,
                     version_number: version.version_number,
-                });
-                
-                // Get updated messages including the agent's observations
-                let updated_messages = db
-                    .get_conversation_messages(&spec_id)
-                    .map_err(|e| e.to_string())?;
-                
-                let completion_prompt = "Based on your observations and the conversation so far, you have enough information. \
-                    Please produce the final specification JSON block now:\n\
-                    ```json\n{\n  \"spec_complete\": true,\n  \"structured_spec\": {\n    \
-                    \"requirements\": \"...\",\n    \"decisions\": [...],\n    \
-                    \"constraints\": [...],\n    \"technical_notes\": \"...\"\n  }\n}\n```".to_string();
-                
-                // Create a temporary user message with the completion request
-                let completion_messages: Vec<_> = updated_messages.into_iter()
-                    .chain(std::iter::once(crate::db::ConversationMessage {
-                        id: "completion-request".to_string(),
-                        spec_id: spec_id.clone(),
-                        role: ConversationRole::User,
-                        content: completion_prompt,
-                        created_at: chrono::Utc::now(),
-                    }))
-                    .collect();
-                
-                // Run agent again to get the completion
-                match brainstorm_agent.process_message(&completion_messages).await {
-                    Ok(completion_response) => {
-                        if completion_response.is_complete {
-                            let trigger = completion_response.structured_spec.as_ref().map(|s| {
-                                let mut cfg = plan_trigger.clone();
-                                cfg.exploration_context = s.technical_notes.clone().unwrap_or_default();
-                                cfg
-                            });
-                            handle_spec_completion(
-                                &db, &event_tx, &spec_id, &version.id, &spec.user_input,
-                                completion_response.structured_spec.as_ref(),
-                                trigger,
-                            )?;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to get spec completion: {}", e);
-                    }
-                }
+                    user_input: &spec.user_input, plan_trigger: &plan_trigger,
+                };
+                request_auto_completion(&brainstorm_agent, &db, &event_tx, &ctx).await;
             }
         }
         Err(e) => {
             tracing::error!("Brainstorm agent error: {}", e);
-            let _ = db.create_conversation_message(&CreateConversationMessage {
-                spec_id: spec_id.clone(),
-                role: ConversationRole::System,
-                content: format!("Error: {}", e),
-            });
+            emit_conversation_error(&db, &event_tx, &spec_id, &format!("Error: {}", e));
+            return Err(format!("Brainstorm agent error: {}", e));
         }
     }
 
@@ -234,10 +183,10 @@ pub async fn send_conversation_message(
 #[tauri::command]
 pub async fn start_conversation(
     spec_id: String,
+    timeout_minutes: Option<u32>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_url: State<'_, String>,
-    api_token: State<'_, String>,
+    api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
 ) -> Result<ConversationMessage, String> {
     tracing::info!("Starting conversation for spec {}", spec_id);
@@ -277,16 +226,27 @@ pub async fn start_conversation(
 
     let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
 
+    let plan_trigger = PlanTriggerConfig {
+        spec_id: spec_id.clone(),
+        exploration_context: String::new(),
+        repo_path: std::path::PathBuf::from(&project.path),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
+        claude_api_config: claude_api_config.clone(),
+        agent_kind: AgentKind::Claude,
+        model: spec.model.clone(),
+    };
+
     let brainstorm_config = crate::agents::brainstorm::BrainstormConfig {
         spec_id: spec_id.clone(),
         user_input: spec.user_input.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_url.inner().clone(),
-        api_token: api_token.inner().clone(),
+        api_url: api_conn.url.clone(),
+        api_token: api_conn.token.clone(),
         claude_api_config,
         agent_kind: AgentKind::Claude,
         model: spec.model.clone(),
-        timeout_secs: 120,
+        timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
 
     let brainstorm_agent = crate::agents::brainstorm::BrainstormAgent::new(
@@ -296,14 +256,28 @@ pub async fn start_conversation(
     );
 
     match brainstorm_agent.start_conversation().await {
-        Ok(_) => {}
+        Ok(response) => {
+            if response.is_complete {
+                let trigger = response.structured_spec.as_ref()
+                    .map(|s| trigger_from_spec(&plan_trigger, s));
+                handle_spec_completion(
+                    &db, &event_tx, &spec_id, &version.id, &spec.user_input,
+                    response.structured_spec.as_ref(),
+                    trigger,
+                )?;
+            } else if !response.has_questions {
+                let ctx = AutoCompleteCtx {
+                    spec_id: &spec_id, version_id: &version.id,
+                    version_number: version.version_number,
+                    user_input: &spec.user_input, plan_trigger: &plan_trigger,
+                };
+                request_auto_completion(&brainstorm_agent, &db, &event_tx, &ctx).await;
+            }
+        }
         Err(e) => {
             tracing::error!("Failed to start conversation: {}", e);
-            let _ = db.create_conversation_message(&CreateConversationMessage {
-                spec_id: spec_id.clone(),
-                role: ConversationRole::System,
-                content: format!("Error starting conversation: {}", e),
-            });
+            emit_conversation_error(&db, &event_tx, &spec_id, &format!("Error starting conversation: {}", e));
+            return Err(format!("Failed to start conversation: {}", e));
         }
     }
 
@@ -324,6 +298,111 @@ struct PlanTriggerConfig {
     claude_api_config: Option<ClaudeApiConfig>,
     agent_kind: AgentKind,
     model: Option<String>,
+}
+
+const COMPLETION_PROMPT: &str = "Based on your observations and the conversation so far, you have enough information. \
+    Please produce the final specification JSON block now:\n\
+    ```json\n{\n  \"spec_complete\": true,\n  \"structured_spec\": {\n    \
+    \"requirements\": \"...\",\n    \"decisions\": [...],\n    \
+    \"constraints\": [...],\n    \"technical_notes\": \"...\"\n  }\n}\n```";
+
+/// Create a system error message, emit it via SSE, and signal conversation complete.
+fn emit_conversation_error(
+    db: &Arc<Database>,
+    event_tx: &broadcast::Sender<LiveEvent>,
+    spec_id: &str,
+    error_message: &str,
+) {
+    let error_msg = db.create_conversation_message(&CreateConversationMessage {
+        spec_id: spec_id.to_string(),
+        role: ConversationRole::System,
+        content: error_message.to_string(),
+    });
+    if let Ok(msg) = &error_msg {
+        let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+            spec_id: spec_id.to_string(),
+            message_id: msg.id.clone(),
+            role: "system".to_string(),
+            content: error_message.to_string(),
+        });
+    }
+    let _ = event_tx.send(LiveEvent::ConversationComplete {
+        spec_id: spec_id.to_string(),
+        structured_spec: serde_json::Value::Null,
+    });
+}
+
+fn trigger_from_spec(base: &PlanTriggerConfig, spec: &StructuredSpec) -> PlanTriggerConfig {
+    let mut cfg = base.clone();
+    cfg.exploration_context = spec.technical_notes.clone().unwrap_or_default();
+    cfg
+}
+
+/// Context needed to drive auto-completion after a no-questions response.
+struct AutoCompleteCtx<'a> {
+    spec_id: &'a str,
+    version_id: &'a str,
+    version_number: i32,
+    user_input: &'a str,
+    plan_trigger: &'a PlanTriggerConfig,
+}
+
+/// When the agent returns only observations (no questions), automatically
+/// request spec completion in a follow-up call.
+async fn request_auto_completion(
+    agent: &crate::agents::brainstorm::BrainstormAgent,
+    db: &Arc<Database>,
+    event_tx: &broadcast::Sender<LiveEvent>,
+    ctx: &AutoCompleteCtx<'_>,
+) {
+    tracing::info!("Agent has no questions, requesting spec completion for {}", ctx.spec_id);
+
+    let _ = event_tx.send(LiveEvent::BrainstormGeneratingSpec {
+        spec_id: ctx.spec_id.to_string(),
+        version_number: ctx.version_number,
+    });
+
+    let messages = match db.get_conversation_messages(ctx.spec_id) {
+        Ok(m) => m,
+        Err(e) => {
+            emit_conversation_error(db, event_tx, ctx.spec_id, &format!("Failed to fetch messages: {}", e));
+            return;
+        }
+    };
+
+    let completion_messages: Vec<_> = messages.into_iter()
+        .chain(std::iter::once(crate::db::ConversationMessage {
+            id: "completion-request".to_string(),
+            spec_id: ctx.spec_id.to_string(),
+            role: ConversationRole::User,
+            content: COMPLETION_PROMPT.to_string(),
+            created_at: chrono::Utc::now(),
+        }))
+        .collect();
+
+    match agent.process_message(&completion_messages).await {
+        Ok(response) => {
+            if response.is_complete {
+                let trigger = response.structured_spec.as_ref()
+                    .map(|s| trigger_from_spec(ctx.plan_trigger, s));
+                let _ = handle_spec_completion(
+                    db, event_tx, ctx.spec_id, ctx.version_id, ctx.user_input,
+                    response.structured_spec.as_ref(),
+                    trigger,
+                );
+            } else {
+                tracing::warn!("Auto-completion response was not complete for spec {}", ctx.spec_id);
+                let _ = event_tx.send(LiveEvent::ConversationComplete {
+                    spec_id: ctx.spec_id.to_string(),
+                    structured_spec: serde_json::Value::Null,
+                });
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to get spec completion: {}", e);
+            emit_conversation_error(db, event_tx, ctx.spec_id, &format!("Failed to generate spec: {}", e));
+        }
+    }
 }
 
 /// Helper function to handle spec completion
@@ -407,7 +486,7 @@ async fn run_plan_generation(
     
     let planner_config = PlannerConfig {
         spec_id: config.spec_id.clone(),
-        max_explorations: 0, // No additional exploration needed
+        max_explorations: 0,
         auto_approve: false,
         model: config.model,
         agent_kind: config.agent_kind,
@@ -421,7 +500,6 @@ async fn run_plan_generation(
     
     let agent = PlannerAgent::with_events(db.clone(), planner_config, event_tx.clone());
     
-    // Run plan generation only (exploration already done)
     match agent.run_plan_only(&config.exploration_context).await {
         Ok(result) => {
             tracing::info!(
@@ -430,16 +508,12 @@ async fn run_plan_generation(
                 result.status
             );
             
-            // Get version number for the system message
             if let Ok(Some(version)) = db.get_latest_spec_version(&config.spec_id) {
-                // Create system message about version creation
                 let _ = db.create_conversation_message(&CreateConversationMessage {
                     spec_id: config.spec_id.clone(),
                     role: ConversationRole::System,
                     content: format!("VERSION_CREATED:{}", version.version_number),
                 });
-                
-                // Emit event for the message
                 let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
                     spec_id: config.spec_id.clone(),
                     message_id: format!("version-{}", version.version_number),
@@ -451,11 +525,22 @@ async fn run_plan_generation(
         Err(e) => {
             tracing::error!("Plan generation failed for spec {}: {}", config.spec_id, e);
             
-            // Create error message in conversation
-            let _ = db.create_conversation_message(&CreateConversationMessage {
+            let error_content = format!("Plan generation failed: {}", e);
+            let error_msg = db.create_conversation_message(&CreateConversationMessage {
                 spec_id: config.spec_id.clone(),
                 role: ConversationRole::System,
-                content: format!("Plan generation failed: {}", e),
+                content: error_content.clone(),
+            });
+            if let Ok(msg) = &error_msg {
+                let _ = event_tx.send(LiveEvent::ConversationMessageAdded {
+                    spec_id: config.spec_id.clone(),
+                    message_id: msg.id.clone(),
+                    role: "system".to_string(),
+                    content: error_content,
+                });
+            }
+            let _ = event_tx.send(LiveEvent::SpecUpdated {
+                spec_id: config.spec_id.clone(),
             });
         }
     }

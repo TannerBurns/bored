@@ -542,7 +542,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   // Brainstorm log management
   addBrainstormLog: (message) => {
     set((state) => ({
-      brainstormLogs: [...state.brainstormLogs.slice(-19), message], // Keep last 20
+      brainstormLogs: [...state.brainstormLogs.slice(-3), message], // Keep last 4 for rolling visual effect
     }));
   },
   
@@ -556,7 +556,23 @@ export const useSpecStore = create<SpecState>((set, get) => ({
 
   // State setters
   setSpecs: (specs) => set({ specs }),
-  setCurrentSpec: (spec) => set({ currentSpec: spec }),
+  setCurrentSpec: (spec) => {
+    const state = get();
+    const updates: Partial<SpecState> = { currentSpec: spec };
+    
+    // Keep selectedVersion and currentVersions in sync when the
+    // latest version data changes (e.g. after plan_generated or spec_updated SSE events).
+    if (spec?.latestVersion && state.selectedVersion) {
+      if (spec.latestVersion.id === state.selectedVersion.id) {
+        updates.selectedVersion = spec.latestVersion;
+        updates.currentVersions = state.currentVersions.map(v =>
+          v.id === spec.latestVersion!.id ? spec.latestVersion! : v
+        );
+      }
+    }
+    
+    set(updates);
+  },
   setLoading: (loading) => set({ isLoading: loading }),
   setExploring: (exploring) => set({ isExploring: exploring }),
   setPlanning: (planning) => set({ isPlanning: planning }),

@@ -5,6 +5,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
+use agent_kanban::commands::ApiConnState;
 use agent_kanban::{api, commands, db, logging};
 
 /// Check if a URL is allowed for navigation within the app
@@ -246,8 +247,7 @@ fn main() {
 
             // Manage shared state for commands that need API/event access
             app.manage(event_tx.clone());
-            app.manage(api_url);
-            app.manage(api_token);
+            app.manage(ApiConnState { url: api_url, token: api_token });
 
             // Start API server with shared event channel
             let db_for_api = database.clone();

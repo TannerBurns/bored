@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ConversationMessage } from '../../types';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useSpecStore } from '../../stores/specStore';
+import { parseAssistantMessage } from './parseAssistantMessage';
 
 interface MessageListProps {
   messages: ConversationMessage[];
@@ -140,19 +141,23 @@ function ThinkingBlock({ logs }: ThinkingBlockProps) {
             </div>
           </div>
           
-          {/* Streaming logs content */}
-          <div className="px-3 py-2.5 font-mono text-xs text-board-text-muted/70 leading-relaxed max-h-32 overflow-y-auto">
+          <div className="px-3 py-2.5 font-mono text-xs leading-relaxed overflow-hidden">
             {logs.length > 0 ? (
-              <div className="space-y-1">
-                {logs.map((log, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-purple-400/60 select-none">›</span>
-                    <span className={i === logs.length - 1 ? 'animate-pulse' : ''}>{log}</span>
-                  </div>
-                ))}
+              <div className="space-y-0.5">
+                {logs.map((log, i) => {
+                  const age = logs.length - 1 - i;
+                  const opacity = age >= 3 ? 'opacity-10' : age >= 2 ? 'opacity-30' : age >= 1 ? 'opacity-50' : 'opacity-80';
+                  const isLatest = i === logs.length - 1;
+                  return (
+                    <div key={i} className={`flex items-start gap-2 transition-opacity duration-300 ${isLatest ? 'opacity-100' : opacity}`}>
+                      <span className="text-purple-400/60 select-none">›</span>
+                      <span className={`truncate ${isLatest ? 'animate-pulse text-board-text-muted/80' : 'text-board-text-muted/50'}`}>{log}</span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-board-text-muted/70">
                 <span className="animate-pulse">Exploring codebase and formulating response</span>
                 <span className="inline-flex gap-0.5">
                   <span className="w-1 h-1 bg-board-text-muted/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -516,91 +521,3 @@ function MessageBubble({ message }: MessageBubbleProps) {
   );
 }
 
-interface ParsedMessage {
-  hasStructure: boolean;
-  observations: string | null;
-  questions: string | null;
-  preamble: string | null;
-}
-
-function parseAssistantMessage(content: string): ParsedMessage {
-  // Find section boundaries - handle either order (Observations first or Questions first)
-  const observationsStart = content.search(/##\s*Observations/i);
-  const questionsStart = content.search(/##\s*Questions/i);
-  
-  let observations: string | null = null;
-  let questions: string | null = null;
-  
-  // Extract observations section
-  if (observationsStart !== -1) {
-    // Find where content starts (after the heading)
-    const headingEnd = content.indexOf('\n', observationsStart);
-    if (headingEnd !== -1) {
-      // Find where this section ends (at next ## heading or end of content)
-      const afterHeading = content.substring(headingEnd + 1);
-      const nextSectionMatch = afterHeading.search(/##\s*(Observations|Questions)/i);
-      
-      if (nextSectionMatch !== -1) {
-        observations = afterHeading.substring(0, nextSectionMatch).trim();
-      } else {
-        // Check for JSON code block which might end the content
-        const jsonBlockStart = afterHeading.search(/```json/i);
-        if (jsonBlockStart !== -1) {
-          observations = afterHeading.substring(0, jsonBlockStart).trim();
-        } else {
-          observations = afterHeading.trim();
-        }
-      }
-    }
-  }
-  
-  // Extract questions section
-  if (questionsStart !== -1) {
-    // Find where content starts (after the heading)
-    const headingEnd = content.indexOf('\n', questionsStart);
-    if (headingEnd !== -1) {
-      // Find where this section ends (at next ## heading or end of content)
-      const afterHeading = content.substring(headingEnd + 1);
-      const nextSectionMatch = afterHeading.search(/##\s*(Observations|Questions)/i);
-      
-      if (nextSectionMatch !== -1) {
-        questions = afterHeading.substring(0, nextSectionMatch).trim();
-      } else {
-        // Check for JSON code block which might end the content
-        const jsonBlockStart = afterHeading.search(/```json/i);
-        if (jsonBlockStart !== -1) {
-          questions = afterHeading.substring(0, jsonBlockStart).trim();
-        } else {
-          questions = afterHeading.trim();
-        }
-      }
-    }
-  }
-  
-  // Check if we found any structure
-  const hasStructure = !!(observations || questions);
-  
-  // Get any content BEFORE the structured sections (preamble)
-  let preamble: string | null = null;
-  if (hasStructure) {
-    // Find where the first ## section starts
-    const firstSectionIndex = Math.min(
-      observationsStart !== -1 ? observationsStart : Infinity,
-      questionsStart !== -1 ? questionsStart : Infinity
-    );
-    if (firstSectionIndex > 0 && firstSectionIndex !== Infinity) {
-      const before = content.substring(0, firstSectionIndex).trim();
-      // Only include preamble if it's meaningful (not just whitespace or very short)
-      if (before.length > 20) {
-        preamble = before;
-      }
-    }
-  }
-  
-  return {
-    hasStructure,
-    observations,
-    questions,
-    preamble,
-  };
-}

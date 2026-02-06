@@ -363,4 +363,31 @@ describe('useSpecStore', () => {
       expect(useSpecStore.getState().error).toBe('Test error');
     });
   });
+
+  describe('addBrainstormLog', () => {
+    it('adds a log message', () => {
+      useSpecStore.getState().addBrainstormLog('first');
+      expect(useSpecStore.getState().brainstormLogs).toEqual(['first']);
+    });
+
+    it('caps logs at 4 entries for rolling visual effect', () => {
+      const store = useSpecStore.getState();
+      store.addBrainstormLog('msg-1');
+      store.addBrainstormLog('msg-2');
+      store.addBrainstormLog('msg-3');
+      store.addBrainstormLog('msg-4');
+      store.addBrainstormLog('msg-5');
+
+      const logs = useSpecStore.getState().brainstormLogs;
+      expect(logs).toHaveLength(4);
+      expect(logs[0]).toBe('msg-2');
+      expect(logs[3]).toBe('msg-5');
+    });
+
+    it('clearBrainstormLogs empties the array', () => {
+      useSpecStore.getState().addBrainstormLog('entry');
+      useSpecStore.getState().clearBrainstormLogs();
+      expect(useSpecStore.getState().brainstormLogs).toEqual([]);
+    });
+  });
 });

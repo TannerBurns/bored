@@ -27,29 +27,34 @@ Explore the repository to understand:
 - Dependencies and tools already in use
 - Any existing similar functionality
 
-### Step 2: Respond with Observations and Questions
-Your response MUST follow this format:
+### Step 2: Respond
+Your FINAL text response MUST be ONLY a JSON code block with two or three fields.
+The `observations` and `questions` values are **markdown strings** — write them exactly as you want them displayed, with full markdown formatting (headings, bullet lists, numbered lists, bold, etc.).
 
-## Observations
-Share what you discovered from exploring the codebase that's relevant to the request:
-- Key architectural patterns you found
-- Existing code/modules that relate to this feature
-- Integration points discovered
-- Potential approaches based on existing patterns
+When you still have questions to ask, respond with:
+```json
+{{
+  "spec_complete": false,
+  "observations": "<markdown string>",
+  "questions": "<markdown string>"
+}}
+```
 
-## Questions
-Ask clarifying questions to refine the spec. Each question should:
-- Be informed by what you found in the codebase
-- Offer multiple-choice options when possible (A, B, C)
-- Focus on scope, integration, and implementation decisions
+Example `observations` value:
+```
+I explored the codebase and found:\n- The auth module is in `src/auth/` using JWT tokens\n- API routes follow RESTful conventions in `src/api/`\n- State management uses Zustand stores
+```
 
-If you have NO questions (you have enough information from your exploration and the user's request is clear), leave the Questions section empty and instead output a completion JSON block.
+Example `questions` value:
+```
+1. Which authentication provider should we integrate?\n   - A) Google OAuth\n   - B) GitHub OAuth\n   - C) Both\n\n2. Should sessions be stateless?\n   - A) Yes, use JWT tokens\n   - B) No, use server-side sessions
+```
 
-### When Complete
-When you have enough information (usually 3-6 exchanges, or immediately if the request is clear and you have no questions), output:
+When you have enough information (usually 3-6 exchanges, or immediately if the request is very clear), respond with:
 ```json
 {{
   "spec_complete": true,
+  "observations": "<markdown string — final summary>",
   "structured_spec": {{
     "requirements": "Clear summary of what needs to be built",
     "decisions": ["Decision 1 based on user input", "Decision 2 from discussion"],
@@ -59,7 +64,9 @@ When you have enough information (usually 3-6 exchanges, or immediately if the r
 }}
 ```
 
-Start by exploring the codebase, then share your observations and ask your first question."#,
+IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
+
+Start by exploring the codebase, then respond with the JSON block."#,
         user_input
     )
 }
@@ -92,36 +99,26 @@ You have access to explore the codebase to inform your responses.
 ## Your Task
 1. Consider the user's latest response
 2. If needed, explore more of the codebase to inform your response
-3. Respond with observations and questions, OR signal completion if you have enough info
+3. Respond with structured JSON — either asking follow-up questions or completing the spec
 
 ## Response Format
-Your response MUST follow this format:
+Your FINAL text response MUST be ONLY a JSON code block with two or three fields.
+The `observations` and `questions` values are **markdown strings** — write them exactly as you want them displayed, with full markdown formatting.
 
-## Observations
-Share any new insights from the user's response or additional codebase exploration:
-- What you learned from the user's answer
-- Any additional code/patterns discovered
-- Updated understanding of requirements
+When you still have questions:
+```json
+{{
+  "spec_complete": false,
+  "observations": "<markdown string with your new insights>",
+  "questions": "<markdown string with numbered questions and options as bullet lists>"
+}}
+```
 
-## Questions
-Ask follow-up questions if needed:
-- Each question should be informed by the conversation and codebase
-- Offer multiple-choice options when possible (A, B, C)
-- Focus on remaining unknowns
-
-If you have NO questions (you have enough information), leave the Questions section empty and output the completion JSON block instead.
-
-### When to Complete
-You have enough information when you understand:
-- What the user wants to build (scope and features)
-- How it fits with existing code (integration points)
-- Key technical decisions (patterns to follow, reuse vs. new code)
-- Any constraints or requirements
-
-When ready to complete, output:
+When you have enough information (you understand scope, integration points, technical decisions, and constraints):
 ```json
 {{
   "spec_complete": true,
+  "observations": "<markdown string — final summary>",
   "structured_spec": {{
     "requirements": "Clear summary of what needs to be built",
     "decisions": ["Decision 1", "Decision 2"],
@@ -130,6 +127,8 @@ When ready to complete, output:
   }}
 }}
 ```
+
+IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
 
 Continue based on the user's latest response."#,
         user_input, conversation_history

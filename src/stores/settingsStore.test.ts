@@ -38,7 +38,7 @@ describe('useSettingsStore', () => {
         plannerAutoApprove: false,
         plannerModel: 'opus',
         plannerMaxExplorations: 10,
-        plannerTimeoutMinutes: 5,
+        plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
         codeReviewMaxIterations: 3,
         stageTimeoutMinutes: 30,
@@ -51,7 +51,7 @@ describe('useSettingsStore', () => {
       expect(state.plannerAutoApprove).toBe(false);
       expect(state.plannerModel).toBe('opus');
       expect(state.plannerMaxExplorations).toBe(10);
-      expect(state.plannerTimeoutMinutes).toBe(5);
+      expect(state.plannerTimeoutMinutes).toBe(10);
       expect(state.plannerMaxRetries).toBe(2);
       expect(state.codeReviewMaxIterations).toBe(3);
       expect(state.stageTimeoutMinutes).toBe(30);
@@ -135,6 +135,37 @@ describe('useSettingsStore', () => {
         0
       ) as unknown as Record<string, unknown>;
       expect(migratedSonnet.plannerModel).toBe('sonnet');
+    });
+
+    it('migrates plannerTimeoutMinutes from 5 to 10 in v1->v2', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerTimeoutMinutes: 5 } as unknown,
+        1
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerTimeoutMinutes).toBe(10);
+    });
+
+    it('preserves custom plannerTimeoutMinutes during v1->v2 migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerTimeoutMinutes: 8 } as unknown,
+        1
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerTimeoutMinutes).toBe(8);
+    });
+
+    it('applies both migrations when upgrading from v0', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus');
+      expect(migrated.plannerTimeoutMinutes).toBe(10);
     });
   });
 

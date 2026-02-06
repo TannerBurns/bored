@@ -4,6 +4,7 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { sendConversationMessage, startConversation, getConversationMessages } from '../../lib/tauri';
 import { useSpecStore } from '../../stores/specStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface ConversationViewProps {
   spec: SpecWithVersion;
@@ -14,6 +15,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
+  const { plannerTimeoutMinutes } = useSettingsStore();
   
   const { 
     conversationMessages, 
@@ -54,7 +56,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
           setAgentThinking(true);
           
           try {
-            await startConversation(spec.id);
+            await startConversation(spec.id, plannerTimeoutMinutes);
             // Messages will arrive via SSE, but also fetch to be safe
             const newMessages = await getConversationMessages(spec.id);
             setConversationMessages(newMessages);
@@ -84,7 +86,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
     try {
       // Don't add optimistically - SSE will add the message
       // This prevents duplicates from optimistic + SSE + fetch
-      await sendConversationMessage(spec.id, content.trim());
+      await sendConversationMessage(spec.id, content.trim(), plannerTimeoutMinutes);
       // SSE will handle adding the messages in real-time
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
@@ -104,9 +106,9 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
     }
   }, [status, onComplete]);
 
-  // Filter out system messages like "Starting brainstorming session..."
+  // Filter out the initial system message (but keep error/version messages visible)
   const filteredMessages = conversationMessages.filter(
-    m => !(m.role === 'system' && m.content.toLowerCase().includes('starting'))
+    m => !(m.role === 'system' && m.content === 'Starting brainstorming session...')
   );
 
   // Parse user input to get just the original request (before any refinement separator)
