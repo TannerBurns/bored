@@ -48,7 +48,7 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     args.push("--settings".to_string());
     args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
 
-    args.push("--beta".to_string());
+    args.push("--betas".to_string());
     args.push("context-1m-2025-08-07".to_string());
 
     args.push("-p".to_string());
@@ -94,7 +94,7 @@ pub fn build_command_with_settings(
     args.push("--settings".to_string());
     args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
 
-    args.push("--beta".to_string());
+    args.push("--betas".to_string());
     args.push("context-1m-2025-08-07".to_string());
 
     args.push("-p".to_string());
@@ -210,7 +210,7 @@ mod tests {
         let (_, args) = build_command(&config);
         let beta_index = args
             .iter()
-            .position(|a| a == "--beta")
+            .position(|a| a == "--betas")
             .expect("--beta flag must be present");
         assert_eq!(
             args[beta_index + 1], "context-1m-2025-08-07",
