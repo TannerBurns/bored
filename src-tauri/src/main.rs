@@ -398,6 +398,8 @@ fn main() {
             commands::specs::halt_spec_work,
             commands::specs::reset_plan_execution,
             commands::specs::get_spec_eta,
+            commands::specs::get_spec_cost,
+            commands::specs::get_spec_version_cost,
             commands::specs::get_version_progress,
             // Spec version commands
             commands::specs::get_spec_versions,

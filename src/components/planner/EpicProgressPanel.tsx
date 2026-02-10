@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
-import type { SpecProgress, SpecEta } from '../../types';
+import type { SpecProgress, SpecEta, AggregatedCost } from '../../types';
+import { getSpecCost } from '../../lib/tauri';
+import { CostBadge } from '../common/CostBadge';
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) {
@@ -28,6 +30,7 @@ interface EpicProgressPanelProps {
 export function EpicProgressPanel({ progress, specId, isWorking, isPaused = false, isCompleted }: EpicProgressPanelProps) {
   const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set());
   const [eta, setEta] = useState<SpecEta | null>(null);
+  const [specCost, setSpecCost] = useState<AggregatedCost | null>(null);
   
   // Load ETA when working
   useEffect(() => {
@@ -54,6 +57,31 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
       return () => clearInterval(interval);
     }
   }, [specId, isWorking, isPaused]);
+  
+  // Load spec cost - poll while working for real-time updates
+  useEffect(() => {
+    if (!specId) {
+      setSpecCost(null);
+      return;
+    }
+    
+    const loadCost = async () => {
+      try {
+        const result = await getSpecCost(specId);
+        setSpecCost(result);
+      } catch {
+        // Cost is informational
+      }
+    };
+    
+    loadCost();
+    
+    // Poll for cost updates while working (every 15s for more responsive updates)
+    if (isWorking) {
+      const interval = setInterval(loadCost, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [specId, isWorking, isPaused, isCompleted]);
   
   const toggleEpic = (epicId: string) => {
     setExpandedEpics(prev => {
@@ -184,6 +212,32 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
           )}
         </div>
         
+        {/* Cost Display */}
+        {specCost && specCost.runCount > 0 && (
+          <div className="mt-4 pt-4 border-t border-board-border">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-board-text-muted">Total spec cost:</span>
+                <CostBadge cost={specCost} size="md" showTokens />
+              </div>
+              <span className="text-xs text-board-text-muted">
+                {specCost.runCount} run{specCost.runCount !== 1 ? 's' : ''}
+                {specCost.estimatedCount > 0 && ` (${specCost.estimatedCount} estimated)`}
+              </span>
+            </div>
+            {/* Per-model breakdown if multiple models used */}
+            {Object.keys(specCost.modelTotals).length > 1 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {Object.entries(specCost.modelTotals).map(([model, data]) => (
+                  <span key={model} className="text-xs glass-subtle px-2 py-1 rounded-lg text-board-text-secondary">
+                    {model}: ${data.costUsd < 0.01 ? data.costUsd.toFixed(4) : data.costUsd < 1 ? data.costUsd.toFixed(3) : data.costUsd.toFixed(2)}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ETA Display */}
         {eta && (isWorking || isPaused) && (
           <div className="mt-4 pt-4 border-t border-board-border">

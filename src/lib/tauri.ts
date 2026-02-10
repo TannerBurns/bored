@@ -388,3 +388,11 @@ export async function getBoardCostSummary(boardId: string): Promise<AggregatedCo
 export async function backfillRunCosts(): Promise<number> {
   return invoke('backfill_run_costs');
 }
+
+export async function getSpecCost(specId: string): Promise<AggregatedCost> {
+  return invoke('get_spec_cost', { specId });
+}
+
+export async function getSpecVersionCost(versionId: string): Promise<AggregatedCost> {
+  return invoke('get_spec_version_cost', { versionId });
+}

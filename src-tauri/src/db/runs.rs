@@ -495,6 +495,44 @@ impl Database {
         })
     }
 
+    /// Get aggregated cost for all tickets belonging to a spec version.
+    /// This tracks total cost across all epics/tickets created from a plan.
+    pub fn get_spec_version_cost(
+        &self,
+        version_id: &str,
+    ) -> Result<crate::agents::cost::AggregatedCost, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT r.metadata_json FROM agent_runs r
+                   JOIN tickets t ON r.ticket_id = t.id
+                   WHERE t.spec_version_id = ? AND r.metadata_json IS NOT NULL"#,
+            )?;
+
+            let mut aggregated = crate::agents::cost::AggregatedCost::default();
+
+            let rows = stmt.query_map([version_id], |row| {
+                let metadata_json: String = row.get(0)?;
+                Ok(metadata_json)
+            })?;
+
+            for json_str in rows.flatten() {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(cost_value) = metadata.get("cost") {
+                        if let Ok(cost) =
+                            serde_json::from_value::<crate::agents::cost::RunCostData>(
+                                cost_value.clone(),
+                            )
+                        {
+                            aggregated.add(&cost);
+                        }
+                    }
+                }
+            }
+
+            Ok(aggregated)
+        })
+    }
+
     /// Backfill cost data for runs that have log events but no cost metadata.
     /// Re-parses raw stdout log events to extract cost data from Claude stream-json output.
     /// Returns the number of runs that were backfilled.

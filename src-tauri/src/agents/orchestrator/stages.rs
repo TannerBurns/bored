@@ -262,19 +262,19 @@ impl WorkflowOrchestrator {
                     extracted_output
                 };
 
-                metadata["stage_output"] = serde_json::Value::String(truncated_output.clone());
+                metadata["stage_output"] = serde_json::Value::String(truncated_output);
+            }
 
-                if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
-                    tracing::warn!("Failed to save stage metadata: {}", e);
-                } else {
-                    tracing::debug!(
-                        "Saved stage '{}' output ({} chars) and cost data",
-                        stage,
-                        truncated_output.len()
-                    );
-                }
-            } else if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
+            // Always persist metadata (cost + duration for all runs, stage_output only on success)
+            if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
                 tracing::warn!("Failed to save stage metadata: {}", e);
+            } else {
+                tracing::debug!(
+                    "Saved stage '{}' metadata (cost: {}, output: {} bytes)",
+                    stage,
+                    cost_data.is_some(),
+                    metadata.get("stage_output").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0),
+                );
             }
         }
 
