@@ -77,8 +77,10 @@ impl Database {
                           (SELECT GROUP_CONCAT(e.payload_json, char(10))
                            FROM agent_events e
                            WHERE e.run_id = r.id AND e.event_type = 'custom'
-                           ORDER BY e.created_at ASC) as log_events
+                           ORDER BY e.created_at ASC) as log_events,
+                          t.model
                    FROM agent_runs r
+                   JOIN tickets t ON r.ticket_id = t.id
                    WHERE r.status IN ('finished', 'error')
                    AND (r.metadata_json IS NULL
                         OR r.metadata_json NOT LIKE '%"cost"%')"#,
@@ -94,11 +96,12 @@ impl Database {
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
                 ))
             })?;
 
             for row in rows {
-                let (run_id, agent_type, metadata_json, started_at, ended_at, log_concat) = row?;
+                let (run_id, agent_type, metadata_json, started_at, ended_at, log_concat, ticket_model) = row?;
 
                 let duration_secs = compute_duration_secs(started_at.as_deref(), ended_at.as_deref());
 
@@ -115,9 +118,10 @@ impl Database {
                 }
 
                 let is_claude = agent_type == "claude";
+                let model = ticket_model.as_deref().unwrap_or("opus-4.6");
                 let cost_data = crate::agents::cost::extract_or_estimate_cost(
                     &full_stdout,
-                    "opus-4.6",
+                    model,
                     duration_secs,
                     is_claude,
                 );
