@@ -20,7 +20,7 @@ function useRunsCostFingerprint(agentRuns: AgentRun[]): string {
 
 export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProps) {
   const [cost, setCost] = useState<AggregatedCost | null>(null);
-  const backfilledTicketsRef = useRef<Set<string>>(new Set());
+  const backfilledFingerprintRef = useRef<Map<string, string>>(new Map());
   const costFingerprint = useRunsCostFingerprint(agentRuns);
 
   useEffect(() => {
@@ -32,12 +32,18 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
         if (!cancelled) {
           setCost(ticketCost);
 
+          const finishedRuns = agentRuns.filter(
+            r => r.status === 'finished' || r.status === 'error'
+          );
+          const alreadyBackfilledForFingerprint =
+            backfilledFingerprintRef.current.get(ticketId) === costFingerprint;
+
           if (
-            !backfilledTicketsRef.current.has(ticketId) &&
-            agentRuns.length > 0 &&
-            ticketCost.runCount === 0
+            !alreadyBackfilledForFingerprint &&
+            finishedRuns.length > 0 &&
+            ticketCost.runCount < finishedRuns.length
           ) {
-            backfilledTicketsRef.current.add(ticketId);
+            backfilledFingerprintRef.current.set(ticketId, costFingerprint);
             try {
               const count = await backfillRunCosts();
               if (count > 0) {
