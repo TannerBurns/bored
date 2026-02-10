@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import type { AgentRun, AggregatedCost } from '../../../types';
 import { getTicketCost, backfillRunCosts } from '../../../lib/tauri';
 import { CostSummary } from '../../common/CostBadge';
@@ -20,7 +20,7 @@ function useRunsCostFingerprint(agentRuns: AgentRun[]): string {
 
 export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProps) {
   const [cost, setCost] = useState<AggregatedCost | null>(null);
-  const [backfillTriggered, setBackfillTriggered] = useState<string | null>(null);
+  const backfilledTicketsRef = useRef<Set<string>>(new Set());
   const costFingerprint = useRunsCostFingerprint(agentRuns);
 
   useEffect(() => {
@@ -33,11 +33,11 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
           setCost(ticketCost);
 
           if (
-            backfillTriggered !== ticketId &&
+            !backfilledTicketsRef.current.has(ticketId) &&
             agentRuns.length > 0 &&
             ticketCost.runCount === 0
           ) {
-            setBackfillTriggered(ticketId);
+            backfilledTicketsRef.current.add(ticketId);
             try {
               const count = await backfillRunCosts();
               if (count > 0) {
