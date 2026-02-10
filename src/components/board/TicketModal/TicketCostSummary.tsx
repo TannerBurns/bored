@@ -45,13 +45,18 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
           ) {
             try {
               const count = await backfillRunCosts();
-              backfilledRunCountRef.current.set(ticketId, finishedRuns.length);
               if (count > 0) {
                 const updatedCost = await getTicketCost(ticketId);
                 if (!cancelled) {
                   setCost(updatedCost);
+                  // Only mark backfilled once this ticket's runs are all costed
+                  if (updatedCost.runCount >= finishedRuns.length) {
+                    backfilledRunCountRef.current.set(ticketId, finishedRuns.length);
+                  }
                 }
               }
+              // If count === 0 or this ticket's runs still lack cost data,
+              // ref stays unchanged so retry is possible on next trigger
             } catch {
               // Backfill is best-effort; ref not updated so retry is possible
             }
