@@ -7,6 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
+use crate::agents::cost::extract_or_estimate_cost;
 use crate::agents::prompt::generate_command_prompt;
 use crate::agents::spawner::run_agent_with_capture;
 use crate::agents::{extract_text_from_stream_json, AgentKind, AgentRunConfig, AgentRunResult};
@@ -220,41 +221,40 @@ impl WorkflowOrchestrator {
             )
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
 
-        // Save stage output to run metadata for resume capability
-        if result.status == RunOutcome::Success {
-            if let Some(ref output) = result.captured_stdout {
-                // Extract just the text content, not the full stream-json
+        {
+            let stdout = result.captured_stdout.as_deref().unwrap_or("");
+            let is_claude = matches!(self.agent_kind, AgentKind::Claude);
+            let model = self.ticket.model.as_deref().unwrap_or("opus-4.6");
+            let cost_data = extract_or_estimate_cost(stdout, model, duration_secs, is_claude);
+
+            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
+
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+
+            if result.status == RunOutcome::Success && !stdout.is_empty() {
                 let extracted_output =
-                    extract_text_from_stream_json(output).unwrap_or_else(|| output.clone());
+                    extract_text_from_stream_json(stdout).unwrap_or_else(|| stdout.to_string());
 
                 // Limit output size to avoid huge metadata (keep first 50KB)
-                // Use char_indices to find a safe UTF-8 boundary to avoid panic on multi-byte chars
                 let truncated_output = if extracted_output.len() > 50_000 {
                     let safe_boundary = extracted_output
                         .char_indices()
                         .take_while(|(idx, _)| *idx < 50_000)
                         .last()
-                        .map(|(idx, c)| idx + c.len_utf8())
+                        .map(|(idx, c)| (idx + c.len_utf8()).min(extracted_output.len()))
                         .unwrap_or(0);
                     format!("{}...[truncated]", &extracted_output[..safe_boundary])
                 } else {
                     extracted_output
                 };
 
-                let metadata = serde_json::json!({
-                    "stage_output": truncated_output,
-                    "duration_secs": duration_secs,
-                });
+                metadata["stage_output"] = serde_json::Value::String(truncated_output);
+            }
 
-                if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
-                    tracing::warn!("Failed to save stage output to metadata: {}", e);
-                } else {
-                    tracing::debug!(
-                        "Saved stage '{}' output ({} chars)",
-                        stage,
-                        truncated_output.len()
-                    );
-                }
+            if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
+                tracing::warn!("Failed to save stage metadata: {}", e);
             }
         }
 

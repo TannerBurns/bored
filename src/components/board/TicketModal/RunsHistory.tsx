@@ -2,6 +2,7 @@ import { cn } from '../../../lib/utils';
 import type { AgentRun } from '../../../types';
 import type { RunEvent } from './types';
 import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
+import { CostBadge, getRunCost } from '../../common/CostBadge';
 
 /** Normalize eventType which can be string or {custom: "value"} */
 function getEventTypeString(eventType: unknown): string {
@@ -214,18 +215,21 @@ function PreviousRunsSection({
                     {expandedRunId === run.id ? '▼' : '▶'}
                   </span>
                 </div>
-                <span
-                  className={cn(
-                    'text-xs px-2 py-0.5 rounded',
-                    run.status === 'finished' ? 'bg-status-success/20 text-status-success' :
-                    run.status === 'running' ? 'bg-status-warning/20 text-status-warning' :
-                    run.status === 'error' ? 'bg-status-error/20 text-status-error' :
-                    run.status === 'paused' ? 'bg-blue-400/20 text-blue-400' :
-                    'bg-board-surface text-board-text-muted'
-                  )}
-                >
-                  {run.status}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <CostBadge cost={getRunCost(run)} />
+                  <span
+                    className={cn(
+                      'text-xs px-2 py-0.5 rounded',
+                      run.status === 'finished' ? 'bg-status-success/20 text-status-success' :
+                      run.status === 'running' ? 'bg-status-warning/20 text-status-warning' :
+                      run.status === 'error' ? 'bg-status-error/20 text-status-error' :
+                      run.status === 'paused' ? 'bg-blue-400/20 text-blue-400' :
+                      'bg-board-surface text-board-text-muted'
+                    )}
+                  >
+                    {run.status}
+                  </span>
+                </div>
               </button>
       
               {/* Expanded run details */}
@@ -283,11 +287,14 @@ function SubRunsList({ subRuns }: SubRunsListProps) {
             )}>
               {subRun.status}
             </span>
-            {subRun.endedAt && (
-              <span className="text-board-text-muted ml-auto">
-                {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
-              </span>
-            )}
+            <span className="ml-auto flex items-center gap-1.5">
+              <CostBadge cost={getRunCost(subRun)} />
+              {subRun.endedAt && (
+                <span className="text-board-text-muted">
+                  {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
+                </span>
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -310,6 +317,16 @@ function ExpandedRunDetails({
   runEvents,
   loadingEvents,
 }: ExpandedRunDetailsProps) {
+  const totalCost = isMultiStage
+    ? subRuns.reduce((sum, sr) => {
+        const c = getRunCost(sr);
+        return c ? sum + c.totalCostUsd : sum;
+      }, 0)
+    : getRunCost(run)?.totalCostUsd ?? 0;
+  const hasEstimated = isMultiStage
+    ? subRuns.some(sr => getRunCost(sr)?.isEstimated)
+    : getRunCost(run)?.isEstimated ?? false;
+
   return (
     <div className="px-3 pb-3 border-t border-board-border">
       {/* Run metadata */}
@@ -320,6 +337,14 @@ function ExpandedRunDetails({
         )}
         {run.exitCode !== undefined && (
           <p><span className="font-medium">Exit code:</span> {run.exitCode}</p>
+        )}
+        {totalCost > 0 && (
+          <p>
+            <span className="font-medium">Total Cost:</span>{' '}
+            <span className={hasEstimated ? 'text-amber-400' : 'text-emerald-400'}>
+              {hasEstimated ? '~' : ''}${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost < 1 ? totalCost.toFixed(3) : totalCost.toFixed(2)}
+            </span>
+          </p>
         )}
       </div>
 

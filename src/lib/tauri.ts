@@ -9,6 +9,7 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
   ReadinessCheck,
+  AggregatedCost,
 } from '../types';
 
 // API configuration
@@ -367,4 +368,16 @@ export async function sendConversationMessage(
 
 export async function startConversation(specId: string, timeoutMinutes?: number): Promise<ConversationMessage> {
   return invoke('start_conversation', { specId, timeoutMinutes });
+}
+
+export async function getTicketCost(ticketId: string): Promise<AggregatedCost> {
+  return invoke('get_ticket_cost', { ticketId });
+}
+
+export async function backfillRunCosts(): Promise<number> {
+  return invoke('backfill_run_costs');
+}
+
+export async function getSpecCost(specId: string): Promise<AggregatedCost> {
+  return invoke('get_spec_cost', { specId });
 }

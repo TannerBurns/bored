@@ -419,6 +419,35 @@ export interface ProjectPlan {
   epics: PlanEpic[];
 }
 
+export interface RunCostData {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: number;
+  modelUsage: Record<string, ModelCostData>;
+  isEstimated: boolean;
+}
+
+export interface ModelCostData {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
+export interface AggregatedCost {
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+  runCount: number;
+  estimatedCount: number;
+  modelTotals: Record<string, ModelCostData>;
+}
+
 export type ConversationRole = 'user' | 'assistant' | 'system';
 
 export interface ConversationMessage {

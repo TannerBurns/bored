@@ -1,5 +1,6 @@
 pub mod brainstorm;
 pub mod claude;
+pub mod cost;
 pub mod cursor;
 pub mod diagnostic;
 pub mod eta;
@@ -85,6 +86,7 @@ pub use plan_validation::{
     generate_clarification_message, parse_validation_response, validate_plan_for_clarification,
     PlanValidationConfig, PlanValidationError, PlanValidationResult,
 };
+pub use cost::{AggregatedCost, RunCostData};
 pub use validation::{
     is_environment_valid, is_environment_valid_with_options, validate_worker_environment,
     validate_worker_environment_with_options, ValidationCheck, ValidationResult,

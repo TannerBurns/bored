@@ -391,6 +391,7 @@ impl Database {
         })
     }
 
+
     /// Clean up stale runs that are stuck in "running" or "queued" status.
     /// This is useful for runs that crashed or were interrupted without proper cleanup.
     /// Returns the number of runs that were marked as aborted.
@@ -979,4 +980,5 @@ mod tests {
         let results = db.get_recent_runs_with_context(3).unwrap();
         assert_eq!(results.len(), 3);
     }
+
 }

@@ -17,14 +17,15 @@ pub use conversations::{
 pub use cursor::*;
 pub use projects::*;
 pub use runs::{
-    cancel_agent_run, get_agent_run, get_agent_runs, get_recent_runs,
-    get_recent_runs_with_context, get_run_events, start_agent_run,
+    backfill_run_costs, cancel_agent_run, get_agent_run, get_agent_runs, get_board_cost_summary,
+    get_recent_runs, get_recent_runs_with_context, get_run_cost, get_run_events,
+    get_ticket_cost, start_agent_run,
 };
 pub use specs::{
     append_spec_exploration, approve_plan, create_spec, delete_spec, execute_plan, get_spec,
-    get_spec_eta, get_spec_progress, get_spec_tickets, get_specs, get_version_progress,
-    halt_spec_work, pause_spec_work, reset_plan_execution, resume_spec_work, set_spec_plan,
-    set_spec_status, start_planner, start_spec_work, update_spec,
+    get_spec_cost, get_spec_eta, get_spec_progress, get_spec_tickets, get_spec_version_cost,
+    get_specs, get_version_progress, halt_spec_work, pause_spec_work, reset_plan_execution,
+    resume_spec_work, set_spec_plan, set_spec_status, start_planner, start_spec_work, update_spec,
 };
 pub use tasks::{
     add_preset_task, create_task, delete_task, get_next_pending_task, get_preset_types, get_task,
