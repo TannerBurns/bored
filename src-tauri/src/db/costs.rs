@@ -76,7 +76,7 @@ impl Database {
                 r#"SELECT r.id, r.agent_type, r.metadata_json, r.started_at, r.ended_at,
                           (SELECT GROUP_CONCAT(e.payload_json, char(10))
                            FROM agent_events e
-                           WHERE e.run_id = r.id AND e.event_type = 'custom'
+                           WHERE e.run_id = r.id AND e.event_type LIKE '%log_stdout%'
                            ORDER BY e.created_at ASC) as log_events,
                           t.model
                    FROM agent_runs r
