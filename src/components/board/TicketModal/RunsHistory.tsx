@@ -4,7 +4,6 @@ import type { RunEvent } from './types';
 import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
 import { CostBadge } from '../../common/CostBadge';
 
-/** Extract cost data from a run's metadata field */
 function getRunCost(run: AgentRun): RunCostData | null {
   if (!run.metadata) return null;
   const cost = (run.metadata as Record<string, unknown>).cost;
@@ -325,7 +324,6 @@ function ExpandedRunDetails({
   runEvents,
   loadingEvents,
 }: ExpandedRunDetailsProps) {
-  // Aggregate cost from sub-runs if multi-stage, otherwise use run cost
   const totalCost = isMultiStage
     ? subRuns.reduce((sum, sr) => {
         const c = getRunCost(sr);

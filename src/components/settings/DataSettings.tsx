@@ -51,7 +51,6 @@ export function DataSettings() {
   const [isCleaningRuns, setIsCleaningRuns] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<{ count: number; error?: string } | null>(null);
   
-  // Cost backfill state
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ count: number; error?: string } | null>(null);
   

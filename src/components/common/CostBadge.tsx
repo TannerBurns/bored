@@ -8,28 +8,24 @@ interface CostBadgeProps {
   size?: 'sm' | 'md';
 }
 
-/** Format USD cost as a string */
 function formatCost(usd: number): string {
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   if (usd < 1.0) return `$${usd.toFixed(3)}`;
   return `$${usd.toFixed(2)}`;
 }
 
-/** Format token count with K/M suffix */
 function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
   return count.toString();
 }
 
-/** Check if the cost data has any estimated values */
 function isEstimated(cost: RunCostData | AggregatedCost): boolean {
   if ('isEstimated' in cost) return cost.isEstimated;
   if ('estimatedCount' in cost) return cost.estimatedCount > 0;
   return false;
 }
 
-/** Check if cost is entirely from estimated (Cursor) runs */
 function isFullyEstimated(cost: RunCostData | AggregatedCost): boolean {
   if ('isEstimated' in cost) return cost.isEstimated;
   if ('estimatedCount' in cost && 'runCount' in cost) {
@@ -38,19 +34,16 @@ function isFullyEstimated(cost: RunCostData | AggregatedCost): boolean {
   return false;
 }
 
-/** Get total cost USD from either type */
 function getTotalCost(cost: RunCostData | AggregatedCost): number {
   return 'totalCostUsd' in cost ? cost.totalCostUsd : 0;
 }
 
-/** Get total input tokens from either type */
 function getInputTokens(cost: RunCostData | AggregatedCost): number {
   if ('totalInputTokens' in cost) return cost.totalInputTokens;
   if ('inputTokens' in cost) return cost.inputTokens;
   return 0;
 }
 
-/** Get total output tokens from either type */
 function getOutputTokens(cost: RunCostData | AggregatedCost): number {
   if ('totalOutputTokens' in cost) return cost.totalOutputTokens;
   if ('outputTokens' in cost) return cost.outputTokens;
@@ -66,7 +59,6 @@ export function CostBadge({ cost, className, showTokens = false, size = 'sm' }: 
   const estimated = isEstimated(cost);
   const fullyEstimated = isFullyEstimated(cost);
 
-  // For fully-estimated (Cursor) runs, show an "Unavailable" badge
   if (fullyEstimated) {
     return (
       <span
@@ -133,7 +125,6 @@ function buildTooltip(cost: RunCostData | AggregatedCost, estimated: boolean): s
 
   lines.push(`Total: ${formatCost(getTotalCost(cost))}`);
 
-  // Model breakdown
   const modelUsage = 'modelUsage' in cost ? cost.modelUsage : 
     'modelTotals' in cost ? cost.modelTotals : {};
   

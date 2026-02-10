@@ -221,30 +221,18 @@ impl WorkflowOrchestrator {
             )
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
 
-        // Save stage output and cost data to run metadata
         {
             let stdout = result.captured_stdout.as_deref().unwrap_or("");
-
-            // Extract cost data from output
             let is_claude = matches!(self.agent_kind, AgentKind::Claude);
-            let model = self
-                .ticket
-                .model
-                .as_deref()
-                .unwrap_or("opus-4.6");
+            let model = self.ticket.model.as_deref().unwrap_or("opus-4.6");
             let cost_data = extract_or_estimate_cost(stdout, model, duration_secs, is_claude);
 
-            // Build metadata JSON
-            let mut metadata = serde_json::json!({
-                "duration_secs": duration_secs,
-            });
+            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
 
-            // Add cost data if available
             if let Some(ref cost) = cost_data {
                 metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
             }
 
-            // Add stage output for successful runs (for resume capability)
             if result.status == RunOutcome::Success && !stdout.is_empty() {
                 let extracted_output =
                     extract_text_from_stream_json(stdout).unwrap_or_else(|| stdout.to_string());
@@ -265,16 +253,8 @@ impl WorkflowOrchestrator {
                 metadata["stage_output"] = serde_json::Value::String(truncated_output);
             }
 
-            // Always persist metadata (cost + duration for all runs, stage_output only on success)
             if let Err(e) = self.db.set_run_metadata(&sub_run.id, &metadata) {
                 tracing::warn!("Failed to save stage metadata: {}", e);
-            } else {
-                tracing::debug!(
-                    "Saved stage '{}' metadata (cost: {}, output: {} bytes)",
-                    stage,
-                    cost_data.is_some(),
-                    metadata.get("stage_output").and_then(|v| v.as_str()).map(|s| s.len()).unwrap_or(0),
-                );
             }
         }
 

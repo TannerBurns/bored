@@ -1043,11 +1043,8 @@ pub async fn get_board_cost_summary(
         .map_err(|e| e.to_string())
 }
 
-/// Backfill cost data for completed runs by re-parsing their log events.
-/// Returns the number of runs that were backfilled.
 #[tauri::command]
 pub async fn backfill_run_costs(db: State<'_, Arc<Database>>) -> Result<u32, String> {
-    tracing::info!("Backfilling cost data for completed runs");
     let count = db.backfill_run_costs().map_err(|e| e.to_string())?;
     tracing::info!("Backfilled cost data for {} runs", count);
     Ok(count)

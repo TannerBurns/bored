@@ -904,8 +904,7 @@ pub async fn get_spec_eta(
     crate::agents::eta::calculate_eta(&db.inner().clone(), &spec_id)
 }
 
-/// Get aggregated cost for all work done under a spec (latest version).
-/// Tracks total cost across all epics/tickets created from the plan.
+/// Get aggregated cost for a spec's latest version.
 #[tauri::command]
 pub async fn get_spec_cost(
     spec_id: String,
@@ -920,7 +919,7 @@ pub async fn get_spec_cost(
         .map_err(|e| e.to_string())
 }
 
-/// Get aggregated cost for all work done under a specific spec version.
+/// Get aggregated cost for a specific spec version.
 #[tauri::command]
 pub async fn get_spec_version_cost(
     version_id: String,

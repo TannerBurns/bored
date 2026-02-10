@@ -58,7 +58,6 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
     }
   }, [specId, isWorking, isPaused]);
   
-  // Load spec cost - poll while working for real-time updates
   useEffect(() => {
     if (!specId) {
       setSpecCost(null);
@@ -76,7 +75,6 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
     
     loadCost();
     
-    // Poll for cost updates while working (every 15s for more responsive updates)
     if (isWorking) {
       const interval = setInterval(loadCost, 15000);
       return () => clearInterval(interval);
@@ -212,7 +210,6 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
           )}
         </div>
         
-        {/* Cost Display */}
         {specCost && specCost.runCount > 0 && (
           <div className="mt-4 pt-4 border-t border-board-border">
             <div className="flex items-center justify-between text-sm">
@@ -225,7 +222,6 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
                 {specCost.estimatedCount > 0 && ` (${specCost.estimatedCount} estimated)`}
               </span>
             </div>
-            {/* Per-model breakdown if multiple models used */}
             {Object.keys(specCost.modelTotals).length > 1 && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {Object.entries(specCost.modelTotals).map(([model, data]) => (

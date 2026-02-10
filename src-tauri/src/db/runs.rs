@@ -496,7 +496,6 @@ impl Database {
     }
 
     /// Get aggregated cost for all tickets belonging to a spec version.
-    /// This tracks total cost across all epics/tickets created from a plan.
     pub fn get_spec_version_cost(
         &self,
         version_id: &str,
@@ -533,12 +532,10 @@ impl Database {
         })
     }
 
-    /// Backfill cost data for runs that have log events but no cost metadata.
-    /// Re-parses raw stdout log events to extract cost data from Claude stream-json output.
+    /// Backfill cost data for completed runs that are missing it.
     /// Returns the number of runs that were backfilled.
     pub fn backfill_run_costs(&self) -> Result<u32, DbError> {
         self.with_conn(|conn| {
-            // Find all finished/error runs that don't have cost data in metadata
             let mut stmt = conn.prepare(
                 r#"SELECT r.id, r.agent_type, r.metadata_json, r.started_at, r.ended_at,
                           (SELECT GROUP_CONCAT(e.payload_json, char(10)) 
@@ -553,7 +550,6 @@ impl Database {
 
             let mut backfilled = 0u32;
 
-            // Collect updates first to avoid borrow issues
             let mut updates: Vec<(String, serde_json::Value)> = Vec::new();
 
             let rows = stmt.query_map([], |row| {
@@ -569,7 +565,6 @@ impl Database {
             for row in rows {
                 let (run_id, agent_type, metadata_json, started_at, ended_at, log_concat) = row?;
 
-                // Calculate duration from timestamps
                 let duration_secs = match (started_at, ended_at) {
                     (Some(start), Some(end)) => {
                         let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
@@ -586,9 +581,7 @@ impl Database {
                     _ => 0.0,
                 };
 
-                // Try to reconstruct stdout from log events
                 let stdout = log_concat.unwrap_or_default();
-                // Also try to reconstruct from raw payload
                 let reconstructed_stdout = self.reconstruct_stdout_from_events(conn, &run_id);
                 let full_stdout = if reconstructed_stdout.len() > stdout.len() {
                     reconstructed_stdout
@@ -609,7 +602,6 @@ impl Database {
                 );
 
                 if let Some(cost) = cost_data {
-                    // Merge cost into existing metadata
                     let mut metadata = if let Some(ref json_str) = metadata_json {
                         serde_json::from_str::<serde_json::Value>(json_str)
                             .unwrap_or_else(|_| serde_json::json!({}))
@@ -627,7 +619,6 @@ impl Database {
                 }
             }
 
-            // Apply the updates
             for (run_id, metadata) in updates {
                 let metadata_str = serde_json::to_string(&metadata)
                     .unwrap_or_else(|_| "{}".to_string());
@@ -662,7 +653,6 @@ impl Database {
             Ok(payload)
         }) {
             for row in rows.flatten() {
-                // Try to extract "raw" field from payload JSON
                 if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&row) {
                     if let Some(raw) = payload.get("raw").and_then(|r| r.as_str()) {
                         stdout_lines.push(raw.to_string());

@@ -419,22 +419,16 @@ export interface ProjectPlan {
   epics: PlanEpic[];
 }
 
-// Cost tracking types
-
-/** Cost and token usage data for a single agent run */
 export interface RunCostData {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalCostUsd: number;
-  /** Per-model breakdown (model name -> cost data) */
   modelUsage: Record<string, ModelCostData>;
-  /** Whether the cost is estimated (true for Cursor) or authoritative (false for Claude) */
   isEstimated: boolean;
 }
 
-/** Per-model cost breakdown */
 export interface ModelCostData {
   inputTokens: number;
   outputTokens: number;
@@ -443,7 +437,6 @@ export interface ModelCostData {
   costUsd: number;
 }
 
-/** Aggregated cost across multiple runs (for ticket or board summaries) */
 export interface AggregatedCost {
   totalCostUsd: number;
   totalInputTokens: number;
@@ -452,7 +445,6 @@ export interface AggregatedCost {
   totalCacheCreationTokens: number;
   runCount: number;
   estimatedCount: number;
-  /** Per-model totals across all runs */
   modelTotals: Record<string, ModelCostData>;
 }
 

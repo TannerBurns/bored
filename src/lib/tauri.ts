@@ -371,8 +371,6 @@ export async function startConversation(specId: string, timeoutMinutes?: number)
   return invoke('start_conversation', { specId, timeoutMinutes });
 }
 
-// Cost tracking functions
-
 export async function getRunCost(runId: string): Promise<RunCostData | null> {
   return invoke('get_run_cost', { runId });
 }

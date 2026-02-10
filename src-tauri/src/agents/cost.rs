@@ -122,7 +122,6 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
-    // Parse per-model breakdown from modelUsage
     let mut model_usage = HashMap::new();
     if let Some(model_usage_json) = json.get("modelUsage").and_then(|v| v.as_object()) {
         for (model_name, model_data) in model_usage_json {
@@ -152,8 +151,12 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         }
     }
 
-    // Only return if we found meaningful data
-    if input_tokens == 0 && output_tokens == 0 && total_cost_usd == 0.0 {
+    if input_tokens == 0
+        && output_tokens == 0
+        && cache_read_tokens == 0
+        && cache_creation_tokens == 0
+        && total_cost_usd == 0.0
+    {
         return None;
     }
 
@@ -176,29 +179,25 @@ struct ModelPricing {
 
 /// Get pricing for a model. Falls back to Sonnet pricing if unknown.
 fn get_model_pricing(model: &str) -> ModelPricing {
-    // Normalize model name for matching
     let normalized = model.to_lowercase().replace(['-', '_'], " ");
 
     if normalized.contains("opus") {
-        // Claude Opus 4.x pricing
         ModelPricing {
             input_per_mtok: 15.0,
             output_per_mtok: 75.0,
         }
     } else if normalized.contains("sonnet") {
-        // Claude Sonnet 4.x pricing
         ModelPricing {
             input_per_mtok: 3.0,
             output_per_mtok: 15.0,
         }
     } else if normalized.contains("haiku") {
-        // Claude Haiku pricing
         ModelPricing {
             input_per_mtok: 0.25,
             output_per_mtok: 1.25,
         }
     } else {
-        // Default to Sonnet pricing as a reasonable middle ground
+        // Default to Sonnet pricing
         ModelPricing {
             input_per_mtok: 3.0,
             output_per_mtok: 15.0,
@@ -213,12 +212,8 @@ fn get_model_pricing(model: &str) -> ModelPricing {
 pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> RunCostData {
     let pricing = get_model_pricing(model);
 
-    // Rough token estimation: ~4 chars per token for English text
+    // ~4 chars/token, ~500 input tokens/second heuristics
     let estimated_output_tokens = (output_chars as f64 / 4.0) as u64;
-
-    // Estimate input tokens based on duration and typical throughput
-    // Longer runs typically process more input context
-    // Rough heuristic: ~500 tokens/second of input processing
     let estimated_input_tokens = (duration_secs * 500.0) as u64;
 
     let input_cost = estimated_input_tokens as f64 * pricing.input_per_mtok / 1_000_000.0;
@@ -256,14 +251,12 @@ pub fn extract_or_estimate_cost(
     duration_secs: f64,
     is_claude: bool,
 ) -> Option<RunCostData> {
-    // For Claude, try to parse authoritative cost data from stream-json
     if is_claude {
         if let Some(cost) = extract_cost_from_stream_json(stdout) {
             return Some(cost);
         }
     }
 
-    // Fall back to estimation based on output size
     let output_chars = stdout.len();
     if output_chars > 0 || duration_secs > 0.0 {
         Some(estimate_cost(model, output_chars, duration_secs))
@@ -307,6 +300,26 @@ mod tests {
         let stream_output = r#"{"type":"result","result":"","usage":{"input_tokens":0,"output_tokens":0,"total_cost_usd":0.0}}"#;
         let cost = extract_cost_from_stream_json(stream_output);
         assert!(cost.is_none());
+    }
+
+    #[test]
+    fn parse_cost_cache_only_tokens_returns_some() {
+        // Cache-hit scenario: only cache_read tokens, zero input/output/cost
+        let stream_output = r#"{"type":"result","result":"","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":500,"cache_creation_input_tokens":0,"total_cost_usd":0.0}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert_eq!(cost.input_tokens, 0);
+        assert_eq!(cost.output_tokens, 0);
+        assert_eq!(cost.cache_read_tokens, 500);
+        assert!(!cost.is_estimated);
+    }
+
+    #[test]
+    fn parse_cost_cache_creation_only_returns_some() {
+        // Cache-write scenario: only cache_creation tokens
+        let stream_output = r#"{"type":"result","result":"","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":300,"total_cost_usd":0.0}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert_eq!(cost.cache_creation_tokens, 300);
+        assert!(!cost.is_estimated);
     }
 
     #[test]
