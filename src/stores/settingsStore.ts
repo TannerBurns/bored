@@ -6,7 +6,7 @@ interface SettingsState {
   
   // Planner settings
   plannerAutoApprove: boolean;
-  plannerModel: 'opus' | 'opus-4.5' | 'sonnet';
+  plannerModel: 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5';
   plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
@@ -24,7 +24,7 @@ interface SettingsState {
   
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
-  setPlannerModel: (model: 'opus' | 'opus-4.5' | 'sonnet') => void;
+  setPlannerModel: (model: 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5') => void;
   setPlannerMaxExplorations: (max: number) => void;
   setPlannerTimeoutMinutes: (min: number) => void;
   setPlannerMaxRetries: (max: number) => void;
@@ -88,7 +88,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 3,
+      version: 4,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
         if (version < 1) {
@@ -107,6 +107,15 @@ export const useSettingsStore = create<SettingsState>()(
           // v2 -> v3: default plannerModel changed from 'opus' to 'opus-4.5'
           if (state.plannerModel === 'opus') {
             state.plannerModel = 'opus-4.5';
+          }
+        }
+        if (version < 4) {
+          // v3 -> v4: require versioned model identifiers
+          if (state.plannerModel === 'opus') {
+            state.plannerModel = 'opus-4.6';
+          }
+          if (state.plannerModel === 'sonnet') {
+            state.plannerModel = 'sonnet-4.5';
           }
         }
         return state as unknown as SettingsState;

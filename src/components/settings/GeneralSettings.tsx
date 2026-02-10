@@ -39,8 +39,8 @@ const themeOptions = [
 
 const plannerModelOptions = [
   { value: 'opus-4.5', label: 'Opus 4.5', description: 'Most capable', isDefault: true },
-  { value: 'opus', label: 'Opus 4.6', description: 'Latest generation', isDefault: false },
-  { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
+  { value: 'opus-4.6', label: 'Opus 4.6', description: 'Latest generation', isDefault: false },
+  { value: 'sonnet-4.5', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
 ] as const;
 
 function RefreshIcon({ className }: { className?: string }) {

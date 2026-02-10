@@ -36,7 +36,7 @@ describe('useSettingsStore', () => {
     beforeEach(() => {
       useSettingsStore.setState({
         plannerAutoApprove: false,
-        plannerModel: 'opus',
+        plannerModel: 'opus-4.5',
         plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
@@ -49,7 +49,7 @@ describe('useSettingsStore', () => {
     it('has correct planner defaults', () => {
       const state = useSettingsStore.getState();
       expect(state.plannerAutoApprove).toBe(false);
-      expect(state.plannerModel).toBe('opus');
+      expect(state.plannerModel).toBe('opus-4.5');
       expect(state.plannerMaxExplorations).toBe(10);
       expect(state.plannerTimeoutMinutes).toBe(10);
       expect(state.plannerMaxRetries).toBe(2);
@@ -84,8 +84,8 @@ describe('useSettingsStore', () => {
     });
 
     it('sets planner model', () => {
-      useSettingsStore.getState().setPlannerModel('opus');
-      expect(useSettingsStore.getState().plannerModel).toBe('opus');
+      useSettingsStore.getState().setPlannerModel('opus-4.6');
+      expect(useSettingsStore.getState().plannerModel).toBe('opus-4.6');
     });
 
     it('sets planner timeout minutes', () => {
@@ -110,31 +110,26 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist migration', () => {
-    it('migrates plannerModel from "default" to "opus"', () => {
+    it('migrates plannerModel from "default" through full chain to "opus-4.5"', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const migrated = options.migrate!(
         { plannerModel: 'default' } as unknown,
         0
       ) as unknown as Record<string, unknown>;
-      expect(migrated.plannerModel).toBe('opus');
+      // v0->v1: 'default'->'opus', v2->v3: 'opus'->'opus-4.5' (already versioned, v4 is a no-op)
+      expect(migrated.plannerModel).toBe('opus-4.5');
     });
 
-    it('preserves valid plannerModel values during migration', () => {
+    it('migrates unversioned "sonnet" to "sonnet-4.5" through full chain', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-
-      const migratedOpus = options.migrate!(
-        { plannerModel: 'opus' } as unknown,
-        0
-      ) as unknown as Record<string, unknown>;
-      expect(migratedOpus.plannerModel).toBe('opus');
-
-      const migratedSonnet = options.migrate!(
+      const migrated = options.migrate!(
         { plannerModel: 'sonnet' } as unknown,
         0
       ) as unknown as Record<string, unknown>;
-      expect(migratedSonnet.plannerModel).toBe('sonnet');
+      // v0->v3: 'sonnet' passes through unchanged, v3->v4: 'sonnet'->'sonnet-4.5'
+      expect(migrated.plannerModel).toBe('sonnet-4.5');
     });
 
     it('migrates plannerTimeoutMinutes from 5 to 10 in v1->v2', () => {
@@ -157,15 +152,45 @@ describe('useSettingsStore', () => {
       expect(migrated.plannerTimeoutMinutes).toBe(8);
     });
 
-    it('applies both migrations when upgrading from v0', () => {
+    it('applies all migrations when upgrading from v0', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const migrated = options.migrate!(
         { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
         0
       ) as unknown as Record<string, unknown>;
-      expect(migrated.plannerModel).toBe('opus');
+      expect(migrated.plannerModel).toBe('opus-4.5');
       expect(migrated.plannerTimeoutMinutes).toBe(10);
+    });
+
+    it('migrates unversioned "opus" to "opus-4.6" in v3->v4', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'opus' } as unknown,
+        3
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus-4.6');
+    });
+
+    it('migrates unversioned "sonnet" to "sonnet-4.5" in v3->v4', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'sonnet' } as unknown,
+        3
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('sonnet-4.5');
+    });
+
+    it('preserves already-versioned values in v3->v4', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'opus-4.5' } as unknown,
+        3
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus-4.5');
     });
   });
 
