@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useBoardStore } from '../../stores/boardStore';
 import { logger } from '../../lib/logger';
-import { cleanupStaleRuns, factoryReset } from '../../lib/tauri';
+import { cleanupStaleRuns, factoryReset, backfillRunCosts } from '../../lib/tauri';
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -50,6 +50,10 @@ export function DataSettings() {
   // Stale run cleanup state
   const [isCleaningRuns, setIsCleaningRuns] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<{ count: number; error?: string } | null>(null);
+  
+  // Cost backfill state
+  const [isBackfilling, setIsBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ count: number; error?: string } | null>(null);
   
   const handleCleanupStaleRuns = async () => {
     setIsCleaningRuns(true);
@@ -206,6 +210,58 @@ export function DataSettings() {
           className="px-3 py-1.5 text-sm bg-status-warning/10 text-status-warning border border-status-warning/30 rounded-lg hover:bg-status-warning/20 disabled:opacity-50 transition-colors font-medium"
         >
           {isCleaningRuns ? 'Cleaning...' : 'Cleanup Stale Runs'}
+        </button>
+      </div>
+
+      {/* Backfill Run Costs */}
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="flex items-start gap-2">
+          <div className="p-1.5 bg-emerald-500/10 rounded-lg">
+            <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="1" x2="12" y2="23" />
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-board-text">Backfill Cost Data</h3>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              Re-calculate cost data for completed runs that are missing it. This parses existing logs to extract or estimate costs.
+            </p>
+          </div>
+        </div>
+
+        {backfillResult && (
+          <div className={`rounded-lg px-3 py-2 ${backfillResult.error ? 'bg-status-error/10 border border-status-error/30' : 'bg-status-success/10 border border-status-success/30'}`}>
+            {backfillResult.error ? (
+              <p className="text-xs text-status-error">{backfillResult.error}</p>
+            ) : (
+              <p className="text-xs text-status-success">
+                {backfillResult.count === 0 
+                  ? 'All runs already have cost data.' 
+                  : `Backfilled cost data for ${backfillResult.count} run${backfillResult.count === 1 ? '' : 's'}.`}
+              </p>
+            )}
+          </div>
+        )}
+
+        <button
+          onClick={async () => {
+            setIsBackfilling(true);
+            setBackfillResult(null);
+            try {
+              const count = await backfillRunCosts();
+              setBackfillResult({ count });
+            } catch (error) {
+              logger.error('Failed to backfill costs:', error);
+              setBackfillResult({ count: 0, error: String(error) });
+            } finally {
+              setIsBackfilling(false);
+            }
+          }}
+          disabled={isBackfilling}
+          className="px-3 py-1.5 text-sm bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/20 disabled:opacity-50 transition-colors font-medium"
+        >
+          {isBackfilling ? 'Backfilling...' : 'Backfill Costs'}
         </button>
       </div>
 

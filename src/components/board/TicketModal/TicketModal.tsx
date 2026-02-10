@@ -19,6 +19,7 @@ import { EpicPanel } from './EpicPanel';
 import { AgentStatusPanel } from './AgentStatusPanel';
 import { PausedTicketBanner } from './PausedTicketBanner';
 import { RunsHistory } from './RunsHistory';
+import { TicketCostSummary } from './TicketCostSummary';
 import { CommentsSection } from './CommentsSection';
 import { TicketModalFooter } from './TicketModalFooter';
 
@@ -206,6 +207,9 @@ export function TicketModal({
             handlePauseTicket={() => agentEvents.handlePauseTicket(runsHistory.agentRuns)}
             handleForceClearLock={agentEvents.handleForceClearLock}
           />
+
+          {/* Ticket Cost Summary */}
+          <TicketCostSummary ticketId={ticket.id} agentRuns={runsHistory.agentRuns} />
 
           {/* Runs History */}
           <RunsHistory

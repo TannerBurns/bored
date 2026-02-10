@@ -9,6 +9,8 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
   ReadinessCheck,
+  RunCostData,
+  AggregatedCost,
 } from '../types';
 
 // API configuration
@@ -367,4 +369,22 @@ export async function sendConversationMessage(
 
 export async function startConversation(specId: string, timeoutMinutes?: number): Promise<ConversationMessage> {
   return invoke('start_conversation', { specId, timeoutMinutes });
+}
+
+// Cost tracking functions
+
+export async function getRunCost(runId: string): Promise<RunCostData | null> {
+  return invoke('get_run_cost', { runId });
+}
+
+export async function getTicketCost(ticketId: string): Promise<AggregatedCost> {
+  return invoke('get_ticket_cost', { ticketId });
+}
+
+export async function getBoardCostSummary(boardId: string): Promise<AggregatedCost> {
+  return invoke('get_board_cost_summary', { boardId });
+}
+
+export async function backfillRunCosts(): Promise<number> {
+  return invoke('backfill_run_costs');
 }

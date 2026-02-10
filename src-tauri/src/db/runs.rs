@@ -391,6 +391,253 @@ impl Database {
         })
     }
 
+    /// Get cost data for a single run from its metadata.
+    pub fn get_run_cost(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<crate::agents::cost::RunCostData>, DbError> {
+        self.with_conn(|conn| {
+            let metadata_json: Option<String> = conn
+                .query_row(
+                    "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Run {}", run_id))
+                    }
+                    other => DbError::Sqlite(other),
+                })?;
+
+            if let Some(json_str) = metadata_json {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(cost_value) = metadata.get("cost") {
+                        if let Ok(cost) = serde_json::from_value(cost_value.clone()) {
+                            return Ok(Some(cost));
+                        }
+                    }
+                }
+            }
+            Ok(None)
+        })
+    }
+
+    /// Get aggregated cost for a ticket across all its runs (including sub-runs).
+    pub fn get_ticket_cost(
+        &self,
+        ticket_id: &str,
+    ) -> Result<crate::agents::cost::AggregatedCost, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT metadata_json FROM agent_runs WHERE ticket_id = ? AND metadata_json IS NOT NULL",
+            )?;
+
+            let mut aggregated = crate::agents::cost::AggregatedCost::default();
+
+            let rows = stmt.query_map([ticket_id], |row| {
+                let metadata_json: String = row.get(0)?;
+                Ok(metadata_json)
+            })?;
+
+            for json_str in rows.flatten() {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(cost_value) = metadata.get("cost") {
+                        if let Ok(cost) =
+                            serde_json::from_value::<crate::agents::cost::RunCostData>(
+                                cost_value.clone(),
+                            )
+                        {
+                            aggregated.add(&cost);
+                        }
+                    }
+                }
+            }
+
+            Ok(aggregated)
+        })
+    }
+
+    /// Get aggregated cost for an entire board across all tickets and runs.
+    pub fn get_board_cost_summary(
+        &self,
+        board_id: &str,
+    ) -> Result<crate::agents::cost::AggregatedCost, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT r.metadata_json FROM agent_runs r
+                   JOIN tickets t ON r.ticket_id = t.id
+                   WHERE t.board_id = ? AND r.metadata_json IS NOT NULL"#,
+            )?;
+
+            let mut aggregated = crate::agents::cost::AggregatedCost::default();
+
+            let rows = stmt.query_map([board_id], |row| {
+                let metadata_json: String = row.get(0)?;
+                Ok(metadata_json)
+            })?;
+
+            for json_str in rows.flatten() {
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    if let Some(cost_value) = metadata.get("cost") {
+                        if let Ok(cost) =
+                            serde_json::from_value::<crate::agents::cost::RunCostData>(
+                                cost_value.clone(),
+                            )
+                        {
+                            aggregated.add(&cost);
+                        }
+                    }
+                }
+            }
+
+            Ok(aggregated)
+        })
+    }
+
+    /// Backfill cost data for runs that have log events but no cost metadata.
+    /// Re-parses raw stdout log events to extract cost data from Claude stream-json output.
+    /// Returns the number of runs that were backfilled.
+    pub fn backfill_run_costs(&self) -> Result<u32, DbError> {
+        self.with_conn(|conn| {
+            // Find all finished/error runs that don't have cost data in metadata
+            let mut stmt = conn.prepare(
+                r#"SELECT r.id, r.agent_type, r.metadata_json, r.started_at, r.ended_at,
+                          (SELECT GROUP_CONCAT(e.payload_json, char(10)) 
+                           FROM agent_events e 
+                           WHERE e.run_id = r.id AND e.event_type = 'custom'
+                           ORDER BY e.created_at ASC) as log_events
+                   FROM agent_runs r
+                   WHERE r.status IN ('finished', 'error')
+                   AND (r.metadata_json IS NULL 
+                        OR r.metadata_json NOT LIKE '%"cost"%')"#,
+            )?;
+
+            let mut backfilled = 0u32;
+
+            // Collect updates first to avoid borrow issues
+            let mut updates: Vec<(String, serde_json::Value)> = Vec::new();
+
+            let rows = stmt.query_map([], |row| {
+                let run_id: String = row.get(0)?;
+                let agent_type: String = row.get(1)?;
+                let metadata_json: Option<String> = row.get(2)?;
+                let started_at: Option<String> = row.get(3)?;
+                let ended_at: Option<String> = row.get(4)?;
+                let log_concat: Option<String> = row.get(5)?;
+                Ok((run_id, agent_type, metadata_json, started_at, ended_at, log_concat))
+            })?;
+
+            for row in rows {
+                let (run_id, agent_type, metadata_json, started_at, ended_at, log_concat) = row?;
+
+                // Calculate duration from timestamps
+                let duration_secs = match (started_at, ended_at) {
+                    (Some(start), Some(end)) => {
+                        let start_dt = chrono::DateTime::parse_from_rfc3339(&start)
+                            .or_else(|_| chrono::NaiveDateTime::parse_from_str(&start, "%Y-%m-%d %H:%M:%S")
+                                .map(|ndt| ndt.and_utc().fixed_offset()));
+                        let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
+                            .or_else(|_| chrono::NaiveDateTime::parse_from_str(&end, "%Y-%m-%d %H:%M:%S")
+                                .map(|ndt| ndt.and_utc().fixed_offset()));
+                        match (start_dt, end_dt) {
+                            (Ok(s), Ok(e)) => (e - s).num_seconds() as f64,
+                            _ => 0.0,
+                        }
+                    }
+                    _ => 0.0,
+                };
+
+                // Try to reconstruct stdout from log events
+                let stdout = log_concat.unwrap_or_default();
+                // Also try to reconstruct from raw payload
+                let reconstructed_stdout = self.reconstruct_stdout_from_events(conn, &run_id);
+                let full_stdout = if reconstructed_stdout.len() > stdout.len() {
+                    reconstructed_stdout
+                } else {
+                    stdout
+                };
+
+                if full_stdout.is_empty() && duration_secs <= 0.0 {
+                    continue;
+                }
+
+                let is_claude = agent_type == "claude";
+                let cost_data = crate::agents::cost::extract_or_estimate_cost(
+                    &full_stdout,
+                    "opus-4.6", // Default model assumption for backfill
+                    duration_secs,
+                    is_claude,
+                );
+
+                if let Some(cost) = cost_data {
+                    // Merge cost into existing metadata
+                    let mut metadata = if let Some(ref json_str) = metadata_json {
+                        serde_json::from_str::<serde_json::Value>(json_str)
+                            .unwrap_or_else(|_| serde_json::json!({}))
+                    } else {
+                        serde_json::json!({})
+                    };
+
+                    metadata["cost"] = serde_json::to_value(&cost).unwrap_or_default();
+                    if duration_secs > 0.0 && metadata.get("duration_secs").is_none() {
+                        metadata["duration_secs"] = serde_json::json!(duration_secs);
+                    }
+
+                    updates.push((run_id, metadata));
+                    backfilled += 1;
+                }
+            }
+
+            // Apply the updates
+            for (run_id, metadata) in updates {
+                let metadata_str = serde_json::to_string(&metadata)
+                    .unwrap_or_else(|_| "{}".to_string());
+                conn.execute(
+                    "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                    rusqlite::params![metadata_str, run_id],
+                )?;
+            }
+
+            Ok(backfilled)
+        })
+    }
+
+    /// Reconstruct stdout from log events for a given run.
+    fn reconstruct_stdout_from_events(
+        &self,
+        conn: &rusqlite::Connection,
+        run_id: &str,
+    ) -> String {
+        let mut stmt = match conn.prepare(
+            r#"SELECT payload_json FROM agent_events 
+               WHERE run_id = ? AND event_type LIKE '%log_stdout%'
+               ORDER BY created_at ASC"#,
+        ) {
+            Ok(s) => s,
+            Err(_) => return String::new(),
+        };
+
+        let mut stdout_lines = Vec::new();
+        if let Ok(rows) = stmt.query_map([run_id], |row| {
+            let payload: String = row.get(0)?;
+            Ok(payload)
+        }) {
+            for row in rows.flatten() {
+                // Try to extract "raw" field from payload JSON
+                if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&row) {
+                    if let Some(raw) = payload.get("raw").and_then(|r| r.as_str()) {
+                        stdout_lines.push(raw.to_string());
+                    }
+                } else {
+                    stdout_lines.push(row);
+                }
+            }
+        }
+
+        stdout_lines.join("\n")
+    }
+
     /// Clean up stale runs that are stuck in "running" or "queued" status.
     /// This is useful for runs that crashed or were interrupted without proper cleanup.
     /// Returns the number of runs that were marked as aborted.
