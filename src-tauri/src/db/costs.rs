@@ -83,7 +83,7 @@ impl Database {
                    JOIN tickets t ON r.ticket_id = t.id
                    WHERE r.status IN ('finished', 'error')
                    AND (r.metadata_json IS NULL
-                        OR r.metadata_json NOT LIKE '%"cost"%')"#,
+                        OR r.metadata_json NOT LIKE '%"cost":%')"#,
             )?;
 
             let mut updates: Vec<(String, serde_json::Value)> = Vec::new();

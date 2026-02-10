@@ -58,7 +58,7 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
 
     loadCost();
     return () => { cancelled = true; };
-  }, [ticketId, costFingerprint, backfillTriggered, agentRuns.length]);
+  }, [ticketId, costFingerprint, agentRuns.length]);
 
   if (!cost || (cost.totalCostUsd === 0 && cost.runCount === 0)) {
     return null;
