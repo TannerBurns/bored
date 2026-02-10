@@ -36,7 +36,8 @@ function isEstimated(cost: RunCostData | AggregatedCost): boolean {
 }
 
 function isFullyEstimated(cost: RunCostData | AggregatedCost): boolean {
-  if ('isEstimated' in cost) return cost.isEstimated;
+  // Only treat aggregated costs as "fully estimated" (all runs are Cursor estimates).
+  // A single RunCostData always has a displayable value, even if estimated.
   if ('estimatedCount' in cost && 'runCount' in cost) {
     return cost.estimatedCount > 0 && cost.estimatedCount === cost.runCount;
   }
