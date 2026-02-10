@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { WorkerPanel } from '../workers';
 import { getTimeAgo, formatDuration } from '../../lib/utils';
-import type { AgentRunWithContext, RunStatus, RunCostData } from '../../types';
+import type { AgentRunWithContext, RunStatus } from '../../types';
 import { ClaudeIcon, CursorIcon } from '../common/AgentIcons';
-import { CostBadge } from '../common/CostBadge';
+import { CostBadge, getRunCost } from '../common/CostBadge';
 
 interface AgentsViewProps {
   recentRuns: AgentRunWithContext[];
@@ -190,7 +190,7 @@ function RunItem({ run }: { run: AgentRunWithContext }) {
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <CostBadge cost={run.metadata?.cost as RunCostData | undefined} />
+        <CostBadge cost={getRunCost(run)} />
         <span className={`${status.color} text-xs flex items-center gap-1`}>
           <span className={`inline-block w-1.5 h-1.5 ${status.bg} rounded-full ${status.pulse ? 'animate-pulse' : ''}`} />
           {status.label}

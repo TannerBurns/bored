@@ -1,5 +1,14 @@
 import { cn } from '../../lib/utils';
-import type { RunCostData, AggregatedCost } from '../../types';
+import type { AgentRun, RunCostData, AggregatedCost } from '../../types';
+
+/** Extract cost data from a run's metadata, returning null if absent. */
+export function getRunCost(run: AgentRun): RunCostData | null {
+  const meta = run.metadata as Record<string, unknown> | undefined;
+  if (!meta) return null;
+  const cost = meta.cost;
+  if (!cost || typeof cost !== 'object') return null;
+  return cost as RunCostData;
+}
 
 interface CostBadgeProps {
   cost: RunCostData | AggregatedCost | null | undefined;

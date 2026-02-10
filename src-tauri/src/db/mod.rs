@@ -1,6 +1,7 @@
 mod boards;
 mod comments;
 mod conversations;
+mod costs;
 mod events;
 pub mod models;
 mod projects;

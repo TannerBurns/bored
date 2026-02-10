@@ -1,0 +1,456 @@
+use crate::agents::cost::{AggregatedCost, RunCostData};
+use crate::db::{Database, DbError};
+
+/// Parse cost data from a metadata JSON string, returning None if absent or malformed.
+fn parse_cost_from_metadata(json_str: &str) -> Option<RunCostData> {
+    let metadata: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let cost_value = metadata.get("cost")?;
+    serde_json::from_value(cost_value.clone()).ok()
+}
+
+/// Aggregate cost data from an iterator of metadata JSON strings.
+fn aggregate_metadata_rows(rows: impl Iterator<Item = String>) -> AggregatedCost {
+    let mut aggregated = AggregatedCost::default();
+    for json_str in rows {
+        if let Some(cost) = parse_cost_from_metadata(&json_str) {
+            aggregated.add(&cost);
+        }
+    }
+    aggregated
+}
+
+impl Database {
+    /// Get cost data for a single run from its metadata.
+    pub fn get_run_cost(&self, run_id: &str) -> Result<Option<RunCostData>, DbError> {
+        self.with_conn(|conn| {
+            let metadata_json: Option<String> = conn
+                .query_row(
+                    "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("Run {}", run_id))
+                    }
+                    other => DbError::Sqlite(other),
+                })?;
+
+            Ok(metadata_json.and_then(|s| parse_cost_from_metadata(&s)))
+        })
+    }
+
+    /// Get aggregated cost for a ticket across all its runs.
+    pub fn get_ticket_cost(&self, ticket_id: &str) -> Result<AggregatedCost, DbError> {
+        self.aggregate_cost_by_query(
+            "SELECT metadata_json FROM agent_runs WHERE ticket_id = ? AND metadata_json IS NOT NULL",
+            ticket_id,
+        )
+    }
+
+    /// Get aggregated cost for an entire board.
+    pub fn get_board_cost_summary(&self, board_id: &str) -> Result<AggregatedCost, DbError> {
+        self.aggregate_cost_by_query(
+            r#"SELECT r.metadata_json FROM agent_runs r
+               JOIN tickets t ON r.ticket_id = t.id
+               WHERE t.board_id = ? AND r.metadata_json IS NOT NULL"#,
+            board_id,
+        )
+    }
+
+    /// Get aggregated cost for all tickets belonging to a spec version.
+    pub fn get_spec_version_cost(&self, version_id: &str) -> Result<AggregatedCost, DbError> {
+        self.aggregate_cost_by_query(
+            r#"SELECT r.metadata_json FROM agent_runs r
+               JOIN tickets t ON r.ticket_id = t.id
+               WHERE t.spec_version_id = ? AND r.metadata_json IS NOT NULL"#,
+            version_id,
+        )
+    }
+
+    /// Backfill cost data for completed runs that are missing it.
+    /// Returns the number of runs that were backfilled.
+    pub fn backfill_run_costs(&self) -> Result<u32, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT r.id, r.agent_type, r.metadata_json, r.started_at, r.ended_at,
+                          (SELECT GROUP_CONCAT(e.payload_json, char(10))
+                           FROM agent_events e
+                           WHERE e.run_id = r.id AND e.event_type = 'custom'
+                           ORDER BY e.created_at ASC) as log_events
+                   FROM agent_runs r
+                   WHERE r.status IN ('finished', 'error')
+                   AND (r.metadata_json IS NULL
+                        OR r.metadata_json NOT LIKE '%"cost"%')"#,
+            )?;
+
+            let mut updates: Vec<(String, serde_json::Value)> = Vec::new();
+
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })?;
+
+            for row in rows {
+                let (run_id, agent_type, metadata_json, started_at, ended_at, log_concat) = row?;
+
+                let duration_secs = compute_duration_secs(started_at.as_deref(), ended_at.as_deref());
+
+                let stdout = log_concat.unwrap_or_default();
+                let reconstructed = reconstruct_stdout_from_events(conn, &run_id);
+                let full_stdout = if reconstructed.len() > stdout.len() {
+                    reconstructed
+                } else {
+                    stdout
+                };
+
+                if full_stdout.is_empty() && duration_secs <= 0.0 {
+                    continue;
+                }
+
+                let is_claude = agent_type == "claude";
+                let cost_data = crate::agents::cost::extract_or_estimate_cost(
+                    &full_stdout,
+                    "opus-4.6",
+                    duration_secs,
+                    is_claude,
+                );
+
+                if let Some(cost) = cost_data {
+                    let mut metadata = metadata_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                        .unwrap_or_else(|| serde_json::json!({}));
+
+                    metadata["cost"] = serde_json::to_value(&cost).unwrap_or_default();
+                    if duration_secs > 0.0 && metadata.get("duration_secs").is_none() {
+                        metadata["duration_secs"] = serde_json::json!(duration_secs);
+                    }
+
+                    updates.push((run_id, metadata));
+                }
+            }
+
+            let backfilled = updates.len() as u32;
+            for (run_id, metadata) in updates {
+                let metadata_str =
+                    serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string());
+                conn.execute(
+                    "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                    rusqlite::params![metadata_str, run_id],
+                )?;
+            }
+
+            Ok(backfilled)
+        })
+    }
+
+    /// Shared aggregation: run a query that returns metadata_json rows and aggregate cost.
+    fn aggregate_cost_by_query(&self, sql: &str, param: &str) -> Result<AggregatedCost, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(sql)?;
+            let rows = stmt.query_map([param], |row| row.get::<_, String>(0))?;
+            Ok(aggregate_metadata_rows(rows.flatten()))
+        })
+    }
+}
+
+fn compute_duration_secs(started_at: Option<&str>, ended_at: Option<&str>) -> f64 {
+    let (start, end) = match (started_at, ended_at) {
+        (Some(s), Some(e)) => (s, e),
+        _ => return 0.0,
+    };
+
+    let parse = |ts: &str| {
+        chrono::DateTime::parse_from_rfc3339(ts).or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(ts, "%Y-%m-%d %H:%M:%S")
+                .map(|ndt| ndt.and_utc().fixed_offset())
+        })
+    };
+
+    match (parse(start), parse(end)) {
+        (Ok(s), Ok(e)) => (e - s).num_seconds() as f64,
+        _ => 0.0,
+    }
+}
+
+fn reconstruct_stdout_from_events(conn: &rusqlite::Connection, run_id: &str) -> String {
+    let mut stmt = match conn.prepare(
+        r#"SELECT payload_json FROM agent_events
+           WHERE run_id = ? AND event_type LIKE '%log_stdout%'
+           ORDER BY created_at ASC"#,
+    ) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+
+    let mut lines = Vec::new();
+    if let Ok(rows) = stmt.query_map([run_id], |row| row.get::<_, String>(0)) {
+        for row in rows.flatten() {
+            if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&row) {
+                if let Some(raw) = payload.get("raw").and_then(|r| r.as_str()) {
+                    lines.push(raw.to_string());
+                    continue;
+                }
+            }
+            lines.push(row);
+        }
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::{AgentType, CreateRun, CreateTicket, Priority, RunStatus, WorkflowType};
+
+    fn create_test_db() -> Database {
+        Database::open_in_memory().unwrap()
+    }
+
+    fn create_ticket_and_run(db: &Database) -> (String, String) {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Cost Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+        (ticket.id, run.id)
+    }
+
+    fn cost_metadata(input_tokens: u64, cost_usd: f64, estimated: bool) -> serde_json::Value {
+        serde_json::json!({
+            "cost": {
+                "inputTokens": input_tokens, "outputTokens": 0, "totalCostUsd": cost_usd,
+                "cacheReadTokens": 0, "cacheCreationTokens": 0, "isEstimated": estimated,
+                "modelUsage": {}
+            }
+        })
+    }
+
+    #[test]
+    fn parse_cost_from_valid_metadata() {
+        let json = r#"{"cost":{"inputTokens":100,"outputTokens":50,"cacheReadTokens":0,"cacheCreationTokens":0,"totalCostUsd":0.01,"isEstimated":false,"modelUsage":{}},"duration_secs":5.0}"#;
+        let cost = parse_cost_from_metadata(json).unwrap();
+        assert_eq!(cost.input_tokens, 100);
+    }
+
+    #[test]
+    fn parse_cost_returns_none_for_no_cost_key() {
+        assert!(parse_cost_from_metadata(r#"{"duration_secs":5.0}"#).is_none());
+    }
+
+    #[test]
+    fn parse_cost_returns_none_for_invalid_json() {
+        assert!(parse_cost_from_metadata("not json").is_none());
+    }
+
+    #[test]
+    fn aggregate_empty_iterator() {
+        let agg = aggregate_metadata_rows(std::iter::empty());
+        assert_eq!(agg.run_count, 0);
+    }
+
+    #[test]
+    fn aggregate_skips_invalid_rows() {
+        let rows = vec![
+            "not json".to_string(),
+            r#"{"no_cost":true}"#.to_string(),
+            r#"{"cost":{"inputTokens":100,"outputTokens":50,"cacheReadTokens":0,"cacheCreationTokens":0,"totalCostUsd":0.01,"isEstimated":false,"modelUsage":{}}}"#.to_string(),
+        ];
+        let agg = aggregate_metadata_rows(rows.into_iter());
+        assert_eq!(agg.run_count, 1);
+    }
+
+    #[test]
+    fn compute_duration_secs_rfc3339() {
+        let d = compute_duration_secs(
+            Some("2025-01-01T00:00:00+00:00"),
+            Some("2025-01-01T00:01:00+00:00"),
+        );
+        assert!((d - 60.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn compute_duration_secs_naive_format() {
+        let d = compute_duration_secs(Some("2025-01-01 00:00:00"), Some("2025-01-01 00:00:30"));
+        assert!((d - 30.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn compute_duration_secs_missing_timestamps() {
+        assert_eq!(compute_duration_secs(None, Some("2025-01-01T00:00:00+00:00")), 0.0);
+        assert_eq!(compute_duration_secs(Some("2025-01-01T00:00:00+00:00"), None), 0.0);
+        assert_eq!(compute_duration_secs(None, None), 0.0);
+    }
+
+    #[test]
+    fn get_run_cost_returns_none_when_no_metadata() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+        assert!(db.get_run_cost(&run_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_run_cost_returns_none_when_metadata_has_no_cost() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+        db.set_run_metadata(&run_id, &serde_json::json!({"duration_secs": 10.0}))
+            .unwrap();
+        assert!(db.get_run_cost(&run_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_run_cost_returns_cost_from_metadata() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+        db.set_run_metadata(&run_id, &cost_metadata(500, 0.05, false)).unwrap();
+        let cost = db.get_run_cost(&run_id).unwrap().unwrap();
+        assert_eq!(cost.input_tokens, 500);
+        assert!((cost.total_cost_usd - 0.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn get_run_cost_not_found() {
+        let db = create_test_db();
+        assert!(matches!(db.get_run_cost("nonexistent"), Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn get_ticket_cost_empty_when_no_runs() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id,
+                column_id: columns[0].id.clone(),
+                title: "T".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        let agg = db.get_ticket_cost(&ticket.id).unwrap();
+        assert_eq!(agg.run_count, 0);
+    }
+
+    #[test]
+    fn get_ticket_cost_aggregates_multiple_runs() {
+        let db = create_test_db();
+        let (ticket_id, run1_id) = create_ticket_and_run(&db);
+        let run2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(&run1_id, &cost_metadata(100, 0.01, false)).unwrap();
+        db.set_run_metadata(&run2.id, &cost_metadata(200, 0.02, true)).unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+        assert_eq!(agg.run_count, 2);
+        assert_eq!(agg.estimated_count, 1);
+        assert_eq!(agg.total_input_tokens, 300);
+        assert!((agg.total_cost_usd - 0.03).abs() < 0.001);
+    }
+
+    #[test]
+    fn get_ticket_cost_skips_runs_without_cost() {
+        let db = create_test_db();
+        let (ticket_id, run1_id) = create_ticket_and_run(&db);
+        db.set_run_metadata(&run1_id, &cost_metadata(100, 0.01, false)).unwrap();
+        db.create_run(&CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(db.get_ticket_cost(&ticket_id).unwrap().run_count, 1);
+    }
+
+    #[test]
+    fn get_board_cost_summary_aggregates_across_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let make_ticket = |title: &str| {
+            db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: title.to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap()
+        };
+
+        let t1 = make_ticket("T1");
+        let t2 = make_ticket("T2");
+
+        let r1 = db.create_run(&CreateRun { ticket_id: t1.id, agent_type: AgentType::Claude, repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
+        let r2 = db.create_run(&CreateRun { ticket_id: t2.id, agent_type: AgentType::Claude, repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
+
+        db.set_run_metadata(&r1.id, &cost_metadata(100, 0.01, false)).unwrap();
+        db.set_run_metadata(&r2.id, &cost_metadata(200, 0.02, false)).unwrap();
+
+        let agg = db.get_board_cost_summary(&board.id).unwrap();
+        assert_eq!(agg.run_count, 2);
+        assert_eq!(agg.total_input_tokens, 300);
+    }
+}

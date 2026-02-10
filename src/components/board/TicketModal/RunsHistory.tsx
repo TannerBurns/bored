@@ -1,15 +1,8 @@
 import { cn } from '../../../lib/utils';
-import type { AgentRun, RunCostData } from '../../../types';
+import type { AgentRun } from '../../../types';
 import type { RunEvent } from './types';
 import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
-import { CostBadge } from '../../common/CostBadge';
-
-function getRunCost(run: AgentRun): RunCostData | null {
-  if (!run.metadata) return null;
-  const cost = (run.metadata as Record<string, unknown>).cost;
-  if (!cost || typeof cost !== 'object') return null;
-  return cost as RunCostData;
-}
+import { CostBadge, getRunCost } from '../../common/CostBadge';
 
 /** Normalize eventType which can be string or {custom: "value"} */
 function getEventTypeString(eventType: unknown): string {
