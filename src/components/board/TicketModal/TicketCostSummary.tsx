@@ -43,9 +43,9 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
             finishedRuns.length > 0 &&
             ticketCost.runCount < finishedRuns.length
           ) {
-            backfilledRunCountRef.current.set(ticketId, finishedRuns.length);
             try {
               const count = await backfillRunCosts();
+              backfilledRunCountRef.current.set(ticketId, finishedRuns.length);
               if (count > 0) {
                 const updatedCost = await getTicketCost(ticketId);
                 if (!cancelled) {
@@ -53,7 +53,7 @@ export function TicketCostSummary({ ticketId, agentRuns }: TicketCostSummaryProp
                 }
               }
             } catch {
-              // Backfill is best-effort
+              // Backfill is best-effort; ref not updated so retry is possible
             }
           }
         }
