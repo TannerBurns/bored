@@ -10,6 +10,7 @@ const DEFAULT_MODEL: &str = "opus-4.6";
 fn map_model_for_cursor(model: &str) -> String {
     match model {
         "opus-4.6" => "claude-opus-4-6".to_string(),
+        "opus-4.5" => "claude-opus-4-5".to_string(),
         "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
         other => other.to_string(),
     }
@@ -208,6 +209,7 @@ mod tests {
     fn build_command_maps_model_names_correctly() {
         let test_cases = [
             ("opus-4.6", "claude-opus-4-6"),
+            ("opus-4.5", "claude-opus-4-5"),
             ("sonnet-4.5", "claude-sonnet-4-5"),
             ("unknown-model", "unknown-model"),
         ];

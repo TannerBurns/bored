@@ -153,6 +153,12 @@ pub async fn send_conversation_message(
     match brainstorm_agent.process_message(&messages).await {
         Ok(response) => {
             if response.is_complete {
+                // Notify UI that spec generation (and plan generation) is starting
+                // so the generating indicator shows for the direct completion case.
+                let _ = event_tx.send(LiveEvent::BrainstormGeneratingSpec {
+                    spec_id: spec_id.clone(),
+                    version_number: version.version_number,
+                });
                 let trigger = response.structured_spec.as_ref()
                     .map(|s| trigger_from_spec(&plan_trigger, s));
                 handle_spec_completion(
@@ -258,6 +264,12 @@ pub async fn start_conversation(
     match brainstorm_agent.start_conversation().await {
         Ok(response) => {
             if response.is_complete {
+                // Notify UI that spec generation (and plan generation) is starting
+                // so the generating indicator shows for the direct completion case.
+                let _ = event_tx.send(LiveEvent::BrainstormGeneratingSpec {
+                    spec_id: spec_id.clone(),
+                    version_number: version.version_number,
+                });
                 let trigger = response.structured_spec.as_ref()
                     .map(|s| trigger_from_spec(&plan_trigger, s));
                 handle_spec_completion(
