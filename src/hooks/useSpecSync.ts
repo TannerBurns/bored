@@ -222,19 +222,31 @@ export function useSpecSync(
           break;
           
         case 'conversation_complete':
-          // Conversation finished, refresh spec to get updated status
+          // Conversation finished, refresh spec to get updated status.
+          // IMPORTANT: Do NOT clear isGeneratingSpec before the spec is
+          // refreshed. Clearing it early causes a render gap where neither
+          // the "Creating Spec" nor the "Generating Plan" indicator shows.
           if (spec_id) {
             setAgentThinking(false);
-            setGeneratingSpec(false);
             clearBrainstormLogs();
             try {
               const updated = await getSpec(spec_id);
               setSpecs(getSpecs().map((s) => (s.id === spec_id ? updated : s)));
               if (getCurrentSpec()?.id === spec_id) {
                 setCurrentSpec(updated);
+                // Transition planning/exploring flags based on the refreshed
+                // status so the UI seamlessly shows the correct indicator
+                // before we clear the generating state.
+                const status = updated.latestVersion?.status;
+                setPlanning(status === 'planning');
+                setExploring(status === 'exploring');
               }
             } catch (error) {
               logger.error('Failed to refresh spec after conversation complete', error);
+            } finally {
+              // Clear generating state only AFTER the spec has been refreshed
+              // (or the refresh failed) to avoid a UI gap.
+              setGeneratingSpec(false);
             }
           }
           break;

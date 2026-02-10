@@ -38,7 +38,8 @@ const themeOptions = [
 ] as const;
 
 const plannerModelOptions = [
-  { value: 'opus', label: 'Opus 4.6', description: 'Most capable', isDefault: true },
+  { value: 'opus-4.5', label: 'Opus 4.5', description: 'Most capable', isDefault: true },
+  { value: 'opus', label: 'Opus 4.6', description: 'Latest generation', isDefault: false },
   { value: 'sonnet', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
 ] as const;
 
@@ -219,7 +220,7 @@ export function GeneralSettings() {
           <label className="block text-sm font-medium text-board-text mb-1.5">
             Spec Agent Model
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {plannerModelOptions.map((option) => {
               const isSelected = plannerModel === option.value;
               return (
@@ -227,26 +228,26 @@ export function GeneralSettings() {
                   key={option.value}
                   onClick={() => setPlannerModel(option.value)}
                   className={cn(
-                    'flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-200',
+                    'flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg transition-all duration-200',
                     isSelected
                       ? 'glass-intense ring-1 ring-board-accent'
                       : 'glass hover:glass-intense'
                   )}
                 >
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1">
                     <span className={cn(
-                      'text-sm font-medium',
+                      'text-xs font-medium',
                       isSelected ? 'text-board-accent' : 'text-board-text'
                     )}>
                       {option.label}
                     </span>
                     {option.isDefault && (
-                      <span className="text-[10px] font-medium px-1.5 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">
+                      <span className="text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">
                         default
                       </span>
                     )}
                   </span>
-                  <span className="text-xs text-board-text-muted">
+                  <span className="text-[11px] text-board-text-muted">
                     {option.description}
                   </span>
                 </button>

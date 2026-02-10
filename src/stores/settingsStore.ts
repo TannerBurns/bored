@@ -6,7 +6,7 @@ interface SettingsState {
   
   // Planner settings
   plannerAutoApprove: boolean;
-  plannerModel: 'opus' | 'sonnet';
+  plannerModel: 'opus' | 'opus-4.5' | 'sonnet';
   plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
@@ -24,7 +24,7 @@ interface SettingsState {
   
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
-  setPlannerModel: (model: 'opus' | 'sonnet') => void;
+  setPlannerModel: (model: 'opus' | 'opus-4.5' | 'sonnet') => void;
   setPlannerMaxExplorations: (max: number) => void;
   setPlannerTimeoutMinutes: (min: number) => void;
   setPlannerMaxRetries: (max: number) => void;
@@ -50,7 +50,7 @@ export const useSettingsStore = create<SettingsState>()(
       
       // Planner defaults
       plannerAutoApprove: false,
-      plannerModel: 'opus',
+      plannerModel: 'opus-4.5',
       plannerMaxExplorations: 10,
       plannerTimeoutMinutes: 10,
       plannerMaxRetries: 2,
@@ -88,7 +88,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 2,
+      version: 3,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
         if (version < 1) {
@@ -101,6 +101,12 @@ export const useSettingsStore = create<SettingsState>()(
           // v1 -> v2: increase default timeout from 5 to 10 minutes
           if (state.plannerTimeoutMinutes === 5) {
             state.plannerTimeoutMinutes = 10;
+          }
+        }
+        if (version < 3) {
+          // v2 -> v3: default plannerModel changed from 'opus' to 'opus-4.5'
+          if (state.plannerModel === 'opus') {
+            state.plannerModel = 'opus-4.5';
           }
         }
         return state as unknown as SettingsState;
