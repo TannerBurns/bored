@@ -1254,4 +1254,264 @@ mod tests {
         let results = db.get_recent_runs_with_context(3).unwrap();
         assert_eq!(results.len(), 3);
     }
+
+    // --- Cost query tests ---
+
+    fn create_ticket_and_run(db: &Database) -> (String, String) {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Cost Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        (ticket.id, run.id)
+    }
+
+    #[test]
+    fn get_run_cost_returns_none_when_no_metadata() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+        let cost = db.get_run_cost(&run_id).unwrap();
+        assert!(cost.is_none());
+    }
+
+    #[test]
+    fn get_run_cost_returns_none_when_metadata_has_no_cost() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+        db.set_run_metadata(&run_id, &serde_json::json!({"duration_secs": 10.0}))
+            .unwrap();
+        let cost = db.get_run_cost(&run_id).unwrap();
+        assert!(cost.is_none());
+    }
+
+    #[test]
+    fn get_run_cost_returns_cost_from_metadata() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+
+        let cost_data = crate::agents::cost::RunCostData {
+            input_tokens: 500,
+            output_tokens: 250,
+            total_cost_usd: 0.05,
+            is_estimated: false,
+            ..Default::default()
+        };
+        let metadata = serde_json::json!({
+            "duration_secs": 10.0,
+            "cost": cost_data,
+        });
+        db.set_run_metadata(&run_id, &metadata).unwrap();
+
+        let cost = db.get_run_cost(&run_id).unwrap().unwrap();
+        assert_eq!(cost.input_tokens, 500);
+        assert_eq!(cost.output_tokens, 250);
+        assert!((cost.total_cost_usd - 0.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn get_run_cost_not_found() {
+        let db = create_test_db();
+        let result = db.get_run_cost("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn get_ticket_cost_empty_when_no_runs() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id,
+                column_id: columns[0].id.clone(),
+                title: "T".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let agg = db.get_ticket_cost(&ticket.id).unwrap();
+        assert_eq!(agg.run_count, 0);
+        assert_eq!(agg.total_cost_usd, 0.0);
+    }
+
+    #[test]
+    fn get_ticket_cost_aggregates_multiple_runs() {
+        let db = create_test_db();
+        let (ticket_id, run1_id) = create_ticket_and_run(&db);
+
+        let run2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Set cost on run1
+        let cost1 = serde_json::json!({
+            "cost": {"inputTokens": 100, "outputTokens": 50, "totalCostUsd": 0.01,
+                     "cacheReadTokens": 0, "cacheCreationTokens": 0, "isEstimated": false, "modelUsage": {}}
+        });
+        db.set_run_metadata(&run1_id, &cost1).unwrap();
+
+        // Set cost on run2
+        let cost2 = serde_json::json!({
+            "cost": {"inputTokens": 200, "outputTokens": 100, "totalCostUsd": 0.02,
+                     "cacheReadTokens": 0, "cacheCreationTokens": 0, "isEstimated": true, "modelUsage": {}}
+        });
+        db.set_run_metadata(&run2.id, &cost2).unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+        assert_eq!(agg.run_count, 2);
+        assert_eq!(agg.estimated_count, 1);
+        assert_eq!(agg.total_input_tokens, 300);
+        assert!((agg.total_cost_usd - 0.03).abs() < 0.001);
+    }
+
+    #[test]
+    fn get_ticket_cost_skips_runs_without_cost() {
+        let db = create_test_db();
+        let (ticket_id, run1_id) = create_ticket_and_run(&db);
+
+        // run1 has cost, run2 has no metadata
+        let cost = serde_json::json!({
+            "cost": {"inputTokens": 100, "outputTokens": 50, "totalCostUsd": 0.01,
+                     "cacheReadTokens": 0, "cacheCreationTokens": 0, "isEstimated": false, "modelUsage": {}}
+        });
+        db.set_run_metadata(&run1_id, &cost).unwrap();
+
+        db.create_run(&CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: AgentType::Cursor,
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+        assert_eq!(agg.run_count, 1);
+    }
+
+    #[test]
+    fn get_board_cost_summary_aggregates_across_tickets() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        // Create two tickets on the same board
+        let t1 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "T1".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        let t2 = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "T2".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let r1 = db
+            .create_run(&CreateRun {
+                ticket_id: t1.id,
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+        let r2 = db
+            .create_run(&CreateRun {
+                ticket_id: t2.id,
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let cost_json = |tokens: u64, cost: f64| {
+            serde_json::json!({
+                "cost": {"inputTokens": tokens, "outputTokens": 0, "totalCostUsd": cost,
+                         "cacheReadTokens": 0, "cacheCreationTokens": 0, "isEstimated": false, "modelUsage": {}}
+            })
+        };
+
+        db.set_run_metadata(&r1.id, &cost_json(100, 0.01)).unwrap();
+        db.set_run_metadata(&r2.id, &cost_json(200, 0.02)).unwrap();
+
+        let agg = db.get_board_cost_summary(&board.id).unwrap();
+        assert_eq!(agg.run_count, 2);
+        assert_eq!(agg.total_input_tokens, 300);
+        assert!((agg.total_cost_usd - 0.03).abs() < 0.001);
+    }
 }

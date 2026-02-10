@@ -431,4 +431,155 @@ mod tests {
         assert_eq!(parsed.output_tokens, 500);
         assert!((parsed.total_cost_usd - 0.05).abs() < 0.001);
     }
+
+    #[test]
+    fn extract_cost_empty_input() {
+        assert!(extract_cost_from_stream_json("").is_none());
+        assert!(extract_cost_from_stream_json("   \n\n  ").is_none());
+    }
+
+    #[test]
+    fn extract_cost_skips_malformed_json_lines() {
+        let stream_output = "not json at all\n{broken json\n{\"type\":\"result\",\"result\":\"ok\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}";
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert_eq!(cost.input_tokens, 10);
+    }
+
+    #[test]
+    fn extract_cost_multi_model_usage() {
+        let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert_eq!(cost.model_usage.len(), 2);
+        assert!(cost.model_usage.contains_key("claude-opus-4-6"));
+        assert!(cost.model_usage.contains_key("claude-sonnet-4-5"));
+        let opus = &cost.model_usage["claude-opus-4-6"];
+        let sonnet = &cost.model_usage["claude-sonnet-4-5"];
+        assert_eq!(opus.input_tokens + sonnet.input_tokens, 100);
+    }
+
+    #[test]
+    fn extract_cost_result_without_model_usage() {
+        let stream_output =
+            r#"{"type":"result","result":"text","usage":{"input_tokens":50,"output_tokens":25,"total_cost_usd":0.01}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert!(cost.model_usage.is_empty());
+        assert_eq!(cost.input_tokens, 50);
+    }
+
+    #[test]
+    fn estimate_cost_haiku() {
+        let cost = estimate_cost("claude-haiku-3", 4000, 10.0);
+        assert!(cost.is_estimated);
+        let sonnet_cost = estimate_cost("sonnet-4.5", 4000, 10.0);
+        assert!(cost.total_cost_usd < sonnet_cost.total_cost_usd);
+    }
+
+    #[test]
+    fn estimate_cost_unknown_model_uses_sonnet_pricing() {
+        let unknown = estimate_cost("gpt-5", 4000, 10.0);
+        let sonnet = estimate_cost("sonnet-4.5", 4000, 10.0);
+        assert!((unknown.total_cost_usd - sonnet.total_cost_usd).abs() < 0.0001);
+    }
+
+    #[test]
+    fn extract_or_estimate_claude_no_result_falls_back() {
+        // Claude stream-json with no result line -> falls back to estimation
+        let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"text":"hello"}}}"#;
+        let cost = extract_or_estimate_cost(stream_output, "opus-4.6", 5.0, true).unwrap();
+        assert!(cost.is_estimated);
+    }
+
+    #[test]
+    fn extract_or_estimate_empty_stdout_zero_duration_returns_none() {
+        let cost = extract_or_estimate_cost("", "opus-4.6", 0.0, false);
+        assert!(cost.is_none());
+    }
+
+    #[test]
+    fn extract_or_estimate_empty_stdout_positive_duration() {
+        let cost = extract_or_estimate_cost("", "opus-4.6", 5.0, false).unwrap();
+        assert!(cost.is_estimated);
+        assert!(cost.input_tokens > 0);
+        assert_eq!(cost.output_tokens, 0);
+    }
+
+    #[test]
+    fn aggregated_cost_model_usage_merges() {
+        let mut agg = AggregatedCost::default();
+
+        let mut usage1 = HashMap::new();
+        usage1.insert("opus".to_string(), ModelCostData {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_usd: 0.01,
+            ..Default::default()
+        });
+        let cost1 = RunCostData {
+            model_usage: usage1,
+            total_cost_usd: 0.01,
+            ..Default::default()
+        };
+
+        let mut usage2 = HashMap::new();
+        usage2.insert("opus".to_string(), ModelCostData {
+            input_tokens: 200,
+            output_tokens: 100,
+            cost_usd: 0.02,
+            ..Default::default()
+        });
+        usage2.insert("sonnet".to_string(), ModelCostData {
+            input_tokens: 50,
+            output_tokens: 25,
+            cost_usd: 0.005,
+            ..Default::default()
+        });
+        let cost2 = RunCostData {
+            model_usage: usage2,
+            total_cost_usd: 0.025,
+            ..Default::default()
+        };
+
+        agg.add(&cost1);
+        agg.add(&cost2);
+
+        assert_eq!(agg.model_totals.len(), 2);
+        assert_eq!(agg.model_totals["opus"].input_tokens, 300);
+        assert_eq!(agg.model_totals["sonnet"].input_tokens, 50);
+        assert!((agg.model_totals["opus"].cost_usd - 0.03).abs() < 0.0001);
+    }
+
+    #[test]
+    fn aggregated_cost_default_is_zero() {
+        let agg = AggregatedCost::default();
+        assert_eq!(agg.run_count, 0);
+        assert_eq!(agg.estimated_count, 0);
+        assert_eq!(agg.total_cost_usd, 0.0);
+        assert!(agg.model_totals.is_empty());
+    }
+
+    #[test]
+    fn cost_data_deserializes_without_model_usage() {
+        // modelUsage has #[serde(default)] so it can be omitted
+        let json = r#"{"inputTokens":100,"outputTokens":50,"cacheReadTokens":0,"cacheCreationTokens":0,"totalCostUsd":0.01,"isEstimated":false}"#;
+        let cost: RunCostData = serde_json::from_str(json).unwrap();
+        assert_eq!(cost.input_tokens, 100);
+        assert!(cost.model_usage.is_empty());
+    }
+
+    #[test]
+    fn aggregated_cost_serialization_roundtrip() {
+        let mut agg = AggregatedCost::default();
+        agg.add(&RunCostData {
+            input_tokens: 500,
+            output_tokens: 250,
+            total_cost_usd: 0.05,
+            is_estimated: true,
+            ..Default::default()
+        });
+        let json = serde_json::to_string(&agg).unwrap();
+        let parsed: AggregatedCost = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.run_count, 1);
+        assert_eq!(parsed.estimated_count, 1);
+        assert_eq!(parsed.total_input_tokens, 500);
+    }
 }
