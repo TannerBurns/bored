@@ -243,7 +243,7 @@ impl WorkflowOrchestrator {
                         .char_indices()
                         .take_while(|(idx, _)| *idx < 50_000)
                         .last()
-                        .map(|(idx, c)| idx + c.len_utf8())
+                        .map(|(idx, c)| (idx + c.len_utf8()).min(extracted_output.len()))
                         .unwrap_or(0);
                     format!("{}...[truncated]", &extracted_output[..safe_boundary])
                 } else {
