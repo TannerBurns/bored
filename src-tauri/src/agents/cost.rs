@@ -6,6 +6,29 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Normalize a model name to a canonical short form.
+///
+/// The Claude API reports model names like `claude-opus-4-6`, while the
+/// ticket/config layer uses short names like `opus-4.6`. Without normalization,
+/// `model_totals` ends up with duplicate entries for the same model. This
+/// function maps every known variant to the canonical short form so that costs
+/// are always aggregated under a single key.
+pub fn normalize_model_name(name: &str) -> String {
+    let lower = name.to_lowercase().replace('_', "-");
+    match lower.as_str() {
+        "claude-opus-4-6" | "claude-opus-4.6" => "opus-4.6".to_string(),
+        "claude-opus-4-5" | "claude-opus-4.5" => "opus-4.5".to_string(),
+        "claude-sonnet-4-5" | "claude-sonnet-4.5" => "sonnet-4.5".to_string(),
+        "claude-haiku-3" | "claude-haiku-3-5" | "claude-haiku-3.5" => "haiku-3.5".to_string(),
+        _ => {
+            // Strip leading "claude-" prefix for any unknown model to avoid
+            // "claude-X" vs "X" duplicates.
+            let stripped = lower.strip_prefix("claude-").unwrap_or(&lower);
+            stripped.to_string()
+        }
+    }
+}
+
 /// Cost and token usage data for a single agent run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -63,7 +86,10 @@ impl AggregatedCost {
         }
 
         for (model, data) in &cost.model_usage {
-            let entry = self.model_totals.entry(model.clone()).or_default();
+            // Normalize during aggregation so that legacy data stored with
+            // non-canonical names (e.g. "claude-opus-4-6") is merged correctly.
+            let canonical = normalize_model_name(model);
+            let entry = self.model_totals.entry(canonical).or_default();
             entry.input_tokens += data.input_tokens;
             entry.output_tokens += data.output_tokens;
             entry.cache_read_tokens += data.cache_read_tokens;
@@ -147,7 +173,15 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0),
             };
-            model_usage.insert(model_name.clone(), data);
+            // Normalize model name so that e.g. "claude-opus-4-6" and "opus-4.6"
+            // are merged under the same key.
+            let canonical = normalize_model_name(model_name);
+            let entry = model_usage.entry(canonical).or_insert_with(ModelCostData::default);
+            entry.input_tokens += data.input_tokens;
+            entry.output_tokens += data.output_tokens;
+            entry.cache_read_tokens += data.cache_read_tokens;
+            entry.cache_creation_tokens += data.cache_creation_tokens;
+            entry.cost_usd += data.cost_usd;
         }
     }
 
@@ -159,6 +193,12 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
     {
         return None;
     }
+
+    // Ensure total_cost_usd is at least the sum of per-model costs.
+    // The API's usage.total_cost_usd and modelUsage.*.costUSD are independent
+    // fields; the total can sometimes lag behind the model-level breakdown.
+    let model_cost_sum: f64 = model_usage.values().map(|d| d.cost_usd).sum();
+    let total_cost_usd = total_cost_usd.max(model_cost_sum);
 
     Some(RunCostData {
         input_tokens,
@@ -220,7 +260,7 @@ pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> Ru
     let output_cost = estimated_output_tokens as f64 * pricing.output_per_mtok / 1_000_000.0;
     let total_cost = input_cost + output_cost;
 
-    let model_name = model.to_string();
+    let model_name = normalize_model_name(model);
     let mut model_usage = HashMap::new();
     model_usage.insert(
         model_name,
@@ -282,7 +322,8 @@ mod tests {
         assert!((cost.total_cost_usd - 0.0525).abs() < 0.0001);
         assert!(!cost.is_estimated);
 
-        let model = cost.model_usage.get("claude-opus-4-6").unwrap();
+        // Model name should be normalized from "claude-opus-4-6" -> "opus-4.6"
+        let model = cost.model_usage.get("opus-4.6").unwrap();
         assert_eq!(model.input_tokens, 1000);
         assert_eq!(model.output_tokens, 500);
         assert!((model.cost_usd - 0.0525).abs() < 0.0001);
@@ -347,7 +388,8 @@ mod tests {
         assert!(cost.is_estimated);
         assert!(cost.total_cost_usd > 0.0);
         assert_eq!(cost.output_tokens, 1000); // 4000 chars / 4
-        assert!(cost.model_usage.contains_key("claude-opus-4-6"));
+        // Model name should be normalized from "claude-opus-4-6" -> "opus-4.6"
+        assert!(cost.model_usage.contains_key("opus-4.6"));
     }
 
     #[test]
@@ -450,11 +492,14 @@ mod tests {
         let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
         let cost = extract_cost_from_stream_json(stream_output).unwrap();
         assert_eq!(cost.model_usage.len(), 2);
-        assert!(cost.model_usage.contains_key("claude-opus-4-6"));
-        assert!(cost.model_usage.contains_key("claude-sonnet-4-5"));
-        let opus = &cost.model_usage["claude-opus-4-6"];
-        let sonnet = &cost.model_usage["claude-sonnet-4-5"];
+        // Model names should be normalized
+        assert!(cost.model_usage.contains_key("opus-4.6"));
+        assert!(cost.model_usage.contains_key("sonnet-4.5"));
+        let opus = &cost.model_usage["opus-4.6"];
+        let sonnet = &cost.model_usage["sonnet-4.5"];
         assert_eq!(opus.input_tokens + sonnet.input_tokens, 100);
+        // total_cost_usd should be at least the sum of model costs
+        assert!((cost.total_cost_usd - 0.05).abs() < 0.0001);
     }
 
     #[test]
@@ -501,6 +546,99 @@ mod tests {
         assert!(cost.is_estimated);
         assert!(cost.input_tokens > 0);
         assert_eq!(cost.output_tokens, 0);
+    }
+
+    #[test]
+    fn normalize_model_name_maps_claude_variants() {
+        assert_eq!(normalize_model_name("claude-opus-4-6"), "opus-4.6");
+        assert_eq!(normalize_model_name("claude-opus-4-5"), "opus-4.5");
+        assert_eq!(normalize_model_name("claude-sonnet-4-5"), "sonnet-4.5");
+        assert_eq!(normalize_model_name("claude-haiku-3"), "haiku-3.5");
+    }
+
+    #[test]
+    fn normalize_model_name_preserves_short_form() {
+        assert_eq!(normalize_model_name("opus-4.6"), "opus-4.6");
+        assert_eq!(normalize_model_name("sonnet-4.5"), "sonnet-4.5");
+    }
+
+    #[test]
+    fn normalize_model_name_strips_claude_prefix_for_unknown() {
+        assert_eq!(normalize_model_name("claude-future-model"), "future-model");
+    }
+
+    #[test]
+    fn normalize_model_name_is_case_insensitive() {
+        assert_eq!(normalize_model_name("Claude-Opus-4-6"), "opus-4.6");
+        assert_eq!(normalize_model_name("CLAUDE-SONNET-4-5"), "sonnet-4.5");
+    }
+
+    #[test]
+    fn total_cost_corrected_when_model_costs_exceed_api_total() {
+        // Simulate a case where the API's total_cost_usd only reflects one model
+        // but modelUsage includes costs from multiple models.
+        let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.04},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        // total_cost_usd should be corrected to at least the sum of model costs
+        assert!(
+            (cost.total_cost_usd - 0.05).abs() < 0.0001,
+            "total_cost_usd should be 0.05 (sum of model costs), got {}",
+            cost.total_cost_usd
+        );
+    }
+
+    #[test]
+    fn estimate_cost_normalizes_model_name() {
+        let cost = estimate_cost("opus-4.6", 4000, 10.0);
+        assert!(cost.model_usage.contains_key("opus-4.6"));
+
+        let cost2 = estimate_cost("claude-opus-4-6", 4000, 10.0);
+        assert!(cost2.model_usage.contains_key("opus-4.6"));
+        // Both should produce the same cost since they refer to the same model
+        assert!((cost.total_cost_usd - cost2.total_cost_usd).abs() < 0.0001);
+    }
+
+    #[test]
+    fn aggregated_cost_merges_different_name_variants() {
+        let mut agg = AggregatedCost::default();
+
+        // Run 1: model_usage uses API name "claude-opus-4-6"
+        let mut usage1 = HashMap::new();
+        usage1.insert("claude-opus-4-6".to_string(), ModelCostData {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_usd: 0.01,
+            ..Default::default()
+        });
+        let cost1 = RunCostData {
+            model_usage: usage1,
+            total_cost_usd: 0.01,
+            ..Default::default()
+        };
+
+        // Run 2: model_usage uses short name "opus-4.6" (from estimation)
+        let mut usage2 = HashMap::new();
+        usage2.insert("opus-4.6".to_string(), ModelCostData {
+            input_tokens: 200,
+            output_tokens: 100,
+            cost_usd: 0.02,
+            ..Default::default()
+        });
+        let cost2 = RunCostData {
+            model_usage: usage2,
+            total_cost_usd: 0.02,
+            ..Default::default()
+        };
+
+        agg.add(&cost1);
+        agg.add(&cost2);
+
+        // Both should be merged under the canonical "opus-4.6" key
+        assert_eq!(agg.model_totals.len(), 1, "Should have 1 model entry, not 2");
+        assert!(agg.model_totals.contains_key("opus-4.6"));
+        assert_eq!(agg.model_totals["opus-4.6"].input_tokens, 300);
+        assert!((agg.model_totals["opus-4.6"].cost_usd - 0.03).abs() < 0.0001);
+        assert!((agg.total_cost_usd - 0.03).abs() < 0.0001);
     }
 
     #[test]
