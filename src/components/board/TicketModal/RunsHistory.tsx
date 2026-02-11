@@ -386,14 +386,6 @@ function ExpandedRunDetails({
   // Use the same model-derived cost as the badge so they always match.
   const displayCost = getParentRunDisplayCost(run, subRuns);
   const totalCost = displayCost ? getTotalCost(displayCost) : 0;
-  // Only mark as estimated when ALL cost data is estimated (Cursor runs).
-  // A single estimated stage among authoritative ones should not taint
-  // the entire total with "~".
-  const hasEstimated = displayCost?.isEstimated
-    ? (isMultiStage
-        ? subRuns.every(sr => { const c = getRunCost(sr); return !c || c.isEstimated; })
-        : true)
-    : false;
 
   return (
     <div className="px-3 pb-3 border-t border-board-border">
@@ -409,8 +401,8 @@ function ExpandedRunDetails({
         {totalCost > 0 && (
           <p>
             <span className="font-medium">Total Cost:</span>{' '}
-            <span className={hasEstimated ? 'text-amber-400' : 'text-emerald-400'}>
-              {hasEstimated ? '~' : ''}${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost < 1 ? totalCost.toFixed(3) : totalCost.toFixed(2)}
+            <span className="text-emerald-400">
+              ${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost < 1 ? totalCost.toFixed(3) : totalCost.toFixed(2)}
             </span>
           </p>
         )}
