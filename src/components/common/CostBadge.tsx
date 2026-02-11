@@ -44,7 +44,16 @@ function isFullyEstimated(cost: RunCostData | AggregatedCost): boolean {
   return false;
 }
 
+/** Derive total cost from the per-model breakdown when available.
+ *  This is the single source of truth — the total always equals the
+ *  sum of the "By model" values shown in the tooltip. */
 function getTotalCost(cost: RunCostData | AggregatedCost): number {
+  const models = 'modelUsage' in cost ? cost.modelUsage :
+    'modelTotals' in cost ? cost.modelTotals : null;
+
+  if (models && Object.keys(models).length > 0) {
+    return Object.values(models).reduce((sum, m) => sum + (m.costUsd ?? 0), 0);
+  }
   return 'totalCostUsd' in cost ? cost.totalCostUsd : 0;
 }
 

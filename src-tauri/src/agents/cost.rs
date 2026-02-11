@@ -75,11 +75,10 @@ pub struct AggregatedCost {
 impl AggregatedCost {
     /// Add a run's cost data to the aggregate.
     ///
-    /// If the run's `model_usage` is empty (common in legacy data), the full
-    /// cost is attributed to an `"other"` model so that `model_totals` always
-    /// sums to `total_cost_usd`.
+    /// `total_cost_usd` is always derived from `model_totals` so the two
+    /// can never diverge.  Legacy runs without a per-model breakdown are
+    /// attributed to an `"other"` bucket.
     pub fn add(&mut self, cost: &RunCostData) {
-        self.total_cost_usd += cost.total_cost_usd;
         self.total_input_tokens += cost.input_tokens;
         self.total_output_tokens += cost.output_tokens;
         self.total_cache_read_tokens += cost.cache_read_tokens;
@@ -103,8 +102,6 @@ impl AggregatedCost {
             }
         } else {
             for (model, data) in &cost.model_usage {
-                // Normalize during aggregation so that legacy data stored with
-                // non-canonical names (e.g. "claude-opus-4-6") is merged correctly.
                 let canonical = normalize_model_name(model);
                 let entry = self.model_totals.entry(canonical).or_default();
                 entry.input_tokens += data.input_tokens;
@@ -114,6 +111,9 @@ impl AggregatedCost {
                 entry.cost_usd += data.cost_usd;
             }
         }
+
+        // Single source of truth: total is always the sum of model costs.
+        self.total_cost_usd = self.model_totals.values().map(|d| d.cost_usd).sum();
     }
 }
 
@@ -203,18 +203,15 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         }
     }
 
-    // If the API provided per-model costs, compute their sum so we can
-    // fill in a missing or zero total_cost_usd.
-    let model_cost_sum: f64 = model_usage.values().map(|d| d.cost_usd).sum();
-
-    // Use the API total when it is present.  When it is missing/zero but
-    // the per-model breakdown has real costs, derive the total from the
-    // model data — a zero total with non-zero model costs is a data gap,
-    // not an authoritative "free" response.
-    let total_cost_usd = if total_cost_usd > 0.0 {
+    // Always derive total_cost_usd from the sum of per-model costs.
+    // This is the single source of truth — it guarantees the total shown
+    // in the UI always equals the sum of the "By model" breakdown.
+    let total_cost_usd: f64 = if model_usage.is_empty() {
+        // No model breakdown available; fall back to the API-level total
+        // so we don't lose cost data entirely.
         total_cost_usd
     } else {
-        model_cost_sum
+        model_usage.values().map(|d| d.cost_usd).sum()
     };
 
     if input_tokens == 0
@@ -777,14 +774,15 @@ mod tests {
     }
 
     #[test]
-    fn api_total_is_trusted_not_recalculated() {
-        // The API reports total_cost_usd = 0.04 even though modelUsage sums to 0.05.
-        // We trust the API total exactly — it is the authoritative billed amount.
+    fn total_always_equals_model_sum() {
+        // Even when the API reports a different total_cost_usd, we always
+        // derive total from the per-model breakdown.
         let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.04},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
         let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        // Model sum is 0.04 + 0.01 = 0.05, so total must be 0.05
         assert!(
-            (cost.total_cost_usd - 0.04).abs() < 0.0001,
-            "total_cost_usd should be 0.04 (the API value), got {}",
+            (cost.total_cost_usd - 0.05).abs() < 0.0001,
+            "total_cost_usd should be model sum 0.05, got {}",
             cost.total_cost_usd
         );
     }
