@@ -8,11 +8,13 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
+import { ValidationView } from './components/validation';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
+import { useValidationSync } from './hooks/useValidationSync';
 import { useAppData, useAgentsData, useSpecsData } from './hooks/useAppData';
 import { useTicketHandlers } from './hooks/useTicketHandlers';
 import { useReleaseNotes } from './hooks/useReleaseNotes';
@@ -89,6 +91,7 @@ function App() {
   const showOnboarding = onboardingActive === true;
 
   useSpecSync(apiConfig?.url || '', apiConfig?.token || '');
+  useValidationSync(apiConfig?.url || '', apiConfig?.token || '');
   useAgentsData(activeNav, setProjects, setRecentRuns);
   useSpecsData(activeNav);
 
@@ -206,6 +209,8 @@ function App() {
         )}
 
         {activeNav === 'projects' && <ProjectsView />}
+
+        {activeNav === 'validation' && <ValidationView />}
 
         {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
       </main>

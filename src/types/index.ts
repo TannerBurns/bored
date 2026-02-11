@@ -472,3 +472,53 @@ export interface ConversationMessage {
   createdAt: Date;
 }
 
+// Validation types
+
+export type ValidationSessionStatus = 'created' | 'chatting' | 'app_running' | 'passed' | 'failed';
+
+export interface ValidationSession {
+  id: string;
+  ticketId: string;
+  projectId?: string;
+  status: ValidationSessionStatus;
+  appCommand?: string;
+  appPort?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type ValidationMessageRole = 'user' | 'assistant' | 'system';
+
+export interface ValidationMessage {
+  id: string;
+  sessionId: string;
+  role: ValidationMessageRole;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface FixTask {
+  title: string;
+  description: string;
+  acceptanceCriteria?: string[];
+}
+
+export interface PushResult {
+  success: boolean;
+  message: string;
+  branch: string;
+}
+
+export interface PullRequestResult {
+  success: boolean;
+  url?: string;
+  message: string;
+}
+
+export interface BranchDiff {
+  diff: string;
+  filesChanged: number;
+  branch: string;
+}
+

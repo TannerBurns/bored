@@ -22,6 +22,7 @@ import { RunsHistory } from './RunsHistory';
 import { TicketCostSummary } from './TicketCostSummary';
 import { CommentsSection } from './CommentsSection';
 import { TicketModalFooter } from './TicketModalFooter';
+import { NextStepsPanel } from './NextStepsPanel';
 
 export function TicketModal({
   ticket,
@@ -204,6 +205,12 @@ export function TicketModal({
             handleCancelAgent={agentEvents.handleCancelAgent}
             handlePauseTicket={() => agentEvents.handlePauseTicket(runsHistory.agentRuns)}
             handleForceClearLock={agentEvents.handleForceClearLock}
+          />
+
+          {/* Next Steps Panel (visible for completed tickets with branches) */}
+          <NextStepsPanel
+            ticket={ticket}
+            columns={columns}
           />
 
           {/* Ticket Cost Summary */}

@@ -2,12 +2,14 @@ pub mod boards;
 pub mod claude;
 pub mod conversations;
 pub mod cursor;
+pub mod next_steps;
 pub mod projects;
 pub mod release_notes;
 pub mod runs;
 pub mod specs;
 pub mod tasks;
 pub mod tickets;
+pub mod validation;
 pub mod workers;
 
 pub use boards::*;

@@ -394,3 +394,89 @@ export async function getReleaseNotes(version: string): Promise<ReleaseNote | nu
 export async function getAllReleaseNotes(): Promise<ReleaseNote[]> {
   return invoke('get_all_release_notes');
 }
+
+// Validation functions
+import type {
+  ValidationSession,
+  ValidationMessage,
+  FixTask,
+  PushResult,
+  PullRequestResult,
+  BranchDiff,
+} from '../types';
+
+export async function createValidationSession(input: {
+  ticketId: string;
+  projectId?: string;
+  appCommand?: string;
+  appPort?: number;
+}): Promise<ValidationSession> {
+  return invoke('create_validation_session', { input });
+}
+
+export async function getValidationSession(
+  sessionId: string
+): Promise<ValidationSession> {
+  return invoke('get_validation_session', { sessionId });
+}
+
+export async function getValidationSessions(
+  ticketId: string
+): Promise<ValidationSession[]> {
+  return invoke('get_validation_sessions', { ticketId });
+}
+
+export async function updateValidationSessionStatus(
+  sessionId: string,
+  status: string
+): Promise<void> {
+  return invoke('update_validation_session_status', { sessionId, status });
+}
+
+export async function deleteValidationSession(
+  sessionId: string
+): Promise<void> {
+  return invoke('delete_validation_session', { sessionId });
+}
+
+export async function getValidationMessages(
+  sessionId: string
+): Promise<ValidationMessage[]> {
+  return invoke('get_validation_messages', { sessionId });
+}
+
+export async function sendValidationMessage(
+  sessionId: string,
+  content: string
+): Promise<ValidationMessage> {
+  return invoke('send_validation_message', { sessionId, content });
+}
+
+export async function createFixTasks(input: {
+  sessionId: string;
+  ticketId: string;
+  tasks: FixTask[];
+}): Promise<string[]> {
+  return invoke('create_fix_tasks', { input });
+}
+
+// Next steps functions
+export async function pushBranch(ticketId: string): Promise<PushResult> {
+  return invoke('push_branch', { ticketId });
+}
+
+export async function createPullRequest(
+  ticketId: string,
+  title?: string,
+  body?: string
+): Promise<PullRequestResult> {
+  return invoke('create_pull_request', { ticketId, title, body });
+}
+
+export async function getBranchDiff(ticketId: string): Promise<BranchDiff> {
+  return invoke('get_branch_diff', { ticketId });
+}
+
+export async function openInEditor(ticketId: string): Promise<void> {
+  return invoke('open_in_editor', { ticketId });
+}

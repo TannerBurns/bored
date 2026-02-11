@@ -12,6 +12,7 @@ mod spec_versions;
 mod specs;
 pub mod tasks;
 pub mod tickets;
+mod validation;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -512,6 +513,43 @@ impl Database {
                 )?;
                 
                 tracing::info!("Migration to version 5 complete: release_notes table added");
+            }
+
+            // Migration from version 5 to 6: Add validation_sessions and validation_messages tables
+            if current_version < 6 {
+                tracing::info!("Running migration to version 6: validation tables");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS validation_sessions (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                        status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'chatting', 'app_running', 'passed', 'failed')),
+                        app_command TEXT,
+                        app_port INTEGER,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_validation_sessions_ticket ON validation_sessions(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_validation_sessions_status ON validation_sessions(status);
+
+                    CREATE TABLE IF NOT EXISTS validation_messages (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        session_id TEXT NOT NULL REFERENCES validation_sessions(id) ON DELETE CASCADE,
+                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+                        content TEXT NOT NULL,
+                        metadata_json TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_validation_messages_session ON validation_messages(session_id);
+                    CREATE INDEX IF NOT EXISTS idx_validation_messages_created ON validation_messages(session_id, created_at);
+                    "#
+                )?;
+
+                tracing::info!("Migration to version 6 complete: validation tables added");
             }
 
             conn.execute(

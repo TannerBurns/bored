@@ -420,6 +420,20 @@ fn main() {
             // Release notes
             commands::release_notes::get_release_notes,
             commands::release_notes::get_all_release_notes,
+            // Validation commands
+            commands::validation::create_validation_session,
+            commands::validation::get_validation_session,
+            commands::validation::get_validation_sessions,
+            commands::validation::update_validation_session_status,
+            commands::validation::delete_validation_session,
+            commands::validation::get_validation_messages,
+            commands::validation::send_validation_message,
+            commands::validation::create_fix_tasks,
+            // Next steps commands (push, PR, diff, open)
+            commands::next_steps::push_branch,
+            commands::next_steps::create_pull_request,
+            commands::next_steps::get_branch_diff,
+            commands::next_steps::open_in_editor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

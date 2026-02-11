@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 5;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -237,6 +237,34 @@ CREATE TABLE IF NOT EXISTS release_notes (
     summary TEXT,
     notes_json TEXT NOT NULL DEFAULT '[]'
 );
+
+-- Validation sessions table (post-completion validation chat)
+CREATE TABLE IF NOT EXISTS validation_sessions (
+    id TEXT PRIMARY KEY NOT NULL,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'chatting', 'app_running', 'passed', 'failed')),
+    app_command TEXT,
+    app_port INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_sessions_ticket ON validation_sessions(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_validation_sessions_status ON validation_sessions(status);
+
+-- Validation messages table (chat messages within a validation session)
+CREATE TABLE IF NOT EXISTS validation_messages (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL REFERENCES validation_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+    content TEXT NOT NULL,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_messages_session ON validation_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_validation_messages_created ON validation_messages(session_id, created_at);
 "#;
 
 /// Default columns for a new board

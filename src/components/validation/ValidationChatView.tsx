@@ -1,0 +1,225 @@
+import { useState, useEffect, useRef } from 'react';
+import type { ValidationSession, ValidationMessage as ValidationMessageType } from '../../types';
+import { useValidationStore } from '../../stores/validationStore';
+import { MessageInput } from '../planner/MessageInput';
+import { MarkdownViewer } from '../common/MarkdownViewer';
+import { AppLogPanel } from './AppLogPanel';
+
+interface ValidationChatViewProps {
+  session: ValidationSession;
+  onBack: () => void;
+}
+
+export function ValidationChatView({ session, onBack }: ValidationChatViewProps) {
+  const {
+    messages,
+    isAgentThinking,
+    appLogs,
+    isAppRunning,
+    loadMessages,
+    sendMessage,
+    updateSessionStatus,
+  } = useValidationStore();
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showLogs, setShowLogs] = useState(true);
+
+  useEffect(() => {
+    loadMessages(session.id);
+  }, [session.id, loadMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSend = async (content: string) => {
+    try {
+      await sendMessage(session.id, content);
+    } catch {
+      // Error handled in store
+    }
+  };
+
+  const handlePassValidation = async () => {
+    await updateSessionStatus(session.id, 'passed');
+  };
+
+  const statusLabel = {
+    created: 'Ready',
+    chatting: 'In Progress',
+    app_running: 'App Running',
+    passed: 'Passed',
+    failed: 'Needs Fix',
+  }[session.status] || session.status;
+
+  const statusColor = {
+    created: 'text-board-text-muted',
+    chatting: 'text-blue-400',
+    app_running: 'text-emerald-400',
+    passed: 'text-emerald-400',
+    failed: 'text-red-400',
+  }[session.status] || 'text-board-text-muted';
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-board-border">
+        <button
+          onClick={onBack}
+          className="p-1 hover:bg-board-hover rounded transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+
+        <div className="flex-1">
+          <h3 className="text-sm font-medium text-board-text">Validation Chat</h3>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className={`text-xs font-medium ${statusColor}`}>{statusLabel}</span>
+            {session.appCommand && (
+              <span className="text-xs text-board-text-muted">
+                | {session.appCommand}
+                {session.appPort ? ` :${session.appPort}` : ''}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowLogs(!showLogs)}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              showLogs
+                ? 'bg-board-accent/20 text-board-accent'
+                : 'bg-board-hover text-board-text-muted'
+            }`}
+          >
+            Logs
+          </button>
+
+          {session.status !== 'passed' && session.status !== 'failed' && (
+            <button
+              onClick={handlePassValidation}
+              className="px-3 py-1 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+            >
+              Pass Validation
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex min-h-0">
+        {/* Chat area */}
+        <div className={`flex flex-col ${showLogs ? 'w-1/2' : 'w-full'} border-r border-board-border`}>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {messages.length === 0 && !isAgentThinking && (
+              <div className="flex items-center justify-center h-full text-board-text-muted text-sm">
+                <div className="text-center space-y-2">
+                  <p>Start a conversation to validate this ticket's changes.</p>
+                  <p className="text-xs">
+                    The agent can help you verify functionality, test APIs, and identify issues.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <ValidationMessageBubble key={msg.id} message={msg} />
+            ))}
+
+            {isAgentThinking && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </div>
+                <div className="px-4 py-2 rounded-lg bg-board-hover">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="p-4 border-t border-board-border">
+            <MessageInput
+              onSend={handleSend}
+              disabled={isAgentThinking || session.status === 'passed'}
+              placeholder={
+                session.status === 'passed'
+                  ? 'Validation passed'
+                  : 'Describe what to validate, report issues, or ask questions...'
+              }
+            />
+          </div>
+        </div>
+
+        {/* App logs panel */}
+        {showLogs && (
+          <div className="w-1/2 bg-board-bg/30">
+            <AppLogPanel logs={appLogs} isAppRunning={isAppRunning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ValidationMessageBubble({ message }: { message: ValidationMessageType }) {
+  const isUser = message.role === 'user';
+  const isSystem = message.role === 'system';
+
+  if (isSystem) {
+    return (
+      <div className="flex justify-center">
+        <div className="px-3 py-1.5 rounded-full bg-board-hover text-xs text-board-text-muted">
+          <MarkdownViewer content={message.content} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div
+        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+          isUser ? 'bg-board-accent/20' : 'bg-purple-500/20'
+        }`}
+      >
+        {isUser ? (
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-board-accent">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        ) : (
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        )}
+      </div>
+      <div
+        className={`max-w-[80%] px-4 py-2.5 rounded-lg ${
+          isUser
+            ? 'bg-board-accent/20 text-board-text'
+            : 'bg-board-hover text-board-text'
+        }`}
+      >
+        <MarkdownViewer content={message.content} />
+      </div>
+    </div>
+  );
+}

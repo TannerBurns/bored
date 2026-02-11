@@ -119,6 +119,31 @@ pub enum LiveEvent {
         spec_id: String,
         version_number: i32,
     },
+    // Validation events
+    ValidationSessionCreated {
+        session_id: String,
+        ticket_id: String,
+    },
+    ValidationSessionUpdated {
+        session_id: String,
+    },
+    ValidationMessageAdded {
+        session_id: String,
+        message_id: String,
+        role: String,
+    },
+    ValidationFixTasksCreated {
+        session_id: String,
+        ticket_id: String,
+        task_count: usize,
+    },
+    /// Real-time log entry from app runner
+    AppRunnerLog {
+        session_id: String,
+        stream: String,
+        message: String,
+        timestamp: String,
+    },
 }
 
 /// Shared application state for the API server

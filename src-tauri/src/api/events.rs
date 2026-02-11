@@ -112,6 +112,11 @@ fn event_matches_filter(
             LiveEvent::ConversationComplete { .. } => "conversation_complete",
             LiveEvent::BrainstormLogEntry { .. } => "brainstorm_log_entry",
             LiveEvent::BrainstormGeneratingSpec { .. } => "brainstorm_generating_spec",
+            LiveEvent::ValidationSessionCreated { .. } => "validation_session_created",
+            LiveEvent::ValidationSessionUpdated { .. } => "validation_session_updated",
+            LiveEvent::ValidationMessageAdded { .. } => "validation_message_added",
+            LiveEvent::ValidationFixTasksCreated { .. } => "validation_fix_tasks_created",
+            LiveEvent::AppRunnerLog { .. } => "app_runner_log",
         };
 
         if !types.iter().any(|t| t == event_type) {
