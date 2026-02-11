@@ -2,7 +2,7 @@ import { cn } from '../../../lib/utils';
 import type { AgentRun, RunCostData } from '../../../types';
 import type { RunEvent } from './types';
 import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
-import { CostBadge, getRunCost } from '../../common/CostBadge';
+import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
 
 /** For multi-stage parent runs, sum sub-run costs so the badge matches
  *  the backend aggregate (which excludes the parent). */
@@ -14,7 +14,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   let outputTokens = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
-  let anyEstimated = false;
+  let allEstimated = true;
   let found = false;
   const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
 
@@ -27,7 +27,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     outputTokens += c.outputTokens;
     cacheRead += c.cacheReadTokens;
     cacheWrite += c.cacheCreationTokens;
-    if (c.isEstimated) anyEstimated = true;
+    if (!c.isEstimated) allEstimated = false;
 
     const models = c.modelUsage ?? {};
     if (Object.keys(models).length === 0) {
@@ -55,14 +55,18 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   }
 
   if (!found) return null;
+
+  // Derive totalCostUsd from model sum — single source of truth.
+  const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
+
   return {
-    totalCostUsd: total,
+    totalCostUsd: modelSum > 0 ? modelSum : total,
     inputTokens,
     outputTokens,
     cacheReadTokens: cacheRead,
     cacheCreationTokens: cacheWrite,
     modelUsage: mergedModels,
-    isEstimated: anyEstimated,
+    isEstimated: found && allEstimated,
   };
 }
 
@@ -379,15 +383,17 @@ function ExpandedRunDetails({
   runEvents,
   loadingEvents,
 }: ExpandedRunDetailsProps) {
-  const totalCost = isMultiStage
-    ? subRuns.reduce((sum, sr) => {
-        const c = getRunCost(sr);
-        return c ? sum + c.totalCostUsd : sum;
-      }, 0)
-    : getRunCost(run)?.totalCostUsd ?? 0;
-  const hasEstimated = isMultiStage
-    ? subRuns.some(sr => getRunCost(sr)?.isEstimated)
-    : getRunCost(run)?.isEstimated ?? false;
+  // Use the same model-derived cost as the badge so they always match.
+  const displayCost = getParentRunDisplayCost(run, subRuns);
+  const totalCost = displayCost ? getTotalCost(displayCost) : 0;
+  // Only mark as estimated when ALL cost data is estimated (Cursor runs).
+  // A single estimated stage among authoritative ones should not taint
+  // the entire total with "~".
+  const hasEstimated = displayCost?.isEstimated
+    ? (isMultiStage
+        ? subRuns.every(sr => { const c = getRunCost(sr); return !c || c.isEstimated; })
+        : true)
+    : false;
 
   return (
     <div className="px-3 pb-3 border-t border-board-border">
