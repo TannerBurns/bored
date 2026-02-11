@@ -1,8 +1,54 @@
 import { cn } from '../../../lib/utils';
-import type { AgentRun } from '../../../types';
+import type { AgentRun, RunCostData } from '../../../types';
 import type { RunEvent } from './types';
 import { ClaudeIcon, CursorIcon } from '../../common/AgentIcons';
 import { CostBadge, getRunCost } from '../../common/CostBadge';
+
+/** For multi-stage parent runs, sum sub-run costs so the badge matches
+ *  the backend aggregate (which excludes the parent). */
+function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
+  if (subRuns.length === 0) return getRunCost(run);
+
+  let total = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let anyEstimated = false;
+  let found = false;
+  const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
+
+  for (const sr of subRuns) {
+    const c = getRunCost(sr);
+    if (!c) continue;
+    found = true;
+    total += c.totalCostUsd;
+    inputTokens += c.inputTokens;
+    outputTokens += c.outputTokens;
+    cacheRead += c.cacheReadTokens;
+    cacheWrite += c.cacheCreationTokens;
+    if (c.isEstimated) anyEstimated = true;
+    for (const [model, data] of Object.entries(c.modelUsage ?? {})) {
+      const entry = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+      entry.inputTokens += data.inputTokens;
+      entry.outputTokens += data.outputTokens;
+      entry.cacheReadTokens += data.cacheReadTokens;
+      entry.cacheCreationTokens += data.cacheCreationTokens;
+      entry.costUsd += data.costUsd;
+    }
+  }
+
+  if (!found) return null;
+  return {
+    totalCostUsd: total,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: cacheWrite,
+    modelUsage: mergedModels,
+    isEstimated: anyEstimated,
+  };
+}
 
 /** Normalize eventType which can be string or {custom: "value"} */
 function getEventTypeString(eventType: unknown): string {
@@ -216,7 +262,7 @@ function PreviousRunsSection({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <CostBadge cost={getRunCost(run)} />
+                  <CostBadge cost={getParentRunDisplayCost(run, subRuns)} />
                   <span
                     className={cn(
                       'text-xs px-2 py-0.5 rounded',

@@ -194,12 +194,8 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         return None;
     }
 
-    // Ensure total_cost_usd is at least the sum of per-model costs.
-    // The API's usage.total_cost_usd and modelUsage.*.costUSD are independent
-    // fields; the total can sometimes lag behind the model-level breakdown.
-    let model_cost_sum: f64 = model_usage.values().map(|d| d.cost_usd).sum();
-    let total_cost_usd = total_cost_usd.max(model_cost_sum);
-
+    // Trust the API's total_cost_usd exactly — it is the authoritative
+    // billed amount.  Do NOT recalculate it from model-level data.
     Some(RunCostData {
         input_tokens,
         output_tokens,
@@ -326,6 +322,10 @@ pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> Ru
 }
 
 /// Extract cost from agent output, trying Claude parsing first, then falling back to estimation.
+///
+/// When the Claude API result includes `usage` but no `modelUsage`, a
+/// fallback model entry is created so that `model_totals` always sums
+/// to `total_cost_usd` after aggregation.
 pub fn extract_or_estimate_cost(
     stdout: &str,
     model: &str,
@@ -333,7 +333,22 @@ pub fn extract_or_estimate_cost(
     is_claude: bool,
 ) -> Option<RunCostData> {
     if is_claude {
-        if let Some(cost) = extract_cost_from_stream_json(stdout) {
+        if let Some(mut cost) = extract_cost_from_stream_json(stdout) {
+            // If the API gave us a total but no per-model breakdown, attribute
+            // the entire cost to the configured model so the numbers stay
+            // consistent when aggregated.
+            if cost.model_usage.is_empty() && cost.total_cost_usd > 0.0 {
+                cost.model_usage.insert(
+                    normalize_model_name(model),
+                    ModelCostData {
+                        input_tokens: cost.input_tokens,
+                        output_tokens: cost.output_tokens,
+                        cache_read_tokens: cost.cache_read_tokens,
+                        cache_creation_tokens: cost.cache_creation_tokens,
+                        cost_usd: cost.total_cost_usd,
+                    },
+                );
+            }
             return Some(cost);
         }
     }
@@ -683,17 +698,42 @@ mod tests {
     }
 
     #[test]
-    fn total_cost_corrected_when_model_costs_exceed_api_total() {
-        // Simulate a case where the API's total_cost_usd only reflects one model
-        // but modelUsage includes costs from multiple models.
+    fn api_total_is_trusted_not_recalculated() {
+        // The API reports total_cost_usd = 0.04 even though modelUsage sums to 0.05.
+        // We trust the API total exactly — it is the authoritative billed amount.
         let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.04},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
         let cost = extract_cost_from_stream_json(stream_output).unwrap();
-        // total_cost_usd should be corrected to at least the sum of model costs
         assert!(
-            (cost.total_cost_usd - 0.05).abs() < 0.0001,
-            "total_cost_usd should be 0.05 (sum of model costs), got {}",
+            (cost.total_cost_usd - 0.04).abs() < 0.0001,
+            "total_cost_usd should be 0.04 (the API value), got {}",
             cost.total_cost_usd
         );
+    }
+
+    #[test]
+    fn extract_or_estimate_backfills_empty_model_usage() {
+        // When the API provides a total but no modelUsage, extract_or_estimate_cost
+        // should add a fallback model entry so model costs sum to total.
+        let stream_output =
+            r#"{"type":"result","result":"text","usage":{"input_tokens":50,"output_tokens":25,"total_cost_usd":0.01}}"#;
+        let cost =
+            extract_or_estimate_cost(stream_output, "opus-4.6", 10.0, true).unwrap();
+        assert!(!cost.is_estimated);
+        assert!(!cost.model_usage.is_empty(), "model_usage should have a fallback entry");
+        assert!(cost.model_usage.contains_key("opus-4.6"));
+        assert!((cost.model_usage["opus-4.6"].cost_usd - 0.01).abs() < 0.0001);
+        assert!((cost.total_cost_usd - 0.01).abs() < 0.0001);
+    }
+
+    #[test]
+    fn extract_or_estimate_preserves_existing_model_usage() {
+        // When the API provides modelUsage, it should be kept as-is (normalized).
+        let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":100,"outputTokens":50,"costUSD":0.05}}}"#;
+        let cost =
+            extract_or_estimate_cost(stream_output, "opus-4.6", 10.0, true).unwrap();
+        assert_eq!(cost.model_usage.len(), 1);
+        assert!(cost.model_usage.contains_key("opus-4.6"));
+        assert!((cost.model_usage["opus-4.6"].cost_usd - 0.05).abs() < 0.0001);
     }
 
     #[test]
