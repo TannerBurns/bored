@@ -41,9 +41,19 @@ impl Database {
     }
 
     /// Get aggregated cost for a ticket across all its runs.
+    ///
+    /// For multi-stage workflows the cost lives on each sub-run.  Parent runs
+    /// that *have* sub-runs are excluded to prevent double-counting.
     pub fn get_ticket_cost(&self, ticket_id: &str) -> Result<AggregatedCost, DbError> {
         self.aggregate_cost_by_query(
-            "SELECT metadata_json FROM agent_runs WHERE ticket_id = ? AND metadata_json IS NOT NULL",
+            r#"SELECT r.metadata_json FROM agent_runs r
+               WHERE r.ticket_id = ? AND r.metadata_json IS NOT NULL
+               AND (
+                   r.parent_run_id IS NOT NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM agent_runs sr WHERE sr.parent_run_id = r.id
+                   )
+               )"#,
             ticket_id,
         )
     }
@@ -53,7 +63,13 @@ impl Database {
         self.aggregate_cost_by_query(
             r#"SELECT r.metadata_json FROM agent_runs r
                JOIN tickets t ON r.ticket_id = t.id
-               WHERE t.board_id = ? AND r.metadata_json IS NOT NULL"#,
+               WHERE t.board_id = ? AND r.metadata_json IS NOT NULL
+               AND (
+                   r.parent_run_id IS NOT NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM agent_runs sr WHERE sr.parent_run_id = r.id
+                   )
+               )"#,
             board_id,
         )
     }
@@ -63,13 +79,22 @@ impl Database {
         self.aggregate_cost_by_query(
             r#"SELECT r.metadata_json FROM agent_runs r
                JOIN tickets t ON r.ticket_id = t.id
-               WHERE t.spec_version_id = ? AND r.metadata_json IS NOT NULL"#,
+               WHERE t.spec_version_id = ? AND r.metadata_json IS NOT NULL
+               AND (
+                   r.parent_run_id IS NOT NULL
+                   OR NOT EXISTS (
+                       SELECT 1 FROM agent_runs sr WHERE sr.parent_run_id = r.id
+                   )
+               )"#,
             version_id,
         )
     }
 
     /// Backfill cost data for completed runs that are missing it.
     /// Returns the number of runs that were backfilled.
+    ///
+    /// Parent runs that have sub-runs (multi-stage workflows) are skipped
+    /// because their cost is captured on each sub-run.
     pub fn backfill_run_costs(&self) -> Result<u32, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -83,7 +108,13 @@ impl Database {
                    JOIN tickets t ON r.ticket_id = t.id
                    WHERE r.status IN ('finished', 'error')
                    AND (r.metadata_json IS NULL
-                        OR r.metadata_json NOT LIKE '%"cost":%')"#,
+                        OR r.metadata_json NOT LIKE '%"cost":%')
+                   AND (
+                       r.parent_run_id IS NOT NULL
+                       OR NOT EXISTS (
+                           SELECT 1 FROM agent_runs sr WHERE sr.parent_run_id = r.id
+                       )
+                   )"#,
             )?;
 
             let mut updates: Vec<(String, serde_json::Value)> = Vec::new();
@@ -415,6 +446,115 @@ mod tests {
         })
         .unwrap();
         assert_eq!(db.get_ticket_cost(&ticket_id).unwrap().run_count, 1);
+    }
+
+    #[test]
+    fn get_ticket_cost_excludes_multi_stage_parent() {
+        let db = create_test_db();
+        let (ticket_id, parent_id) = create_ticket_and_run(&db);
+
+        // Give the parent run cost metadata (simulates backfill on a parent)
+        db.set_run_metadata(&parent_id, &cost_metadata(500, 0.10, true))
+            .unwrap();
+
+        // Create two sub-runs with their own cost data
+        let sub1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent_id.clone()),
+                stage: Some("plan".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        let sub2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent_id.clone()),
+                stage: Some("implement".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.set_run_metadata(&sub1.id, &cost_metadata(100, 0.03, false))
+            .unwrap();
+        db.set_run_metadata(&sub2.id, &cost_metadata(200, 0.05, false))
+            .unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+
+        // Should only count the two sub-runs, NOT the parent
+        assert_eq!(
+            agg.run_count, 2,
+            "Parent run with sub-runs must be excluded"
+        );
+        assert!(
+            (agg.total_cost_usd - 0.08).abs() < 0.001,
+            "Total should be sub1 + sub2 = 0.08, got {}",
+            agg.total_cost_usd
+        );
+    }
+
+    #[test]
+    fn get_ticket_cost_includes_single_stage_parent() {
+        let db = create_test_db();
+        let (ticket_id, run_id) = create_ticket_and_run(&db);
+
+        // Single-stage run (no sub-runs) should be included
+        db.set_run_metadata(&run_id, &cost_metadata(100, 0.03, false))
+            .unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+        assert_eq!(agg.run_count, 1);
+        assert!((agg.total_cost_usd - 0.03).abs() < 0.001);
+    }
+
+    #[test]
+    fn get_ticket_cost_mixed_single_and_multi_stage() {
+        let db = create_test_db();
+        let (ticket_id, single_run_id) = create_ticket_and_run(&db);
+
+        // Single-stage run with cost
+        db.set_run_metadata(&single_run_id, &cost_metadata(100, 0.02, false))
+            .unwrap();
+
+        // Multi-stage parent (should be excluded)
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+        db.set_run_metadata(&parent.id, &cost_metadata(500, 0.50, true))
+            .unwrap();
+
+        // Sub-runs (should be included)
+        let sub1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("plan".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.set_run_metadata(&sub1.id, &cost_metadata(200, 0.04, false))
+            .unwrap();
+
+        let agg = db.get_ticket_cost(&ticket_id).unwrap();
+
+        // single_run + sub1 = 2 runs, parent excluded
+        assert_eq!(agg.run_count, 2);
+        assert!(
+            (agg.total_cost_usd - 0.06).abs() < 0.001,
+            "Total should be single(0.02) + sub1(0.04) = 0.06, got {}",
+            agg.total_cost_usd
+        );
     }
 
     #[test]
