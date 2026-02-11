@@ -326,7 +326,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   selectVersionById: (versionId: string) => {
     const { currentVersions } = get();
     const version = currentVersions.find(v => v.id === versionId) || null;
-    set({ selectedVersion: version, selectedVersionId: versionId, activeTab: 'versions' });
+    set({ selectedVersion: version, selectedVersionId: versionId, activeTab: 'versions', scrollToProgress: false });
   },
 
   setActiveTab: (tab: 'chat' | 'versions') => {

@@ -237,6 +237,37 @@ describe('useSpecStore', () => {
     });
   });
 
+  describe('selectVersionById', () => {
+    it('selects matching version from currentVersions', () => {
+      useSpecStore.setState({ currentVersions: [mockVersion] });
+
+      useSpecStore.getState().selectVersionById('version-1');
+
+      const state = useSpecStore.getState();
+      expect(state.selectedVersion?.id).toBe('version-1');
+      expect(state.selectedVersionId).toBe('version-1');
+      expect(state.activeTab).toBe('versions');
+    });
+
+    it('resets scrollToProgress to false', () => {
+      useSpecStore.setState({ currentVersions: [mockVersion], scrollToProgress: true });
+
+      useSpecStore.getState().selectVersionById('version-1');
+
+      expect(useSpecStore.getState().scrollToProgress).toBe(false);
+    });
+
+    it('sets selectedVersion to null when versionId is not found', () => {
+      useSpecStore.setState({ currentVersions: [mockVersion] });
+
+      useSpecStore.getState().selectVersionById('nonexistent');
+
+      const state = useSpecStore.getState();
+      expect(state.selectedVersion).toBeNull();
+      expect(state.selectedVersionId).toBe('nonexistent');
+    });
+  });
+
   describe('scrollToProgress initial state', () => {
     it('defaults to false', () => {
       expect(useSpecStore.getState().scrollToProgress).toBe(false);

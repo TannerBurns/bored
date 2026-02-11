@@ -129,20 +129,23 @@ export function SpecList({ onSelect, onViewProgress }: SpecListProps) {
                 <h4 className="font-medium text-board-text truncate">
                   {spec.name}
                 </h4>
-                <p className="text-xs text-board-text-muted/70 mt-1 flex items-center gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                  <span className="truncate">{getProjectName(spec.projectId)}</span>
-                  <span className="text-board-text-muted/40">/</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7" />
-                    <rect x="14" y="3" width="7" height="7" />
-                    <rect x="3" y="14" width="7" height="7" />
-                    <rect x="14" y="14" width="7" height="7" />
-                  </svg>
-                  <span className="truncate">{getBoardName(spec.boardId)}</span>
-                </p>
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-xs text-board-text-muted/70 flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    {getProjectName(spec.projectId)}
+                  </p>
+                  <p className="text-xs text-board-text-muted/70 flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                      <rect x="3" y="3" width="7" height="7" />
+                      <rect x="14" y="3" width="7" height="7" />
+                      <rect x="3" y="14" width="7" height="7" />
+                      <rect x="14" y="14" width="7" height="7" />
+                    </svg>
+                    {getBoardName(spec.boardId)}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span
@@ -161,7 +164,7 @@ export function SpecList({ onSelect, onViewProgress }: SpecListProps) {
                       'opacity-0 group-hover:opacity-100',
                       'hover:bg-board-accent/20 text-board-text-muted hover:text-board-accent'
                     )}
-                    title="View version progress"
+                    title="View latest version"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -174,9 +177,10 @@ export function SpecList({ onSelect, onViewProgress }: SpecListProps) {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <line x1="18" y1="20" x2="18" y2="10" />
-                      <line x1="12" y1="20" x2="12" y2="4" />
-                      <line x1="6" y1="20" x2="6" y2="14" />
+                      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
                     </svg>
                   </button>
                 )}
