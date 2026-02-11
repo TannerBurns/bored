@@ -25,7 +25,6 @@ export function CreateSpecModal({
   const { createSpec, isLoading } = useSpecStore();
   const [name, setName] = useState('');
   const [userInput, setUserInput] = useState('');
-  const [model, setModel] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || '');
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -115,13 +114,11 @@ export function CreateSpecModal({
         projectId: selectedProjectId,
         name: name.trim(),
         userInput: userInput.trim(),
-        model: model || undefined,
       });
       
       // Reset form and close immediately - ConversationView will handle starting the conversation
       setName('');
       setUserInput('');
-      setModel('');
       setTargetBoardId('');
       setIsPreviewMode(false);
       setIsFullscreen(false);
@@ -409,24 +406,6 @@ Use Markdown for formatting:
           )}
           <p className="text-xs text-board-text-muted mt-1">
             Supports Markdown formatting
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-board-text-secondary mb-1">
-            AI Model
-          </label>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-          >
-            <option value="">Default (Opus 4.6)</option>
-            <option value="opus-4.5">Opus 4.5</option>
-            <option value="sonnet-4.5">Sonnet 4.5</option>
-          </select>
-          <p className="mt-1 text-xs text-board-text-muted">
-            Select AI model for agent runs
           </p>
         </div>
 

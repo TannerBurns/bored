@@ -12,7 +12,7 @@ export function SpecsView({ currentBoard, onCreateSpecClick }: SpecsViewProps) {
   const [isSpecListCollapsed, setIsSpecListCollapsed] = useState(false);
   const [selectedSpec, setSelectedSpec] = useState<SpecWithVersion | null>(null);
   
-  const { selectSpec, currentSpec } = useSpecStore();
+  const { selectSpec, selectSpecForProgress, currentSpec } = useSpecStore();
 
   useEffect(() => {
     setSelectedSpec(currentSpec);
@@ -20,6 +20,11 @@ export function SpecsView({ currentBoard, onCreateSpecClick }: SpecsViewProps) {
 
   const handleSelectSpec = (spec: SpecWithVersion | null) => {
     selectSpec(spec);
+    setSelectedSpec(spec);
+  };
+
+  const handleViewProgress = (spec: SpecWithVersion) => {
+    selectSpecForProgress(spec);
     setSelectedSpec(spec);
   };
 
@@ -76,7 +81,7 @@ export function SpecsView({ currentBoard, onCreateSpecClick }: SpecsViewProps) {
         </div>
         {!isSpecListCollapsed && (
           <div className="flex-1 overflow-y-auto">
-            <SpecList onSelect={handleSelectSpec} />
+            <SpecList onSelect={handleSelectSpec} onViewProgress={handleViewProgress} />
           </div>
         )}
         {isSpecListCollapsed && (

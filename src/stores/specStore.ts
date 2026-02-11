@@ -39,6 +39,8 @@ interface SpecState {
   isGeneratingSpec: boolean;
   /** Version number being generated */
   generatingVersionNumber: number | null;
+  /** When true, VersionDetail should auto-scroll to the EpicProgressPanel */
+  scrollToProgress: boolean;
   isLoading: boolean;
   isExploring: boolean;
   isPlanning: boolean;
@@ -52,6 +54,9 @@ interface SpecState {
   updateSpec: (id: string, updates: UpdateSpecInput) => Promise<Spec>;
   deleteSpec: (id: string, deleteTickets?: boolean) => Promise<void>;
   selectSpec: (spec: SpecWithVersion | null) => void;
+  /** Select a spec, switch to versions tab, and scroll to progress (targets latest version) */
+  selectSpecForProgress: (spec: SpecWithVersion) => void;
+  setScrollToProgress: (scroll: boolean) => void;
   
   // Version management
   loadVersions: (specId: string) => Promise<void>;
@@ -120,6 +125,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   brainstormLogs: [],
   isGeneratingSpec: false,
   generatingVersionNumber: null,
+  scrollToProgress: false,
   isLoading: false,
   isExploring: false,
   isPlanning: false,
@@ -288,6 +294,19 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       activeTab: 'chat',
     });
   },
+
+  selectSpecForProgress: (spec: SpecWithVersion) => {
+    set({
+      currentSpec: spec,
+      currentVersions: spec.latestVersion ? [spec.latestVersion] : [],
+      selectedVersion: spec.latestVersion || null,
+      selectedVersionId: spec.latestVersion?.id ?? null,
+      activeTab: 'versions',
+      scrollToProgress: true,
+    });
+  },
+
+  setScrollToProgress: (scroll: boolean) => set({ scrollToProgress: scroll }),
 
   // Version management
   loadVersions: async (specId: string) => {

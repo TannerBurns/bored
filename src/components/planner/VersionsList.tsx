@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSpecStore } from '../../stores/specStore';
 import { cn } from '../../lib/utils';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { Button } from '../common/Button';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { PlanViewer } from './PlanViewer';
 import { EpicProgressPanel } from './EpicProgressPanel';
 import { logger } from '../../lib/logger';
@@ -151,8 +152,10 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
   userInput: string;
   onRefresh: () => Promise<void>;
 }) {
-  const { approvePlan, pauseWork, resumeWork, haltWork, loadVersions, selectVersionById } = useSpecStore();
+  const { approvePlan, pauseWork, resumeWork, haltWork, loadVersions, selectVersionById, scrollToProgress, setScrollToProgress } = useSpecStore();
   
+  const progressRef = useRef<HTMLDivElement>(null);
+
   // Refresh both spec and versions list, then re-select current version
   const handleRefreshAll = async () => {
     await onRefresh();
@@ -171,6 +174,9 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
   const [isResuming, setIsResuming] = useState(false);
   const [isHalting, setIsHalting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showHaltConfirm, setShowHaltConfirm] = useState(false);
   
   // Parse user input into original request and refined spec
   const { originalRequest, refinedSpec } = useMemo(() => parseUserInput(userInput), [userInput]);
@@ -216,6 +222,13 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
       return () => clearInterval(interval);
     }
   }, [version.id, status, showProgress, isWorking]);
+
+  useEffect(() => {
+    if (scrollToProgress && progressRef.current && progress) {
+      progressRef.current.scrollIntoView({ behavior: 'smooth' });
+      setScrollToProgress(false);
+    }
+  }, [scrollToProgress, progress, setScrollToProgress]);
 
   // Action handlers
   const handleApprove = async () => {
@@ -289,10 +302,11 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
     }
   };
 
-  const handleHalt = async () => {
-    if (!confirm('Are you sure you want to halt all work? This will stop all active runs and reset tickets to their initial state.')) {
-      return;
-    }
+  const handleHalt = () => {
+    setShowHaltConfirm(true);
+  };
+
+  const handleHaltConfirm = async () => {
     setIsHalting(true);
     setError(null);
     try {
@@ -307,10 +321,11 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
     }
   };
 
-  const handleReset = async () => {
-    if (!confirm('Are you sure you want to delete all tickets and reset to approved status? You can then re-execute the plan to recreate tickets.')) {
-      return;
-    }
+  const handleReset = () => {
+    setShowResetConfirm(true);
+  };
+
+  const handleResetConfirm = async () => {
     setIsResetting(true);
     setError(null);
     try {
@@ -471,14 +486,38 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
 
       {/* Progress */}
       {showProgress && progress && (
-        <EpicProgressPanel
-          progress={progress}
-          specId={specId}
-          isWorking={isWorking}
-          isPaused={isPaused}
-          isCompleted={isCompleted}
-        />
+        <div ref={progressRef}>
+          <EpicProgressPanel
+            progress={progress}
+            specId={specId}
+            isWorking={isWorking}
+            isPaused={isPaused}
+            isCompleted={isCompleted}
+          />
+        </div>
       )}
+
+      <ConfirmModal
+        open={showResetConfirm}
+        onOpenChange={setShowResetConfirm}
+        title="Reset Tickets"
+        message="Are you sure you want to delete all tickets and reset to approved status? You can then re-execute the plan to recreate tickets."
+        confirmLabel="Reset"
+        variant="danger"
+        onConfirm={handleResetConfirm}
+        onCancel={() => setShowResetConfirm(false)}
+      />
+
+      <ConfirmModal
+        open={showHaltConfirm}
+        onOpenChange={setShowHaltConfirm}
+        title="Halt Work"
+        message="Are you sure you want to halt all work? This will stop all active runs and reset tickets to their initial state."
+        confirmLabel="Halt"
+        variant="danger"
+        onConfirm={handleHaltConfirm}
+        onCancel={() => setShowHaltConfirm(false)}
+      />
     </div>
   );
 }
