@@ -1,0 +1,40 @@
+[
+  {
+    "version": "0.1.0-beta.11",
+    "published_at": "2026-02-10",
+    "summary": "Workflow presets, cost tracking, spec shortcuts, and release notes",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Per-stage AI workflow settings with presets (Comprehensive, Balanced, Quick Fix, etc.)",
+          "Agent cost tracking with per-run and per-ticket cost summaries",
+          "Backfill button in Data Settings for retroactive cost calculation",
+          "Spec progress shortcut for quick access to epic progress view",
+          "Opus 4.5 model support",
+          "\"What's New\" release notes shown on version upgrade"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Spec Agent settings extracted into dedicated settings tab",
+          "Themed confirmation dialogs replace native browser confirm()",
+          "Simplified spec creation (removed redundant per-spec model selector)",
+          "Versioned model identifiers for consistency across all settings",
+          "Spec list cards show project name alongside board name"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed cost backfill retry logic for tickets with new runs",
+          "Fixed CostBadge showing \"Unavailable\" for Cursor runs with estimated costs",
+          "Fixed spec generating indicator race condition causing UI flicker",
+          "Fixed output truncation boundary for multi-byte UTF-8 characters",
+          "Fixed model mapping for unversioned model values"
+        ]
+      }
+    ]
+  }
+]

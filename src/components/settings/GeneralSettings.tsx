@@ -82,7 +82,20 @@ function LoaderIcon({ className }: { className?: string }) {
   );
 }
 
-export function GeneralSettings() {
+interface GeneralSettingsProps {
+  onShowReleaseNotes: () => void;
+}
+
+function MegaphoneIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m3 11 18-5v12L3 13v-2z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    </svg>
+  );
+}
+
+export function GeneralSettings({ onShowReleaseNotes }: GeneralSettingsProps) {
   const [appVersion, setAppVersion] = useState<string>('');
   const {
     state: updateState,
@@ -285,6 +298,17 @@ export function GeneralSettings() {
               Update downloaded. Restart the application to apply the update.
             </p>
           )}
+
+          {/* What's New button */}
+          <div className="flex items-center pt-1 border-t border-board-border/30">
+            <button
+              onClick={onShowReleaseNotes}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium glass rounded-lg text-board-text hover:glass-intense transition-all"
+            >
+              <MegaphoneIcon className="w-4 h-4 text-board-accent" />
+              What's New
+            </button>
+          </div>
         </div>
       </div>
     </div>

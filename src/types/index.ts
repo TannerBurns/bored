@@ -448,6 +448,20 @@ export interface AggregatedCost {
   modelTotals: Record<string, ModelCostData>;
 }
 
+// Release notes types
+
+export interface ReleaseNoteCategory {
+  category: string;
+  items: string[];
+}
+
+export interface ReleaseNote {
+  version: string;
+  publishedAt: string;
+  summary: string | null;
+  notes: ReleaseNoteCategory[];
+}
+
 export type ConversationRole = 'user' | 'assistant' | 'system';
 
 export interface ConversationMessage {

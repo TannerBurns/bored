@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 5;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -229,6 +229,14 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_spec ON conversation_messages(spec_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_created ON conversation_messages(spec_id, created_at);
+
+-- Release notes table (populated at startup from embedded data)
+CREATE TABLE IF NOT EXISTS release_notes (
+    version TEXT PRIMARY KEY NOT NULL,
+    published_at TEXT NOT NULL,
+    summary TEXT,
+    notes_json TEXT NOT NULL DEFAULT '[]'
+);
 "#;
 
 /// Default columns for a new board

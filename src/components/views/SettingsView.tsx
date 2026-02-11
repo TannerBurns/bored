@@ -12,7 +12,11 @@ const SETTINGS_TABS = [
   { id: 'data', label: 'Data' },
 ] as const;
 
-export function SettingsView() {
+interface SettingsViewProps {
+  onShowReleaseNotes: () => void;
+}
+
+export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
 
   return (
@@ -34,7 +38,7 @@ export function SettingsView() {
       </div>
       
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
-        {settingsTab === 'general' && <GeneralSettings />}
+        {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
         {settingsTab === 'workflow' && <AgentWorkflowSettings />}
         {settingsTab === 'spec-agent' && <SpecAgentSettings />}
         {settingsTab === 'cursor' && <CursorSettings />}

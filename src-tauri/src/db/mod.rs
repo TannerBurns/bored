@@ -5,6 +5,7 @@ mod costs;
 mod events;
 pub mod models;
 mod projects;
+pub mod release_notes;
 mod runs;
 pub mod schema;
 mod spec_versions;
@@ -60,6 +61,7 @@ impl Database {
             conn: Arc::new(Mutex::new(conn)),
         };
         db.migrate()?;
+        db.seed_release_notes()?;
 
         tracing::info!("Database opened at {:?}", db_path);
         Ok(db)
@@ -74,6 +76,7 @@ impl Database {
         };
 
         db.migrate()?;
+        db.seed_release_notes()?;
         Ok(db)
     }
 
@@ -491,6 +494,24 @@ impl Database {
                 }
                 
                 tracing::info!("Migration to version 4 complete: agent preference columns removed");
+            }
+
+            // Migration from version 4 to 5: Add release_notes table
+            if current_version < 5 {
+                tracing::info!("Running migration to version 5: release_notes table");
+                
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS release_notes (
+                        version TEXT PRIMARY KEY NOT NULL,
+                        published_at TEXT NOT NULL,
+                        summary TEXT,
+                        notes_json TEXT NOT NULL DEFAULT '[]'
+                    );
+                    "#
+                )?;
+                
+                tracing::info!("Migration to version 5 complete: release_notes table added");
             }
 
             conn.execute(

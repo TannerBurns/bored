@@ -199,7 +199,7 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
   const canPause = isWorking;
   const canResume = isPaused;
   const canHalt = isWorking || isPaused;
-  const canReset = ['awaiting_approval', 'approved', 'executed', 'working', 'paused', 'halted', 'completed'].includes(status);
+  const canReset = ['executed', 'working', 'paused', 'halted', 'completed'].includes(status);
 
   // Load progress for this specific version
   useEffect(() => {

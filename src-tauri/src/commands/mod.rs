@@ -3,6 +3,7 @@ pub mod claude;
 pub mod conversations;
 pub mod cursor;
 pub mod projects;
+pub mod release_notes;
 pub mod runs;
 pub mod specs;
 pub mod tasks;

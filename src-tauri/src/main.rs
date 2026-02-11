@@ -417,6 +417,9 @@ fn main() {
             commands::tickets::resume_ticket,
             commands::tickets::is_ticket_paused,
             commands::tickets::get_paused_tickets,
+            // Release notes
+            commands::release_notes::get_release_notes,
+            commands::release_notes::get_all_release_notes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
