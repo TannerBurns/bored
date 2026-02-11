@@ -1,64 +1,31 @@
 //! Release notes database operations.
 //!
-//! Release notes are embedded in the binary and seeded into the database
-//! on startup. When creating a new release, add an entry to KNOWN_RELEASE_NOTES.
+//! Release notes are stored in `src-tauri/release-notes.json` and embedded
+//! into the binary at compile time via `include_str!`. On startup they are
+//! seeded into SQLite with INSERT OR IGNORE so each version is inserted once.
+//!
+//! ## Adding release notes for a new version
+//!
+//! 1. Run `scripts/draft-release-notes.sh` to auto-generate a draft entry
+//!    from the git log since the last tag.
+//! 2. Review and edit the draft — commit messages don't always make good
+//!    user-facing notes.
+//! 3. Prepend the entry to `src-tauri/release-notes.json` (newest first).
+//! 4. Commit, tag, and push.
 
 use super::{Database, DbError};
 
-/// A release note entry to seed into the database.
-struct KnownReleaseNote {
-    version: &'static str,
-    published_at: &'static str,
-    summary: &'static str,
-    notes_json: &'static str,
-}
+/// Raw JSON embedded at compile time from the release-notes file.
+const RELEASE_NOTES_JSON: &str = include_str!("../../release-notes.json");
 
-/// Embedded release notes — add a new entry here for each release.
-///
-/// When preparing a release:
-/// 1. Review all commits since the last tag: `git log <last-tag>..HEAD --oneline`
-/// 2. Categorize changes into "New Features", "Improvements", and "Bug Fixes"
-/// 3. Add a new KnownReleaseNote entry below with the release version
-const KNOWN_RELEASE_NOTES: &[KnownReleaseNote] = &[
-    KnownReleaseNote {
-        version: "0.1.0-beta.11",
-        published_at: "2026-02-10",
-        summary: "Workflow presets, cost tracking, spec shortcuts, and release notes",
-        notes_json: r#"[
-            {
-                "category": "New Features",
-                "items": [
-                    "Per-stage AI workflow settings with presets (Comprehensive, Balanced, Quick Fix, etc.)",
-                    "Agent cost tracking with per-run and per-ticket cost summaries",
-                    "Backfill button in Data Settings for retroactive cost calculation",
-                    "Spec progress shortcut for quick access to epic progress view",
-                    "Opus 4.5 model support",
-                    "\"What's New\" release notes shown on version upgrade"
-                ]
-            },
-            {
-                "category": "Improvements",
-                "items": [
-                    "Spec Agent settings extracted into dedicated settings tab",
-                    "Themed confirmation dialogs replace native browser confirm()",
-                    "Simplified spec creation (removed redundant per-spec model selector)",
-                    "Versioned model identifiers for consistency across all settings",
-                    "Spec list cards show project name alongside board name"
-                ]
-            },
-            {
-                "category": "Bug Fixes",
-                "items": [
-                    "Fixed cost backfill retry logic for tickets with new runs",
-                    "Fixed CostBadge showing \"Unavailable\" for Cursor runs with estimated costs",
-                    "Fixed spec generating indicator race condition causing UI flicker",
-                    "Fixed output truncation boundary for multi-byte UTF-8 characters",
-                    "Fixed model mapping for unversioned model values"
-                ]
-            }
-        ]"#,
-    },
-];
+/// Shape of each entry in release-notes.json (deserialization only).
+#[derive(serde::Deserialize)]
+struct FileReleaseNote {
+    version: String,
+    published_at: String,
+    summary: Option<String>,
+    notes: Vec<ReleaseNoteCategory>,
+}
 
 /// Serializable release note returned to the frontend.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -77,20 +44,26 @@ pub struct ReleaseNoteCategory {
 }
 
 impl Database {
-    /// Seed known release notes into the database (idempotent).
+    /// Seed release notes from the embedded JSON into the database (idempotent).
     /// Called on every startup so new versions are populated automatically.
     pub fn seed_release_notes(&self) -> Result<(), DbError> {
+        let entries: Vec<FileReleaseNote> =
+            serde_json::from_str(RELEASE_NOTES_JSON).map_err(|e| {
+                DbError::Validation(format!("Failed to parse release-notes.json: {}", e))
+            })?;
+
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "INSERT OR IGNORE INTO release_notes (version, published_at, summary, notes_json) VALUES (?1, ?2, ?3, ?4)",
             )?;
 
-            for note in KNOWN_RELEASE_NOTES {
+            for entry in &entries {
+                let notes_json = serde_json::to_string(&entry.notes).unwrap_or_else(|_| "[]".to_string());
                 stmt.execute(rusqlite::params![
-                    note.version,
-                    note.published_at,
-                    note.summary,
-                    note.notes_json,
+                    entry.version,
+                    entry.published_at,
+                    entry.summary,
+                    notes_json,
                 ])?;
             }
 
@@ -131,7 +104,7 @@ impl Database {
         })
     }
 
-    /// Get all release notes, ordered by version descending.
+    /// Get all release notes, ordered by most recent first.
     pub fn get_all_release_notes(&self) -> Result<Vec<ReleaseNote>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -176,14 +149,29 @@ mod tests {
     }
 
     #[test]
+    fn embedded_json_parses_successfully() {
+        let entries: Vec<FileReleaseNote> =
+            serde_json::from_str(RELEASE_NOTES_JSON).expect("release-notes.json should parse");
+        assert!(!entries.is_empty(), "release-notes.json should have at least one entry");
+
+        for entry in &entries {
+            assert!(!entry.version.is_empty());
+            assert!(!entry.published_at.is_empty());
+            assert!(!entry.notes.is_empty());
+        }
+    }
+
+    #[test]
     fn seed_release_notes_is_idempotent() {
         let db = create_test_db();
-        // seed_release_notes is already called in open_in_memory via migrate + seed
+        // seed_release_notes is already called in open_in_memory
         // Call it again to verify idempotency
         db.seed_release_notes().unwrap();
 
+        let entries: Vec<FileReleaseNote> =
+            serde_json::from_str(RELEASE_NOTES_JSON).unwrap();
         let all = db.get_all_release_notes().unwrap();
-        assert_eq!(all.len(), KNOWN_RELEASE_NOTES.len());
+        assert_eq!(all.len(), entries.len());
     }
 
     #[test]
@@ -198,7 +186,6 @@ mod tests {
         assert!(note.summary.is_some());
         assert!(!note.notes.is_empty());
 
-        // Verify categories
         let categories: Vec<&str> = note.notes.iter().map(|c| c.category.as_str()).collect();
         assert!(categories.contains(&"New Features"));
         assert!(categories.contains(&"Improvements"));
@@ -218,7 +205,6 @@ mod tests {
         let all = db.get_all_release_notes().unwrap();
         assert!(!all.is_empty());
 
-        // Each entry should have parsed notes
         for note in &all {
             assert!(!note.version.is_empty());
             assert!(!note.published_at.is_empty());
