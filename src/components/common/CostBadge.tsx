@@ -212,7 +212,7 @@ export function CostSummary({ cost, className }: { cost: AggregatedCost | null |
         </>
       ) : (
         <>
-          <CostBadge cost={cost} size="md" showTokens />
+          <CostBadge cost={cost} size="md" />
           {cost.runCount > 0 && (
             <span className="opacity-60">
               across {cost.runCount} run{cost.runCount !== 1 ? 's' : ''}

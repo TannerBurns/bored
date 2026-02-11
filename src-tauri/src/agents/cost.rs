@@ -134,22 +134,6 @@ pub fn extract_cost_from_stream_json(stream_output: &str) -> Option<RunCostData>
 
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
             if json.get("type").and_then(|t| t.as_str()) == Some("result") {
-                // Log the raw usage + modelUsage fields so we can see exactly
-                // what the CLI reports (helps identify thinking token fields).
-                if let Some(usage) = json.get("usage") {
-                    tracing::debug!("Claude result usage keys: {:?}",
-                        usage.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-                }
-                if let Some(mu) = json.get("modelUsage").and_then(|v| v.as_object()) {
-                    for (model, data) in mu {
-                        tracing::debug!("Claude modelUsage[{}] keys: {:?}",
-                            model,
-                            data.as_object().map(|o| o.keys().collect::<Vec<_>>()));
-                        tracing::debug!("Claude modelUsage[{}] full: {}",
-                            model,
-                            serde_json::to_string(data).unwrap_or_default());
-                    }
-                }
                 return parse_cost_from_result_json(&json);
             }
         }
