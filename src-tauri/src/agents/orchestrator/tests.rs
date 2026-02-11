@@ -248,3 +248,94 @@ fn extract_issues_section_handles_empty_section() {
     let section = extract_issues_section(output);
     assert_eq!(section, "");
 }
+
+// --- stage_config_key mapping tests ---
+
+use super::WorkflowOrchestrator;
+
+#[test]
+fn stage_config_key_maps_plan_stages() {
+    assert_eq!(WorkflowOrchestrator::stage_config_key("plan"), "plan");
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("plan-validation"),
+        "plan"
+    );
+}
+
+#[test]
+fn stage_config_key_maps_implement() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("implement"),
+        "implement"
+    );
+}
+
+#[test]
+fn stage_config_key_maps_code_review_stages() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("code-review"),
+        "codeReview"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("code-review-fix"),
+        "codeReview"
+    );
+}
+
+#[test]
+fn stage_config_key_maps_deslop() {
+    assert_eq!(WorkflowOrchestrator::stage_config_key("deslop"), "deslop");
+}
+
+#[test]
+fn stage_config_key_maps_cleanup() {
+    assert_eq!(WorkflowOrchestrator::stage_config_key("cleanup"), "cleanup");
+}
+
+#[test]
+fn stage_config_key_maps_unit_test_stages() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("unit-tests"),
+        "unitTests"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("cleanup-post-tests"),
+        "unitTests"
+    );
+}
+
+#[test]
+fn stage_config_key_maps_final_review_stages() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("review-changes"),
+        "finalReview"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("cleanup-post-review"),
+        "finalReview"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("review-changes-final"),
+        "finalReview"
+    );
+}
+
+#[test]
+fn stage_config_key_maps_commit() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("add-and-commit"),
+        "commit"
+    );
+}
+
+#[test]
+fn stage_config_key_passes_through_unknown() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("branch"),
+        "branch"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("unknown-stage"),
+        "unknown-stage"
+    );
+}

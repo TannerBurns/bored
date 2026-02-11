@@ -223,6 +223,13 @@ fn start_heartbeat(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StageConfig {
+    pub enabled: bool,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StartRunInput {
     pub ticket_id: String,
     pub agent_type: String,
@@ -230,6 +237,7 @@ pub struct StartRunInput {
     pub code_review_max_iterations: Option<usize>,
     pub stage_timeout_minutes: Option<u32>,
     pub stage_max_retries: Option<u32>,
+    pub stage_configs: Option<HashMap<String, StageConfig>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -272,6 +280,7 @@ pub async fn start_agent_run(
         code_review_max_iterations,
         stage_timeout_minutes,
         stage_max_retries,
+        stage_configs,
     } = input;
 
     tracing::info!("=== START_AGENT_RUN CALLED ===");
@@ -703,6 +712,7 @@ pub async fn start_agent_run(
                 stage_max_retries: stage_max_retries.unwrap_or(2),
                 resume_from_stage,
                 previous_run_id,
+                stage_configs: stage_configs.unwrap_or_default(),
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
@@ -1125,5 +1135,49 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"exitCode\":null"));
+    }
+
+    #[test]
+    fn stage_config_serializes_camel_case() {
+        let config = StageConfig {
+            enabled: true,
+            model: "opus-4.6".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert_eq!(json, r#"{"enabled":true,"model":"opus-4.6"}"#);
+    }
+
+    #[test]
+    fn stage_config_deserializes_camel_case() {
+        let json = r#"{"enabled":false,"model":"sonnet-4.5"}"#;
+        let config: StageConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.enabled);
+        assert_eq!(config.model, "sonnet-4.5");
+    }
+
+    #[test]
+    fn start_run_input_deserializes_with_stage_configs() {
+        let json = r#"{
+            "ticketId":"t1",
+            "agentType":"cursor",
+            "repoPath":"/tmp",
+            "stageConfigs":{
+                "plan":{"enabled":true,"model":"opus-4.6"},
+                "codeReview":{"enabled":false,"model":"sonnet-4.5"}
+            }
+        }"#;
+        let input: StartRunInput = serde_json::from_str(json).unwrap();
+        let configs = input.stage_configs.unwrap();
+        assert_eq!(configs.len(), 2);
+        assert!(configs["plan"].enabled);
+        assert_eq!(configs["plan"].model, "opus-4.6");
+        assert!(!configs["codeReview"].enabled);
+    }
+
+    #[test]
+    fn start_run_input_deserializes_without_stage_configs() {
+        let json = r#"{"ticketId":"t1","agentType":"cursor","repoPath":"/tmp"}"#;
+        let input: StartRunInput = serde_json::from_str(json).unwrap();
+        assert!(input.stage_configs.is_none());
     }
 }

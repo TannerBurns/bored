@@ -4,4 +4,6 @@ export { TicketProjectSelector } from './TicketProjectSelector';
 export { CursorSettings } from './CursorSettings';
 export { ClaudeSettings } from './ClaudeSettings';
 export { GeneralSettings } from './GeneralSettings';
+export { AgentWorkflowSettings } from './AgentWorkflowSettings';
+export { SpecAgentSettings } from './SpecAgentSettings';
 export { DataSettings } from './DataSettings';

@@ -144,8 +144,6 @@ export function TicketModal({
               setEditLabels={editState.setEditLabels}
               editProjectId={editState.editProjectId}
               setEditProjectId={editState.setEditProjectId}
-              editModel={editState.editModel}
-              setEditModel={editState.setEditModel}
               editBranchName={editState.editBranchName}
               setEditBranchName={editState.setEditBranchName}
             />

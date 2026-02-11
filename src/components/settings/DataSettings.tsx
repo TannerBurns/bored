@@ -154,27 +154,6 @@ export function DataSettings() {
         </p>
       </div>
 
-      {/* Storage Info */}
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-board-text">Local Storage</h3>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Settings and preferences are stored locally.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-board-surface-raised rounded-lg px-3 py-2 border border-board-border">
-            <p className="text-xs text-board-text-muted uppercase tracking-wide">Settings</p>
-            <p className="text-sm font-semibold text-board-text mt-0.5">Stored</p>
-          </div>
-          <div className="bg-board-surface-raised rounded-lg px-3 py-2 border border-board-border">
-            <p className="text-xs text-board-text-muted uppercase tracking-wide">Environment</p>
-            <p className="text-sm font-semibold text-board-text mt-0.5">Desktop App</p>
-          </div>
-        </div>
-      </div>
-
       {/* Cleanup Stale Runs */}
       <div className="glass rounded-lg p-3 space-y-3">
         <div className="flex items-start gap-2">

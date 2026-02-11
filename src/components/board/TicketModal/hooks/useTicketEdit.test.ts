@@ -41,7 +41,6 @@ describe('useTicketEdit', () => {
       expect(result.current.editPriority).toBe('medium');
       expect(result.current.editLabels).toBe('bug, frontend');
       expect(result.current.editProjectId).toBe('proj-1');
-      expect(result.current.editModel).toBe('sonnet-4.5');
       expect(result.current.editBranchName).toBe('feat/test');
       expect(result.current.editColumnId).toBe('col-1');
       expect(result.current.isSaving).toBe(false);
@@ -58,7 +57,6 @@ describe('useTicketEdit', () => {
       );
 
       expect(result.current.editProjectId).toBe('');
-      expect(result.current.editModel).toBe('');
       expect(result.current.editBranchName).toBe('');
     });
   });
@@ -153,7 +151,6 @@ describe('useTicketEdit', () => {
         labels: ['bug', 'frontend'],
         projectId: 'proj-1',
         workflowType: 'multi_stage',
-        model: 'sonnet-4.5',
         branchName: 'feat/test',
         columnId: 'col-1',
       });
@@ -177,24 +174,6 @@ describe('useTicketEdit', () => {
         'ticket-1',
         expect.objectContaining({
           labels: ['one', 'two', 'three'],
-        })
-      );
-    });
-
-    it('sets model to undefined when empty', async () => {
-      const ticket = createMockTicket({ model: undefined });
-      const { result } = renderHook(() =>
-        useTicketEdit({ ticket, onUpdate: mockOnUpdate })
-      );
-
-      await act(async () => {
-        await result.current.handleSave();
-      });
-
-      expect(mockOnUpdate).toHaveBeenCalledWith(
-        'ticket-1',
-        expect.objectContaining({
-          model: undefined,
         })
       );
     });

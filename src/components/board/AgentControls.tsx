@@ -37,7 +37,7 @@ export function AgentControls({
   onRunStarted,
   onRunCompleted,
 }: AgentControlsProps) {
-  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
+  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries, workflowStages } = useSettingsStore();
   const [isRunning, setIsRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ stream: string; content: string }>>([]);
@@ -182,6 +182,7 @@ export function AgentControls({
           codeReviewMaxIterations,
           stageTimeoutMinutes,
           stageMaxRetries,
+          stageConfigs: workflowStages,
         },
       });
 

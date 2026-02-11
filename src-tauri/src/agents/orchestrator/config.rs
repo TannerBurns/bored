@@ -1,11 +1,13 @@
 //! Configuration types and constants for the workflow orchestrator.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Window};
 
 use super::CancelHandlesMap;
 use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::commands::runs::StageConfig;
 use crate::db::Database;
 
 /// Configuration for creating a WorkflowOrchestrator
@@ -44,6 +46,9 @@ pub struct OrchestratorConfig {
     /// The previous run ID (when resuming a paused ticket).
     /// Used to retrieve stage outputs from the run that was paused.
     pub previous_run_id: Option<String>,
+    /// Per-stage configuration (enabled/disabled + model selection).
+    /// Keys are user-facing stage names (e.g., "plan", "codeReview", "deslop").
+    pub stage_configs: HashMap<String, StageConfig>,
 }
 
 /// The stages in a multi-stage workflow.
