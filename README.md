@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  A local-first desktop app for managing coding tasks with AI agents.<br>
+  Orchestrate AI coding agents with the same boards, tickets, and workflows you use to manage your own development work.<br>
   Plan features with AI, generate work plans, and let <strong>Cursor</strong> or <strong>Claude Code</strong> build them autonomously.
 </p>
 
