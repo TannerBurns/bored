@@ -33,7 +33,8 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     if (Object.keys(models).length === 0) {
       // Legacy data without a per-model breakdown — attribute to "other"
       // so the model sum stays consistent with the total.
-      if (c.totalCostUsd > 0 || c.inputTokens > 0) {
+      if (c.totalCostUsd > 0 || c.inputTokens > 0 || c.outputTokens > 0
+          || c.cacheReadTokens > 0 || c.cacheCreationTokens > 0) {
         const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
         entry.inputTokens += c.inputTokens;
         entry.outputTokens += c.outputTokens;

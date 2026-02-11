@@ -92,7 +92,8 @@ impl AggregatedCost {
         if cost.model_usage.is_empty() {
             // Legacy data without a per-model breakdown — attribute the
             // entire cost so the model totals stay consistent with the total.
-            if cost.total_cost_usd > 0.0 || cost.input_tokens > 0 || cost.output_tokens > 0 {
+            if cost.total_cost_usd > 0.0 || cost.input_tokens > 0 || cost.output_tokens > 0
+                || cost.cache_read_tokens > 0 || cost.cache_creation_tokens > 0 {
                 let entry = self.model_totals.entry("other".to_string()).or_default();
                 entry.input_tokens += cost.input_tokens;
                 entry.output_tokens += cost.output_tokens;
@@ -202,6 +203,20 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         }
     }
 
+    // If the API provided per-model costs, compute their sum so we can
+    // fill in a missing or zero total_cost_usd.
+    let model_cost_sum: f64 = model_usage.values().map(|d| d.cost_usd).sum();
+
+    // Use the API total when it is present.  When it is missing/zero but
+    // the per-model breakdown has real costs, derive the total from the
+    // model data — a zero total with non-zero model costs is a data gap,
+    // not an authoritative "free" response.
+    let total_cost_usd = if total_cost_usd > 0.0 {
+        total_cost_usd
+    } else {
+        model_cost_sum
+    };
+
     if input_tokens == 0
         && output_tokens == 0
         && cache_read_tokens == 0
@@ -211,8 +226,6 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         return None;
     }
 
-    // Trust the API's total_cost_usd exactly — it is the authoritative
-    // billed amount.  Do NOT recalculate it from model-level data.
     Some(RunCostData {
         input_tokens,
         output_tokens,
@@ -354,7 +367,13 @@ pub fn extract_or_estimate_cost(
             // If the API gave us a total but no per-model breakdown, attribute
             // the entire cost to the configured model so the numbers stay
             // consistent when aggregated.
-            if cost.model_usage.is_empty() && cost.total_cost_usd > 0.0 {
+            if cost.model_usage.is_empty()
+                && (cost.total_cost_usd > 0.0
+                    || cost.input_tokens > 0
+                    || cost.output_tokens > 0
+                    || cost.cache_read_tokens > 0
+                    || cost.cache_creation_tokens > 0)
+            {
                 cost.model_usage.insert(
                     normalize_model_name(model),
                     ModelCostData {
@@ -766,6 +785,31 @@ mod tests {
         assert!(
             (cost.total_cost_usd - 0.04).abs() < 0.0001,
             "total_cost_usd should be 0.04 (the API value), got {}",
+            cost.total_cost_usd
+        );
+    }
+
+    #[test]
+    fn zero_total_with_model_costs_derives_total_from_models() {
+        // The API sometimes returns total_cost_usd = 0 while modelUsage has
+        // real costs.  The total should be derived from the model sum.
+        let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert!(
+            (cost.total_cost_usd - 0.05).abs() < 0.0001,
+            "total should be model sum 0.05, got {}",
+            cost.total_cost_usd
+        );
+    }
+
+    #[test]
+    fn missing_total_with_model_costs_derives_total_from_models() {
+        // total_cost_usd is absent entirely — models still have costs.
+        let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50},"modelUsage":{"claude-opus-4-6":{"inputTokens":80,"outputTokens":40,"costUSD":0.04},"claude-sonnet-4-5":{"inputTokens":20,"outputTokens":10,"costUSD":0.01}}}"#;
+        let cost = extract_cost_from_stream_json(stream_output).unwrap();
+        assert!(
+            (cost.total_cost_usd - 0.05).abs() < 0.0001,
+            "total should be model sum 0.05, got {}",
             cost.total_cost_usd
         );
     }
