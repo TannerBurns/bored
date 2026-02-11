@@ -212,37 +212,78 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
 }
 
 /// Model pricing per million tokens (USD).
+///
+/// Rates sourced from the Anthropic pricing page:
+/// <https://docs.anthropic.com/en/docs/about-claude/pricing>
 struct ModelPricing {
     input_per_mtok: f64,
     output_per_mtok: f64,
+    /// Prompt-cache read price (0.1× base input).
+    cache_read_per_mtok: f64,
+    /// Prompt-cache write price (5-min TTL = 1.25× base input).
+    cache_write_per_mtok: f64,
 }
 
 /// Get pricing for a model. Falls back to Sonnet pricing if unknown.
+///
+/// Pricing as of 2026 (Claude 4.x generation):
+///   Opus  4.6 / 4.5:  $5  input, $25 output, $0.50 cache-read, $6.25 cache-write
+///   Sonnet 4.5 / 4  :  $3  input, $15 output, $0.30 cache-read, $3.75 cache-write
+///   Haiku  4.5       :  $1  input, $5  output, $0.10 cache-read, $1.25 cache-write
 fn get_model_pricing(model: &str) -> ModelPricing {
     let normalized = model.to_lowercase().replace(['-', '_'], " ");
 
     if normalized.contains("opus") {
         ModelPricing {
-            input_per_mtok: 15.0,
-            output_per_mtok: 75.0,
+            input_per_mtok: 5.0,
+            output_per_mtok: 25.0,
+            cache_read_per_mtok: 0.50,
+            cache_write_per_mtok: 6.25,
         }
     } else if normalized.contains("sonnet") {
         ModelPricing {
             input_per_mtok: 3.0,
             output_per_mtok: 15.0,
+            cache_read_per_mtok: 0.30,
+            cache_write_per_mtok: 3.75,
         }
     } else if normalized.contains("haiku") {
         ModelPricing {
-            input_per_mtok: 0.25,
-            output_per_mtok: 1.25,
+            input_per_mtok: 1.0,
+            output_per_mtok: 5.0,
+            cache_read_per_mtok: 0.10,
+            cache_write_per_mtok: 1.25,
         }
     } else {
         // Default to Sonnet pricing
         ModelPricing {
             input_per_mtok: 3.0,
             output_per_mtok: 15.0,
+            cache_read_per_mtok: 0.30,
+            cache_write_per_mtok: 3.75,
         }
     }
+}
+
+/// Compute the cost for a set of token counts using the pricing table.
+///
+/// This accounts for input, output, cache-read and cache-write tokens at
+/// their respective rates from the Anthropic pricing page.  Useful for
+/// verifying that an API-reported total matches the token breakdown.
+pub fn compute_cost_from_tokens(
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_creation_tokens: u64,
+) -> f64 {
+    let pricing = get_model_pricing(model);
+    let input_cost = input_tokens as f64 * pricing.input_per_mtok / 1_000_000.0;
+    let output_cost = output_tokens as f64 * pricing.output_per_mtok / 1_000_000.0;
+    let cache_read_cost = cache_read_tokens as f64 * pricing.cache_read_per_mtok / 1_000_000.0;
+    let cache_write_cost =
+        cache_creation_tokens as f64 * pricing.cache_write_per_mtok / 1_000_000.0;
+    input_cost + output_cost + cache_read_cost + cache_write_cost
 }
 
 /// Estimate cost for a Cursor run based on model and output size.
@@ -524,6 +565,74 @@ mod tests {
         let unknown = estimate_cost("gpt-5", 4000, 10.0);
         let sonnet = estimate_cost("sonnet-4.5", 4000, 10.0);
         assert!((unknown.total_cost_usd - sonnet.total_cost_usd).abs() < 0.0001);
+    }
+
+    #[test]
+    fn compute_cost_from_tokens_includes_cache_pricing() {
+        // Opus: $5 input, $25 output, $0.50 cache-read, $6.25 cache-write per MTok
+        let cost = compute_cost_from_tokens(
+            "opus-4.6",
+            1_000_000, // 1M input  → $5.00
+            1_000_000, // 1M output → $25.00
+            1_000_000, // 1M cache-read → $0.50
+            1_000_000, // 1M cache-write → $6.25
+        );
+        let expected = 5.0 + 25.0 + 0.50 + 6.25; // $36.75
+        assert!(
+            (cost - expected).abs() < 0.001,
+            "Opus full breakdown should be ${expected}, got ${cost}"
+        );
+
+        // Sonnet: $3 input, $15 output, $0.30 cache-read, $3.75 cache-write
+        let cost_s = compute_cost_from_tokens("sonnet-4.5", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        let expected_s = 3.0 + 15.0 + 0.30 + 3.75; // $22.05
+        assert!(
+            (cost_s - expected_s).abs() < 0.001,
+            "Sonnet full breakdown should be ${expected_s}, got ${cost_s}"
+        );
+
+        // Haiku: $1 input, $5 output, $0.10 cache-read, $1.25 cache-write
+        let cost_h = compute_cost_from_tokens("haiku-4.5", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+        let expected_h = 1.0 + 5.0 + 0.10 + 1.25; // $7.35
+        assert!(
+            (cost_h - expected_h).abs() < 0.001,
+            "Haiku full breakdown should be ${expected_h}, got ${cost_h}"
+        );
+    }
+
+    /// Verify pricing matches Anthropic docs (2026):
+    ///   Opus  : $5  input, $25 output per MTok
+    ///   Sonnet: $3  input, $15 output per MTok
+    ///   Haiku : $1  input, $5  output per MTok
+    #[test]
+    fn estimate_cost_matches_anthropic_pricing() {
+        // 1M input tokens, 1M output tokens → cost should equal pricing table directly
+        let chars_for_1m_tokens = 4_000_000; // 4 chars/tok heuristic
+        let secs_for_1m_tokens = 2000.0; // 500 tok/sec heuristic → 1M / 500
+
+        let opus = estimate_cost("opus-4.6", chars_for_1m_tokens, secs_for_1m_tokens);
+        // Opus: 1M × $5 + 1M × $25 = $30
+        assert!(
+            (opus.total_cost_usd - 30.0).abs() < 0.01,
+            "Opus 1M+1M should be ~$30, got {}",
+            opus.total_cost_usd
+        );
+
+        let sonnet = estimate_cost("sonnet-4.5", chars_for_1m_tokens, secs_for_1m_tokens);
+        // Sonnet: 1M × $3 + 1M × $15 = $18
+        assert!(
+            (sonnet.total_cost_usd - 18.0).abs() < 0.01,
+            "Sonnet 1M+1M should be ~$18, got {}",
+            sonnet.total_cost_usd
+        );
+
+        let haiku = estimate_cost("haiku-4.5", chars_for_1m_tokens, secs_for_1m_tokens);
+        // Haiku: 1M × $1 + 1M × $5 = $6
+        assert!(
+            (haiku.total_cost_usd - 6.0).abs() < 0.01,
+            "Haiku 1M+1M should be ~$6, got {}",
+            haiku.total_cost_usd
+        );
     }
 
     #[test]
