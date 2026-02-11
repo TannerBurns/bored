@@ -134,31 +134,43 @@ export function CostBadge({ cost, className, showTokens = false, size = 'sm' }: 
 function buildTooltip(cost: RunCostData | AggregatedCost, estimated: boolean): string {
   const lines: string[] = [];
 
-  const input = getInputTokens(cost);
-  const output = getOutputTokens(cost);
-
-  lines.push(`Input: ${formatTokens(input)} tokens`);
-  lines.push(`Output: ${formatTokens(output)} tokens`);
-
-  // Cache read tokens
-  const cacheRead = 'totalCacheReadTokens' in cost ? cost.totalCacheReadTokens :
-    'cacheReadTokens' in cost ? cost.cacheReadTokens : 0;
-  if (cacheRead > 0) {
-    lines.push(`Cache read: ${formatTokens(cacheRead)} tokens`);
-  }
-
-  // Cache creation/write tokens (most expensive — 1.25× input price)
-  const cacheWrite = 'totalCacheCreationTokens' in cost ? cost.totalCacheCreationTokens :
-    'cacheCreationTokens' in cost ? cost.cacheCreationTokens : 0;
-  if (cacheWrite > 0) {
-    lines.push(`Cache write: ${formatTokens(cacheWrite)} tokens`);
-  }
-
   const modelUsage = 'modelUsage' in cost ? cost.modelUsage : 
     'modelTotals' in cost ? cost.modelTotals : {};
   const modelEntries = Object.entries(modelUsage);
 
-  // Use the authoritative total from the data.
+  // Derive token counts from the per-model data (same source as cost)
+  // so the numbers shown in the tooltip actually explain the total.
+  // Fall back to top-level usage fields only when no model data exists.
+  let input = 0;
+  let output = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+
+  if (modelEntries.length > 0) {
+    for (const [, data] of modelEntries) {
+      input += data.inputTokens ?? 0;
+      output += data.outputTokens ?? 0;
+      cacheRead += data.cacheReadTokens ?? 0;
+      cacheWrite += data.cacheCreationTokens ?? 0;
+    }
+  } else {
+    input = getInputTokens(cost);
+    output = getOutputTokens(cost);
+    cacheRead = 'totalCacheReadTokens' in cost ? cost.totalCacheReadTokens :
+      'cacheReadTokens' in cost ? cost.cacheReadTokens : 0;
+    cacheWrite = 'totalCacheCreationTokens' in cost ? cost.totalCacheCreationTokens :
+      'cacheCreationTokens' in cost ? cost.cacheCreationTokens : 0;
+  }
+
+  lines.push(`Input: ${formatTokens(input)} tokens`);
+  lines.push(`Output: ${formatTokens(output)} tokens`);
+  if (cacheRead > 0) {
+    lines.push(`Cache read: ${formatTokens(cacheRead)} tokens`);
+  }
+  if (cacheWrite > 0) {
+    lines.push(`Cache write: ${formatTokens(cacheWrite)} tokens`);
+  }
+
   lines.push(`Total: ${formatCost(getTotalCost(cost))}`);
 
   if (modelEntries.length > 0) {
