@@ -28,13 +28,28 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     cacheRead += c.cacheReadTokens;
     cacheWrite += c.cacheCreationTokens;
     if (c.isEstimated) anyEstimated = true;
-    for (const [model, data] of Object.entries(c.modelUsage ?? {})) {
-      const entry = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-      entry.inputTokens += data.inputTokens;
-      entry.outputTokens += data.outputTokens;
-      entry.cacheReadTokens += data.cacheReadTokens;
-      entry.cacheCreationTokens += data.cacheCreationTokens;
-      entry.costUsd += data.costUsd;
+
+    const models = c.modelUsage ?? {};
+    if (Object.keys(models).length === 0) {
+      // Legacy data without a per-model breakdown — attribute to "other"
+      // so the model sum stays consistent with the total.
+      if (c.totalCostUsd > 0 || c.inputTokens > 0) {
+        const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+        entry.inputTokens += c.inputTokens;
+        entry.outputTokens += c.outputTokens;
+        entry.cacheReadTokens += c.cacheReadTokens;
+        entry.cacheCreationTokens += c.cacheCreationTokens;
+        entry.costUsd += c.totalCostUsd;
+      }
+    } else {
+      for (const [model, data] of Object.entries(models)) {
+        const entry = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+        entry.inputTokens += data.inputTokens;
+        entry.outputTokens += data.outputTokens;
+        entry.cacheReadTokens += data.cacheReadTokens;
+        entry.cacheCreationTokens += data.cacheCreationTokens;
+        entry.costUsd += data.costUsd;
+      }
     }
   }
 

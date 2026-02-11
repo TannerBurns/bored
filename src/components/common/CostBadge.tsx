@@ -133,15 +133,17 @@ function buildTooltip(cost: RunCostData | AggregatedCost, estimated: boolean): s
     lines.push(`Cache read: ${formatTokens(cost.totalCacheReadTokens)} tokens`);
   }
 
-  lines.push(`Total: ${formatCost(getTotalCost(cost))}`);
-
   const modelUsage = 'modelUsage' in cost ? cost.modelUsage : 
     'modelTotals' in cost ? cost.modelTotals : {};
-  
-  if (Object.keys(modelUsage).length > 0) {
+  const modelEntries = Object.entries(modelUsage);
+
+  // Use the authoritative total from the data.
+  lines.push(`Total: ${formatCost(getTotalCost(cost))}`);
+
+  if (modelEntries.length > 0) {
     lines.push('');
     lines.push('By model:');
-    for (const [model, data] of Object.entries(modelUsage)) {
+    for (const [model, data] of modelEntries) {
       lines.push(`  ${model}: ${formatCost(data.costUsd)}`);
     }
   }

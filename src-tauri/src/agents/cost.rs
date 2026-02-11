@@ -74,6 +74,10 @@ pub struct AggregatedCost {
 
 impl AggregatedCost {
     /// Add a run's cost data to the aggregate.
+    ///
+    /// If the run's `model_usage` is empty (common in legacy data), the full
+    /// cost is attributed to an `"other"` model so that `model_totals` always
+    /// sums to `total_cost_usd`.
     pub fn add(&mut self, cost: &RunCostData) {
         self.total_cost_usd += cost.total_cost_usd;
         self.total_input_tokens += cost.input_tokens;
@@ -85,16 +89,29 @@ impl AggregatedCost {
             self.estimated_count += 1;
         }
 
-        for (model, data) in &cost.model_usage {
-            // Normalize during aggregation so that legacy data stored with
-            // non-canonical names (e.g. "claude-opus-4-6") is merged correctly.
-            let canonical = normalize_model_name(model);
-            let entry = self.model_totals.entry(canonical).or_default();
-            entry.input_tokens += data.input_tokens;
-            entry.output_tokens += data.output_tokens;
-            entry.cache_read_tokens += data.cache_read_tokens;
-            entry.cache_creation_tokens += data.cache_creation_tokens;
-            entry.cost_usd += data.cost_usd;
+        if cost.model_usage.is_empty() {
+            // Legacy data without a per-model breakdown — attribute the
+            // entire cost so the model totals stay consistent with the total.
+            if cost.total_cost_usd > 0.0 || cost.input_tokens > 0 || cost.output_tokens > 0 {
+                let entry = self.model_totals.entry("other".to_string()).or_default();
+                entry.input_tokens += cost.input_tokens;
+                entry.output_tokens += cost.output_tokens;
+                entry.cache_read_tokens += cost.cache_read_tokens;
+                entry.cache_creation_tokens += cost.cache_creation_tokens;
+                entry.cost_usd += cost.total_cost_usd;
+            }
+        } else {
+            for (model, data) in &cost.model_usage {
+                // Normalize during aggregation so that legacy data stored with
+                // non-canonical names (e.g. "claude-opus-4-6") is merged correctly.
+                let canonical = normalize_model_name(model);
+                let entry = self.model_totals.entry(canonical).or_default();
+                entry.input_tokens += data.input_tokens;
+                entry.output_tokens += data.output_tokens;
+                entry.cache_read_tokens += data.cache_read_tokens;
+                entry.cache_creation_tokens += data.cache_creation_tokens;
+                entry.cost_usd += data.cost_usd;
+            }
         }
     }
 }
@@ -510,6 +527,49 @@ mod tests {
         assert_eq!(agg.total_input_tokens, 300);
         assert_eq!(agg.total_output_tokens, 150);
         assert!((agg.total_cost_usd - 0.03).abs() < 0.0001);
+        // Runs with empty model_usage should be attributed to "other"
+        assert!(agg.model_totals.contains_key("other"));
+        assert!((agg.model_totals["other"].cost_usd - 0.03).abs() < 0.0001);
+    }
+
+    #[test]
+    fn aggregated_cost_model_totals_sum_equals_total() {
+        let mut agg = AggregatedCost::default();
+
+        // Run 1: has model breakdown
+        let mut usage1 = HashMap::new();
+        usage1.insert("opus-4.6".to_string(), ModelCostData {
+            input_tokens: 100,
+            output_tokens: 50,
+            cost_usd: 0.05,
+            ..Default::default()
+        });
+        agg.add(&RunCostData {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_cost_usd: 0.05,
+            model_usage: usage1,
+            ..Default::default()
+        });
+
+        // Run 2: legacy data with NO model breakdown
+        agg.add(&RunCostData {
+            input_tokens: 200,
+            output_tokens: 100,
+            total_cost_usd: 0.03,
+            model_usage: HashMap::new(),
+            ..Default::default()
+        });
+
+        // The model totals must sum to total_cost_usd
+        let model_sum: f64 = agg.model_totals.values().map(|d| d.cost_usd).sum();
+        assert!(
+            (model_sum - agg.total_cost_usd).abs() < 0.0001,
+            "model_totals sum ({}) must equal total_cost_usd ({})",
+            model_sum, agg.total_cost_usd
+        );
+        assert_eq!(agg.model_totals.len(), 2); // "opus-4.6" + "other"
+        assert!(agg.model_totals.contains_key("other"));
     }
 
     #[test]
