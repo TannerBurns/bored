@@ -5,7 +5,7 @@ import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
-import { ConfirmModal, UpdateNotification } from './components/common';
+import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
 import { OnboardingWizard } from './components/onboarding';
@@ -15,6 +15,7 @@ import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
 import { useAppData, useAgentsData, useSpecsData } from './hooks/useAppData';
 import { useTicketHandlers } from './hooks/useTicketHandlers';
+import { useReleaseNotes } from './hooks/useReleaseNotes';
 import { NAV_ITEMS } from './lib/constants';
 import type { Board as BoardType } from './types';
 import './index.css';
@@ -112,6 +113,13 @@ function App() {
     handleDeleteTicket,
     handleAgentComplete,
   } = useTicketHandlers({ tickets, setTickets, projects });
+
+  const {
+    isOpen: isReleaseNotesOpen,
+    releaseNote,
+    dismiss: dismissReleaseNotes,
+    showReleaseNotes,
+  } = useReleaseNotes();
   
   const handleRenameBoard = (board: BoardType) => {
     setBoardToRename(board);
@@ -199,7 +207,7 @@ function App() {
 
         {activeNav === 'projects' && <ProjectsView />}
 
-        {activeNav === 'settings' && <SettingsView />}
+        {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
       </main>
 
       {isTicketModalOpen && selectedTicket && (
@@ -274,6 +282,13 @@ function App() {
           onProjectsChange={loadProjects}
         />
       )}
+
+      <ReleaseNotesModal
+        open={isReleaseNotesOpen}
+        onOpenChange={(open) => { if (!open) dismissReleaseNotes(); }}
+        releaseNote={releaseNote}
+        onDismiss={dismissReleaseNotes}
+      />
 
       <UpdateNotification />
     </div>

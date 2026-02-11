@@ -383,3 +383,14 @@ export async function backfillRunCosts(): Promise<number> {
 export async function getSpecCost(specId: string): Promise<AggregatedCost> {
   return invoke('get_spec_cost', { specId });
 }
+
+// Release notes
+import type { ReleaseNote } from '../types';
+
+export async function getReleaseNotes(version: string): Promise<ReleaseNote | null> {
+  return invoke('get_release_notes', { version });
+}
+
+export async function getAllReleaseNotes(): Promise<ReleaseNote[]> {
+  return invoke('get_all_release_notes');
+}
