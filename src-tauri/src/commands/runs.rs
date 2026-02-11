@@ -1056,7 +1056,9 @@ pub async fn get_board_cost_summary(
 #[tauri::command]
 pub async fn backfill_run_costs(db: State<'_, Arc<Database>>) -> Result<u32, String> {
     let count = db.backfill_run_costs().map_err(|e| e.to_string())?;
-    tracing::info!("Backfilled cost data for {} runs", count);
+    if count > 0 {
+        tracing::debug!("Backfilled cost data for {} runs", count);
+    }
     Ok(count)
 }
 

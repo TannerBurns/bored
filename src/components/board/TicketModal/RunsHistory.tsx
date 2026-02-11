@@ -14,7 +14,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   let outputTokens = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
-  let allEstimated = true;
+  let anyEstimated = false;
   let found = false;
   const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
 
@@ -27,7 +27,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     outputTokens += c.outputTokens;
     cacheRead += c.cacheReadTokens;
     cacheWrite += c.cacheCreationTokens;
-    if (!c.isEstimated) allEstimated = false;
+    if (c.isEstimated) anyEstimated = true;
 
     const models = c.modelUsage ?? {};
     if (Object.keys(models).length === 0) {
@@ -66,7 +66,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     cacheReadTokens: cacheRead,
     cacheCreationTokens: cacheWrite,
     modelUsage: mergedModels,
-    isEstimated: found && allEstimated,
+    isEstimated: anyEstimated,
   };
 }
 
