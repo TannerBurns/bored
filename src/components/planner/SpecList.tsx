@@ -39,7 +39,7 @@ const statusLabels: Record<string, string> = {
 
 /** Statuses where the quick-access progress button should appear */
 const progressStatuses = new Set([
-  'approved', 'executed', 'working', 'paused', 'halted', 'completed',
+  'executed', 'working', 'paused', 'halted', 'completed',
 ]);
 
 export function SpecList({ onSelect, onViewProgress }: SpecListProps) {
