@@ -292,6 +292,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       selectedVersion: spec?.latestVersion || null,
       selectedVersionId: spec?.latestVersion?.id ?? null,
       activeTab: 'chat',
+      scrollToProgress: false,
     });
   },
 
@@ -320,7 +321,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   },
 
   selectVersion: (version: SpecVersion | null) => {
-    set({ selectedVersion: version, selectedVersionId: version?.id ?? null });
+    set({ selectedVersion: version, selectedVersionId: version?.id ?? null, scrollToProgress: false });
   },
 
   selectVersionById: (versionId: string) => {

@@ -175,6 +175,14 @@ describe('useSpecStore', () => {
 
       expect(useSpecStore.getState().currentSpec).toBeNull();
     });
+
+    it('resets scrollToProgress to false', () => {
+      useSpecStore.setState({ scrollToProgress: true });
+
+      useSpecStore.getState().selectSpec(mockSpec);
+
+      expect(useSpecStore.getState().scrollToProgress).toBe(false);
+    });
   });
 
   describe('selectSpecForProgress', () => {
@@ -234,6 +242,34 @@ describe('useSpecStore', () => {
       useSpecStore.setState({ scrollToProgress: true });
       useSpecStore.getState().setScrollToProgress(false);
       expect(useSpecStore.getState().scrollToProgress).toBe(false);
+    });
+  });
+
+  describe('selectVersion', () => {
+    it('sets selectedVersion and selectedVersionId', () => {
+      useSpecStore.getState().selectVersion(mockVersion);
+
+      const state = useSpecStore.getState();
+      expect(state.selectedVersion?.id).toBe('version-1');
+      expect(state.selectedVersionId).toBe('version-1');
+    });
+
+    it('resets scrollToProgress to false', () => {
+      useSpecStore.setState({ scrollToProgress: true });
+
+      useSpecStore.getState().selectVersion(mockVersion);
+
+      expect(useSpecStore.getState().scrollToProgress).toBe(false);
+    });
+
+    it('clears selection when null', () => {
+      useSpecStore.setState({ selectedVersion: mockVersion, selectedVersionId: 'version-1' });
+
+      useSpecStore.getState().selectVersion(null);
+
+      const state = useSpecStore.getState();
+      expect(state.selectedVersion).toBeNull();
+      expect(state.selectedVersionId).toBeNull();
     });
   });
 
