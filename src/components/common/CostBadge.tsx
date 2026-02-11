@@ -29,17 +29,22 @@ function formatTokens(count: number): string {
   return count.toString();
 }
 
+/** Only mark as estimated (amber + ~) when ALL runs are estimated.
+ *  A single Cursor fallback among authoritative Claude runs should not
+ *  turn the whole badge yellow. */
 function isEstimated(cost: RunCostData | AggregatedCost): boolean {
   if ('isEstimated' in cost) return cost.isEstimated;
-  if ('estimatedCount' in cost) return cost.estimatedCount > 0;
+  // For aggregated costs: only estimated when every run is estimated.
+  if ('estimatedCount' in cost && 'runCount' in cost) {
+    return cost.runCount > 0 && cost.estimatedCount === cost.runCount;
+  }
   return false;
 }
 
 function isFullyEstimated(cost: RunCostData | AggregatedCost): boolean {
   // Only treat aggregated costs as "fully estimated" (all runs are Cursor estimates).
-  // A single RunCostData always has a displayable value, even if estimated.
   if ('estimatedCount' in cost && 'runCount' in cost) {
-    return cost.estimatedCount > 0 && cost.estimatedCount === cost.runCount;
+    return cost.runCount > 0 && cost.estimatedCount === cost.runCount;
   }
   return false;
 }
