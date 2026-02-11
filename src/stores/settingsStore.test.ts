@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSettingsStore } from './settingsStore';
+import { useSettingsStore, WORKFLOW_PRESETS, WORKFLOW_STAGE_INFO } from './settingsStore';
+import type { WorkflowPreset, WorkflowStageKey } from './settingsStore';
 
 describe('useSettingsStore', () => {
   beforeEach(() => {
@@ -284,6 +285,176 @@ describe('useSettingsStore', () => {
       const state = useSettingsStore.getState();
       expect(state.claudeAuthToken).toBe('token');
       expect(state.claudeApiKey).toBe('');
+    });
+  });
+
+  describe('workflow settings', () => {
+    beforeEach(() => {
+      useSettingsStore.getState().setWorkflowPreset('balanced');
+    });
+
+    it('has balanced preset and stages by default', () => {
+      const state = useSettingsStore.getState();
+      expect(state.workflowPreset).toBe('balanced');
+      expect(state.workflowStages).toEqual(WORKFLOW_PRESETS.balanced.stages);
+    });
+
+    describe('setWorkflowPreset', () => {
+      const presetKeys: Exclude<WorkflowPreset, 'custom'>[] = [
+        'comprehensive', 'balanced', 'vibe', 'standard', 'quick-fix', 'fastest',
+      ];
+
+      it.each(presetKeys)('applies "%s" preset stages', (preset) => {
+        useSettingsStore.getState().setWorkflowPreset(preset);
+        const state = useSettingsStore.getState();
+        expect(state.workflowPreset).toBe(preset);
+        expect(state.workflowStages).toEqual(WORKFLOW_PRESETS[preset].stages);
+      });
+
+      it('sets "custom" without changing stages', () => {
+        useSettingsStore.getState().setWorkflowPreset('comprehensive');
+        const stagesBefore = { ...useSettingsStore.getState().workflowStages };
+        useSettingsStore.getState().setWorkflowPreset('custom');
+        const state = useSettingsStore.getState();
+        expect(state.workflowPreset).toBe('custom');
+        expect(state.workflowStages).toEqual(stagesBefore);
+      });
+    });
+
+    describe('setWorkflowStages', () => {
+      it('bulk-sets stages and switches preset to custom', () => {
+        const custom = { ...WORKFLOW_PRESETS.fastest.stages };
+        useSettingsStore.getState().setWorkflowStages(custom);
+        const state = useSettingsStore.getState();
+        expect(state.workflowPreset).toBe('custom');
+        expect(state.workflowStages).toEqual(custom);
+      });
+    });
+
+    describe('setWorkflowStageConfig', () => {
+      it('updates a single stage model and switches to custom', () => {
+        useSettingsStore.getState().setWorkflowPreset('balanced');
+        useSettingsStore.getState().setWorkflowStageConfig('plan', { model: 'sonnet-4.5' });
+        const state = useSettingsStore.getState();
+        expect(state.workflowPreset).toBe('custom');
+        expect(state.workflowStages.plan.model).toBe('sonnet-4.5');
+        expect(state.workflowStages.plan.enabled).toBe(true);
+      });
+
+      it('toggles a stage enabled state', () => {
+        useSettingsStore.getState().setWorkflowStageConfig('deslop', { enabled: false });
+        expect(useSettingsStore.getState().workflowStages.deslop.enabled).toBe(false);
+        useSettingsStore.getState().setWorkflowStageConfig('deslop', { enabled: true });
+        expect(useSettingsStore.getState().workflowStages.deslop.enabled).toBe(true);
+      });
+
+      it('preserves other stages when updating one', () => {
+        useSettingsStore.getState().setWorkflowPreset('comprehensive');
+        const before = { ...useSettingsStore.getState().workflowStages };
+        useSettingsStore.getState().setWorkflowStageConfig('commit', { model: 'sonnet-4.5' });
+        const after = useSettingsStore.getState().workflowStages;
+        expect(after.plan).toEqual(before.plan);
+        expect(after.implement).toEqual(before.implement);
+        expect(after.commit.model).toBe('sonnet-4.5');
+      });
+    });
+  });
+
+  describe('workflow preset data', () => {
+    const allStageKeys: WorkflowStageKey[] = [
+      'plan', 'implement', 'codeReview', 'deslop',
+      'cleanup', 'unitTests', 'finalReview', 'commit',
+    ];
+
+    it('every preset defines all 8 stage keys', () => {
+      for (const [name, preset] of Object.entries(WORKFLOW_PRESETS)) {
+        for (const key of allStageKeys) {
+          expect(preset.stages[key], `${name} missing ${key}`).toBeDefined();
+          expect(typeof preset.stages[key].enabled).toBe('boolean');
+          expect(['opus-4.6', 'opus-4.5', 'sonnet-4.5']).toContain(preset.stages[key].model);
+        }
+      }
+    });
+
+    it('required stages (plan, implement, commit) are enabled in all presets', () => {
+      for (const [name, preset] of Object.entries(WORKFLOW_PRESETS)) {
+        expect(preset.stages.plan.enabled, `${name}: plan`).toBe(true);
+        expect(preset.stages.implement.enabled, `${name}: implement`).toBe(true);
+        expect(preset.stages.commit.enabled, `${name}: commit`).toBe(true);
+      }
+    });
+
+    it('comprehensive preset enables all stages with opus-4.6', () => {
+      const stages = WORKFLOW_PRESETS.comprehensive.stages;
+      for (const key of allStageKeys) {
+        expect(stages[key].enabled).toBe(true);
+        expect(stages[key].model).toBe('opus-4.6');
+      }
+    });
+
+    it('fastest preset enables all stages with sonnet-4.5', () => {
+      const stages = WORKFLOW_PRESETS.fastest.stages;
+      for (const key of allStageKeys) {
+        expect(stages[key].enabled).toBe(true);
+        expect(stages[key].model).toBe('sonnet-4.5');
+      }
+    });
+
+    it('quick-fix disables codeReview, deslop, unitTests, finalReview', () => {
+      const stages = WORKFLOW_PRESETS['quick-fix'].stages;
+      expect(stages.codeReview.enabled).toBe(false);
+      expect(stages.deslop.enabled).toBe(false);
+      expect(stages.unitTests.enabled).toBe(false);
+      expect(stages.finalReview.enabled).toBe(false);
+    });
+
+    it('WORKFLOW_STAGE_INFO has correct required flags', () => {
+      const required = WORKFLOW_STAGE_INFO.filter(s => s.required).map(s => s.key);
+      const optional = WORKFLOW_STAGE_INFO.filter(s => !s.required).map(s => s.key);
+      expect(required).toEqual(['plan', 'implement', 'commit']);
+      expect(optional).toEqual(['codeReview', 'deslop', 'cleanup', 'unitTests', 'finalReview']);
+    });
+
+    it('WORKFLOW_STAGE_INFO covers all stage keys', () => {
+      const infoKeys = WORKFLOW_STAGE_INFO.map(s => s.key);
+      expect(infoKeys).toEqual(allStageKeys);
+    });
+  });
+
+  describe('workflow migration v4->v5', () => {
+    it('adds workflowPreset and workflowStages for v4 state', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'opus-4.5' } as unknown,
+        4
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.workflowPreset).toBe('balanced');
+      expect(migrated.workflowStages).toEqual(WORKFLOW_PRESETS.balanced.stages);
+    });
+
+    it('full migration from v0 includes workflow settings', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus-4.5');
+      expect(migrated.plannerTimeoutMinutes).toBe(10);
+      expect(migrated.workflowPreset).toBe('balanced');
+      expect(migrated.workflowStages).toBeDefined();
+    });
+
+    it('preserves existing fields during v4->v5 migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'opus-4.6', stageTimeoutMinutes: 45 } as unknown,
+        4
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus-4.6');
+      expect(migrated.stageTimeoutMinutes).toBe(45);
     });
   });
 });

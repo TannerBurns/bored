@@ -138,6 +138,7 @@ export async function startAgentRun(
     codeReviewMaxIterations?: number;
     stageTimeoutMinutes?: number;
     stageMaxRetries?: number;
+    stageConfigs?: Record<string, { enabled: boolean; model: string }>;
   }
 ): Promise<string> {
   return invoke('start_agent_run', { 
@@ -148,6 +149,7 @@ export async function startAgentRun(
       codeReviewMaxIterations: options?.codeReviewMaxIterations,
       stageTimeoutMinutes: options?.stageTimeoutMinutes,
       stageMaxRetries: options?.stageMaxRetries,
+      stageConfigs: options?.stageConfigs,
     },
   });
 }

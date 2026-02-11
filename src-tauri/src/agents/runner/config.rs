@@ -46,6 +46,9 @@ pub struct RunnerConfig {
     /// The previous run ID (when resuming a paused ticket).
     /// Used to retrieve stage outputs from the run that was paused.
     pub previous_run_id: Option<String>,
+    /// Per-stage configuration (enabled/disabled + model selection).
+    /// Keys are user-facing stage names (e.g., "plan", "codeReview").
+    pub stage_configs: HashMap<String, crate::commands::runs::StageConfig>,
 }
 
 pub struct RunnerResult {

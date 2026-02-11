@@ -13,8 +13,6 @@ export interface TicketEditFormProps {
   setEditLabels: (labels: string) => void;
   editProjectId: string;
   setEditProjectId: (id: string) => void;
-  editModel: string;
-  setEditModel: (model: string) => void;
   editBranchName: string;
   setEditBranchName: (branch: string) => void;
 }
@@ -31,8 +29,6 @@ export function TicketEditForm({
   setEditLabels,
   editProjectId,
   setEditProjectId,
-  editModel,
-  setEditModel,
   editBranchName,
   setEditBranchName,
 }: TicketEditFormProps) {
@@ -97,23 +93,6 @@ export function TicketEditForm({
             </option>
           ))}
         </select>
-      </div>
-
-      {/* AI Model */}
-      <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-2">AI Model</h3>
-        <select
-          value={editModel}
-          onChange={(e) => setEditModel(e.target.value)}
-          className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-        >
-          <option value="">Default (Opus 4.6)</option>
-          <option value="opus-4.5">Opus 4.5</option>
-          <option value="sonnet-4.5">Sonnet 4.5</option>
-        </select>
-        <p className="mt-1 text-xs text-board-text-muted">
-          Select AI model for agent runs
-        </p>
       </div>
 
       {/* Branch Name */}

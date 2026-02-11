@@ -126,7 +126,7 @@ impl WorkflowOrchestrator {
             .update_run_status(&sub_run.id, RunStatus::Running, None, None)
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
 
-        // Build agent config
+        let stage_model = self.get_stage_model(stage);
         let config = AgentRunConfig {
             kind: self.agent_kind,
             ticket_id: self.ticket.id.clone(),
@@ -136,7 +136,7 @@ impl WorkflowOrchestrator {
             timeout_secs: Some(self.stage_timeout_secs),
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
-            model: self.ticket.model.clone(),
+            model: Some(stage_model.clone()),
             claude_api_config: self.claude_api_config.clone(),
         };
 
@@ -224,8 +224,7 @@ impl WorkflowOrchestrator {
         {
             let stdout = result.captured_stdout.as_deref().unwrap_or("");
             let is_claude = matches!(self.agent_kind, AgentKind::Claude);
-            let model = self.ticket.model.as_deref().unwrap_or("opus-4.6");
-            let cost_data = extract_or_estimate_cost(stdout, model, duration_secs, is_claude);
+            let cost_data = extract_or_estimate_cost(stdout, &stage_model, duration_secs, is_claude);
 
             let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
 

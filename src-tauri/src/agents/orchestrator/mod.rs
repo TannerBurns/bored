@@ -19,6 +19,7 @@ use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
 use super::spawner::CancelHandle;
 use super::{AgentKind, ClaudeApiConfig};
+use crate::commands::runs::StageConfig;
 use crate::db::models::Task;
 use crate::db::{Database, Ticket};
 
@@ -78,6 +79,8 @@ pub struct WorkflowOrchestrator {
     resume_from_stage: Option<String>,
     /// Cached stage outputs from the previous run (loaded on resume)
     previous_stage_outputs: std::collections::HashMap<String, String>,
+    /// Per-stage configuration (enabled/disabled + model selection)
+    stage_configs: std::collections::HashMap<String, StageConfig>,
 }
 
 impl WorkflowOrchestrator {
@@ -156,6 +159,7 @@ impl WorkflowOrchestrator {
             stage_max_retries: config.stage_max_retries,
             resume_from_stage: config.resume_from_stage,
             previous_stage_outputs,
+            stage_configs: config.stage_configs,
         }
     }
 
@@ -250,6 +254,42 @@ impl WorkflowOrchestrator {
         }
 
         false
+    }
+
+    /// Map an internal stage name to its user-facing config key.
+    /// Frontend keys are camelCase (e.g. "codeReview"), backend stages are kebab-case.
+    fn stage_config_key(stage: &str) -> &str {
+        match stage {
+            "plan" | "plan-validation" => "plan",
+            "implement" => "implement",
+            "code-review" | "code-review-fix" => "codeReview",
+            "deslop" => "deslop",
+            "cleanup" => "cleanup",
+            "unit-tests" | "cleanup-post-tests" => "unitTests",
+            "review-changes" | "cleanup-post-review" | "review-changes-final" => "finalReview",
+            "add-and-commit" => "commit",
+            _ => stage, // Unknown stages pass through
+        }
+    }
+
+    /// Check if a stage is enabled in the workflow settings.
+    /// Stages not in the config map default to enabled for safety.
+    fn is_stage_enabled(&self, stage: &str) -> bool {
+        let key = Self::stage_config_key(stage);
+        self.stage_configs
+            .get(key)
+            .map(|c| c.enabled)
+            .unwrap_or(true)
+    }
+
+    /// Get the model to use for a given stage.
+    /// Falls back to "opus-4.6" if the stage is not in the config map.
+    fn get_stage_model(&self, stage: &str) -> String {
+        let key = Self::stage_config_key(stage);
+        self.stage_configs
+            .get(key)
+            .map(|c| c.model.clone())
+            .unwrap_or_else(|| "opus-4.6".to_string())
     }
 
     /// Update project hooks with run configuration

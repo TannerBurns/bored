@@ -1,4 +1,5 @@
 import { useBoardStore } from '../stores/boardStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { deleteTicket, startAgentRun } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Ticket, Project, CreateTicketInput } from '../types';
@@ -92,9 +93,17 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     
     logger.debug('Starting agent with project', { projectId: project.id, path: project.path });
     
+    // Read workflow settings from the settings store
+    const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries, workflowStages } = useSettingsStore.getState();
+    
     try {
       logger.debug('Calling startAgentRun...');
-      const runId = await startAgentRun(ticketId, agentType, project.path);
+      const runId = await startAgentRun(ticketId, agentType, project.path, {
+        codeReviewMaxIterations,
+        stageTimeoutMinutes,
+        stageMaxRetries,
+        stageConfigs: workflowStages,
+      });
       logger.info('Agent run started', { runId });
       
       const updates = { lockedByRunId: runId, updatedAt: new Date() };

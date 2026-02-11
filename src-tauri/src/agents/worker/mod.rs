@@ -417,6 +417,7 @@ impl Worker {
             stage_max_retries: self.config.stage_max_retries,
             resume_from_stage,
             previous_run_id,
+            stage_configs: std::collections::HashMap::new(), // Worker uses defaults; stage configs come from frontend
         };
 
         // Clear pause state now that we've captured the resume info

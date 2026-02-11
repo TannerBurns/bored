@@ -32,16 +32,6 @@ export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
         </div>
       )}
 
-      {/* AI Model */}
-      <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-1">
-          AI Model
-        </h3>
-        <span className="text-sm text-board-text-secondary">
-          {ticket.model || 'Default (auto)'}
-        </span>
-      </div>
-
       {/* Branch Name */}
       <div>
         <h3 className="text-sm font-medium text-board-text-muted mb-1">

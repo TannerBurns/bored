@@ -70,6 +70,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         stage_max_retries: config.stage_max_retries,
         resume_from_stage: config.resume_from_stage.clone(),
         previous_run_id: config.previous_run_id.clone(),
+        stage_configs: config.stage_configs.clone(),
     });
 
     orchestrator.execute().await

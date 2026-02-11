@@ -116,12 +116,6 @@ export function GeneralSettings() {
     setPlannerTimeoutMinutes,
     plannerMaxRetries,
     setPlannerMaxRetries,
-    codeReviewMaxIterations,
-    setCodeReviewMaxIterations,
-    stageTimeoutMinutes,
-    setStageTimeoutMinutes,
-    stageMaxRetries,
-    setStageMaxRetries,
   } = useSettingsStore();
 
   return (
@@ -254,64 +248,6 @@ export function GeneralSettings() {
               );
             })}
           </div>
-        </div>
-      </div>
-
-      {/* Workflow Stage Settings Section */}
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-board-text">Workflow Stage Settings</h3>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Configure timeouts and retries for multi-stage workflow execution.
-          </p>
-        </div>
-
-        {/* Stage timeout and retries */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="glass-subtle rounded-lg px-3 py-2">
-            <label className="block text-sm font-medium text-board-text mb-1">
-              Stage Timeout (min)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={stageTimeoutMinutes}
-              onChange={(e) => setStageTimeoutMinutes(parseInt(e.target.value) || 30)}
-              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-            />
-          </div>
-          <div className="glass-subtle rounded-lg px-3 py-2">
-            <label className="block text-sm font-medium text-board-text mb-1">
-              Stage Max Retries
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={5}
-              value={stageMaxRetries}
-              onChange={(e) => setStageMaxRetries(parseInt(e.target.value) || 2)}
-              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-            />
-          </div>
-        </div>
-
-        {/* Code Review Max Iterations */}
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">
-            Code Review Max Iterations
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={10}
-            value={codeReviewMaxIterations}
-            onChange={(e) => setCodeReviewMaxIterations(parseInt(e.target.value) || 3)}
-            className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-          />
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Max iterations before proceeding (0 to disable)
-          </p>
         </div>
       </div>
 

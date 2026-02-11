@@ -26,7 +26,6 @@ export function CreateTicketModal({
   const [labelsInput, setLabelsInput] = useState('');
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
   const [projectId, setProjectId] = useState('');
-  const [model, setModel] = useState<string>('');
   const [branchName, setBranchName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +101,6 @@ export function CreateTicketModal({
         columnId,
         projectId: projectId || undefined,
         workflowType: 'multi_stage',
-        model: model || undefined,
         branchName: branchName.trim() || undefined,
         isEpic,
         epicId: epicId || undefined,
@@ -278,29 +276,6 @@ export function CreateTicketModal({
                   <option value="urgent">Urgent</option>
                 </select>
               </div>
-            </div>
-
-            {/* Model Selection */}
-            <div>
-              <label
-                htmlFor="model"
-                className="block text-sm font-medium text-board-text-secondary mb-1.5"
-              >
-                AI Model
-              </label>
-              <select
-                id="model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-              >
-                <option value="">Default (Opus 4.6)</option>
-                <option value="opus-4.5">Opus 4.5</option>
-                <option value="sonnet-4.5">Sonnet 4.5</option>
-              </select>
-              <p className="mt-1 text-xs text-board-text-muted">
-                Select AI model for agent runs
-              </p>
             </div>
 
             {/* Labels */}

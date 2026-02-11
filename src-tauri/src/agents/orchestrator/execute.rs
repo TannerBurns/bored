@@ -29,10 +29,12 @@ impl WorkflowOrchestrator {
         self.run_implement_stage(&plan).await?;
 
         // Code review loop
-        if !self.should_skip_stage("code-review") {
-            self.run_code_review_loop().await?;
-        } else {
+        if self.should_skip_stage("code-review") {
             tracing::info!("Skipping code-review loop (resuming from later stage)");
+        } else if !self.is_stage_enabled("code-review") {
+            tracing::info!("Skipping code-review loop (disabled in workflow settings)");
+        } else {
+            self.run_code_review_loop().await?;
         }
 
         // Move ticket to "Review" when entering QA phase
@@ -159,7 +161,7 @@ impl WorkflowOrchestrator {
             repo_path: self.repo_path.clone(),
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
-            model: self.ticket.model.clone(),
+            model: Some(self.get_stage_model("plan")),
             agent_kind: self.agent_kind,
             claude_api_config: self.claude_api_config.clone(),
             timeout_secs: self.stage_timeout_secs,
@@ -255,6 +257,12 @@ impl WorkflowOrchestrator {
             // Skip commands that come before the resume point
             if self.should_skip_stage(cmd) {
                 tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+                continue;
+            }
+
+            // Skip commands that are disabled in workflow settings
+            if !self.is_stage_enabled(cmd) {
+                tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
                 continue;
             }
 
