@@ -140,11 +140,18 @@ function buildTooltip(cost: RunCostData | AggregatedCost, estimated: boolean): s
   lines.push(`Input: ${formatTokens(input)} tokens`);
   lines.push(`Output: ${formatTokens(output)} tokens`);
 
-  if ('cacheReadTokens' in cost && cost.cacheReadTokens > 0) {
-    lines.push(`Cache read: ${formatTokens(cost.cacheReadTokens)} tokens`);
+  // Cache read tokens
+  const cacheRead = 'totalCacheReadTokens' in cost ? cost.totalCacheReadTokens :
+    'cacheReadTokens' in cost ? cost.cacheReadTokens : 0;
+  if (cacheRead > 0) {
+    lines.push(`Cache read: ${formatTokens(cacheRead)} tokens`);
   }
-  if ('totalCacheReadTokens' in cost && cost.totalCacheReadTokens > 0) {
-    lines.push(`Cache read: ${formatTokens(cost.totalCacheReadTokens)} tokens`);
+
+  // Cache creation/write tokens (most expensive — 1.25× input price)
+  const cacheWrite = 'totalCacheCreationTokens' in cost ? cost.totalCacheCreationTokens :
+    'cacheCreationTokens' in cost ? cost.cacheCreationTokens : 0;
+  if (cacheWrite > 0) {
+    lines.push(`Cache write: ${formatTokens(cacheWrite)} tokens`);
   }
 
   const modelUsage = 'modelUsage' in cost ? cost.modelUsage : 
