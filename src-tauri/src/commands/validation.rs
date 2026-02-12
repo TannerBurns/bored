@@ -9,7 +9,7 @@ use crate::agents::validation_agent::AppProcessManager;
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
-use crate::commands::next_steps::get_branch_diff_sync;
+use crate::commands::next_steps::{get_branch_diff_sync, get_ticket_working_dir};
 use crate::commands::ApiConnState;
 use crate::db::models::{
     CreateValidationMessage, CreateValidationSession, FixTask,
@@ -357,7 +357,10 @@ pub async fn send_validation_message(
 
     // If the agent requested to start the app, start it and run a follow-up for testing instructions
     if let Some(start_app) = parse_start_app_from_response(&response_text) {
-        let working_dir = Path::new(&project.path);
+        let working_dir_path = get_ticket_working_dir(db.inner(), &session.ticket_id)
+            .map(|(path, _)| path)
+            .unwrap_or_else(|_| project.path.clone());
+        let working_dir = Path::new(&working_dir_path);
         if app_process_manager
             .start(
                 session_id.clone(),

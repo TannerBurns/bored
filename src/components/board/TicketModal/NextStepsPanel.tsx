@@ -21,12 +21,12 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
 
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
-  // Only show for tickets in Done or Review columns that have a branch
+  // Only show for tickets in the Done column that have a branch
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
-  const isDoneOrReview = currentColumn?.name === 'Done' || currentColumn?.name === 'Review';
+  const isDone = currentColumn?.name === 'Done';
   const hasBranch = !!ticket.branchName;
 
-  if (!isDoneOrReview || !hasBranch) return null;
+  if (!isDone || !hasBranch) return null;
 
   const handlePush = async () => {
     try {
