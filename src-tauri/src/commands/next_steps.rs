@@ -291,8 +291,11 @@ fn parse_unified_diff(diff: &str) -> Vec<FileDiff> {
                 current_hunk_header = line.to_string();
                 current_hunk_lines.clear();
                 if let Some(rest) = line.strip_prefix("@@ ") {
-                    if let Some(rest) = rest.strip_suffix(" @@") {
-                        let parts: Vec<&str> = rest.split(' ').collect();
+                    // Use split_once instead of strip_suffix so that
+                    // function context after the closing @@ is ignored
+                    // (e.g. "@@ -10,3 +10,4 @@ fn main()").
+                    if let Some((nums, _)) = rest.split_once(" @@") {
+                        let parts: Vec<&str> = nums.split(' ').collect();
                         if let Some(old_part) = parts.first() {
                             old_line = old_part.split(',').next().and_then(|s| s.trim_start_matches('-').parse().ok()).unwrap_or(1);
                         }
@@ -588,6 +591,37 @@ index abc..def 100644
         assert_eq!(files[0].hunks.len(), 2);
         assert_eq!(files[0].additions, 2);
         assert_eq!(files[0].deletions, 2);
+    }
+
+    #[test]
+    fn parse_hunk_header_with_function_context() {
+        // Real git diffs include function context after the closing @@
+        let diff = "\
+diff --git a/f.rs b/f.rs
+index abc..def 100644
+--- a/f.rs
++++ b/f.rs
+@@ -10,3 +10,4 @@ fn main() {
+ context
++added
+-removed
+ context2
+";
+        let files = parse_unified_diff(diff);
+        assert_eq!(files.len(), 1);
+        let lines = &files[0].hunks[0].lines;
+
+        assert_eq!(lines[0].line_type, "context");
+        assert_eq!(lines[0].old_line_num, Some(10));
+        assert_eq!(lines[0].new_line_num, Some(10));
+
+        assert_eq!(lines[1].line_type, "add");
+        assert_eq!(lines[1].old_line_num, None);
+        assert_eq!(lines[1].new_line_num, Some(11));
+
+        assert_eq!(lines[2].line_type, "delete");
+        assert_eq!(lines[2].old_line_num, Some(11));
+        assert_eq!(lines[2].new_line_num, None);
     }
 
     #[test]
