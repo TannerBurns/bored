@@ -100,6 +100,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         {onValidate && (
           <div className="col-span-2 flex items-center gap-2">
             <BuildWithDropdown
+              label="Validate with"
               onSelect={(agent: 'cursor' | 'claude') => onValidate(ticket.id, agent)}
               disabled={false}
             />

@@ -119,7 +119,7 @@ export function TicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
+      <div className="relative w-full max-w-[min(1200px,96vw)] max-h-[90vh] bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
         {/* Header */}
         <TicketModalHeader
           ticket={ticket}
