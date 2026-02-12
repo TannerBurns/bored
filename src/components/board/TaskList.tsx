@@ -117,7 +117,7 @@ export function TaskList({ ticketId }: TaskListProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-board-text-muted">
+        <h3 className="text-base font-semibold text-board-text">
           Task Queue ({ticketTasks.length})
         </h3>
         <div className="flex gap-2">
