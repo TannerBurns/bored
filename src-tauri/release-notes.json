@@ -1,5 +1,47 @@
 [
   {
+    "version": "0.1.0-beta.12",
+    "published_at": "2026-02-12",
+    "summary": "Validation chat for verifying ticket changes, next steps panel, file diff viewer, and comprehensive cost tracking fixes",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Validation Chat: interactive post-completion AI chat to verify ticket changes with Cursor or Claude agents",
+          "Next Steps Panel on completed tickets with push branch, create PR, and view diff actions",
+          "Validation view in sidebar for managing validation sessions",
+          "File Diff Viewer with per-file collapsible sections, add/delete/context line coloring, and line numbers",
+          "Agent selection for spec brainstorm conversations (choose Cursor or Claude)",
+          "Validation agent backend with streaming log support"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Ticket modal widened to near full-width for easier navigation",
+          "Work Complete layout consolidated into a single row with expandable View Diff section",
+          "Cost tooltip now displays cache write tokens and derives counts from per-model data",
+          "Removed misleading ~ prefix and amber styling from cost badges — all badges show plain cost",
+          "Total cost always derived from sum of per-model costs for consistent display at every level",
+          "Ticket-level cost badge only marks estimated when all runs are estimated"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed model name normalization in cost tracking (e.g. \"claude-opus-4-6\" mapped to \"opus-4.6\")",
+          "Fixed duplicate cost counting for multi-stage parent runs",
+          "Updated model pricing to match 2026 Anthropic rates (Opus $5/$25, Haiku $1/$5 per MTok)",
+          "Fixed expanded run total mismatch with cost badge amount",
+          "Fixed diff line numbering when parsing unified diff hunk headers",
+          "Fixed missing agent_type column in fresh database schema",
+          "Fixed validation message returning user message instead of assistant response",
+          "Fixed legacy runs with empty model usage now attributed to \"other\" so totals always add up"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.11",
     "published_at": "2026-02-10",
     "summary": "Workflow presets, cost tracking, spec shortcuts, and release notes",
