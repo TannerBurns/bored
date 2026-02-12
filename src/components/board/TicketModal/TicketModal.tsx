@@ -22,6 +22,7 @@ import { RunsHistory } from './RunsHistory';
 import { TicketCostSummary } from './TicketCostSummary';
 import { CommentsSection } from './CommentsSection';
 import { TicketModalFooter } from './TicketModalFooter';
+import { NextStepsPanel } from './NextStepsPanel';
 
 export function TicketModal({
   ticket,
@@ -32,6 +33,7 @@ export function TicketModal({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
+  onValidate,
   onDelete,
   onAgentComplete,
 }: TicketModalProps) {
@@ -117,7 +119,7 @@ export function TicketModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-2xl max-h-[90vh] bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
+      <div className="relative w-full max-w-[min(1200px,96vw)] max-h-[90vh] bg-board-column rounded-xl shadow-2xl overflow-hidden flex flex-col border border-board-border">
         {/* Header */}
         <TicketModalHeader
           ticket={ticket}
@@ -194,16 +196,20 @@ export function TicketModal({
           {/* Agent Status Panel */}
           <AgentStatusPanel
             lockedByRunId={ticket.lockedByRunId}
-            agentLogs={agentEvents.agentLogs}
             agentError={agentEvents.agentError}
             setAgentError={agentEvents.setAgentError}
             isCancelling={agentEvents.isCancelling}
             isPausing={agentEvents.isPausing}
-            logsContainerRef={agentEvents.logsContainerRef}
-            handleLogsScroll={agentEvents.handleLogsScroll}
             handleCancelAgent={agentEvents.handleCancelAgent}
             handlePauseTicket={() => agentEvents.handlePauseTicket(runsHistory.agentRuns)}
             handleForceClearLock={agentEvents.handleForceClearLock}
+          />
+
+          {/* Next Steps Panel (visible for completed tickets with branches) */}
+          <NextStepsPanel
+            ticket={ticket}
+            columns={columns}
+            onValidate={onValidate}
           />
 
           {/* Ticket Cost Summary */}

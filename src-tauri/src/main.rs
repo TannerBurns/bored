@@ -3,8 +3,10 @@
 use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use agent_kanban::agents::validation_agent::AppProcessManager;
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
+use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
 use agent_kanban::{api, commands, db, logging};
 
@@ -195,10 +197,14 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
+            app.manage(AppProcessManager::new());
 
             // Load Claude API settings from disk (or create fresh if not present)
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
             app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
+
+            // Workflow settings (synced from frontend, read by workers at task time)
+            app.manage(WorkflowSettingsState::new());
 
             // Configure API server with persistent token
             // Try to read existing token from file, or generate a new one
@@ -292,6 +298,7 @@ fn main() {
             commands::factory_reset,
             commands::repair_specs_table,
             commands::get_tickets,
+            commands::get_ticket,
             commands::create_ticket,
             commands::move_ticket,
             commands::update_ticket,
@@ -348,6 +355,9 @@ fn main() {
             commands::get_claude_hook_script_path,
             commands::get_claude_api_settings,
             commands::set_claude_api_settings,
+            // Workflow settings sync
+            commands::workflow_settings::sync_workflow_settings,
+            commands::workflow_settings::get_workflow_settings,
             // Worker management
             commands::workers::start_worker,
             commands::workers::stop_worker,
@@ -420,6 +430,22 @@ fn main() {
             // Release notes
             commands::release_notes::get_release_notes,
             commands::release_notes::get_all_release_notes,
+            // Validation commands
+            commands::validation::create_validation_session,
+            commands::validation::get_validation_session,
+            commands::validation::get_validation_sessions,
+            commands::validation::update_validation_session_status,
+            commands::validation::delete_validation_session,
+            commands::validation::get_validation_messages,
+            commands::validation::send_validation_message,
+            commands::validation::stop_validation_app,
+            commands::validation::get_validation_app_status,
+            commands::validation::create_fix_tasks,
+            // Next steps commands (push, PR, diff, open)
+            commands::next_steps::push_branch,
+            commands::next_steps::create_pull_request,
+            commands::next_steps::get_branch_diff,
+            commands::next_steps::get_branch_diff_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

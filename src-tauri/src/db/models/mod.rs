@@ -6,6 +6,7 @@ mod project;
 mod spec;
 mod task;
 mod ticket;
+mod validation;
 mod workflow;
 
 pub use agent::*;
@@ -16,4 +17,5 @@ pub use project::*;
 pub use spec::*;
 pub use task::*;
 pub use ticket::*;
+pub use validation::*;
 pub use workflow::*;

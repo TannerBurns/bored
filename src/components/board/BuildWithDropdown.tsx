@@ -6,12 +6,18 @@ interface BuildWithDropdownProps {
   onSelect: (agent: 'cursor' | 'claude') => void;
   disabled?: boolean;
   disabledReason?: string;
+  /** Button label (default: "Build with") */
+  label?: string;
+  /** Tooltip shown on hover (e.g. explains what the button does) */
+  title?: string;
 }
 
 export function BuildWithDropdown({
   onSelect,
   disabled = false,
   disabledReason,
+  label = 'Build with',
+  title: titleProp,
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
@@ -72,7 +78,7 @@ export function BuildWithDropdown({
         ref={buttonRef}
         onClick={handleToggle}
         disabled={disabled}
-        title={disabled && disabledReason ? disabledReason : undefined}
+        title={titleProp ?? (disabled && disabledReason ? disabledReason : undefined)}
         className={`
           glass rounded-xl px-4 py-2 text-sm font-medium
           flex items-center gap-2
@@ -98,7 +104,7 @@ export function BuildWithDropdown({
         >
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
         </svg>
-        <span>Build with</span>
+        <span>{label}</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"

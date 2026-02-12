@@ -2,6 +2,8 @@ pub mod brainstorm;
 pub mod claude;
 pub mod cost;
 pub mod cursor;
+pub mod log_utils;
+pub mod validation_agent;
 pub mod diagnostic;
 pub mod eta;
 pub mod orchestrator;

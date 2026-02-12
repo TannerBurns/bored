@@ -8,11 +8,13 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
+import { ValidationView } from './components/validation';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
+import { useValidationSync } from './hooks/useValidationSync';
 import { useAppData, useAgentsData, useSpecsData } from './hooks/useAppData';
 import { useTicketHandlers } from './hooks/useTicketHandlers';
 import { useReleaseNotes } from './hooks/useReleaseNotes';
@@ -27,6 +29,8 @@ function App() {
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
   const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
+  const [validationTicketId, setValidationTicketId] = useState<string | null>(null);
+  const [validationAgentType, setValidationAgentType] = useState<'cursor' | 'claude' | null>(null);
 
   const { theme } = useSettingsStore();
   const {
@@ -89,6 +93,7 @@ function App() {
   const showOnboarding = onboardingActive === true;
 
   useSpecSync(apiConfig?.url || '', apiConfig?.token || '');
+  useValidationSync(apiConfig?.url || '', apiConfig?.token || '');
   useAgentsData(activeNav, setProjects, setRecentRuns);
   useSpecsData(activeNav);
 
@@ -124,6 +129,13 @@ function App() {
   const handleRenameBoard = (board: BoardType) => {
     setBoardToRename(board);
     setRenameBoardModalOpen(true);
+  };
+
+  const handleValidateFromTicket = (ticketId: string, agentType: 'cursor' | 'claude') => {
+    closeTicketModal();
+    setValidationTicketId(ticketId);
+    setValidationAgentType(agentType);
+    setActiveNav('validation');
   };
 
   return (
@@ -207,6 +219,17 @@ function App() {
 
         {activeNav === 'projects' && <ProjectsView />}
 
+        {activeNav === 'validation' && (
+          <ValidationView
+            initialTicketId={validationTicketId ?? undefined}
+            initialAgentType={validationAgentType ?? undefined}
+            onConsumedInitial={() => {
+              setValidationTicketId(null);
+              setValidationAgentType(null);
+            }}
+          />
+        )}
+
         {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
       </main>
 
@@ -220,6 +243,7 @@ function App() {
           onAddComment={handleAddComment}
           onUpdateComment={handleUpdateComment}
           onRunWithAgent={handleRunWithAgent}
+          onValidate={handleValidateFromTicket}
           onDelete={handleDeleteTicket}
           onAgentComplete={handleAgentComplete}
         />

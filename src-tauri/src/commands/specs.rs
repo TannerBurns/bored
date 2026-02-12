@@ -27,6 +27,8 @@ pub struct CreateSpecInput {
     pub name: String,
     pub user_input: String,
     pub model: Option<String>,
+    /// Optional settings (e.g. agentType for brainstorm)
+    pub settings: Option<serde_json::Value>,
 }
 
 #[tauri::command]
@@ -49,7 +51,7 @@ pub async fn create_spec(
         name: input.name,
         user_input: input.user_input,
         model: input.model,
-        settings: serde_json::json!({}),
+        settings: input.settings.unwrap_or(serde_json::json!({})),
     })
     .map_err(|e| e.to_string())
 }

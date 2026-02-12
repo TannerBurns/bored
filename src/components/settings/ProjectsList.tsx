@@ -15,6 +15,7 @@ import {
   updateProjectHooks,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
+import { ConfirmModal } from '../common';
 
 type AddMode = 'none' | 'existing' | 'create';
 
@@ -30,6 +31,7 @@ export function ProjectsList() {
   const [initializingGit, setInitializingGit] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [setupStatus, setSetupStatus] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -221,21 +223,21 @@ export function ProjectsList() {
     }
   };
 
-  const handleDelete = async (projectId: string, projectName: string) => {
-    if (
-      !confirm(
-        `Delete project "${projectName}"? Boards using it will need to be reassigned.`
-      )
-    ) {
-      return;
-    }
+  const handleDeleteClick = (projectId: string, projectName: string) => {
+    setDeleteConfirm({ id: projectId, name: projectName });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return;
 
     try {
-      await deleteProject(projectId);
+      await deleteProject(deleteConfirm.id);
       setError(null);
+      setDeleteConfirm(null);
       await loadProjects();
     } catch (e) {
       setError(`Failed to delete project: ${e}`);
+      setDeleteConfirm(null);
     }
   };
 
@@ -470,7 +472,7 @@ export function ProjectsList() {
               </div>
             </div>
             <button
-              onClick={() => handleDelete(project.id, project.name)}
+              onClick={() => handleDeleteClick(project.id, project.name)}
               className="ml-3 px-1.5 py-0.5 text-xs text-status-error hover:bg-status-error/10 rounded transition-colors"
             >
               Delete
@@ -487,6 +489,16 @@ export function ProjectsList() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={deleteConfirm !== null}
+        onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}
+        title="Delete Project"
+        message={`Delete project "${deleteConfirm?.name}"? Boards using it will need to be reassigned.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+      />
     </div>
   );
 }

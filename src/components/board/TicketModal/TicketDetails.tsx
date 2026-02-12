@@ -25,7 +25,7 @@ export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
       {/* Project */}
       {ticket.projectId && (
         <div>
-          <h3 className="text-sm font-medium text-board-text-muted mb-1">Project</h3>
+          <h3 className="text-base font-semibold text-board-text mb-1">Project</h3>
           <code className="text-sm text-board-text-secondary bg-board-surface px-2 py-1 rounded">
             {projects.find(p => p.id === ticket.projectId)?.name || ticket.projectId}
           </code>
@@ -34,7 +34,7 @@ export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
 
       {/* Branch Name */}
       <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-1">
+        <h3 className="text-base font-semibold text-board-text mb-1">
           Branch Name
         </h3>
         {ticket.branchName ? (

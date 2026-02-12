@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { syncWorkflowSettings } from '../lib/tauri';
 
 export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5';
 
@@ -158,13 +159,19 @@ interface SettingsState {
   workflowPreset: WorkflowPreset;
   workflowStages: WorkflowStages;
   
+  // Validation agent settings
+  validationModel: AIModel;
+  validationTimeoutMinutes: number;
+
   // Claude API settings (stored locally, synced to backend on change)
   claudeAuthToken: string;
   claudeApiKey: string;
   claudeBaseUrl: string;
   claudeModelOverride: string;
-  
+
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
+  setValidationModel: (model: AIModel) => void;
+  setValidationTimeoutMinutes: (min: number) => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
   setPlannerModel: (model: AIModel) => void;
   setPlannerMaxExplorations: (max: number) => void;
@@ -208,7 +215,11 @@ export const useSettingsStore = create<SettingsState>()(
       // Workflow per-stage configuration defaults
       workflowPreset: DEFAULT_WORKFLOW_PRESET,
       workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
-      
+
+      // Validation agent defaults
+      validationModel: 'sonnet-4.5',
+      validationTimeoutMinutes: 10,
+
       // Claude API defaults (empty = use environment/system defaults)
       claudeAuthToken: '',
       claudeApiKey: '',
@@ -243,6 +254,8 @@ export const useSettingsStore = create<SettingsState>()(
         };
         set({ workflowStages: updated, workflowPreset: 'custom' });
       },
+      setValidationModel: (validationModel) => set({ validationModel }),
+      setValidationTimeoutMinutes: (validationTimeoutMinutes) => set({ validationTimeoutMinutes }),
       setClaudeAuthToken: (claudeAuthToken) => set({ claudeAuthToken }),
       setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
       setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
@@ -256,9 +269,13 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 5,
+      version: 6,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+        if (version < 6) {
+          state.validationModel = 'sonnet-4.5';
+          state.validationTimeoutMinutes = 10;
+        }
         if (version < 1) {
           // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
           if (state.plannerModel === 'default') {
@@ -296,3 +313,88 @@ export const useSettingsStore = create<SettingsState>()(
     }
   )
 );
+
+// --- Sync workflow settings to backend ---
+// The backend shared WorkflowSettingsState is the SINGLE SOURCE OF TRUTH
+// that orchestrators read when starting a workflow.  We must keep it in
+// sync with the frontend settings store.
+
+/** Send current workflow settings to the backend (fire-and-forget). */
+function syncCurrentWorkflowSettings(state: SettingsState) {
+  syncWorkflowSettings({
+    stageConfigs: state.workflowStages,
+    codeReviewMaxIterations: state.codeReviewMaxIterations,
+    stageTimeoutMinutes: state.stageTimeoutMinutes,
+    stageMaxRetries: state.stageMaxRetries,
+  }).then(() => {
+    console.debug('[settings] Workflow settings synced to backend');
+  }).catch((err) => {
+    console.warn('[settings] Failed to sync workflow settings to backend:', err);
+  });
+}
+
+/**
+ * Ensure the backend has the latest workflow settings.
+ * Call this before every agent run / worker start to guarantee the
+ * backend shared state is populated, regardless of any startup race
+ * conditions.  Returns a promise so the caller can await it.
+ */
+export async function ensureWorkflowSettingsSynced(): Promise<void> {
+  const state = useSettingsStore.getState();
+  try {
+    await syncWorkflowSettings({
+      stageConfigs: state.workflowStages,
+      codeReviewMaxIterations: state.codeReviewMaxIterations,
+      stageTimeoutMinutes: state.stageTimeoutMinutes,
+      stageMaxRetries: state.stageMaxRetries,
+    });
+  } catch (err) {
+    console.error('[settings] ensureWorkflowSettingsSynced failed:', err);
+    // Don't rethrow — the run can still proceed with whatever the backend has.
+  }
+}
+
+// Sync on every relevant settings change
+useSettingsStore.subscribe(
+  (state, prevState) => {
+    if (
+      state.workflowStages !== prevState.workflowStages ||
+      state.codeReviewMaxIterations !== prevState.codeReviewMaxIterations ||
+      state.stageTimeoutMinutes !== prevState.stageTimeoutMinutes ||
+      state.stageMaxRetries !== prevState.stageMaxRetries
+    ) {
+      syncCurrentWorkflowSettings(state);
+    }
+  },
+);
+
+// Sync after store rehydration with retry logic.
+// The Tauri backend may not be ready when the store first rehydrates,
+// so we retry a few times with exponential backoff.
+const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
+  const maxRetries = 5;
+  let attempt = 0;
+
+  const trySync = () => {
+    attempt++;
+    syncWorkflowSettings({
+      stageConfigs: state.workflowStages,
+      codeReviewMaxIterations: state.codeReviewMaxIterations,
+      stageTimeoutMinutes: state.stageTimeoutMinutes,
+      stageMaxRetries: state.stageMaxRetries,
+    }).then(() => {
+      console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`);
+    }).catch((err) => {
+      if (attempt < maxRetries) {
+        const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
+        console.debug(`[settings] Initial sync attempt ${attempt} failed, retrying in ${delay}ms:`, err);
+        setTimeout(trySync, delay);
+      } else {
+        console.warn(`[settings] Initial sync failed after ${maxRetries} attempts:`, err);
+      }
+    });
+  };
+
+  trySync();
+  unsubRehydrate();
+});

@@ -113,6 +113,10 @@ export async function getTickets(boardId: string): Promise<Ticket[]> {
   return invoke('get_tickets', { boardId });
 }
 
+export async function getTicket(ticketId: string): Promise<Ticket> {
+  return invoke('get_ticket', { ticketId });
+}
+
 export async function createTicket(
   ticket: Omit<Ticket, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Ticket> {
@@ -363,13 +367,27 @@ export async function getConversationMessages(specId: string): Promise<Conversat
 export async function sendConversationMessage(
   specId: string,
   content: string,
-  timeoutMinutes?: number
+  timeoutMinutes?: number,
+  agentType?: 'cursor' | 'claude'
 ): Promise<ConversationMessage> {
-  return invoke('send_conversation_message', { specId, content, timeoutMinutes });
+  return invoke('send_conversation_message', {
+    specId,
+    content,
+    timeoutMinutes,
+    agentType: agentType ?? null,
+  });
 }
 
-export async function startConversation(specId: string, timeoutMinutes?: number): Promise<ConversationMessage> {
-  return invoke('start_conversation', { specId, timeoutMinutes });
+export async function startConversation(
+  specId: string,
+  timeoutMinutes?: number,
+  agentType?: 'cursor' | 'claude'
+): Promise<ConversationMessage> {
+  return invoke('start_conversation', {
+    specId,
+    timeoutMinutes,
+    agentType: agentType ?? null,
+  });
 }
 
 export async function getTicketCost(ticketId: string): Promise<AggregatedCost> {
@@ -393,4 +411,123 @@ export async function getReleaseNotes(version: string): Promise<ReleaseNote | nu
 
 export async function getAllReleaseNotes(): Promise<ReleaseNote[]> {
   return invoke('get_all_release_notes');
+}
+
+// Validation functions
+import type {
+  ValidationSession,
+  ValidationMessage,
+  FixTask,
+  PushResult,
+  PullRequestResult,
+  BranchDiff,
+  FileDiff,
+} from '../types';
+
+export async function createValidationSession(input: {
+  ticketId: string;
+  projectId?: string;
+  agentType?: 'cursor' | 'claude';
+}): Promise<ValidationSession> {
+  return invoke('create_validation_session', { input });
+}
+
+export async function getValidationSession(
+  sessionId: string
+): Promise<ValidationSession> {
+  return invoke('get_validation_session', { sessionId });
+}
+
+export async function getValidationSessions(
+  ticketId: string
+): Promise<ValidationSession[]> {
+  return invoke('get_validation_sessions', { ticketId });
+}
+
+export async function updateValidationSessionStatus(
+  sessionId: string,
+  status: string
+): Promise<void> {
+  return invoke('update_validation_session_status', { sessionId, status });
+}
+
+export async function deleteValidationSession(
+  sessionId: string
+): Promise<void> {
+  return invoke('delete_validation_session', { sessionId });
+}
+
+export async function getValidationMessages(
+  sessionId: string
+): Promise<ValidationMessage[]> {
+  return invoke('get_validation_messages', { sessionId });
+}
+
+export async function sendValidationMessage(
+  sessionId: string,
+  content: string,
+  options?: { model?: string; timeoutMinutes?: number }
+): Promise<ValidationMessage> {
+  return invoke('send_validation_message', {
+    request: {
+      sessionId,
+      content,
+      options: options
+        ? { model: options.model ?? null, timeoutMinutes: options.timeoutMinutes ?? null }
+        : null,
+    },
+  });
+}
+
+export async function stopValidationApp(sessionId: string): Promise<void> {
+  return invoke('stop_validation_app', { sessionId });
+}
+
+export interface ValidationAppStatus {
+  running: boolean;
+}
+
+export async function getValidationAppStatus(
+  sessionId: string
+): Promise<ValidationAppStatus> {
+  return invoke('get_validation_app_status', { sessionId });
+}
+
+export async function createFixTasks(input: {
+  sessionId: string;
+  ticketId: string;
+  tasks: FixTask[];
+}): Promise<string[]> {
+  return invoke('create_fix_tasks', { input });
+}
+
+// Next steps functions
+export async function pushBranch(ticketId: string): Promise<PushResult> {
+  return invoke('push_branch', { ticketId });
+}
+
+export async function createPullRequest(
+  ticketId: string,
+  title?: string,
+  body?: string
+): Promise<PullRequestResult> {
+  return invoke('create_pull_request', { ticketId, title, body });
+}
+
+export async function getBranchDiff(ticketId: string): Promise<BranchDiff> {
+  return invoke('get_branch_diff', { ticketId });
+}
+
+export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> {
+  return invoke('get_branch_diff_files', { ticketId });
+}
+
+// Workflow settings sync
+export async function syncWorkflowSettings(settings: {
+  stageConfigs: Record<string, { enabled: boolean; model: string }>;
+  codeReviewMaxIterations: number;
+  stageTimeoutMinutes: number;
+  stageMaxRetries: number;
+}): Promise<void> {
+  return invoke('sync_workflow_settings', { settings });
 }

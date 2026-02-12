@@ -31,6 +31,18 @@ export interface UseAgentEventsOptions {
   setEditBranchName: (branch: string) => void;
 }
 
+/**
+ * Store a callback in a ref so that effects can always call the latest
+ * version without needing the callback in their dependency arrays.
+ * This prevents unnecessary effect re-runs when the callback identity changes
+ * on every render (e.g. because it isn't wrapped in useCallback).
+ */
+function useLatestRef<T>(value: T): React.MutableRefObject<T> {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
+
 export interface UseAgentEventsReturn {
   isAgentRunning: boolean;
   agentLogs: AgentLog[];
@@ -65,6 +77,13 @@ export function useAgentEvents({
   const [isTicketPaused, setIsTicketPaused] = useState(!!ticket.pausedAt);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+
+  // Store callbacks in refs so effects always call the latest version
+  // without needing them in dependency arrays. This prevents the
+  // re-render -> effect re-run -> immediate poll -> onAgentComplete -> re-render
+  // infinite loop that caused blank-screen crashes.
+  const onAgentCompleteRef = useLatestRef(onAgentComplete);
+  const setAgentRunsRef = useLatestRef(setAgentRuns);
 
   useEffect(() => {
     const wasRunning = isAgentRunning;
@@ -121,9 +140,11 @@ export function useAgentEvents({
         logger.info('agent-complete received', event.payload);
         if (event.payload.runId === runId) {
           setIsAgentRunning(false);
-          onAgentComplete?.(event.payload.runId, event.payload.status);
+          onAgentCompleteRef.current?.(event.payload.runId, event.payload.status);
           // Reload runs
-          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(setAgentRuns);
+          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
+            (runs) => setAgentRunsRef.current(runs)
+          );
         }
       });
       if (isCancelled) {
@@ -139,7 +160,9 @@ export function useAgentEvents({
           setIsAgentRunning(false);
           setAgentError(event.payload.error);
           // Reload runs
-          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(setAgentRuns);
+          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
+            (runs) => setAgentRunsRef.current(runs)
+          );
         }
       });
       if (isCancelled) {
@@ -153,7 +176,9 @@ export function useAgentEvents({
         if (isCancelled) return;
         logger.debug('agent-stage-update received', event.payload);
         if (event.payload.parentRunId === runId) {
-          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(setAgentRuns);
+          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
+            (runs) => setAgentRunsRef.current(runs)
+          );
         }
       });
       if (isCancelled) {
@@ -172,7 +197,7 @@ export function useAgentEvents({
       isCancelled = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [ticket.lockedByRunId, ticket.id, onAgentComplete, setAgentRuns]);
+  }, [ticket.lockedByRunId, ticket.id]);
 
   useEffect(() => {
     const runId = ticket.lockedByRunId;
@@ -181,6 +206,7 @@ export function useAgentEvents({
     logger.debug('Starting polling for run', { runId });
     let isCancelled = false;
     let lastEventCount = 0;
+    let completionHandled = false;
 
     const pollRunData = async () => {
       if (isCancelled) return;
@@ -212,13 +238,14 @@ export function useAgentEvents({
         if (isCancelled) return;
 
         const currentRun = runs.find(r => r.id === runId);
-        setAgentRuns(runs);
+        setAgentRunsRef.current(runs);
 
-        if (currentRun && currentRun.status !== 'running') {
+        if (currentRun && currentRun.status !== 'running' && !completionHandled) {
+          completionHandled = true;
           logger.debug('Run completed', { status: currentRun.status });
           setIsAgentRunning(false);
           if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted' || currentRun.status === 'paused') {
-            onAgentComplete?.(runId, currentRun.status);
+            onAgentCompleteRef.current?.(runId, currentRun.status);
           }
         }
       } catch (error) {
@@ -234,7 +261,7 @@ export function useAgentEvents({
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [ticket.lockedByRunId, ticket.id, onAgentComplete, setAgentRuns]);
+  }, [ticket.lockedByRunId, ticket.id]);
 
   useEffect(() => {
     const runId = ticket.lockedByRunId;
@@ -363,16 +390,16 @@ export function useAgentEvents({
       
       const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
       logger.debug('Reloaded runs after cancel', { count: runs.length });
-      setAgentRuns(runs);
+      setAgentRunsRef.current(runs);
       
-      onAgentComplete?.(runId, 'aborted');
+      onAgentCompleteRef.current?.(runId, 'aborted');
     } catch (err) {
       logger.error('Failed to cancel agent:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsCancelling(false);
     }
-  }, [ticket.lockedByRunId, ticket.id, onAgentComplete, setAgentRuns]);
+  }, [ticket.lockedByRunId, ticket.id]);
 
   const handleForceClearLock = useCallback(async () => {
     logger.info('Force clearing ticket lock');
@@ -381,13 +408,13 @@ export function useAgentEvents({
       setIsAgentRunning(false);
       setAgentLogs([]);
       const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
-      setAgentRuns(runs);
+      setAgentRunsRef.current(runs);
       logger.info('Lock cleared');
     } catch (err) {
       logger.error('Failed to clear lock:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
     }
-  }, [ticket.id, onUpdate, setAgentRuns]);
+  }, [ticket.id, onUpdate]);
 
   const handlePauseTicket = useCallback(async (agentRuns: AgentRun[]) => {
     const runId = ticket.lockedByRunId;
@@ -448,14 +475,14 @@ export function useAgentEvents({
       }
       
       const runs = await invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id });
-      setAgentRuns(runs);
+      setAgentRunsRef.current(runs);
     } catch (err) {
       logger.error('Failed to pause ticket:', err);
       setAgentError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsPausing(false);
     }
-  }, [ticket.id, ticket.lockedByRunId, setAgentRuns]);
+  }, [ticket.id, ticket.lockedByRunId]);
 
   const handleResumeTicket = useCallback(async (onClose: () => void) => {
     setIsResuming(true);

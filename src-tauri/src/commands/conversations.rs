@@ -15,6 +15,30 @@ use crate::db::{
     SpecVersionStatus, StructuredSpec, UpdateSpec, UpdateSpecVersion,
 };
 
+/// Resolve agent kind: explicit string > spec settings agentType > default Claude
+fn resolve_agent_kind(
+    agent_type: Option<&str>,
+    settings: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> AgentKind {
+    if let Some(t) = agent_type {
+        return match t {
+            "cursor" => AgentKind::Cursor,
+            "claude" => AgentKind::Claude,
+            _ => AgentKind::Claude,
+        };
+    }
+    if let Some(settings) = settings {
+        if let Some(serde_json::Value::String(s)) = settings.get("agentType") {
+            return match s.as_str() {
+                "cursor" => AgentKind::Cursor,
+                "claude" => AgentKind::Claude,
+                _ => AgentKind::Claude,
+            };
+        }
+    }
+    AgentKind::Claude
+}
+
 /// Get all conversation messages for a spec
 #[tauri::command]
 pub async fn get_conversation_messages(
@@ -26,11 +50,13 @@ pub async fn get_conversation_messages(
 }
 
 /// Send a user message in a conversation and trigger brainstorm agent response
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn send_conversation_message(
     spec_id: String,
     content: String,
     timeout_minutes: Option<u32>,
+    agent_type: Option<String>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
@@ -117,8 +143,8 @@ pub async fn send_conversation_message(
         .get_conversation_messages(&spec_id)
         .map_err(|e| e.to_string())?;
 
-    // Default to Claude for conversation agent
-    let agent_kind = AgentKind::Claude;
+    // Resolve agent: explicit param > spec.settings.agentType > default Claude
+    let agent_kind = resolve_agent_kind(agent_type.as_deref(), spec.settings.as_object());
 
     // Before brainstorm_config takes ownership of shared values
     let plan_trigger = PlanTriggerConfig {
@@ -190,6 +216,7 @@ pub async fn send_conversation_message(
 pub async fn start_conversation(
     spec_id: String,
     timeout_minutes: Option<u32>,
+    agent_type: Option<String>,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
@@ -232,6 +259,8 @@ pub async fn start_conversation(
 
     let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
 
+    let agent_kind = resolve_agent_kind(agent_type.as_deref(), spec.settings.as_object());
+
     let plan_trigger = PlanTriggerConfig {
         spec_id: spec_id.clone(),
         exploration_context: String::new(),
@@ -239,7 +268,7 @@ pub async fn start_conversation(
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
         claude_api_config: claude_api_config.clone(),
-        agent_kind: AgentKind::Claude,
+        agent_kind,
         model: spec.model.clone(),
     };
 
@@ -250,7 +279,7 @@ pub async fn start_conversation(
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
         claude_api_config,
-        agent_kind: AgentKind::Claude,
+        agent_kind,
         model: spec.model.clone(),
         timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };

@@ -394,6 +394,16 @@ impl Worker {
 
         let previous_run_id = ticket.paused_run_id.clone();
 
+        // Pass the shared workflow settings reference directly to the runner.
+        // The orchestrator will read from it at workflow-start time — this is
+        // the single source of truth for stage configs, models, timeouts, etc.
+        let resolved = self.config.resolve_workflow_settings();
+        tracing::info!(
+            "Worker {} passing shared workflow settings to runner ({} stage configs currently)",
+            self.id,
+            resolved.stage_configs.len(),
+        );
+
         let runner_config = RunnerConfig {
             db: self.db.clone(),
             window: None,
@@ -412,12 +422,15 @@ impl Worker {
             is_temp_branch,
             timeout_secs: self.config.agent_timeout_secs,
             claude_api_config: self.config.claude_api_config.clone(),
-            code_review_max_iterations: self.config.code_review_max_iterations,
-            stage_timeout_secs: self.config.stage_timeout_secs,
-            stage_max_retries: self.config.stage_max_retries,
+            // Legacy fallback values (orchestrator prefers shared state)
+            code_review_max_iterations: resolved.code_review_max_iterations,
+            stage_timeout_secs: resolved.stage_timeout_secs,
+            stage_max_retries: resolved.stage_max_retries,
             resume_from_stage,
             previous_run_id,
-            stage_configs: std::collections::HashMap::new(), // Worker uses defaults; stage configs come from frontend
+            stage_configs: resolved.stage_configs,
+            // THE source of truth — orchestrator reads directly from this
+            workflow_settings: self.config.workflow_settings.clone(),
         };
 
         // Clear pause state now that we've captured the resume info

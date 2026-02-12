@@ -386,6 +386,8 @@ export interface CreateSpecInput {
   userInput: string;
   /** Preferred model */
   model?: string;
+  /** Optional settings (e.g. agentType: 'cursor' | 'claude' for brainstorm) */
+  settings?: Record<string, unknown>;
 }
 
 export interface UpdateSpecInput {
@@ -470,5 +472,75 @@ export interface ConversationMessage {
   role: ConversationRole;
   content: string;
   createdAt: Date;
+}
+
+// Validation types
+
+export type ValidationSessionStatus = 'created' | 'chatting' | 'app_running' | 'passed' | 'failed';
+
+export interface ValidationSession {
+  id: string;
+  ticketId: string;
+  projectId?: string;
+  status: ValidationSessionStatus;
+  /** Agent used for validation chat (e.g. 'cursor', 'claude') */
+  agentType?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type ValidationMessageRole = 'user' | 'assistant' | 'system';
+
+export interface ValidationMessage {
+  id: string;
+  sessionId: string;
+  role: ValidationMessageRole;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface FixTask {
+  title: string;
+  description: string;
+  acceptanceCriteria?: string[];
+}
+
+export interface PushResult {
+  success: boolean;
+  message: string;
+  branch: string;
+}
+
+export interface PullRequestResult {
+  success: boolean;
+  url?: string;
+  message: string;
+}
+
+export interface BranchDiff {
+  diff: string;
+  filesChanged: number;
+  branch: string;
+}
+
+export interface DiffLine {
+  lineType: 'add' | 'delete' | 'context';
+  content: string;
+  oldLineNum?: number;
+  newLineNum?: number;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface FileDiff {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hunks: DiffHunk[];
 }
 

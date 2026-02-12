@@ -272,6 +272,7 @@ pub async fn start_agent_run(
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
+    workflow_settings_state: State<'_, crate::commands::workflow_settings::WorkflowSettingsState>,
 ) -> Result<String, String> {
     let StartRunInput {
         ticket_id,
@@ -565,6 +566,12 @@ pub async fn start_agent_run(
     // Clone the Arc<Mutex<HashMap>> so we can move it into the async task
     let running_agents_handles = running_agents.handles.clone();
 
+    // The orchestrator reads workflow settings (stage configs, models,
+    // timeouts, retries) directly from the shared WorkflowSettingsState at
+    // construction time — that is the single source of truth.
+    // We pass the Arc reference so the orchestrator can lock and read it.
+    let shared_workflow_settings = workflow_settings_state.shared();
+
     // Execute multi-stage workflow
     {
         let ticket_for_orchestrator = ticket.clone();
@@ -707,12 +714,15 @@ pub async fn start_agent_run(
                 branch_already_created,
                 is_temp_branch: false,
                 claude_api_config: claude_api_config_for_orchestrator,
+                resume_from_stage,
+                previous_run_id,
+                // Source of truth — orchestrator reads directly from this
+                workflow_settings: shared_workflow_settings,
+                // Legacy fallback fields (only if shared state has empty stage_configs)
+                stage_configs: stage_configs.unwrap_or_default(),
                 code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
                 stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
                 stage_max_retries: stage_max_retries.unwrap_or(2),
-                resume_from_stage,
-                previous_run_id,
-                stage_configs: stage_configs.unwrap_or_default(),
             });
 
             // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
@@ -766,6 +776,41 @@ pub async fn start_agent_run(
                     if let Some(ref t) = task {
                         if let Err(e) = db_clone.complete_task(&t.id) {
                             tracing::warn!("Failed to mark task {} as completed: {}", t.id, e);
+                        }
+                    }
+
+                    // If there are more pending tasks, move ticket back to Ready for worker pickup
+                    if task.is_some() {
+                        match db_clone.has_pending_tasks(&ticket_id_for_task) {
+                            Ok(true) => {
+                                tracing::info!(
+                                    "Ticket {} has more pending tasks after completing task, moving back to Ready",
+                                    ticket_id_for_task
+                                );
+                                if let Err(e) = super::tasks::move_to_ready_if_completed(
+                                    &db_clone,
+                                    &ticket_id_for_task,
+                                ) {
+                                    tracing::warn!(
+                                        "Failed to move ticket {} back to Ready for next task: {}",
+                                        ticket_id_for_task,
+                                        e
+                                    );
+                                }
+                            }
+                            Ok(false) => {
+                                tracing::info!(
+                                    "No more pending tasks for ticket {}, staying in Done",
+                                    ticket_id_for_task
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to check pending tasks for ticket {}: {}",
+                                    ticket_id_for_task,
+                                    e
+                                );
+                            }
                         }
                     }
 

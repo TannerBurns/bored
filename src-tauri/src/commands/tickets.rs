@@ -61,6 +61,11 @@ pub async fn get_tickets(
 }
 
 #[tauri::command]
+pub async fn get_ticket(ticket_id: String, db: State<'_, Arc<Database>>) -> Result<Ticket, String> {
+    db.get_ticket(&ticket_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn create_ticket(
     ticket: CreateTicketInput,
     db: State<'_, Arc<Database>>,

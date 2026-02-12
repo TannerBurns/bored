@@ -214,6 +214,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
           name: input.name,
           userInput: input.userInput,
           model: input.model,
+          settings: input.settings ?? undefined,
         },
       });
       
