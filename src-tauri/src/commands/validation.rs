@@ -28,10 +28,15 @@ struct CreateFixTasksBlock {
     tasks: Vec<FixTask>,
 }
 
-/// Parse all fenced JSON blocks from the agent response
+/// Parse JSON blocks from the agent response.
+/// Tries fenced code blocks first (```json ... ```), then falls back to
+/// scanning for bare `{ ... }` objects on individual lines so the agent's
+/// output is recognised even without fences.
 fn parse_fenced_json_blocks(response_text: &str) -> Vec<serde_json::Value> {
-    let blocks: Vec<&str> = response_text.split("```").collect();
     let mut results = Vec::new();
+
+    // 1. Fenced code blocks
+    let blocks: Vec<&str> = response_text.split("```").collect();
     for (i, segment) in blocks.iter().enumerate() {
         if i % 2 == 0 {
             continue;
@@ -42,6 +47,21 @@ fn parse_fenced_json_blocks(response_text: &str) -> Vec<serde_json::Value> {
             results.push(v);
         }
     }
+
+    // 2. Bare JSON objects (lines starting with '{' and ending with '}')
+    if results.is_empty() {
+        for line in response_text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    if v.is_object() {
+                        results.push(v);
+                    }
+                }
+            }
+        }
+    }
+
     results
 }
 

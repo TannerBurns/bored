@@ -63,6 +63,9 @@ impl AppProcessManager {
     ) -> Result<(), String> {
         self.stop(&session_id);
 
+        // If node_modules is missing and a package.json exists, install deps first
+        install_deps_if_needed(working_dir);
+
         let (program, args) = parse_shell_command(&command)?;
 
         let mut cmd = Command::new(&program);
@@ -185,18 +188,80 @@ impl Drop for AppProcessManager {
     }
 }
 
+/// Install dependencies in the working directory if needed.
+/// Detects Node.js projects (package.json without node_modules) and runs
+/// the appropriate package manager install command.
+fn install_deps_if_needed(working_dir: &Path) {
+    let has_package_json = working_dir.join("package.json").exists();
+    let has_node_modules = working_dir.join("node_modules").exists();
+
+    if !has_package_json || has_node_modules {
+        return;
+    }
+
+    // Detect lock file to pick the right package manager
+    let (program, args): (&str, &[&str]) = if working_dir.join("pnpm-lock.yaml").exists() {
+        ("pnpm", &["install", "--frozen-lockfile"])
+    } else if working_dir.join("yarn.lock").exists() {
+        ("yarn", &["install", "--frozen-lockfile"])
+    } else if working_dir.join("bun.lockb").exists() {
+        ("bun", &["install", "--frozen-lockfile"])
+    } else {
+        ("npm", &["install"])
+    };
+
+    tracing::info!(
+        "Installing dependencies in {} with {} ...",
+        working_dir.display(),
+        program
+    );
+
+    match Command::new(program)
+        .args(args)
+        .current_dir(working_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            tracing::info!("Dependency install succeeded in {}", working_dir.display());
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(
+                "Dependency install failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.chars().take(500).collect::<String>()
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run {} install: {}", program, e);
+        }
+    }
+}
+
 /// Kill a process and all its children.
 fn kill_process_tree(handle: &mut AppProcessHandle) {
     #[cfg(unix)]
     {
-        let pgid = handle.pid as i32;
-        // Send SIGTERM to the whole process group first (graceful)
-        unsafe { libc::killpg(pgid, libc::SIGTERM); }
-        // Give it a moment to exit
-        thread::sleep(Duration::from_millis(300));
-        // If still alive, force kill the group
-        if handle.child.try_wait().ok().flatten().is_none() {
-            unsafe { libc::killpg(pgid, libc::SIGKILL); }
+        match i32::try_from(handle.pid) {
+            Ok(pgid) => {
+                // Send SIGTERM to the whole process group first (graceful)
+                unsafe { libc::killpg(pgid, libc::SIGTERM); }
+                // Give it a moment to exit
+                thread::sleep(Duration::from_millis(300));
+                // If still alive, force kill the group
+                if handle.child.try_wait().ok().flatten().is_none() {
+                    unsafe { libc::killpg(pgid, libc::SIGKILL); }
+                }
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "PID {} exceeds i32::MAX, cannot use killpg; falling back to child.kill()",
+                    handle.pid,
+                );
+                let _ = handle.child.kill();
+            }
         }
         let _ = handle.child.wait();
     }
