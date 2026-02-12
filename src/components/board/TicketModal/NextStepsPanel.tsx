@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useValidationStore } from '../../../stores/validationStore';
 import { BuildWithDropdown } from '../BuildWithDropdown';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
@@ -54,26 +54,26 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     }
   };
 
-  const handleViewDiff = async () => {
-    if (diffVisible) {
-      setDiffVisible(false);
-      setDiffFiles(null);
-      setDiffError(null);
-      return;
-    }
-    try {
-      setDiffLoading(true);
-      setDiffError(null);
-      const files = await getBranchDiffFiles(ticket.id);
-      setDiffFiles(files);
-      setDiffVisible(true);
-    } catch (e) {
-      setDiffError(String(e));
-      setDiffFiles([]);
-      setDiffVisible(true);
-    } finally {
-      setDiffLoading(false);
-    }
+  // Load diff stats eagerly so the summary is always visible
+  useEffect(() => {
+    let cancelled = false;
+    const loadDiff = async () => {
+      try {
+        setDiffLoading(true);
+        const files = await getBranchDiffFiles(ticket.id);
+        if (!cancelled) setDiffFiles(files);
+      } catch (e) {
+        if (!cancelled) setDiffError(String(e));
+      } finally {
+        if (!cancelled) setDiffLoading(false);
+      }
+    };
+    void loadDiff();
+    return () => { cancelled = true; };
+  }, [ticket.id]);
+
+  const handleViewDiff = () => {
+    setDiffVisible((v) => !v);
   };
 
   return (
