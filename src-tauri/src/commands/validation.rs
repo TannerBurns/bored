@@ -21,6 +21,49 @@ use crate::db::models::{
 };
 use crate::db::Database;
 
+/// Helper: get a follow-up response from the agent, save it, process fix tasks, and return the
+/// response text + saved message. Used by the unified command loop.
+async fn send_agent_followup(
+    agent: &crate::agents::validation_agent::ValidationAgent,
+    db: &Arc<Database>,
+    event_tx: &broadcast::Sender<LiveEvent>,
+    session_id: &str,
+    session: &ValidationSession,
+    ticket: &crate::db::models::Ticket,
+) -> Result<(String, ValidationMessage), String> {
+    let msgs = db.get_validation_messages(session_id).map_err(|e| e.to_string())?;
+    let next_response = agent.process_message(&msgs).await.map_err(|e| {
+        tracing::error!("Validation agent follow-up error: {}", e);
+        e
+    })?;
+
+    let has_fix = parse_create_fix_tasks_from_response(&next_response).is_some();
+    let meta = if has_fix {
+        Some(serde_json::json!({ "type": "fix_task_response" }))
+    } else {
+        None
+    };
+
+    let next_msg = db.create_validation_message(&CreateValidationMessage {
+        session_id: session_id.to_string(),
+        role: ValidationMessageRole::Assistant,
+        content: next_response.clone(),
+        metadata: meta,
+    }).map_err(|e| e.to_string())?;
+    let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+        session_id: session_id.to_string(),
+        message_id: next_msg.id.clone(),
+        role: "assistant".to_string(),
+    });
+
+    process_fix_tasks_in_response(
+        &next_response, db, session_id, &session.ticket_id,
+        &ticket.title, &ticket.board_id, event_tx,
+    );
+
+    Ok((next_response, next_msg))
+}
+
 /// Process any create_fix_task blocks found in an agent response.
 /// Creates tasks in the DB, updates session status, moves ticket to Ready, and emits events.
 fn process_fix_tasks_in_response(
@@ -403,13 +446,16 @@ pub async fn send_validation_message(
     };
     let working_dir = Path::new(&working_dir_path);
 
-    // Handle run_command: run the command synchronously, feed output back to agent.
-    // The agent may chain multiple run_command + start_app across follow-ups.
+    // Unified command loop: handles run_command and start_app in a single loop
+    // so the agent can freely chain: run_command -> start_app -> (fail) -> run_command -> start_app
     let mut current_response = response_text.clone();
     let mut last_assistant_msg = assistant_msg;
-    const MAX_COMMAND_ROUNDS: usize = 10;
+    const MAX_ROUNDS: usize = 10;
+    let mut worktree_path = worktree_path;
+    let mut repo_path_for_cleanup = repo_path_for_cleanup;
 
-    for _round in 0..MAX_COMMAND_ROUNDS {
+    for _round in 0..MAX_ROUNDS {
+        // 1. Check for run_command first
         if let Some(rc) = parse_run_command_from_response(&current_response) {
             tracing::info!("Running validation command: {}", rc.command);
 
@@ -436,132 +482,75 @@ pub async fn send_validation_message(
             };
 
             let status_label = if exit_code == 0 { "success" } else { "failed" };
-            let sys_content = format!(
-                "Ran `{}` (exit {}, {})",
-                rc.command, exit_code, status_label
-            );
             let _ = db.create_validation_message(&CreateValidationMessage {
                 session_id: session_id.clone(),
                 role: ValidationMessageRole::System,
-                content: sys_content,
+                content: format!("Ran `{}` (exit {}, {})", rc.command, exit_code, status_label),
                 metadata: None,
             });
 
-            // Feed output back to agent
-            let follow_up_content = format!(
-                "Command `{}` finished with exit code {}.\n\nOutput:\n```\n{}\n```",
-                rc.command, exit_code, combined
-            );
             let _ = db.create_validation_message(&CreateValidationMessage {
                 session_id: session_id.clone(),
                 role: ValidationMessageRole::User,
-                content: follow_up_content,
+                content: format!(
+                    "Command `{}` finished with exit code {}.\n\nOutput:\n```\n{}\n```",
+                    rc.command, exit_code, combined
+                ),
                 metadata: None,
             });
 
-            let msgs = db.get_validation_messages(&session_id).map_err(|e| e.to_string())?;
-            let next_response = agent.process_message(&msgs).await.map_err(|e| {
-                tracing::error!("Validation agent follow-up error: {}", e);
-                e
-            })?;
-
-            let next_has_fix = parse_create_fix_tasks_from_response(&next_response).is_some();
-            let next_meta = if next_has_fix {
-                Some(serde_json::json!({ "type": "fix_task_response" }))
-            } else {
-                None
-            };
-
-            let next_msg = db.create_validation_message(&CreateValidationMessage {
-                session_id: session_id.clone(),
-                role: ValidationMessageRole::Assistant,
-                content: next_response.clone(),
-                metadata: next_meta,
-            }).map_err(|e| e.to_string())?;
-            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
-                session_id: session_id.clone(),
-                message_id: next_msg.id.clone(),
-                role: "assistant".to_string(),
-            });
-
-            process_fix_tasks_in_response(
-                &next_response, db.inner(), &session_id, &session.ticket_id,
-                &ticket.title, &ticket.board_id, event_tx.inner(),
-            );
-
+            let (next_response, next_msg) = send_agent_followup(
+                &agent, &db, &event_tx, &session_id, &session, &ticket,
+            ).await?;
             current_response = next_response;
             last_assistant_msg = next_msg;
-            continue; // check if the new response has another run_command or start_app
-        }
-        break; // no run_command found, move on
-    }
-
-    // If the agent requested to start the app, start it and run a follow-up for testing instructions
-    if let Some(start_app) = parse_start_app_from_response(&current_response) {
-        let start_result = app_process_manager.start(
-            session_id.clone(),
-            start_app.command.clone(),
-            working_dir,
-            event_tx.inner().clone(),
-            worktree_path,
-            repo_path_for_cleanup,
-        );
-
-        match start_result {
-            Ok(StartResult::ExitedEarly { exit_code, output }) => {
-                // App failed to start -- feed the error back to the agent so it can diagnose
-                let err_content = format!(
-                    "The app failed to start. Command `{}` exited with code {}.\n\nLast output:\n```\n{}\n```\n\nPlease diagnose the issue and output a `run_command` to fix it, or a new `start_app` to try again.",
-                    start_app.command, exit_code, output.chars().take(3000).collect::<String>()
-                );
-                let _ = db.create_validation_message(&CreateValidationMessage {
-                    session_id: session_id.clone(),
-                    role: ValidationMessageRole::System,
-                    content: format!("App failed to start: `{}` (exit {})", start_app.command, exit_code),
-                    metadata: None,
-                });
-                let _ = db.create_validation_message(&CreateValidationMessage {
-                    session_id: session_id.clone(),
-                    role: ValidationMessageRole::User,
-                    content: err_content,
-                    metadata: None,
-                });
-
-                let msgs = db.get_validation_messages(&session_id).map_err(|e| e.to_string())?;
-                let retry_response = agent.process_message(&msgs).await.map_err(|e| {
-                    tracing::error!("Validation agent retry error: {}", e);
-                    e
-                })?;
-
-                let retry_msg = db.create_validation_message(&CreateValidationMessage {
-                    session_id: session_id.clone(),
-                    role: ValidationMessageRole::Assistant,
-                    content: retry_response.clone(),
-                    metadata: None,
-                }).map_err(|e| e.to_string())?;
-                let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
-                    session_id: session_id.clone(),
-                    message_id: retry_msg.id.clone(),
-                    role: "assistant".to_string(),
-                });
-
-                // The retry response may contain run_command or start_app -- but we don't
-                // recurse here to keep complexity bounded. The user can send another message
-                // or the agent's response will guide them.
-                process_fix_tasks_in_response(
-                    &retry_response, db.inner(), &session_id, &session.ticket_id,
-                    &ticket.title, &ticket.board_id, event_tx.inner(),
-                );
-                return Ok(retry_msg);
-            }
-            Err(e) => {
-                tracing::error!("Failed to start app: {}", e);
-                // Fall through -- don't block the response
-            }
-            Ok(StartResult::Running) => {}
+            continue;
         }
 
-        if app_process_manager.is_running(&session_id) {
+        // 2. Check for start_app
+        if let Some(start_app) = parse_start_app_from_response(&current_response) {
+            let start_result = app_process_manager.start(
+                session_id.clone(),
+                start_app.command.clone(),
+                working_dir,
+                event_tx.inner().clone(),
+                worktree_path.take(),
+                repo_path_for_cleanup.take(),
+            );
+
+            match start_result {
+                Ok(StartResult::ExitedEarly { exit_code, output }) => {
+                    let _ = db.create_validation_message(&CreateValidationMessage {
+                        session_id: session_id.clone(),
+                        role: ValidationMessageRole::System,
+                        content: format!("App failed to start: `{}` (exit {})", start_app.command, exit_code),
+                        metadata: None,
+                    });
+                    let _ = db.create_validation_message(&CreateValidationMessage {
+                        session_id: session_id.clone(),
+                        role: ValidationMessageRole::User,
+                        content: format!(
+                            "The app failed to start. Command `{}` exited with code {}.\n\nLast output:\n```\n{}\n```\n\nPlease diagnose the issue and output a `run_command` to fix it, or a new `start_app` to try again.",
+                            start_app.command, exit_code, output.chars().take(3000).collect::<String>()
+                        ),
+                        metadata: None,
+                    });
+
+                    let (next_response, next_msg) = send_agent_followup(
+                        &agent, &db, &event_tx, &session_id, &session, &ticket,
+                    ).await?;
+                    current_response = next_response;
+                    last_assistant_msg = next_msg;
+                    continue; // agent may respond with run_command or start_app
+                }
+                Err(e) => {
+                    tracing::error!("Failed to start app: {}", e);
+                }
+                Ok(StartResult::Running) => {}
+            }
+
+            // App is running successfully -- send follow-up for testing instructions
+            if app_process_manager.is_running(&session_id) {
             let _ = db.update_validation_session_status(
                 &session_id,
                 &ValidationSessionStatus::AppRunning,
@@ -657,7 +646,9 @@ pub async fn send_validation_message(
             });
 
             return Ok(second_assistant);
+            }
         }
+        break; // start_app handled (or neither run_command nor start_app found), exit loop
     }
 
     // If the agent requested to create fix tasks, create them automatically
