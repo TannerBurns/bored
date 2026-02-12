@@ -3,8 +3,9 @@
 //! On Unix, spawns in a new process group so stop() kills the entire tree.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
@@ -22,6 +23,8 @@ struct AppProcessHandle {
     child: Child,
     /// PID used for process-group kill on Unix
     pid: u32,
+    /// Path to the log file on disk
+    log_path: PathBuf,
 }
 
 /// Manages one app subprocess per validation session.
@@ -68,6 +71,13 @@ impl AppProcessManager {
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn app: {}", e))?;
         let pid = child.id();
 
+        // Create a log file in the working directory the agent can read
+        let log_path = working_dir.join(".validation-app.log");
+        // Truncate any previous log
+        if let Err(e) = File::create(&log_path) {
+            tracing::warn!("Could not create app log file at {:?}: {}", log_path, e);
+        }
+
         let stdout = child.stdout.take().ok_or("Failed to take stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to take stderr")?;
 
@@ -75,6 +85,8 @@ impl AppProcessManager {
         let session_id_stderr = session_id.clone();
         let tx_stdout = event_tx.clone();
         let tx_stderr = event_tx.clone();
+        let log_path_stdout = log_path.clone();
+        let log_path_stderr = log_path.clone();
 
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
@@ -82,9 +94,10 @@ impl AppProcessManager {
                 let _ = tx_stdout.send(LiveEvent::ValidationAppLog {
                     session_id: session_id_stdout.clone(),
                     stream: "stdout".to_string(),
-                    message: line,
+                    message: line.clone(),
                     timestamp: Utc::now().to_rfc3339(),
                 });
+                append_to_log(&log_path_stdout, "stdout", &line);
             }
         });
 
@@ -94,15 +107,16 @@ impl AppProcessManager {
                 let _ = tx_stderr.send(LiveEvent::ValidationAppLog {
                     session_id: session_id_stderr.clone(),
                     stream: "stderr".to_string(),
-                    message: line,
+                    message: line.clone(),
                     timestamp: Utc::now().to_rfc3339(),
                 });
+                append_to_log(&log_path_stderr, "stderr", &line);
             }
         });
 
         self.processes.lock().map_err(|e| e.to_string())?.insert(
             session_id,
-            AppProcessHandle { child, pid },
+            AppProcessHandle { child, pid, log_path },
         );
 
         Ok(())
@@ -127,6 +141,16 @@ impl AppProcessManager {
             }
         }
         false
+    }
+
+    /// Return the path to the app log file for this session, if running.
+    pub fn log_path(&self, session_id: &str) -> Option<PathBuf> {
+        if let Ok(guard) = self.processes.lock() {
+            if let Some(handle) = guard.get(session_id) {
+                return Some(handle.log_path.clone());
+            }
+        }
+        None
     }
 
     /// Stop all app processes (e.g. on app exit).
@@ -166,6 +190,13 @@ fn kill_process_tree(handle: &mut AppProcessHandle) {
     {
         let _ = handle.child.kill();
         let _ = handle.child.wait();
+    }
+}
+
+/// Append a line to the log file (best-effort, never fails the caller).
+fn append_to_log(path: &Path, stream: &str, line: &str) {
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "[{}] {}", stream, line);
     }
 }
 

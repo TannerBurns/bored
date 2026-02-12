@@ -43,8 +43,9 @@ CRITICAL RULES:
    ```
    Use "command" for the exact shell command (e.g. "npm run dev", "cargo run", "yarn start"). Use "port" only if you know the app listens on a specific port (optional).
 3. Wait for confirmation that the app is running before giving testing steps or running curl/tests against it.
-4. Once the app is running, provide clear testing instructions and report what works, what's broken, and what looks suspicious.
-5. When the user reports a bug or issue, you MUST immediately output a `create_fix_task` JSON block. Do NOT ask for confirmation. Do NOT attempt to fix the issue yourself. Output exactly ONE task per response, written as a spec with requirements. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria:
+4. Once the app is running, application logs (stdout and stderr) are written to `.validation-app.log` in the project directory. You can read this file to check for errors, warnings, or stack traces. When the user asks you to check logs, read that file.
+5. Once the app is running, provide clear testing instructions and report what works, what's broken, and what looks suspicious.
+6. When the user reports a bug or issue, you MUST immediately output a `create_fix_task` JSON block. Do NOT ask for confirmation. Do NOT attempt to fix the issue yourself. Output exactly ONE task per response, written as a spec with requirements. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria:
    ```json
    {{ "create_fix_task": {{ "title": "Fix the broken login form", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
    ```

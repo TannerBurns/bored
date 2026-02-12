@@ -103,6 +103,77 @@ fn parse_create_fix_tasks_from_response(response_text: &str) -> Option<CreateFix
     None
 }
 
+/// Process any create_fix_task blocks found in an agent response.
+/// Creates tasks in the DB, updates session status, moves ticket to Ready, and emits events.
+fn process_fix_tasks_in_response(
+    response_text: &str,
+    db: &Arc<Database>,
+    session_id: &str,
+    ticket_id: &str,
+    ticket_title: &str,
+    ticket_board_id: &str,
+    event_tx: &broadcast::Sender<LiveEvent>,
+) {
+    let fix_block = match parse_create_fix_tasks_from_response(response_text) {
+        Some(block) => block,
+        None => return,
+    };
+
+    let mut task_ids = Vec::new();
+    for fix_task in &fix_block.tasks {
+        let mut description = fix_task.description.clone();
+        if let Some(ref criteria) = fix_task.acceptance_criteria {
+            description.push_str("\n\n## Acceptance Criteria\n");
+            for criterion in criteria {
+                description.push_str(&format!("- {}\n", criterion));
+            }
+        }
+        if let Ok(task) = db.create_task(&crate::db::models::CreateTask {
+            ticket_id: ticket_id.to_string(),
+            task_type: crate::db::models::TaskType::Custom,
+            title: Some(fix_task.title.clone()),
+            content: Some(description),
+        }) {
+            task_ids.push(task.id);
+        }
+    }
+
+    if !task_ids.is_empty() {
+        let _ = db.update_validation_session_status(
+            session_id,
+            &ValidationSessionStatus::Failed,
+        );
+        let task_summary = fix_block
+            .tasks
+            .iter()
+            .map(|t| format!("- {}", t.title))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = db.create_validation_message(&CreateValidationMessage {
+            session_id: session_id.to_string(),
+            role: ValidationMessageRole::System,
+            content: format!(
+                "Fix tasks created for ticket **{}**:\n{}\n\nA worker agent will pick these up. You'll be notified when the work completes.",
+                ticket_title, task_summary
+            ),
+            metadata: Some(serde_json::json!({
+                "type": "fix_tasks_created",
+                "task_ids": task_ids,
+            })),
+        });
+        if let Ok(columns) = db.get_columns(ticket_board_id) {
+            if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
+                let _ = db.move_ticket(ticket_id, &ready_col.id);
+            }
+        }
+        let _ = event_tx.send(LiveEvent::ValidationFixTasksCreated {
+            session_id: session_id.to_string(),
+            ticket_id: ticket_id.to_string(),
+            task_count: task_ids.len(),
+        });
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateValidationSessionInput {
@@ -425,7 +496,7 @@ pub async fn send_validation_message(
                     session_id: session_id.clone(),
                     role: ValidationMessageRole::System,
                     content: format!(
-                        "App started: `{}`{}. Logs are streaming in the panel.",
+                        "App started: `{}`{}. Logs are streaming in the panel and saved to `.validation-app.log`.",
                         start_app.command, port_suffix
                     ),
                     metadata: None,
@@ -440,11 +511,11 @@ pub async fn send_validation_message(
             let follow_up_prompt = start_app
                 .port
                 .map(|p| format!(
-                    "The application is now running on port {}. Please provide testing instructions.",
+                    "The application is now running on port {}. App logs are being written to .validation-app.log — you can read that file to check for errors. Please provide testing instructions.",
                     p
                 ))
                 .unwrap_or_else(|| {
-                    "The application is now running. Please provide testing instructions.".to_string()
+                    "The application is now running. App logs are being written to .validation-app.log — you can read that file to check for errors. Please provide testing instructions.".to_string()
                 });
             let follow_up_user = db
                 .create_validation_message(&CreateValidationMessage {
@@ -468,6 +539,18 @@ pub async fn send_validation_message(
                 e
             })?;
 
+            // Process fix tasks from both the initial response and the follow-up
+            // before returning. Without this, fix tasks in a response that also
+            // contains a start_app block would be silently dropped by the early return.
+            process_fix_tasks_in_response(
+                &response_text, db.inner(), &session_id, &session.ticket_id,
+                &ticket.title, &ticket.board_id, event_tx.inner(),
+            );
+            process_fix_tasks_in_response(
+                &follow_up_response, db.inner(), &session_id, &session.ticket_id,
+                &ticket.title, &ticket.board_id, event_tx.inner(),
+            );
+
             let second_assistant = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),
@@ -487,61 +570,10 @@ pub async fn send_validation_message(
     }
 
     // If the agent requested to create fix tasks, create them automatically
-    if let Some(fix_block) = parse_create_fix_tasks_from_response(&response_text) {
-        let mut task_ids = Vec::new();
-        for fix_task in &fix_block.tasks {
-            let mut description = fix_task.description.clone();
-            if let Some(ref criteria) = fix_task.acceptance_criteria {
-                description.push_str("\n\n## Acceptance Criteria\n");
-                for criterion in criteria {
-                    description.push_str(&format!("- {}\n", criterion));
-                }
-            }
-            if let Ok(task) = db.create_task(&crate::db::models::CreateTask {
-                ticket_id: session.ticket_id.clone(),
-                task_type: crate::db::models::TaskType::Custom,
-                title: Some(fix_task.title.clone()),
-                content: Some(description),
-            }) {
-                task_ids.push(task.id);
-            }
-        }
-        if !task_ids.is_empty() {
-            let _ = db.update_validation_session_status(
-                &session_id,
-                &ValidationSessionStatus::Failed,
-            );
-            let task_summary = fix_block
-                .tasks
-                .iter()
-                .map(|t| format!("- {}", t.title))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let _ = db.create_validation_message(&CreateValidationMessage {
-                session_id: session_id.clone(),
-                role: ValidationMessageRole::System,
-                content: format!(
-                    "Fix tasks created for ticket **{}**:\n{}\n\nA worker agent will pick these up. You'll be notified when the work completes.",
-                    ticket.title, task_summary
-                ),
-                metadata: Some(serde_json::json!({
-                    "type": "fix_tasks_created",
-                    "task_ids": task_ids,
-                })),
-            });
-            // Move ticket to Ready so workers pick it up
-            if let Ok(columns) = db.get_columns(&ticket.board_id) {
-                if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
-                    let _ = db.move_ticket(&session.ticket_id, &ready_col.id);
-                }
-            }
-            let _ = event_tx.send(LiveEvent::ValidationFixTasksCreated {
-                session_id: session_id.clone(),
-                ticket_id: session.ticket_id.clone(),
-                task_count: task_ids.len(),
-            });
-        }
-    }
+    process_fix_tasks_in_response(
+        &response_text, db.inner(), &session_id, &session.ticket_id,
+        &ticket.title, &ticket.board_id, event_tx.inner(),
+    );
 
     Ok(assistant_msg)
 }
