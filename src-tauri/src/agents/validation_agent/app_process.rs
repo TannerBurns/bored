@@ -1,5 +1,6 @@
 //! Manages the app subprocess (e.g. `npm run dev`) for a validation session.
 //! Streams stdout/stderr to the frontend via ValidationAppLog SSE events.
+//! On Unix, spawns in a new process group so stop() kills the entire tree.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -7,14 +8,20 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 use chrono::Utc;
 use tokio::sync::broadcast;
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use crate::api::state::LiveEvent;
 
 struct AppProcessHandle {
     child: Child,
+    /// PID used for process-group kill on Unix
+    pid: u32,
 }
 
 /// Manages one app subprocess per validation session.
@@ -54,7 +61,12 @@ impl AppProcessManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Put the child in its own process group so we can kill the whole tree
+        #[cfg(unix)]
+        cmd.process_group(0);
+
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn app: {}", e))?;
+        let pid = child.id();
 
         let stdout = child.stdout.take().ok_or("Failed to take stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to take stderr")?;
@@ -90,18 +102,19 @@ impl AppProcessManager {
 
         self.processes.lock().map_err(|e| e.to_string())?.insert(
             session_id,
-            AppProcessHandle { child },
+            AppProcessHandle { child, pid },
         );
 
         Ok(())
     }
 
     /// Stop the app process for the given session, if any.
+    /// On Unix, kills the entire process group (SIGTERM then SIGKILL) so child
+    /// processes like node/vite spawned by npm are also terminated.
     pub fn stop(&self, session_id: &str) {
         if let Ok(mut guard) = self.processes.lock() {
             if let Some(mut handle) = guard.remove(session_id) {
-                let _ = handle.child.kill();
-                let _ = handle.child.wait();
+                kill_process_tree(&mut handle);
             }
         }
     }
@@ -115,10 +128,48 @@ impl AppProcessManager {
         }
         false
     }
+
+    /// Stop all app processes (e.g. on app exit).
+    pub fn stop_all(&self) {
+        if let Ok(guard) = self.processes.lock() {
+            let ids: Vec<String> = guard.keys().cloned().collect();
+            drop(guard);
+            for id in ids {
+                self.stop(&id);
+            }
+        }
+    }
 }
 
-/// Split a shell-like command into program and args. Simple whitespace split;
-/// first token is the program, the rest are arguments.
+impl Drop for AppProcessManager {
+    fn drop(&mut self) {
+        self.stop_all();
+    }
+}
+
+/// Kill a process and all its children.
+fn kill_process_tree(handle: &mut AppProcessHandle) {
+    #[cfg(unix)]
+    {
+        let pgid = handle.pid as i32;
+        // Send SIGTERM to the whole process group first (graceful)
+        unsafe { libc::killpg(pgid, libc::SIGTERM); }
+        // Give it a moment to exit
+        thread::sleep(Duration::from_millis(300));
+        // If still alive, force kill the group
+        if handle.child.try_wait().ok().flatten().is_none() {
+            unsafe { libc::killpg(pgid, libc::SIGKILL); }
+        }
+        let _ = handle.child.wait();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = handle.child.kill();
+        let _ = handle.child.wait();
+    }
+}
+
+/// Split a shell-like command into program and args.
 fn parse_shell_command(command: &str) -> Result<(String, Vec<String>), String> {
     let parts: Vec<String> = command.split_whitespace().map(String::from).collect();
     if parts.is_empty() {
