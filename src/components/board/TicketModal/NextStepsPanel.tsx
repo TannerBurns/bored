@@ -145,6 +145,17 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
               <polyline points="14 2 14 8 20 8" />
             </svg>
             {diffLoading ? 'Loading diff...' : diffVisible ? 'Hide diff' : 'View diff'}
+            {diffFiles && diffFiles.length > 0 && (() => {
+              const totalAdd = diffFiles.reduce((s, f) => s + f.additions, 0);
+              const totalDel = diffFiles.reduce((s, f) => s + f.deletions, 0);
+              return (
+                <span className="flex items-center gap-1.5 ml-1 text-[10px] font-normal">
+                  <span className="text-emerald-400">+{totalAdd}</span>
+                  <span className="text-red-400">-{totalDel}</span>
+                  <span className="text-board-text-muted">({diffFiles.length} file{diffFiles.length !== 1 ? 's' : ''})</span>
+                </span>
+              );
+            })()}
           </span>
           <svg
             xmlns="http://www.w3.org/2000/svg"
