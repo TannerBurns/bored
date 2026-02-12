@@ -451,8 +451,6 @@ pub async fn send_validation_message(
     let mut current_response = response_text.clone();
     let mut last_assistant_msg = assistant_msg;
     const MAX_ROUNDS: usize = 10;
-    let mut worktree_path = worktree_path;
-    let mut repo_path_for_cleanup = repo_path_for_cleanup;
 
     for _round in 0..MAX_ROUNDS {
         // 1. Check for run_command first
@@ -514,8 +512,8 @@ pub async fn send_validation_message(
                 start_app.command.clone(),
                 working_dir,
                 event_tx.inner().clone(),
-                worktree_path.take(),
-                repo_path_for_cleanup.take(),
+                worktree_path.clone(),
+                repo_path_for_cleanup.clone(),
             );
 
             match start_result {
@@ -646,6 +644,17 @@ pub async fn send_validation_message(
             }
         }
         break; // start_app handled (or neither run_command nor start_app found), exit loop
+    }
+
+    // If no app process ended up running for this session, clean up the
+    // worktree now — otherwise it would be leaked.  When a process IS running
+    // the AppProcessManager owns the worktree_path and stop() handles cleanup.
+    if !app_process_manager.is_running(&session_id) {
+        if let (Some(wt), Some(repo)) = (worktree_path, repo_path_for_cleanup) {
+            if let Err(e) = crate::agents::worktree::remove_worktree(&wt, &repo) {
+                tracing::warn!("Failed to remove validation worktree after loop: {}", e);
+            }
+        }
     }
 
     // If the agent requested to create fix tasks, create them automatically

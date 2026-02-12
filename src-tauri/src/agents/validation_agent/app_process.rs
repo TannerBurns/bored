@@ -147,10 +147,12 @@ impl AppProcessManager {
                         .rev()
                         .collect::<Vec<_>>()
                         .join("\n");
-                    // Remove the dead process from the map and clean up its worktree
-                    if let Some(handle) = guard.remove(&session_id) {
-                        cleanup_worktree(handle.worktree_path, handle.repo_path);
-                    }
+                    // Remove the dead process from the map but do NOT clean up the
+                    // worktree yet — the caller's retry loop may need the working
+                    // directory for subsequent commands or start_app attempts.
+                    // Worktree cleanup is handled by stop() or by the caller after
+                    // the retry loop finishes.
+                    guard.remove(&session_id);
                     return Ok(StartResult::ExitedEarly { exit_code, output });
                 }
             }
