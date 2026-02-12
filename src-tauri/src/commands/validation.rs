@@ -447,35 +447,58 @@ pub async fn send_validation_message(
 
     // If the agent requested to start the app, start it and run a follow-up for testing instructions
     if let Some(start_app) = parse_start_app_from_response(&response_text) {
-        let (working_dir_path, branch_name) = get_ticket_working_dir(db.inner(), &session.ticket_id)
-            .unwrap_or_else(|_| (project.path.clone(), String::new()));
+        // Try to get the ticket's branch and resolve or create a worktree
+        let (working_dir_path, worktree_path, repo_path_for_cleanup) = {
+            match get_ticket_working_dir(db.inner(), &session.ticket_id) {
+                Ok((wt_path, _branch)) => {
+                    // get_ticket_working_dir found an existing worktree or returned project path
+                    // Check if it's actually a worktree (different from project.path)
+                    if wt_path != project.path {
+                        (wt_path, None, None) // existing worktree, no cleanup needed
+                    } else {
+                        // No worktree exists; create one for the validation session
+                        let ticket = db.get_ticket(&session.ticket_id).ok();
+                        let branch = ticket.as_ref().and_then(|t| t.branch_name.clone());
+                        if let Some(branch_name) = branch {
+                            let repo = std::path::PathBuf::from(&project.path);
+                            match crate::agents::worktree::create_worktree_with_existing_branch(
+                                &repo,
+                                &branch_name,
+                                &format!("validation-{}", session_id),
+                                None,
+                            ) {
+                                Ok(wt_info) => {
+                                    tracing::info!(
+                                        "Created validation worktree at {} for branch {}",
+                                        wt_info.path.display(),
+                                        branch_name
+                                    );
+                                    let wt = wt_info.path.clone();
+                                    (wt.to_string_lossy().to_string(), Some(wt), Some(repo))
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to create validation worktree: {}", e);
+                                    (project.path.clone(), None, None)
+                                }
+                            }
+                        } else {
+                            (project.path.clone(), None, None)
+                        }
+                    }
+                }
+                Err(_) => (project.path.clone(), None, None),
+            }
+        };
         let working_dir = Path::new(&working_dir_path);
 
-        // Ensure the working directory is on the ticket's branch
-        if !branch_name.is_empty() {
-            let checkout_result = std::process::Command::new("git")
-                .args(["checkout", &branch_name])
-                .current_dir(working_dir)
-                .output();
-            match checkout_result {
-                Ok(output) if output.status.success() => {
-                    tracing::info!("Checked out branch {} in {}", branch_name, working_dir_path);
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    tracing::warn!("git checkout {} failed: {}", branch_name, stderr);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to run git checkout: {}", e);
-                }
-            }
-        }
         if app_process_manager
             .start(
                 session_id.clone(),
                 start_app.command.clone(),
                 working_dir,
                 event_tx.inner().clone(),
+                worktree_path,
+                repo_path_for_cleanup,
             )
             .is_ok()
         {
@@ -551,12 +574,20 @@ pub async fn send_validation_message(
                 &ticket.title, &ticket.board_id, event_tx.inner(),
             );
 
+            let follow_up_has_fix_task =
+                parse_create_fix_tasks_from_response(&follow_up_response).is_some();
+            let follow_up_metadata = if follow_up_has_fix_task {
+                Some(serde_json::json!({ "type": "fix_task_response" }))
+            } else {
+                None
+            };
+
             let second_assistant = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),
                     role: ValidationMessageRole::Assistant,
                     content: follow_up_response,
-                    metadata: None,
+                    metadata: follow_up_metadata,
                 })
                 .map_err(|e| e.to_string())?;
             let _ = event_tx.send(LiveEvent::ValidationMessageAdded {

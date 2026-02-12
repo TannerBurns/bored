@@ -25,6 +25,10 @@ struct AppProcessHandle {
     pid: u32,
     /// Path to the log file on disk
     log_path: PathBuf,
+    /// Worktree path to clean up on stop (if we created one)
+    worktree_path: Option<PathBuf>,
+    /// Repo path for worktree cleanup
+    repo_path: Option<PathBuf>,
 }
 
 /// Manages one app subprocess per validation session.
@@ -47,12 +51,15 @@ impl AppProcessManager {
 
     /// Start the app command in the given working directory. Streams stdout/stderr to event_tx.
     /// If a process is already running for this session, it is stopped first.
+    /// `worktree_path` and `repo_path` are stored so stop() can clean up the worktree.
     pub fn start(
         &self,
         session_id: String,
         command: String,
         working_dir: &Path,
         event_tx: broadcast::Sender<LiveEvent>,
+        worktree_path: Option<PathBuf>,
+        repo_path: Option<PathBuf>,
     ) -> Result<(), String> {
         self.stop(&session_id);
 
@@ -116,7 +123,7 @@ impl AppProcessManager {
 
         self.processes.lock().map_err(|e| e.to_string())?.insert(
             session_id,
-            AppProcessHandle { child, pid, log_path },
+            AppProcessHandle { child, pid, log_path, worktree_path, repo_path },
         );
 
         Ok(())
@@ -125,10 +132,17 @@ impl AppProcessManager {
     /// Stop the app process for the given session, if any.
     /// On Unix, kills the entire process group (SIGTERM then SIGKILL) so child
     /// processes like node/vite spawned by npm are also terminated.
+    /// Also removes the git worktree if one was created for this session.
     pub fn stop(&self, session_id: &str) {
         if let Ok(mut guard) = self.processes.lock() {
             if let Some(mut handle) = guard.remove(session_id) {
                 kill_process_tree(&mut handle);
+                // Clean up the worktree after the process is dead
+                if let (Some(wt), Some(repo)) = (handle.worktree_path, handle.repo_path) {
+                    if let Err(e) = crate::agents::worktree::remove_worktree(&wt, &repo) {
+                        tracing::warn!("Failed to remove validation worktree: {}", e);
+                    }
+                }
             }
         }
     }
