@@ -292,17 +292,42 @@ function ValidationMessageBubble({
   const isSystem = message.role === 'system';
   const metadata = message.metadata as Record<string, unknown> | undefined;
   const isFixTasksCreated = metadata?.type === 'fix_tasks_created';
+  const isFixTaskResponse = metadata?.type === 'fix_task_response';
+
+  // Hide the raw assistant response when it contained a fix task JSON block --
+  // the system message that follows (with the task card) is what the user sees.
+  if (isFixTaskResponse) {
+    return null;
+  }
+
+  if (isSystem && isFixTasksCreated) {
+    return (
+      <div className="flex justify-center">
+        <div className="w-full max-w-lg rounded-lg border border-board-border bg-board-card/60 overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-board-border/40 bg-board-card/80">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+            </svg>
+            <span className="text-xs font-medium text-board-text">Fix Task Created</span>
+          </div>
+          <div className="px-3 py-2.5 text-xs text-board-text-secondary">
+            <MarkdownViewer content={message.content} />
+          </div>
+          {ticketId && (
+            <div className="px-3 py-2 border-t border-board-border/30 bg-board-bg/30">
+              <FixTasksStatusBadge ticketId={ticketId} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (isSystem) {
     return (
       <div className="flex justify-center">
-        <div className={`px-3 py-1.5 text-xs text-board-text-muted ${isFixTasksCreated ? 'rounded-lg bg-board-hover/80 max-w-md text-left' : 'rounded-full bg-board-hover'}`}>
+        <div className="px-3 py-1.5 rounded-full bg-board-hover text-xs text-board-text-muted">
           <MarkdownViewer content={message.content} />
-          {isFixTasksCreated && ticketId && (
-            <div className="mt-1.5 pt-1.5 border-t border-board-border/30">
-              <FixTasksStatusBadge ticketId={ticketId} />
-            </div>
-          )}
         </div>
       </div>
     );

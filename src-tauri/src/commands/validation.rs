@@ -60,29 +60,40 @@ fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
     None
 }
 
+fn parse_fix_task_from_json_obj(obj: &serde_json::Map<String, serde_json::Value>) -> FixTask {
+    let title = obj.get("title").and_then(|t| t.as_str()).unwrap_or("Fix task");
+    let description = obj.get("description").and_then(|d| d.as_str()).unwrap_or("");
+    let acceptance_criteria = obj
+        .get("acceptance_criteria")
+        .or_else(|| obj.get("acceptanceCriteria"))
+        .and_then(|ac| ac.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
+    FixTask {
+        title: title.to_string(),
+        description: description.to_string(),
+        acceptance_criteria,
+    }
+}
+
 fn parse_create_fix_tasks_from_response(response_text: &str) -> Option<CreateFixTasksBlock> {
     for v in parse_fenced_json_blocks(response_text) {
+        // Singular form: { "create_fix_task": { "title": "...", "description": "..." } }
+        if let Some(task_obj) = v.get("create_fix_task").and_then(|s| s.as_object()) {
+            return Some(CreateFixTasksBlock {
+                tasks: vec![parse_fix_task_from_json_obj(task_obj)],
+            });
+        }
+        // Plural form (backward compat): { "create_fix_tasks": { "tasks": [...] } }
         if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
             if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
-                let mut tasks = Vec::new();
-                for task_val in tasks_arr {
-                    let title = task_val.get("title").and_then(|t| t.as_str()).unwrap_or("Fix task");
-                    let description = task_val.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                    let acceptance_criteria = task_val
-                        .get("acceptance_criteria")
-                        .or_else(|| task_val.get("acceptanceCriteria"))
-                        .and_then(|ac| ac.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        });
-                    tasks.push(FixTask {
-                        title: title.to_string(),
-                        description: description.to_string(),
-                        acceptance_criteria,
-                    });
-                }
+                let tasks: Vec<FixTask> = tasks_arr
+                    .iter()
+                    .filter_map(|tv| tv.as_object().map(parse_fix_task_from_json_obj))
+                    .collect();
                 if !tasks.is_empty() {
                     return Some(CreateFixTasksBlock { tasks });
                 }
@@ -340,12 +351,20 @@ pub async fn send_validation_message(
         e
     })?;
 
+    // Detect structured blocks before saving so we can tag the message
+    let has_fix_task = parse_create_fix_tasks_from_response(&response_text).is_some();
+    let assistant_metadata = if has_fix_task {
+        Some(serde_json::json!({ "type": "fix_task_response" }))
+    } else {
+        None
+    };
+
     let assistant_msg = db
         .create_validation_message(&CreateValidationMessage {
             session_id: session_id.clone(),
             role: ValidationMessageRole::Assistant,
             content: response_text.clone(),
-            metadata: None,
+            metadata: assistant_metadata,
         })
         .map_err(|e| e.to_string())?;
 
