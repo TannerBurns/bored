@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ValidationSession, ValidationMessage as ValidationMessageType, AgentRun } from '../../types';
+import type { ValidationSession, ValidationMessage as ValidationMessageType, Task } from '../../types';
 import { useValidationStore } from '../../stores/validationStore';
 import { MessageInput } from '../planner/MessageInput';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { AppLogPanel } from './AppLogPanel';
-import { getAgentRuns } from '../../lib/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 interface ValidationChatViewProps {
   session: ValidationSession;
@@ -230,54 +230,67 @@ function ValidationThinkingBlock({
   );
 }
 
-function FixTasksStatusBadge({ ticketId }: { ticketId: string }) {
-  const [runs, setRuns] = useState<AgentRun[]>([]);
+function FixTasksStatusBadge({ ticketId, taskIds }: { ticketId: string; taskIds?: string[] }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    const fetchRuns = async () => {
+    const fetchTasks = async () => {
       try {
-        const r = await getAgentRuns(ticketId);
-        if (!cancelled) setRuns(r);
+        const allTasks = await invoke<Task[]>('get_tasks', { ticketId });
+        if (!cancelled) {
+          // If we have specific task IDs, filter to just those; otherwise show all
+          const relevant = taskIds?.length
+            ? allTasks.filter((t) => taskIds.includes(t.id))
+            : allTasks;
+          setTasks(relevant);
+        }
       } catch {
         // ignore
       }
     };
-    fetchRuns();
-    const interval = setInterval(fetchRuns, 5000);
+    fetchTasks();
+    const interval = setInterval(fetchTasks, 3000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [ticketId]);
+  }, [ticketId, taskIds]);
 
-  if (runs.length === 0) {
+  if (tasks.length === 0) {
     return (
       <span className="text-[10px] text-board-text-muted">Waiting for worker...</span>
     );
   }
-  const latest = runs.sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-  )[0];
+
   const statusColors: Record<string, string> = {
-    running: 'bg-blue-500/20 text-blue-400',
-    finished: 'bg-emerald-500/20 text-emerald-400',
-    error: 'bg-red-500/20 text-red-400',
-    aborted: 'bg-yellow-500/20 text-yellow-400',
+    pending: 'bg-gray-500/20 text-gray-400',
+    in_progress: 'bg-blue-500/20 text-blue-400',
+    completed: 'bg-emerald-500/20 text-emerald-400',
+    failed: 'bg-red-500/20 text-red-400',
   };
   const statusLabels: Record<string, string> = {
-    running: 'In Progress',
-    finished: 'Completed',
-    error: 'Failed',
-    aborted: 'Aborted',
+    pending: 'Pending',
+    in_progress: 'In Progress',
+    completed: 'Completed',
+    failed: 'Failed',
   };
+
   return (
-    <span
-      className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusColors[latest.status] ?? 'bg-board-hover text-board-text-muted'}`}
-    >
-      Run: {statusLabels[latest.status] ?? latest.status}
-      {latest.stage ? ` (${latest.stage})` : ''}
-    </span>
+    <div className="flex flex-col gap-1">
+      {tasks.map((task) => (
+        <div key={task.id} className="flex items-center gap-1.5">
+          <span
+            className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusColors[task.status] ?? 'bg-board-hover text-board-text-muted'}`}
+          >
+            {statusLabels[task.status] ?? task.status}
+          </span>
+          {task.title && (
+            <span className="text-[10px] text-board-text-muted truncate">{task.title}</span>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -315,7 +328,10 @@ function ValidationMessageBubble({
           </div>
           {ticketId && (
             <div className="px-3 py-2 border-t border-board-border/30 bg-board-bg/30">
-              <FixTasksStatusBadge ticketId={ticketId} />
+              <FixTasksStatusBadge
+                ticketId={ticketId}
+                taskIds={metadata?.task_ids as string[] | undefined}
+              />
             </div>
           )}
         </div>
