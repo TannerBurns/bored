@@ -49,28 +49,31 @@ export function CommentsSection({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <button
-          onClick={() => setIsCollapsed((prev) => !prev)}
-          className="flex items-center gap-1.5 text-base font-semibold text-board-text hover:text-board-accent transition-colors"
-          aria-expanded={!isCollapsed}
-        >
+      <div
+        className="flex items-center justify-between mb-3 cursor-pointer group"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!isCollapsed}
+        onClick={() => setIsCollapsed((prev) => !prev)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsCollapsed((prev) => !prev); } }}
+      >
+        <h3 className="text-base font-semibold text-board-text group-hover:text-board-accent transition-colors">
           Comments ({ticketComments.length})
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`}
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
+        </h3>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`text-board-text-muted group-hover:text-board-accent transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
       </div>
 
       {!isCollapsed && (
