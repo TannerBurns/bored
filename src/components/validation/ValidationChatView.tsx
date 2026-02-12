@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ValidationSession, ValidationMessage as ValidationMessageType, Task } from '../../types';
 import { useValidationStore } from '../../stores/validationStore';
 import { MessageInput } from '../planner/MessageInput';
@@ -51,6 +51,30 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     const interval = setInterval(check, 3000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [session.id]);
+
+  // Poll task statuses for the ticket so fix-task cards show live status.
+  // This hook is always called (stable hook count) -- data is passed to children.
+  const [ticketTasks, setTicketTasks] = useState<Task[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTasks = async () => {
+      try {
+        const all = await invoke<Task[]>('get_tasks', { ticketId: session.ticketId });
+        if (!cancelled) setTicketTasks(all);
+      } catch {
+        // ignore
+      }
+    };
+    fetchTasks();
+    const interval = setInterval(fetchTasks, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [session.ticketId]);
+
+  const getTasksForIds = useCallback(
+    (ids?: string[]) =>
+      ids?.length ? ticketTasks.filter((t) => ids.includes(t.id)) : [],
+    [ticketTasks]
+  );
 
   const handleSend = async (content: string) => {
     try {
@@ -169,7 +193,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             )}
 
             {messages.map((msg) => (
-              <ValidationMessageBubble key={msg.id} message={msg} ticketId={session.ticketId} />
+              <ValidationMessageBubble key={msg.id} message={msg} ticketId={session.ticketId} getTasksForIds={getTasksForIds} />
             ))}
 
             {isAgentThinking && (
@@ -266,60 +290,34 @@ function ValidationThinkingBlock({
   );
 }
 
-function FixTasksStatusBadge({ ticketId, taskIds }: { ticketId: string; taskIds?: string[] }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
+const TASK_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-gray-500/20 text-gray-400',
+  in_progress: 'bg-blue-500/20 text-blue-400',
+  completed: 'bg-emerald-500/20 text-emerald-400',
+  failed: 'bg-red-500/20 text-red-400',
+};
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  failed: 'Failed',
+};
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchTasks = async () => {
-      try {
-        const allTasks = await invoke<Task[]>('get_tasks', { ticketId });
-        if (!cancelled) {
-          // If we have specific task IDs, filter to just those; otherwise show all
-          const relevant = taskIds?.length
-            ? allTasks.filter((t) => taskIds.includes(t.id))
-            : allTasks;
-          setTasks(relevant);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    fetchTasks();
-    const interval = setInterval(fetchTasks, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [ticketId, taskIds]);
-
+/** Pure render component -- no hooks. Task data comes from the parent. */
+function FixTasksStatusBadge({ tasks }: { tasks: Task[] }) {
   if (tasks.length === 0) {
     return (
       <span className="text-[10px] text-board-text-muted">Waiting for worker...</span>
     );
   }
-
-  const statusColors: Record<string, string> = {
-    pending: 'bg-gray-500/20 text-gray-400',
-    in_progress: 'bg-blue-500/20 text-blue-400',
-    completed: 'bg-emerald-500/20 text-emerald-400',
-    failed: 'bg-red-500/20 text-red-400',
-  };
-  const statusLabels: Record<string, string> = {
-    pending: 'Pending',
-    in_progress: 'In Progress',
-    completed: 'Completed',
-    failed: 'Failed',
-  };
-
   return (
     <div className="flex flex-col gap-1">
       {tasks.map((task) => (
         <div key={task.id} className="flex items-center gap-1.5">
           <span
-            className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusColors[task.status] ?? 'bg-board-hover text-board-text-muted'}`}
+            className={`px-1.5 py-0.5 text-[10px] rounded-full ${TASK_STATUS_COLORS[task.status] ?? 'bg-board-hover text-board-text-muted'}`}
           >
-            {statusLabels[task.status] ?? task.status}
+            {TASK_STATUS_LABELS[task.status] ?? task.status}
           </span>
           {task.title && (
             <span className="text-[10px] text-board-text-muted truncate">{task.title}</span>
@@ -330,14 +328,13 @@ function FixTasksStatusBadge({ ticketId, taskIds }: { ticketId: string; taskIds?
   );
 }
 
+/** Pure render component -- no hooks. */
 function FixTasksCard({
   message,
-  ticketId,
-  taskIds,
+  tasks,
 }: {
   message: ValidationMessageType;
-  ticketId: string;
-  taskIds?: string[];
+  tasks: Task[];
 }) {
   return (
     <div className="flex justify-center">
@@ -352,19 +349,21 @@ function FixTasksCard({
           <MarkdownViewer content={message.content} />
         </div>
         <div className="px-3 py-2 border-t border-board-border/30 bg-board-bg/30">
-          <FixTasksStatusBadge ticketId={ticketId} taskIds={taskIds} />
+          <FixTasksStatusBadge tasks={tasks} />
         </div>
       </div>
     </div>
   );
 }
 
+/** Pure render component -- no hooks. All data passed as props. */
 function ValidationMessageBubble({
   message,
-  ticketId,
+  getTasksForIds,
 }: {
   message: ValidationMessageType;
   ticketId?: string;
+  getTasksForIds: (ids?: string[]) => Task[];
 }) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -376,16 +375,10 @@ function ValidationMessageBubble({
     return <div className="hidden" />;
   }
 
-  // Fix task card with live status polling (rendered as a separate component
-  // so its hooks are stable and independent of the parent's branch logic)
-  if (isSystem && metaType === 'fix_tasks_created' && ticketId) {
-    return (
-      <FixTasksCard
-        message={message}
-        ticketId={ticketId}
-        taskIds={metadata?.task_ids as string[] | undefined}
-      />
-    );
+  // Fix task card -- pure render, tasks come from parent
+  if (isSystem && metaType === 'fix_tasks_created') {
+    const taskIds = metadata?.task_ids as string[] | undefined;
+    return <FixTasksCard message={message} tasks={getTasksForIds(taskIds)} />;
   }
 
   if (isSystem) {
