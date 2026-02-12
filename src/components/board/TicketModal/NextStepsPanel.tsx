@@ -21,12 +21,33 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
 
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
-  // Only show for tickets in the Done column that have a branch
+  // Determine visibility BEFORE any conditional returns
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const isDone = currentColumn?.name === 'Done';
   const hasBranch = !!ticket.branchName;
+  const shouldShow = isDone && hasBranch;
 
-  if (!isDone || !hasBranch) return null;
+  // Load diff stats eagerly -- hook must always be called (React rules of hooks)
+  useEffect(() => {
+    if (!shouldShow) return;
+    let cancelled = false;
+    const loadDiff = async () => {
+      try {
+        setDiffLoading(true);
+        const files = await getBranchDiffFiles(ticket.id);
+        if (!cancelled) setDiffFiles(files);
+      } catch (e) {
+        if (!cancelled) setDiffError(String(e));
+      } finally {
+        if (!cancelled) setDiffLoading(false);
+      }
+    };
+    void loadDiff();
+    return () => { cancelled = true; };
+  }, [ticket.id, shouldShow, getBranchDiffFiles]);
+
+  // Now safe to bail out after all hooks have been called
+  if (!shouldShow) return null;
 
   const handlePush = async () => {
     try {
@@ -53,24 +74,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       setActionLoading(null);
     }
   };
-
-  // Load diff stats eagerly so the summary is always visible
-  useEffect(() => {
-    let cancelled = false;
-    const loadDiff = async () => {
-      try {
-        setDiffLoading(true);
-        const files = await getBranchDiffFiles(ticket.id);
-        if (!cancelled) setDiffFiles(files);
-      } catch (e) {
-        if (!cancelled) setDiffError(String(e));
-      } finally {
-        if (!cancelled) setDiffLoading(false);
-      }
-    };
-    void loadDiff();
-    return () => { cancelled = true; };
-  }, [ticket.id]);
 
   const handleViewDiff = () => {
     setDiffVisible((v) => !v);
