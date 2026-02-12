@@ -49,15 +49,15 @@ export function CommentsSection({
 
   return (
     <div>
-      <div
-        className="flex items-center gap-1.5 mb-3 cursor-pointer group w-fit"
-        role="button"
-        tabIndex={0}
-        aria-expanded={!isCollapsed}
-        onClick={() => setIsCollapsed((prev) => !prev)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsCollapsed((prev) => !prev); } }}
-      >
-        <h3 className="text-base font-semibold text-board-text group-hover:text-board-accent transition-colors">
+      <div className="flex items-center gap-1.5 mb-3">
+        <h3
+          className="text-base font-semibold text-board-text hover:text-board-accent transition-colors cursor-pointer"
+          role="button"
+          tabIndex={0}
+          aria-expanded={!isCollapsed}
+          onClick={() => setIsCollapsed((prev) => !prev)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsCollapsed((prev) => !prev); } }}
+        >
           Comments ({ticketComments.length})
         </h3>
         <svg
@@ -70,7 +70,8 @@ export function CommentsSection({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className={`text-board-text-muted group-hover:text-board-accent transition-transform duration-200 ${isCollapsed ? '' : 'rotate-90'}`}
+          className={`text-board-text-muted hover:text-board-accent transition-transform duration-200 cursor-pointer ${isCollapsed ? '' : 'rotate-90'}`}
+          onClick={() => setIsCollapsed((prev) => !prev)}
         >
           <polyline points="9 18 15 12 9 6" />
         </svg>
