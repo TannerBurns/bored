@@ -95,20 +95,16 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>. Choose your next step:
       </p>
 
-      <div className="grid grid-cols-2 gap-2">
-        {/* Validate with agent dropdown */}
+      {/* First row: Validate with, Push, Create PR */}
+      <div className="flex flex-wrap items-center gap-2">
         {onValidate && (
-          <div className="col-span-2">
-            <BuildWithDropdown
-              label="Validate with"
-              title="Open validation chat — choose Cursor or Claude to verify this ticket's changes in a dedicated chat view"
-              onSelect={(agent: 'cursor' | 'claude') => onValidate(ticket.id, agent)}
-              disabled={false}
-            />
-          </div>
+          <BuildWithDropdown
+            label="Validate with"
+            title="Open validation chat — choose Cursor or Claude to verify this ticket's changes in a dedicated chat view"
+            onSelect={(agent: 'cursor' | 'claude') => onValidate(ticket.id, agent)}
+            disabled={false}
+          />
         )}
-
-        {/* Push Branch */}
         <button
           onClick={handlePush}
           disabled={actionLoading === 'push'}
@@ -120,8 +116,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           </svg>
           {actionLoading === 'push' ? 'Pushing...' : 'Push to Remote'}
         </button>
-
-        {/* Create PR */}
         <button
           onClick={handleCreatePR}
           disabled={actionLoading === 'pr'}
@@ -135,19 +129,46 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           </svg>
           {actionLoading === 'pr' ? 'Creating...' : 'Create PR'}
         </button>
+      </div>
 
-        {/* View Diff */}
+      {/* Second row: View Diff as expandable section */}
+      <div className="rounded-lg border border-board-border overflow-hidden bg-board-bg/30">
         <button
+          type="button"
           onClick={handleViewDiff}
           disabled={diffLoading}
-          className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-board-hover text-board-text-secondary hover:bg-board-border/50 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-xs font-medium text-board-text-secondary hover:bg-board-hover/50 transition-colors disabled:opacity-50 text-left"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
+          <span className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            {diffLoading ? 'Loading diff...' : diffVisible ? 'Hide diff' : 'View diff'}
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`shrink-0 transition-transform ${diffVisible ? 'rotate-180' : ''}`}
+          >
+            <path d="m6 9 6 6 6-6" />
           </svg>
-          {diffLoading ? 'Loading...' : diffVisible ? 'Hide Diff' : 'View Diff'}
         </button>
+        {diffVisible && (
+          <div className="border-t border-board-border max-h-64 overflow-auto">
+            {diffError && (
+              <div className="p-3 text-xs text-red-400">{diffError}</div>
+            )}
+            {diffFiles && <FileDiffViewer files={diffFiles} className="max-h-60" />}
+          </div>
+        )}
       </div>
 
       {/* Status messages */}
@@ -173,15 +194,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         </div>
       )}
 
-      {/* Diff view */}
-      {diffVisible && (
-        <div className="mt-2 max-h-64 overflow-auto rounded-lg bg-board-bg/50 border border-board-border">
-          {diffError && (
-            <div className="p-3 text-xs text-red-400">{diffError}</div>
-          )}
-          {diffFiles && <FileDiffViewer files={diffFiles} className="max-h-60" />}
-        </div>
-      )}
     </div>
   );
 }
