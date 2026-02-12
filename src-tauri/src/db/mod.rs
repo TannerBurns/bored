@@ -555,7 +555,7 @@ impl Database {
 
             // Migration from version 6 to 7: Add agent_type to validation_sessions
             // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has agent_type
-            if (6..7).contains(&current_version) {
+            if current_version > 0 && current_version < 7 {
                 tracing::info!("Running migration to version 7: validation_sessions.agent_type");
                 conn.execute(
                     "ALTER TABLE validation_sessions ADD COLUMN agent_type TEXT",
@@ -566,7 +566,7 @@ impl Database {
 
             // Migration from version 7 to 8: Remove app_command and app_port from validation_sessions
             // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has final schema
-            if (7..8).contains(&current_version) {
+            if current_version > 0 && current_version < 8 {
                 tracing::info!("Running migration to version 8: drop app_command and app_port from validation_sessions");
                 conn.execute_batch(
                     r#"
