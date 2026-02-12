@@ -192,9 +192,12 @@ export const useValidationStore = create<ValidationState>((set) => ({
     try {
       set({ isAgentThinking: true, appLogs: [] });
       const message = await apiSendMessage(sessionId, content);
-      set((state) => ({
-        messages: [...state.messages, message],
-      }));
+      // Reload all messages from DB to get full content (replaces SSE placeholders)
+      const messages = await apiGetMessages(sessionId);
+      set({
+        messages,
+        isAgentThinking: false,
+      });
       return message;
     } catch (e) {
       logger.error('Failed to send validation message', e);

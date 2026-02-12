@@ -43,7 +43,7 @@ export function useValidationSync(
 
   const {
     refreshSession,
-    addMessage,
+    loadMessages,
     addAppLog,
     loadSessions,
     currentSession,
@@ -90,18 +90,10 @@ export function useValidationSync(
           case 'validation_message_added':
             if (
               data.session_id &&
-              data.message_id &&
-              data.role &&
               currentSessionRef.current?.id === data.session_id
             ) {
-              // Add the message optimistically from the event data
-              addMessage({
-                id: data.message_id,
-                sessionId: data.session_id,
-                role: data.role as 'user' | 'assistant' | 'system',
-                content: '', // Content will be loaded on next message fetch
-                createdAt: new Date(),
-              });
+              // Load full messages from backend instead of adding empty placeholders
+              loadMessages(data.session_id);
             }
             break;
 
@@ -151,7 +143,7 @@ export function useValidationSync(
     reconnectDelay,
     maxReconnects,
     refreshSession,
-    addMessage,
+    loadMessages,
     addAppLog,
     loadSessions,
   ]);
