@@ -357,10 +357,29 @@ pub async fn send_validation_message(
 
     // If the agent requested to start the app, start it and run a follow-up for testing instructions
     if let Some(start_app) = parse_start_app_from_response(&response_text) {
-        let working_dir_path = get_ticket_working_dir(db.inner(), &session.ticket_id)
-            .map(|(path, _)| path)
-            .unwrap_or_else(|_| project.path.clone());
+        let (working_dir_path, branch_name) = get_ticket_working_dir(db.inner(), &session.ticket_id)
+            .unwrap_or_else(|_| (project.path.clone(), String::new()));
         let working_dir = Path::new(&working_dir_path);
+
+        // Ensure the working directory is on the ticket's branch
+        if !branch_name.is_empty() {
+            let checkout_result = std::process::Command::new("git")
+                .args(["checkout", &branch_name])
+                .current_dir(working_dir)
+                .output();
+            match checkout_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("Checked out branch {} in {}", branch_name, working_dir_path);
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!("git checkout {} failed: {}", branch_name, stderr);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to run git checkout: {}", e);
+                }
+            }
+        }
         if app_process_manager
             .start(
                 session_id.clone(),
