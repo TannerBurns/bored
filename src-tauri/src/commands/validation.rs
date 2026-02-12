@@ -563,12 +563,14 @@ pub async fn send_validation_message(
                 .port
                 .map(|p| format!(" on port {}", p))
                 .unwrap_or_default();
+            let log_file_path = working_dir.join(".validation-app.log");
+            let log_file_str = log_file_path.to_string_lossy();
             let system_msg = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),
                     role: ValidationMessageRole::System,
                     content: format!(
-                        "App started: `{}`{}. Logs are streaming in the panel and saved to `.validation-app.log`.",
+                        "App started: `{}`{}. Logs are streaming in the panel.",
                         start_app.command, port_suffix
                     ),
                     metadata: None,
@@ -580,15 +582,10 @@ pub async fn send_validation_message(
                 role: "system".to_string(),
             });
 
-            let follow_up_prompt = start_app
-                .port
-                .map(|p| format!(
-                    "The application is now running on port {}. App logs are being written to .validation-app.log — you can read that file to check for errors. Please provide testing instructions.",
-                    p
-                ))
-                .unwrap_or_else(|| {
-                    "The application is now running. App logs are being written to .validation-app.log — you can read that file to check for errors. Please provide testing instructions.".to_string()
-                });
+            let follow_up_prompt = format!(
+                "The application is now running{}. App logs are being written to `{}` — you can read that file to check for errors. Please provide testing instructions.",
+                port_suffix, log_file_str
+            );
             let follow_up_user = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),

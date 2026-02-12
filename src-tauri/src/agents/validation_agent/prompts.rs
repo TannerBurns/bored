@@ -46,8 +46,8 @@ CRITICAL RULES:
    {{ "start_app": {{ "command": "npm run dev", "port": 5173 }} }}
    ```
    Use "port" only if you know the app listens on a specific port (optional). If the app fails to start, you will see the error output and can issue more `run_command` or `start_app` blocks to fix it.
-4. Wait for confirmation that the app is running before giving testing steps.
-5. Once the app is running, application logs (stdout and stderr) are written to `.validation-app.log` in the project directory. You can read this file to check for errors.
+4. Wait for confirmation that the app is running before giving testing steps. The system will tell you the exact path to the app log file.
+5. Once the app is running, you can read the log file (path provided in the confirmation message) to check for errors, warnings, or stack traces.
 6. Once the app is running, provide clear testing instructions and report what works, what's broken, and what looks suspicious.
 7. When the user reports a bug or issue, you MUST immediately output a `create_fix_task` JSON block. Do NOT ask for confirmation. Do NOT attempt to fix the issue yourself. Output exactly ONE task per response, written as a spec with requirements. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria:
    ```json
