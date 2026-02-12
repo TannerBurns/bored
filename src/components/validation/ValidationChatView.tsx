@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ValidationSession, ValidationMessage as ValidationMessageType } from '../../types';
+import type { ValidationSession, ValidationMessage as ValidationMessageType, AgentRun } from '../../types';
 import { useValidationStore } from '../../stores/validationStore';
 import { MessageInput } from '../planner/MessageInput';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { AppLogPanel } from './AppLogPanel';
+import { getAgentRuns } from '../../lib/tauri';
 
 interface ValidationChatViewProps {
   session: ValidationSession;
@@ -132,7 +133,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             )}
 
             {messages.map((msg) => (
-              <ValidationMessageBubble key={msg.id} message={msg} />
+              <ValidationMessageBubble key={msg.id} message={msg} ticketId={session.ticketId} />
             ))}
 
             {isAgentThinking && (
@@ -229,15 +230,79 @@ function ValidationThinkingBlock({
   );
 }
 
-function ValidationMessageBubble({ message }: { message: ValidationMessageType }) {
+function FixTasksStatusBadge({ ticketId }: { ticketId: string }) {
+  const [runs, setRuns] = useState<AgentRun[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRuns = async () => {
+      try {
+        const r = await getAgentRuns(ticketId);
+        if (!cancelled) setRuns(r);
+      } catch {
+        // ignore
+      }
+    };
+    fetchRuns();
+    const interval = setInterval(fetchRuns, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ticketId]);
+
+  if (runs.length === 0) {
+    return (
+      <span className="text-[10px] text-board-text-muted">Waiting for worker...</span>
+    );
+  }
+  const latest = runs.sort(
+    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+  )[0];
+  const statusColors: Record<string, string> = {
+    running: 'bg-blue-500/20 text-blue-400',
+    finished: 'bg-emerald-500/20 text-emerald-400',
+    error: 'bg-red-500/20 text-red-400',
+    aborted: 'bg-yellow-500/20 text-yellow-400',
+  };
+  const statusLabels: Record<string, string> = {
+    running: 'In Progress',
+    finished: 'Completed',
+    error: 'Failed',
+    aborted: 'Aborted',
+  };
+  return (
+    <span
+      className={`px-1.5 py-0.5 text-[10px] rounded-full ${statusColors[latest.status] ?? 'bg-board-hover text-board-text-muted'}`}
+    >
+      Run: {statusLabels[latest.status] ?? latest.status}
+      {latest.stage ? ` (${latest.stage})` : ''}
+    </span>
+  );
+}
+
+function ValidationMessageBubble({
+  message,
+  ticketId,
+}: {
+  message: ValidationMessageType;
+  ticketId?: string;
+}) {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const metadata = message.metadata as Record<string, unknown> | undefined;
+  const isFixTasksCreated = metadata?.type === 'fix_tasks_created';
 
   if (isSystem) {
     return (
       <div className="flex justify-center">
-        <div className="px-3 py-1.5 rounded-full bg-board-hover text-xs text-board-text-muted">
+        <div className={`px-3 py-1.5 text-xs text-board-text-muted ${isFixTasksCreated ? 'rounded-lg bg-board-hover/80 max-w-md text-left' : 'rounded-full bg-board-hover'}`}>
           <MarkdownViewer content={message.content} />
+          {isFixTasksCreated && ticketId && (
+            <div className="mt-1.5 pt-1.5 border-t border-board-border/30">
+              <FixTasksStatusBadge ticketId={ticketId} />
+            </div>
+          )}
         </div>
       </div>
     );

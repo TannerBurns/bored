@@ -10,12 +10,15 @@ interface ValidationLiveEvent {
     | 'validation_message_added'
     | 'validation_fix_tasks_created'
     | 'validation_log_entry'
-    | 'validation_app_log';
+    | 'validation_app_log'
+    | 'run_completed';
   session_id?: string;
   ticket_id?: string;
   message_id?: string;
   role?: string;
   task_count?: number;
+  run_id?: string;
+  status?: string;
   // For validation_log_entry (agent thinking) and validation_app_log (app subprocess)
   stream?: string;
   message?: string;
@@ -47,6 +50,9 @@ export function useValidationSync(
     loadMessages,
     addAgentLog,
     addAppLog,
+    clearAppLogs,
+    stopApp,
+    sendMessage,
     loadSessions,
     currentSession,
   } = useValidationStore();
@@ -64,6 +70,7 @@ export function useValidationSync(
       'validation_fix_tasks_created',
       'validation_log_entry',
       'validation_app_log',
+      'run_completed',
     ].join(',');
 
     const url = `${apiUrl}/v1/stream/filtered?token=${encodeURIComponent(token)}&types=${encodeURIComponent(eventTypes)}`;
@@ -133,6 +140,29 @@ export function useValidationSync(
               addAppLog(logEntry);
             }
             break;
+
+          case 'run_completed': {
+            const session = currentSessionRef.current;
+            if (
+              session &&
+              data.ticket_id === session.ticketId &&
+              data.status === 'finished' &&
+              session.status === 'failed'
+            ) {
+              // A fix run completed for the validation ticket -- restart the loop
+              logger.info(
+                'Run completed for validation ticket, auto-restarting app'
+              );
+              stopApp(session.id).then(() => {
+                clearAppLogs();
+                sendMessage(
+                  session.id,
+                  'The fix work has completed. Please start the application again so we can validate the new changes.'
+                );
+              });
+            }
+            break;
+          }
         }
       } catch (e) {
         logger.error('Failed to parse validation SSE event', e);
@@ -159,6 +189,9 @@ export function useValidationSync(
     loadMessages,
     addAgentLog,
     addAppLog,
+    clearAppLogs,
+    stopApp,
+    sendMessage,
     loadSessions,
   ]);
 

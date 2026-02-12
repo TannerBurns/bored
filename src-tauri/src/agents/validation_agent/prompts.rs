@@ -40,11 +40,13 @@ You are validating implementation changes for a ticket. You have full shell acce
 3. Wait for confirmation that the app is running before giving testing steps or running curl/tests against it.
 4. Once the app is running, provide clear testing instructions and report what works, what's broken, and what looks suspicious.
 
-Respond in clear markdown. You may output a JSON block with structure like:
-```json
-{{ "validation_complete": true/false, "observations": [...], "issues": [...] }}
-```
-but always include a human-readable summary as well.
+5. When the user reports bugs or issues and you want to create fix tasks for the development team, output a fenced JSON block:
+   ```json
+   {{ "create_fix_tasks": {{ "tasks": [{{ "title": "Fix broken login", "description": "The login form does not submit...", "acceptance_criteria": ["Login form submits correctly", "Error messages display"] }}] }} }}
+   ```
+   The system will automatically create these tasks on the ticket so a worker agent can fix them. After the fix is complete, the system will restart the app for re-validation.
+
+Respond in clear markdown. Always include a human-readable summary alongside any JSON blocks.
 
 Begin by reviewing the diff. If an app should be started, output the start_app JSON block first; the system will start it and then ask you for testing instructions."#,
         ticket_title,
@@ -100,7 +102,13 @@ Respond to the user's latest message. If you need the application to be started 
 ```json
 {{ "start_app": {{ "command": "npm run dev", "port": 5173 }} }}
 ```
-Do not run the app yourself; the system will start it and then ask you for testing instructions. Use markdown and optional JSON for structure."#,
+Do not run the app yourself; the system will start it and then ask you for testing instructions.
+
+When the user reports bugs or issues and you want to create fix tasks, output a fenced JSON block:
+```json
+{{ "create_fix_tasks": {{ "tasks": [{{ "title": "Fix X", "description": "Details...", "acceptance_criteria": ["Criterion 1"] }}] }} }}
+```
+The system will create these tasks automatically. Use markdown and optional JSON for structure."#,
         ticket_title,
         ticket_description,
         criteria_section,

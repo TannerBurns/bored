@@ -20,12 +20,18 @@ use crate::db::Database;
 /// Parsed start_app block from agent response
 struct StartAppBlock {
     command: String,
-    _port: Option<i32>,
+    port: Option<i32>,
 }
 
-fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
+/// Parsed create_fix_tasks block from agent response
+struct CreateFixTasksBlock {
+    tasks: Vec<FixTask>,
+}
+
+/// Parse all fenced JSON blocks from the agent response
+fn parse_fenced_json_blocks(response_text: &str) -> Vec<serde_json::Value> {
     let blocks: Vec<&str> = response_text.split("```").collect();
-    // Odd-indexed segments are the content inside fenced blocks (after "json" or first line)
+    let mut results = Vec::new();
     for (i, segment) in blocks.iter().enumerate() {
         if i % 2 == 0 {
             continue;
@@ -33,13 +39,52 @@ fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
         let content = segment.trim_start();
         let json_str = content.strip_prefix("json").map(|s| s.trim()).unwrap_or(content);
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-            if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
-                if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
-                    let port = start_app.get("port").and_then(|p| p.as_i64()).map(|p| p as i32);
-                    return Some(StartAppBlock {
-                        command: command.to_string(),
-                        _port: port,
+            results.push(v);
+        }
+    }
+    results
+}
+
+fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
+    for v in parse_fenced_json_blocks(response_text) {
+        if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
+            if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
+                let port = start_app.get("port").and_then(|p| p.as_i64()).map(|p| p as i32);
+                return Some(StartAppBlock {
+                    command: command.to_string(),
+                    port,
+                });
+            }
+        }
+    }
+    None
+}
+
+fn parse_create_fix_tasks_from_response(response_text: &str) -> Option<CreateFixTasksBlock> {
+    for v in parse_fenced_json_blocks(response_text) {
+        if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
+            if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
+                let mut tasks = Vec::new();
+                for task_val in tasks_arr {
+                    let title = task_val.get("title").and_then(|t| t.as_str()).unwrap_or("Fix task");
+                    let description = task_val.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                    let acceptance_criteria = task_val
+                        .get("acceptance_criteria")
+                        .or_else(|| task_val.get("acceptanceCriteria"))
+                        .and_then(|ac| ac.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        });
+                    tasks.push(FixTask {
+                        title: title.to_string(),
+                        description: description.to_string(),
+                        acceptance_criteria,
                     });
+                }
+                if !tasks.is_empty() {
+                    return Some(CreateFixTasksBlock { tasks });
                 }
             }
         }
@@ -330,13 +375,17 @@ pub async fn send_validation_message(
                 session_id: session_id.clone(),
             });
 
+            let port_suffix = start_app
+                .port
+                .map(|p| format!(" on port {}", p))
+                .unwrap_or_default();
             let system_msg = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),
                     role: ValidationMessageRole::System,
                     content: format!(
-                        "App started: `{}`. Logs are streaming in the panel.",
-                        start_app.command
+                        "App started: `{}`{}. Logs are streaming in the panel.",
+                        start_app.command, port_suffix
                     ),
                     metadata: None,
                 })
@@ -347,12 +396,20 @@ pub async fn send_validation_message(
                 role: "system".to_string(),
             });
 
+            let follow_up_prompt = start_app
+                .port
+                .map(|p| format!(
+                    "The application is now running on port {}. Please provide testing instructions.",
+                    p
+                ))
+                .unwrap_or_else(|| {
+                    "The application is now running. Please provide testing instructions.".to_string()
+                });
             let follow_up_user = db
                 .create_validation_message(&CreateValidationMessage {
                     session_id: session_id.clone(),
                     role: ValidationMessageRole::User,
-                    content: "The application is now running. Please provide testing instructions."
-                        .to_string(),
+                    content: follow_up_prompt,
                     metadata: None,
                 })
                 .map_err(|e| e.to_string())?;
@@ -385,6 +442,63 @@ pub async fn send_validation_message(
             });
 
             return Ok(second_assistant);
+        }
+    }
+
+    // If the agent requested to create fix tasks, create them automatically
+    if let Some(fix_block) = parse_create_fix_tasks_from_response(&response_text) {
+        let mut task_ids = Vec::new();
+        for fix_task in &fix_block.tasks {
+            let mut description = fix_task.description.clone();
+            if let Some(ref criteria) = fix_task.acceptance_criteria {
+                description.push_str("\n\n## Acceptance Criteria\n");
+                for criterion in criteria {
+                    description.push_str(&format!("- {}\n", criterion));
+                }
+            }
+            if let Ok(task) = db.create_task(&crate::db::models::CreateTask {
+                ticket_id: session.ticket_id.clone(),
+                task_type: crate::db::models::TaskType::Custom,
+                title: Some(fix_task.title.clone()),
+                content: Some(description),
+            }) {
+                task_ids.push(task.id);
+            }
+        }
+        if !task_ids.is_empty() {
+            let _ = db.update_validation_session_status(
+                &session_id,
+                &ValidationSessionStatus::Failed,
+            );
+            let task_summary = fix_block
+                .tasks
+                .iter()
+                .map(|t| format!("- {}", t.title))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let _ = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::System,
+                content: format!(
+                    "Fix tasks created for ticket **{}**:\n{}\n\nA worker agent will pick these up. You'll be notified when the work completes.",
+                    ticket.title, task_summary
+                ),
+                metadata: Some(serde_json::json!({
+                    "type": "fix_tasks_created",
+                    "task_ids": task_ids,
+                })),
+            });
+            // Move ticket to Ready so workers pick it up
+            if let Ok(columns) = db.get_columns(&ticket.board_id) {
+                if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
+                    let _ = db.move_ticket(&session.ticket_id, &ready_col.id);
+                }
+            }
+            let _ = event_tx.send(LiveEvent::ValidationFixTasksCreated {
+                session_id: session_id.clone(),
+                ticket_id: session.ticket_id.clone(),
+                task_count: task_ids.len(),
+            });
         }
     }
 
