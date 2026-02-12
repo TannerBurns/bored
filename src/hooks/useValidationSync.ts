@@ -9,13 +9,14 @@ interface ValidationLiveEvent {
     | 'validation_session_updated'
     | 'validation_message_added'
     | 'validation_fix_tasks_created'
-    | 'validation_log_entry';
+    | 'validation_log_entry'
+    | 'validation_app_log';
   session_id?: string;
   ticket_id?: string;
   message_id?: string;
   role?: string;
   task_count?: number;
-  // For validation_log_entry
+  // For validation_log_entry (agent thinking) and validation_app_log (app subprocess)
   stream?: string;
   message?: string;
   timestamp?: string;
@@ -44,6 +45,7 @@ export function useValidationSync(
   const {
     refreshSession,
     loadMessages,
+    addAgentLog,
     addAppLog,
     loadSessions,
     currentSession,
@@ -61,6 +63,7 @@ export function useValidationSync(
       'validation_message_added',
       'validation_fix_tasks_created',
       'validation_log_entry',
+      'validation_app_log',
     ].join(',');
 
     const url = `${apiUrl}/v1/stream/filtered?token=${encodeURIComponent(token)}&types=${encodeURIComponent(eventTypes)}`;
@@ -107,6 +110,16 @@ export function useValidationSync(
             if (
               data.session_id &&
               currentSessionRef.current?.id === data.session_id &&
+              data.message
+            ) {
+              addAgentLog(data.message);
+            }
+            break;
+
+          case 'validation_app_log':
+            if (
+              data.session_id &&
+              currentSessionRef.current?.id === data.session_id &&
               data.message &&
               data.timestamp
             ) {
@@ -144,6 +157,7 @@ export function useValidationSync(
     maxReconnects,
     refreshSession,
     loadMessages,
+    addAgentLog,
     addAppLog,
     loadSessions,
   ]);

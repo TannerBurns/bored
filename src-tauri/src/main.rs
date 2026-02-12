@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use agent_kanban::agents::validation_agent::AppProcessManager;
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::ApiConnState;
@@ -195,6 +196,7 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
+            app.manage(AppProcessManager::new());
 
             // Load Claude API settings from disk (or create fresh if not present)
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
@@ -429,6 +431,8 @@ fn main() {
             commands::validation::delete_validation_session,
             commands::validation::get_validation_messages,
             commands::validation::send_validation_message,
+            commands::validation::stop_validation_app,
+            commands::validation::get_validation_app_status,
             commands::validation::create_fix_tasks,
             // Next steps commands (push, PR, diff, open)
             commands::next_steps::push_branch,

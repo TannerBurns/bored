@@ -483,8 +483,6 @@ export interface ValidationSession {
   ticketId: string;
   projectId?: string;
   status: ValidationSessionStatus;
-  appCommand?: string;
-  appPort?: number;
   /** Agent used for validation chat (e.g. 'cursor', 'claude') */
   agentType?: string;
   createdAt: Date;

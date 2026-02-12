@@ -158,13 +158,19 @@ interface SettingsState {
   workflowPreset: WorkflowPreset;
   workflowStages: WorkflowStages;
   
+  // Validation agent settings
+  validationModel: AIModel;
+  validationTimeoutMinutes: number;
+
   // Claude API settings (stored locally, synced to backend on change)
   claudeAuthToken: string;
   claudeApiKey: string;
   claudeBaseUrl: string;
   claudeModelOverride: string;
-  
+
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
+  setValidationModel: (model: AIModel) => void;
+  setValidationTimeoutMinutes: (min: number) => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
   setPlannerModel: (model: AIModel) => void;
   setPlannerMaxExplorations: (max: number) => void;
@@ -205,12 +211,16 @@ export const useSettingsStore = create<SettingsState>()(
       stageTimeoutMinutes: 30,
       stageMaxRetries: 2,
       
-      // Workflow per-stage configuration defaults
-      workflowPreset: DEFAULT_WORKFLOW_PRESET,
-      workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
-      
-      // Claude API defaults (empty = use environment/system defaults)
-      claudeAuthToken: '',
+  // Workflow per-stage configuration defaults
+  workflowPreset: DEFAULT_WORKFLOW_PRESET,
+  workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
+
+  // Validation agent defaults
+  validationModel: 'sonnet-4.5',
+  validationTimeoutMinutes: 10,
+
+  // Claude API defaults (empty = use environment/system defaults)
+  claudeAuthToken: '',
       claudeApiKey: '',
       claudeBaseUrl: '',
       claudeModelOverride: '',
@@ -243,6 +253,8 @@ export const useSettingsStore = create<SettingsState>()(
         };
         set({ workflowStages: updated, workflowPreset: 'custom' });
       },
+      setValidationModel: (validationModel) => set({ validationModel }),
+      setValidationTimeoutMinutes: (validationTimeoutMinutes) => set({ validationTimeoutMinutes }),
       setClaudeAuthToken: (claudeAuthToken) => set({ claudeAuthToken }),
       setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
       setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
@@ -256,9 +268,13 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 5,
+      version: 6,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+        if (version < 6) {
+          state.validationModel = 'sonnet-4.5';
+          state.validationTimeoutMinutes = 10;
+        }
         if (version < 1) {
           // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
           if (state.plannerModel === 'default') {

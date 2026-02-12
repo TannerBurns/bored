@@ -516,7 +516,8 @@ impl Database {
             }
 
             // Migration from version 5 to 6: Add validation_sessions and validation_messages tables
-            if current_version < 6 {
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has validation tables
+            if current_version > 0 && current_version < 6 {
                 tracing::info!("Running migration to version 6: validation tables");
 
                 conn.execute_batch(
@@ -553,13 +554,40 @@ impl Database {
             }
 
             // Migration from version 6 to 7: Add agent_type to validation_sessions
-            if current_version < 7 {
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has agent_type
+            if current_version >= 6 && current_version < 7 {
                 tracing::info!("Running migration to version 7: validation_sessions.agent_type");
                 conn.execute(
                     "ALTER TABLE validation_sessions ADD COLUMN agent_type TEXT",
                     [],
                 )?;
                 tracing::info!("Migration to version 7 complete: agent_type added");
+            }
+
+            // Migration from version 7 to 8: Remove app_command and app_port from validation_sessions
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has final schema
+            if current_version >= 7 && current_version < 8 {
+                tracing::info!("Running migration to version 8: drop app_command and app_port from validation_sessions");
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE validation_sessions_new (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                        status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'chatting', 'app_running', 'passed', 'failed')),
+                        agent_type TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+                    INSERT INTO validation_sessions_new (id, ticket_id, project_id, status, agent_type, created_at, updated_at)
+                    SELECT id, ticket_id, project_id, status, agent_type, created_at, updated_at FROM validation_sessions;
+                    DROP TABLE validation_sessions;
+                    ALTER TABLE validation_sessions_new RENAME TO validation_sessions;
+                    CREATE INDEX IF NOT EXISTS idx_validation_sessions_ticket ON validation_sessions(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_validation_sessions_status ON validation_sessions(status);
+                    "#
+                )?;
+                tracing::info!("Migration to version 8 complete: app_command and app_port removed");
             }
 
             conn.execute(

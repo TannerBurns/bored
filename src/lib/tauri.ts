@@ -427,8 +427,6 @@ import type {
 export async function createValidationSession(input: {
   ticketId: string;
   projectId?: string;
-  appCommand?: string;
-  appPort?: number;
   agentType?: 'cursor' | 'claude';
 }): Promise<ValidationSession> {
   return invoke('create_validation_session', { input });
@@ -467,9 +465,32 @@ export async function getValidationMessages(
 
 export async function sendValidationMessage(
   sessionId: string,
-  content: string
+  content: string,
+  options?: { model?: string; timeoutMinutes?: number }
 ): Promise<ValidationMessage> {
-  return invoke('send_validation_message', { sessionId, content });
+  return invoke('send_validation_message', {
+    request: {
+      sessionId,
+      content,
+      options: options
+        ? { model: options.model ?? null, timeoutMinutes: options.timeoutMinutes ?? null }
+        : null,
+    },
+  });
+}
+
+export async function stopValidationApp(sessionId: string): Promise<void> {
+  return invoke('stop_validation_app', { sessionId });
+}
+
+export interface ValidationAppStatus {
+  running: boolean;
+}
+
+export async function getValidationAppStatus(
+  sessionId: string
+): Promise<ValidationAppStatus> {
+  return invoke('get_validation_app_status', { sessionId });
 }
 
 export async function createFixTasks(input: {

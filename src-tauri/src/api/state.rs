@@ -144,6 +144,13 @@ pub enum LiveEvent {
         message: String,
         timestamp: String,
     },
+    /// App subprocess stdout/stderr (e.g. npm run dev) for a validation session
+    ValidationAppLog {
+        session_id: String,
+        stream: String,
+        message: String,
+        timestamp: String,
+    },
 }
 
 /// Shared application state for the API server

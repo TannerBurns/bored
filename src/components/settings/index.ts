@@ -6,4 +6,5 @@ export { ClaudeSettings } from './ClaudeSettings';
 export { GeneralSettings } from './GeneralSettings';
 export { AgentWorkflowSettings } from './AgentWorkflowSettings';
 export { SpecAgentSettings } from './SpecAgentSettings';
+export { ValidationAgentSettings } from './ValidationAgentSettings';
 export { DataSettings } from './DataSettings';

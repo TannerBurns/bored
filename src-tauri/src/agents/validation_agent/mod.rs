@@ -7,10 +7,14 @@ use tokio::sync::broadcast;
 use crate::api::state::LiveEvent;
 use crate::db::models::ValidationMessage;
 
+mod app_process;
 mod prompts;
+
+pub use app_process::AppProcessManager;
 use prompts::{build_conversation_prompt, build_initial_prompt};
+use crate::agents::log_utils::extract_log_display_message;
 use crate::agents::spawner;
-use crate::agents::{extract_agent_text, AgentRunConfig, LogCallback, LogLine, LogStream};
+use crate::agents::{extract_agent_text, AgentRunConfig, LogCallback, LogLine};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 
 /// Configuration for the validation agent
@@ -86,16 +90,17 @@ impl ValidationAgent {
         let session_id = self.config.session_id.clone();
 
         let log_callback: Option<Arc<LogCallback>> = Some(Arc::new(Box::new(move |line: LogLine| {
-            let stream_str = match line.stream {
-                LogStream::Stdout => "stdout",
-                LogStream::Stderr => "stderr",
-            };
-            let _ = tx.send(LiveEvent::ValidationLogEntry {
-                session_id: session_id.clone(),
-                stream: stream_str.to_string(),
-                message: line.content,
-                timestamp: line.timestamp.to_rfc3339(),
-            });
+            let content = line.content.trim();
+            if content.len() > 3 {
+                if let Some(msg) = extract_log_display_message(content) {
+                    let _ = tx.send(LiveEvent::ValidationLogEntry {
+                        session_id: session_id.clone(),
+                        stream: "stdout".to_string(),
+                        message: msg,
+                        timestamp: line.timestamp.to_rfc3339(),
+                    });
+                }
+            }
         })));
 
         let result = tokio::task::spawn_blocking(move || {

@@ -14,11 +14,13 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
   const {
     messages,
     isAgentThinking,
+    agentLogs,
     appLogs,
     isAppRunning,
     loadMessages,
     sendMessage,
     updateSessionStatus,
+    stopApp,
   } = useValidationStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -81,6 +83,15 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
         </div>
 
         <div className="flex items-center gap-2">
+          {(session.status === 'app_running' || isAppRunning) && (
+            <button
+              onClick={() => stopApp(session.id)}
+              className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+            >
+              Stop App
+            </button>
+          )}
+
           <button
             onClick={() => setShowLogs(!showLogs)}
             className={`px-2 py-1 text-xs rounded transition-colors ${
@@ -125,10 +136,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             ))}
 
             {isAgentThinking && (
-              <ValidationThinkingBlock
-                sessionId={session.id}
-                logs={appLogs.filter((e) => e.sessionId === session.id).map((e) => e.message)}
-              />
+              <ValidationThinkingBlock sessionId={session.id} logs={agentLogs} />
             )}
 
             <div ref={messagesEndRef} />
@@ -181,20 +189,37 @@ function ValidationThinkingBlock({
             <span className="inline-block w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
             <span className="text-xs font-medium text-board-text-muted">Agent thinking</span>
           </div>
-          <div className="px-3 py-2.5 font-mono text-xs leading-relaxed max-h-48 overflow-y-auto">
+          <div className="px-3 py-2.5 font-mono text-xs leading-relaxed overflow-hidden">
             {logs.length > 0 ? (
               <div className="space-y-0.5">
-                {logs.slice(-50).map((line, i) => (
-                  <div key={`${sessionId}-${i}-${line.slice(0, 20)}`} className="truncate text-board-text-secondary">
-                    {line}
-                  </div>
-                ))}
+                {logs.slice(-5).map((log, i) => {
+                  const age = logs.slice(-5).length - 1 - i;
+                  const opacity =
+                    age >= 3 ? 'opacity-10' : age >= 2 ? 'opacity-30' : age >= 1 ? 'opacity-50' : 'opacity-80';
+                  const isLatest = i === logs.slice(-5).length - 1;
+                  return (
+                    <div
+                      key={`${sessionId}-${i}-${log.slice(0, 20)}`}
+                      className={`flex items-start gap-2 transition-opacity duration-300 ${isLatest ? 'opacity-100' : opacity}`}
+                    >
+                      <span className="text-purple-400/60 select-none">›</span>
+                      <span
+                        className={`truncate ${isLatest ? 'animate-pulse text-board-text-muted/80' : 'text-board-text-muted/50'}`}
+                      >
+                        {log}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="flex gap-1 text-board-text-muted">
-                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="flex items-center gap-2 text-board-text-muted/70">
+                <span className="animate-pulse">Exploring codebase and formulating response</span>
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1 h-1 bg-board-text-muted/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1 h-1 bg-board-text-muted/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1 h-1 bg-board-text-muted/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
               </div>
             )}
           </div>

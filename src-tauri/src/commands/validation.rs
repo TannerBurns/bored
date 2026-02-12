@@ -1,9 +1,11 @@
 //! Tauri commands for validation sessions and messages
 
 use std::sync::Arc;
+use std::path::Path;
 use tauri::State;
 use tokio::sync::broadcast;
 
+use crate::agents::validation_agent::AppProcessManager;
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
@@ -15,13 +17,41 @@ use crate::db::models::{
 };
 use crate::db::Database;
 
+/// Parsed start_app block from agent response
+struct StartAppBlock {
+    command: String,
+    _port: Option<i32>,
+}
+
+fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
+    let blocks: Vec<&str> = response_text.split("```").collect();
+    // Odd-indexed segments are the content inside fenced blocks (after "json" or first line)
+    for (i, segment) in blocks.iter().enumerate() {
+        if i % 2 == 0 {
+            continue;
+        }
+        let content = segment.trim_start();
+        let json_str = content.strip_prefix("json").map(|s| s.trim()).unwrap_or(content);
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
+                if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
+                    let port = start_app.get("port").and_then(|p| p.as_i64()).map(|p| p as i32);
+                    return Some(StartAppBlock {
+                        command: command.to_string(),
+                        _port: port,
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateValidationSessionInput {
     pub ticket_id: String,
     pub project_id: Option<String>,
-    pub app_command: Option<String>,
-    pub app_port: Option<i32>,
     /// Agent for validation chat (e.g. "cursor", "claude")
     pub agent_type: Option<String>,
 }
@@ -36,8 +66,6 @@ pub async fn create_validation_session(
         .create_validation_session(&CreateValidationSession {
             ticket_id: input.ticket_id.clone(),
             project_id: input.project_id,
-            app_command: input.app_command,
-            app_port: input.app_port,
             agent_type: input.agent_type,
         })
         .map_err(|e| e.to_string())?;
@@ -106,6 +134,52 @@ pub async fn get_validation_messages(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn stop_validation_app(
+    session_id: String,
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+    app_process_manager: State<'_, AppProcessManager>,
+) -> Result<(), String> {
+    app_process_manager.stop(&session_id);
+
+    let system_msg = db
+        .create_validation_message(&CreateValidationMessage {
+            session_id: session_id.clone(),
+            role: ValidationMessageRole::System,
+            content: "App stopped.".to_string(),
+            metadata: None,
+        })
+        .map_err(|e| e.to_string())?;
+    let _ = db.update_validation_session_status(&session_id, &ValidationSessionStatus::Chatting);
+    let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+        session_id: session_id.clone(),
+        message_id: system_msg.id,
+        role: "system".to_string(),
+    });
+    let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
+        session_id: session_id.clone(),
+    });
+
+    Ok(())
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidationAppStatus {
+    pub running: bool,
+}
+
+#[tauri::command]
+pub async fn get_validation_app_status(
+    session_id: String,
+    app_process_manager: State<'_, AppProcessManager>,
+) -> Result<ValidationAppStatus, String> {
+    Ok(ValidationAppStatus {
+        running: app_process_manager.is_running(&session_id),
+    })
+}
+
 fn resolve_validation_agent_kind(agent_type: Option<&str>) -> AgentKind {
     if agent_type == Some("cursor") {
         AgentKind::Cursor
@@ -114,15 +188,33 @@ fn resolve_validation_agent_kind(agent_type: Option<&str>) -> AgentKind {
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendValidationMessageOptions {
+    pub model: Option<String>,
+    pub timeout_minutes: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendValidationMessageRequest {
+    pub session_id: String,
+    pub content: String,
+    pub options: Option<SendValidationMessageOptions>,
+}
+
 #[tauri::command]
 pub async fn send_validation_message(
-    session_id: String,
-    content: String,
+    request: SendValidationMessageRequest,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
+    app_process_manager: State<'_, AppProcessManager>,
 ) -> Result<ValidationMessage, String> {
+    let session_id = request.session_id;
+    let content = request.content;
+    let options = request.options;
     // Store the user message
     let user_message = db
         .create_validation_message(&CreateValidationMessage {
@@ -170,19 +262,23 @@ pub async fn send_validation_message(
     let agent_kind = resolve_validation_agent_kind(session.agent_type.as_deref());
     let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
 
+    let model = options.as_ref().and_then(|o| o.model.clone());
+    let timeout_minutes = options.and_then(|o| o.timeout_minutes);
+    let timeout_secs: u64 = timeout_minutes.unwrap_or(10).saturating_mul(60).into();
+
     let config = crate::agents::validation_agent::ValidationAgentConfig {
         session_id: session_id.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        model: None,
+        model: model.clone(),
         claude_api_config,
         agent_kind,
         ticket_title: ticket.title.clone(),
         ticket_description: ticket.description_md.clone(),
         branch_diff,
         acceptance_criteria: None,
-        timeout_secs: 600,
+        timeout_secs,
     };
 
     let agent = crate::agents::validation_agent::ValidationAgent::new(
@@ -213,6 +309,84 @@ pub async fn send_validation_message(
         message_id: assistant_msg.id.clone(),
         role: "assistant".to_string(),
     });
+
+    // If the agent requested to start the app, start it and run a follow-up for testing instructions
+    if let Some(start_app) = parse_start_app_from_response(&response_text) {
+        let working_dir = Path::new(&project.path);
+        if app_process_manager
+            .start(
+                session_id.clone(),
+                start_app.command.clone(),
+                working_dir,
+                event_tx.inner().clone(),
+            )
+            .is_ok()
+        {
+            let _ = db.update_validation_session_status(
+                &session_id,
+                &ValidationSessionStatus::AppRunning,
+            );
+            let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
+                session_id: session_id.clone(),
+            });
+
+            let system_msg = db
+                .create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::System,
+                    content: format!(
+                        "App started: `{}`. Logs are streaming in the panel.",
+                        start_app.command
+                    ),
+                    metadata: None,
+                })
+                .map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: system_msg.id.clone(),
+                role: "system".to_string(),
+            });
+
+            let follow_up_user = db
+                .create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::User,
+                    content: "The application is now running. Please provide testing instructions."
+                        .to_string(),
+                    metadata: None,
+                })
+                .map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: follow_up_user.id.clone(),
+                role: "user".to_string(),
+            });
+
+            let messages = db
+                .get_validation_messages(&session_id)
+                .map_err(|e| e.to_string())?;
+            let follow_up_response = agent.process_message(&messages).await.map_err(|e| {
+                tracing::error!("Validation agent follow-up error: {}", e);
+                e
+            })?;
+
+            let second_assistant = db
+                .create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::Assistant,
+                    content: follow_up_response,
+                    metadata: None,
+                })
+                .map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: second_assistant.id.clone(),
+                role: "assistant".to_string(),
+            });
+
+            return Ok(second_assistant);
+        }
+    }
 
     Ok(assistant_msg)
 }

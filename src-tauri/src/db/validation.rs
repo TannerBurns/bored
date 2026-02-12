@@ -21,15 +21,13 @@ impl Database {
             let now_str = now.to_rfc3339();
 
             conn.execute(
-                r#"INSERT INTO validation_sessions (id, ticket_id, project_id, status, app_command, app_port, agent_type, created_at, updated_at)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+                r#"INSERT INTO validation_sessions (id, ticket_id, project_id, status, agent_type, created_at, updated_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
                 params![
                     id,
                     input.ticket_id,
                     input.project_id,
                     ValidationSessionStatus::Created.as_str(),
-                    input.app_command,
-                    input.app_port,
                     input.agent_type,
                     now_str,
                     now_str,
@@ -41,8 +39,6 @@ impl Database {
                 ticket_id: input.ticket_id.clone(),
                 project_id: input.project_id.clone(),
                 status: ValidationSessionStatus::Created,
-                app_command: input.app_command.clone(),
-                app_port: input.app_port,
                 agent_type: input.agent_type.clone(),
                 created_at: now,
                 updated_at: now,
@@ -53,7 +49,7 @@ impl Database {
     pub fn get_validation_session(&self, id: &str) -> Result<ValidationSession, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
-                r#"SELECT id, ticket_id, project_id, status, app_command, app_port, agent_type, created_at, updated_at
+                r#"SELECT id, ticket_id, project_id, status, agent_type, created_at, updated_at
                    FROM validation_sessions
                    WHERE id = ?1"#,
                 [id],
@@ -65,11 +61,9 @@ impl Database {
                         project_id: row.get(2)?,
                         status: ValidationSessionStatus::parse(&status_str)
                             .unwrap_or(ValidationSessionStatus::Created),
-                        app_command: row.get(4)?,
-                        app_port: row.get(5)?,
-                        agent_type: row.get(6)?,
-                        created_at: parse_datetime(row.get(7)?),
-                        updated_at: parse_datetime(row.get(8)?),
+                        agent_type: row.get(4)?,
+                        created_at: parse_datetime(row.get(5)?),
+                        updated_at: parse_datetime(row.get(6)?),
                     })
                 },
             )
@@ -88,7 +82,7 @@ impl Database {
     ) -> Result<Vec<ValidationSession>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, project_id, status, app_command, app_port, agent_type, created_at, updated_at
+                r#"SELECT id, ticket_id, project_id, status, agent_type, created_at, updated_at
                    FROM validation_sessions
                    WHERE ticket_id = ?1
                    ORDER BY created_at DESC"#,
@@ -103,11 +97,9 @@ impl Database {
                         project_id: row.get(2)?,
                         status: ValidationSessionStatus::parse(&status_str)
                             .unwrap_or(ValidationSessionStatus::Created),
-                        app_command: row.get(4)?,
-                        app_port: row.get(5)?,
-                        agent_type: row.get(6)?,
-                        created_at: parse_datetime(row.get(7)?),
-                        updated_at: parse_datetime(row.get(8)?),
+                        agent_type: row.get(4)?,
+                        created_at: parse_datetime(row.get(5)?),
+                        updated_at: parse_datetime(row.get(6)?),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -134,16 +126,6 @@ impl Database {
             if let Some(ref status) = input.status {
                 updates.push(format!("status = ?{}", param_index));
                 params_vec.push(Box::new(status.as_str().to_string()));
-                param_index += 1;
-            }
-            if let Some(ref cmd) = input.app_command {
-                updates.push(format!("app_command = ?{}", param_index));
-                params_vec.push(Box::new(cmd.clone()));
-                param_index += 1;
-            }
-            if let Some(port) = input.app_port {
-                updates.push(format!("app_port = ?{}", param_index));
-                params_vec.push(Box::new(port));
                 param_index += 1;
             }
 

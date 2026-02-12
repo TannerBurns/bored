@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 7;
+pub const SCHEMA_VERSION: i32 = 8;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -244,8 +244,6 @@ CREATE TABLE IF NOT EXISTS validation_sessions (
     ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'chatting', 'app_running', 'passed', 'failed')),
-    app_command TEXT,
-    app_port INTEGER,
     agent_type TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))

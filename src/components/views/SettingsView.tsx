@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, SpecAgentSettings, DataSettings } from '../settings';
+import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, SpecAgentSettings, ValidationAgentSettings, DataSettings } from '../settings';
 
-type SettingsTab = 'general' | 'workflow' | 'spec-agent' | 'cursor' | 'claude' | 'data';
+type SettingsTab = 'general' | 'workflow' | 'spec-agent' | 'validation-agent' | 'cursor' | 'claude' | 'data';
 
 const SETTINGS_TABS = [
   { id: 'general', label: 'General' },
   { id: 'workflow', label: 'Agent Workflow' },
   { id: 'spec-agent', label: 'Spec Agent' },
+  { id: 'validation-agent', label: 'Validation Agent' },
   { id: 'cursor', label: 'Cursor' },
   { id: 'claude', label: 'Claude Code' },
   { id: 'data', label: 'Data' },
@@ -41,6 +42,7 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
         {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
         {settingsTab === 'workflow' && <AgentWorkflowSettings />}
         {settingsTab === 'spec-agent' && <SpecAgentSettings />}
+        {settingsTab === 'validation-agent' && <ValidationAgentSettings />}
         {settingsTab === 'cursor' && <CursorSettings />}
         {settingsTab === 'claude' && <ClaudeSettings />}
         {settingsTab === 'data' && <DataSettings />}

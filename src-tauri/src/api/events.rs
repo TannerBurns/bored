@@ -117,6 +117,7 @@ fn event_matches_filter(
             LiveEvent::ValidationMessageAdded { .. } => "validation_message_added",
             LiveEvent::ValidationFixTasksCreated { .. } => "validation_fix_tasks_created",
             LiveEvent::ValidationLogEntry { .. } => "validation_log_entry",
+            LiveEvent::ValidationAppLog { .. } => "validation_app_log",
         };
 
         if !types.iter().any(|t| t == event_type) {

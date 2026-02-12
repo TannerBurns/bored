@@ -49,10 +49,6 @@ pub struct ValidationSession {
     pub ticket_id: String,
     pub project_id: Option<String>,
     pub status: ValidationSessionStatus,
-    /// Command to start the app (e.g. "npm run dev")
-    pub app_command: Option<String>,
-    /// Port the app runs on
-    pub app_port: Option<i32>,
     /// Agent used for validation chat (e.g. "cursor", "claude")
     pub agent_type: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -65,8 +61,6 @@ pub struct ValidationSession {
 pub struct CreateValidationSession {
     pub ticket_id: String,
     pub project_id: Option<String>,
-    pub app_command: Option<String>,
-    pub app_port: Option<i32>,
     /// Agent for validation chat (e.g. "cursor", "claude")
     pub agent_type: Option<String>,
 }
@@ -76,8 +70,6 @@ pub struct CreateValidationSession {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateValidationSession {
     pub status: Option<ValidationSessionStatus>,
-    pub app_command: Option<String>,
-    pub app_port: Option<i32>,
 }
 
 /// A message in a validation chat

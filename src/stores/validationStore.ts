@@ -6,6 +6,7 @@ import {
   getValidationSessions as apiGetSessions,
   getValidationMessages as apiGetMessages,
   sendValidationMessage as apiSendMessage,
+  stopValidationApp as apiStopValidationApp,
   updateValidationSessionStatus as apiUpdateStatus,
   deleteValidationSession as apiDeleteSession,
   createFixTasks as apiCreateFixTasks,
@@ -14,6 +15,7 @@ import {
   getBranchDiff as apiGetDiff,
   getBranchDiffFiles as apiGetDiffFiles,
 } from '../lib/tauri';
+import { useSettingsStore } from './settingsStore';
 import type { FixTask, PushResult, PullRequestResult, BranchDiff, FileDiff } from '../types';
 import { logger } from '../lib/logger';
 
@@ -35,7 +37,10 @@ interface ValidationState {
   messages: ValidationMessage[];
   isAgentThinking: boolean;
 
-  // App runner state
+  // Agent thinking logs (processed CLI output for current session)
+  agentLogs: string[];
+
+  // App subprocess logs (e.g. npm run dev stdout/stderr)
   appLogs: AppLogEntry[];
   isAppRunning: boolean;
 
@@ -48,8 +53,6 @@ interface ValidationState {
   createSession: (input: {
     ticketId: string;
     projectId?: string;
-    appCommand?: string;
-    appPort?: number;
     agentType?: 'cursor' | 'claude';
   }) => Promise<ValidationSession>;
   selectSession: (session: ValidationSession | null) => void;
@@ -64,10 +67,15 @@ interface ValidationState {
   setAgentThinking: (thinking: boolean) => void;
   clearMessages: () => void;
 
+  // Agent log actions (thinking block)
+  addAgentLog: (message: string) => void;
+  clearAgentLogs: () => void;
+
   // App log actions
   addAppLog: (log: AppLogEntry) => void;
   clearAppLogs: () => void;
   setAppRunning: (running: boolean) => void;
+  stopApp: (sessionId: string) => Promise<void>;
 
   // Next steps actions
   pushBranch: (ticketId: string) => Promise<PushResult>;
@@ -88,6 +96,7 @@ export const useValidationStore = create<ValidationState>((set) => ({
   currentSession: null,
   messages: [],
   isAgentThinking: false,
+  agentLogs: [],
   appLogs: [],
   isAppRunning: false,
   isLoading: false,
@@ -125,6 +134,7 @@ export const useValidationStore = create<ValidationState>((set) => ({
     set({
       currentSession: session,
       messages: [],
+      agentLogs: [],
       appLogs: [],
       isAgentThinking: false,
       error: null,
@@ -190,8 +200,12 @@ export const useValidationStore = create<ValidationState>((set) => ({
 
   sendMessage: async (sessionId, content) => {
     try {
-      set({ isAgentThinking: true, appLogs: [] });
-      const message = await apiSendMessage(sessionId, content);
+      set({ isAgentThinking: true, agentLogs: [] });
+      const { validationModel, validationTimeoutMinutes } = useSettingsStore.getState();
+      const message = await apiSendMessage(sessionId, content, {
+        model: validationModel,
+        timeoutMinutes: validationTimeoutMinutes,
+      });
       // Reload all messages from DB to get full content (replaces SSE placeholders)
       const messages = await apiGetMessages(sessionId);
       set({
@@ -224,6 +238,15 @@ export const useValidationStore = create<ValidationState>((set) => ({
 
   clearMessages: () => set({ messages: [] }),
 
+  // Agent log actions (thinking block)
+  addAgentLog: (message) => {
+    set((state) => ({
+      agentLogs: [...state.agentLogs, message],
+    }));
+  },
+
+  clearAgentLogs: () => set({ agentLogs: [] }),
+
   // App log actions
   addAppLog: (log) => {
     set((state) => ({
@@ -234,6 +257,23 @@ export const useValidationStore = create<ValidationState>((set) => ({
   clearAppLogs: () => set({ appLogs: [] }),
 
   setAppRunning: (running) => set({ isAppRunning: running }),
+
+  stopApp: async (sessionId) => {
+    try {
+      await apiStopValidationApp(sessionId);
+      const session = await apiGetSession(sessionId);
+      set((state) => ({
+        currentSession:
+          state.currentSession?.id === sessionId ? session : state.currentSession,
+        sessions: state.sessions.map((s) =>
+          s.id === sessionId ? session : s
+        ),
+      }));
+    } catch (e) {
+      logger.error('Failed to stop validation app', e);
+      set({ error: String(e) });
+    }
+  },
 
   // Next steps actions
   pushBranch: async (ticketId) => {
@@ -298,6 +338,7 @@ export const useValidationStore = create<ValidationState>((set) => ({
       currentSession: null,
       messages: [],
       isAgentThinking: false,
+      agentLogs: [],
       appLogs: [],
       isAppRunning: false,
       isLoading: false,
