@@ -50,7 +50,7 @@ export function CommentsSection({
   return (
     <div>
       <div
-        className="flex items-center justify-between mb-3 cursor-pointer group"
+        className="flex items-center gap-1.5 mb-3 cursor-pointer group w-fit"
         role="button"
         tabIndex={0}
         aria-expanded={!isCollapsed}
