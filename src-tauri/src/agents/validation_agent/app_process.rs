@@ -147,8 +147,10 @@ impl AppProcessManager {
                         .rev()
                         .collect::<Vec<_>>()
                         .join("\n");
-                    // Remove the dead process from the map
-                    guard.remove(&session_id);
+                    // Remove the dead process from the map and clean up its worktree
+                    if let Some(handle) = guard.remove(&session_id) {
+                        cleanup_worktree(handle.worktree_path, handle.repo_path);
+                    }
                     return Ok(StartResult::ExitedEarly { exit_code, output });
                 }
             }
@@ -166,11 +168,7 @@ impl AppProcessManager {
             if let Some(mut handle) = guard.remove(session_id) {
                 kill_process_tree(&mut handle);
                 // Clean up the worktree after the process is dead
-                if let (Some(wt), Some(repo)) = (handle.worktree_path, handle.repo_path) {
-                    if let Err(e) = crate::agents::worktree::remove_worktree(&wt, &repo) {
-                        tracing::warn!("Failed to remove validation worktree: {}", e);
-                    }
-                }
+                cleanup_worktree(handle.worktree_path, handle.repo_path);
             }
         }
     }
@@ -232,6 +230,15 @@ fn kill_process_tree(handle: &mut AppProcessHandle) {
     {
         let _ = handle.child.kill();
         let _ = handle.child.wait();
+    }
+}
+
+/// Clean up a git worktree associated with a process handle (best-effort).
+fn cleanup_worktree(worktree_path: Option<PathBuf>, repo_path: Option<PathBuf>) {
+    if let (Some(wt), Some(repo)) = (worktree_path, repo_path) {
+        if let Err(e) = crate::agents::worktree::remove_worktree(&wt, &repo) {
+            tracing::warn!("Failed to remove validation worktree: {}", e);
+        }
     }
 }
 
