@@ -19,6 +19,14 @@ use std::os::unix::process::CommandExt;
 
 use crate::api::state::LiveEvent;
 
+/// Result of starting the app subprocess
+pub enum StartResult {
+    /// Process is still running after the initial check
+    Running,
+    /// Process exited within the first few seconds
+    ExitedEarly { exit_code: i32, output: String },
+}
+
 struct AppProcessHandle {
     child: Child,
     /// PID used for process-group kill on Unix
@@ -60,11 +68,8 @@ impl AppProcessManager {
         event_tx: broadcast::Sender<LiveEvent>,
         worktree_path: Option<PathBuf>,
         repo_path: Option<PathBuf>,
-    ) -> Result<(), String> {
+    ) -> Result<StartResult, String> {
         self.stop(&session_id);
-
-        // If node_modules is missing and a package.json exists, install deps first
-        install_deps_if_needed(working_dir);
 
         let (program, args) = parse_shell_command(&command)?;
 
@@ -125,11 +130,36 @@ impl AppProcessManager {
         });
 
         self.processes.lock().map_err(|e| e.to_string())?.insert(
-            session_id,
-            AppProcessHandle { child, pid, log_path, worktree_path, repo_path },
+            session_id.clone(),
+            AppProcessHandle { child, pid, log_path: log_path.clone(), worktree_path, repo_path },
         );
 
-        Ok(())
+        // Wait briefly and check if the process exited immediately (bad command, missing binary, etc.)
+        thread::sleep(Duration::from_secs(3));
+
+        if let Ok(mut guard) = self.processes.lock() {
+            if let Some(handle) = guard.get_mut(&session_id) {
+                if let Ok(Some(status)) = handle.child.try_wait() {
+                    let exit_code = status.code().unwrap_or(-1);
+                    // Read last lines from the log file for context
+                    let output = std::fs::read_to_string(&log_path)
+                        .unwrap_or_default()
+                        .lines()
+                        .rev()
+                        .take(50)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    // Remove the dead process from the map
+                    guard.remove(&session_id);
+                    return Ok(StartResult::ExitedEarly { exit_code, output });
+                }
+            }
+        }
+
+        Ok(StartResult::Running)
     }
 
     /// Stop the app process for the given session, if any.
@@ -185,58 +215,6 @@ impl AppProcessManager {
 impl Drop for AppProcessManager {
     fn drop(&mut self) {
         self.stop_all();
-    }
-}
-
-/// Install dependencies in the working directory if needed.
-/// Detects Node.js projects (package.json without node_modules) and runs
-/// the appropriate package manager install command.
-fn install_deps_if_needed(working_dir: &Path) {
-    let has_package_json = working_dir.join("package.json").exists();
-    let has_node_modules = working_dir.join("node_modules").exists();
-
-    if !has_package_json || has_node_modules {
-        return;
-    }
-
-    // Detect lock file to pick the right package manager
-    let (program, args): (&str, &[&str]) = if working_dir.join("pnpm-lock.yaml").exists() {
-        ("pnpm", &["install", "--frozen-lockfile"])
-    } else if working_dir.join("yarn.lock").exists() {
-        ("yarn", &["install", "--frozen-lockfile"])
-    } else if working_dir.join("bun.lockb").exists() {
-        ("bun", &["install", "--frozen-lockfile"])
-    } else {
-        ("npm", &["install"])
-    };
-
-    tracing::info!(
-        "Installing dependencies in {} with {} ...",
-        working_dir.display(),
-        program
-    );
-
-    match Command::new(program)
-        .args(args)
-        .current_dir(working_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            tracing::info!("Dependency install succeeded in {}", working_dir.display());
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!(
-                "Dependency install failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.chars().take(500).collect::<String>()
-            );
-        }
-        Err(e) => {
-            tracing::warn!("Failed to run {} install: {}", program, e);
-        }
     }
 }
 

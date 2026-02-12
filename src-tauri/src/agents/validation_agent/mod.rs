@@ -10,7 +10,7 @@ use crate::db::models::ValidationMessage;
 mod app_process;
 mod prompts;
 
-pub use app_process::AppProcessManager;
+pub use app_process::{AppProcessManager, StartResult};
 use prompts::{build_conversation_prompt, build_initial_prompt};
 use crate::agents::log_utils::extract_log_display_message;
 use crate::agents::spawner;

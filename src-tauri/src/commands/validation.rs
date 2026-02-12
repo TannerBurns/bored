@@ -5,7 +5,7 @@ use std::path::Path;
 use tauri::State;
 use tokio::sync::broadcast;
 
-use crate::agents::validation_agent::AppProcessManager;
+use crate::agents::validation_agent::{AppProcessManager, StartResult};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
@@ -21,6 +21,11 @@ use crate::db::Database;
 struct StartAppBlock {
     command: String,
     port: Option<i32>,
+}
+
+/// Parsed run_command block from agent response
+struct RunCommandBlock {
+    command: String,
 }
 
 /// Parsed create_fix_tasks block from agent response
@@ -73,6 +78,19 @@ fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
                 return Some(StartAppBlock {
                     command: command.to_string(),
                     port,
+                });
+            }
+        }
+    }
+    None
+}
+
+fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
+    for v in parse_fenced_json_blocks(response_text) {
+        if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
+            if let Some(command) = rc.get("command").and_then(|c| c.as_str()) {
+                return Some(RunCommandBlock {
+                    command: command.to_string(),
                 });
             }
         }
@@ -465,63 +483,207 @@ pub async fn send_validation_message(
         role: "assistant".to_string(),
     });
 
-    // If the agent requested to start the app, start it and run a follow-up for testing instructions
-    if let Some(start_app) = parse_start_app_from_response(&response_text) {
-        // Try to get the ticket's branch and resolve or create a worktree
-        let (working_dir_path, worktree_path, repo_path_for_cleanup) = {
-            match get_ticket_working_dir(db.inner(), &session.ticket_id) {
-                Ok((wt_path, _branch)) => {
-                    // get_ticket_working_dir found an existing worktree or returned project path
-                    // Check if it's actually a worktree (different from project.path)
-                    if wt_path != project.path {
-                        (wt_path, None, None) // existing worktree, no cleanup needed
-                    } else {
-                        // No worktree exists; create one for the validation session
-                        let ticket = db.get_ticket(&session.ticket_id).ok();
-                        let branch = ticket.as_ref().and_then(|t| t.branch_name.clone());
-                        if let Some(branch_name) = branch {
-                            let repo = std::path::PathBuf::from(&project.path);
-                            match crate::agents::worktree::create_worktree_with_existing_branch(
-                                &repo,
-                                &branch_name,
-                                &format!("validation-{}", session_id),
-                                None,
-                            ) {
-                                Ok(wt_info) => {
-                                    tracing::info!(
-                                        "Created validation worktree at {} for branch {}",
-                                        wt_info.path.display(),
-                                        branch_name
-                                    );
-                                    let wt = wt_info.path.clone();
-                                    (wt.to_string_lossy().to_string(), Some(wt), Some(repo))
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to create validation worktree: {}", e);
-                                    (project.path.clone(), None, None)
-                                }
+    // Resolve the working directory (worktree) for commands and app startup.
+    // Done once, used by both run_command and start_app.
+    let (working_dir_path, worktree_path, repo_path_for_cleanup) = {
+        match get_ticket_working_dir(db.inner(), &session.ticket_id) {
+            Ok((wt_path, _branch)) => {
+                if wt_path != project.path {
+                    (wt_path, None, None)
+                } else {
+                    let ticket_for_branch = db.get_ticket(&session.ticket_id).ok();
+                    let branch = ticket_for_branch.as_ref().and_then(|t| t.branch_name.clone());
+                    if let Some(branch_name) = branch {
+                        let repo = std::path::PathBuf::from(&project.path);
+                        match crate::agents::worktree::create_worktree_with_existing_branch(
+                            &repo,
+                            &branch_name,
+                            &format!("validation-{}", session_id),
+                            None,
+                        ) {
+                            Ok(wt_info) => {
+                                tracing::info!(
+                                    "Created validation worktree at {} for branch {}",
+                                    wt_info.path.display(),
+                                    branch_name
+                                );
+                                let wt = wt_info.path.clone();
+                                (wt.to_string_lossy().to_string(), Some(wt), Some(repo))
                             }
-                        } else {
-                            (project.path.clone(), None, None)
+                            Err(e) => {
+                                tracing::warn!("Failed to create validation worktree: {}", e);
+                                (project.path.clone(), None, None)
+                            }
                         }
+                    } else {
+                        (project.path.clone(), None, None)
                     }
                 }
-                Err(_) => (project.path.clone(), None, None),
             }
-        };
-        let working_dir = Path::new(&working_dir_path);
+            Err(_) => (project.path.clone(), None, None),
+        }
+    };
+    let working_dir = Path::new(&working_dir_path);
 
-        if app_process_manager
-            .start(
-                session_id.clone(),
-                start_app.command.clone(),
-                working_dir,
-                event_tx.inner().clone(),
-                worktree_path,
-                repo_path_for_cleanup,
-            )
-            .is_ok()
-        {
+    // Handle run_command: run the command synchronously, feed output back to agent.
+    // The agent may chain multiple run_command + start_app across follow-ups.
+    let mut current_response = response_text.clone();
+    let mut last_assistant_msg = assistant_msg;
+    const MAX_COMMAND_ROUNDS: usize = 10;
+
+    for _round in 0..MAX_COMMAND_ROUNDS {
+        if let Some(rc) = parse_run_command_from_response(&current_response) {
+            tracing::info!("Running validation command: {}", rc.command);
+
+            let cmd_output = std::process::Command::new("sh")
+                .args(["-c", &rc.command])
+                .current_dir(working_dir)
+                .output();
+
+            let (exit_code, stdout_str, stderr_str) = match cmd_output {
+                Ok(output) => (
+                    output.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&output.stdout).to_string(),
+                    String::from_utf8_lossy(&output.stderr).to_string(),
+                ),
+                Err(e) => (-1, String::new(), format!("Failed to execute: {}", e)),
+            };
+
+            let combined = if stderr_str.is_empty() {
+                stdout_str.chars().take(3000).collect::<String>()
+            } else {
+                let out: String = stdout_str.chars().take(1500).collect();
+                let err: String = stderr_str.chars().take(1500).collect();
+                format!("stdout:\n{}\nstderr:\n{}", out, err)
+            };
+
+            let status_label = if exit_code == 0 { "success" } else { "failed" };
+            let sys_content = format!(
+                "Ran `{}` (exit {}, {})",
+                rc.command, exit_code, status_label
+            );
+            let _ = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::System,
+                content: sys_content,
+                metadata: None,
+            });
+
+            // Feed output back to agent
+            let follow_up_content = format!(
+                "Command `{}` finished with exit code {}.\n\nOutput:\n```\n{}\n```",
+                rc.command, exit_code, combined
+            );
+            let _ = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::User,
+                content: follow_up_content,
+                metadata: None,
+            });
+
+            let msgs = db.get_validation_messages(&session_id).map_err(|e| e.to_string())?;
+            let next_response = agent.process_message(&msgs).await.map_err(|e| {
+                tracing::error!("Validation agent follow-up error: {}", e);
+                e
+            })?;
+
+            let next_has_fix = parse_create_fix_tasks_from_response(&next_response).is_some();
+            let next_meta = if next_has_fix {
+                Some(serde_json::json!({ "type": "fix_task_response" }))
+            } else {
+                None
+            };
+
+            let next_msg = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::Assistant,
+                content: next_response.clone(),
+                metadata: next_meta,
+            }).map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: next_msg.id.clone(),
+                role: "assistant".to_string(),
+            });
+
+            process_fix_tasks_in_response(
+                &next_response, db.inner(), &session_id, &session.ticket_id,
+                &ticket.title, &ticket.board_id, event_tx.inner(),
+            );
+
+            current_response = next_response;
+            last_assistant_msg = next_msg;
+            continue; // check if the new response has another run_command or start_app
+        }
+        break; // no run_command found, move on
+    }
+
+    // If the agent requested to start the app, start it and run a follow-up for testing instructions
+    if let Some(start_app) = parse_start_app_from_response(&current_response) {
+        let start_result = app_process_manager.start(
+            session_id.clone(),
+            start_app.command.clone(),
+            working_dir,
+            event_tx.inner().clone(),
+            worktree_path,
+            repo_path_for_cleanup,
+        );
+
+        match start_result {
+            Ok(StartResult::ExitedEarly { exit_code, output }) => {
+                // App failed to start -- feed the error back to the agent so it can diagnose
+                let err_content = format!(
+                    "The app failed to start. Command `{}` exited with code {}.\n\nLast output:\n```\n{}\n```\n\nPlease diagnose the issue and output a `run_command` to fix it, or a new `start_app` to try again.",
+                    start_app.command, exit_code, output.chars().take(3000).collect::<String>()
+                );
+                let _ = db.create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::System,
+                    content: format!("App failed to start: `{}` (exit {})", start_app.command, exit_code),
+                    metadata: None,
+                });
+                let _ = db.create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::User,
+                    content: err_content,
+                    metadata: None,
+                });
+
+                let msgs = db.get_validation_messages(&session_id).map_err(|e| e.to_string())?;
+                let retry_response = agent.process_message(&msgs).await.map_err(|e| {
+                    tracing::error!("Validation agent retry error: {}", e);
+                    e
+                })?;
+
+                let retry_msg = db.create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::Assistant,
+                    content: retry_response.clone(),
+                    metadata: None,
+                }).map_err(|e| e.to_string())?;
+                let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                    session_id: session_id.clone(),
+                    message_id: retry_msg.id.clone(),
+                    role: "assistant".to_string(),
+                });
+
+                // The retry response may contain run_command or start_app -- but we don't
+                // recurse here to keep complexity bounded. The user can send another message
+                // or the agent's response will guide them.
+                process_fix_tasks_in_response(
+                    &retry_response, db.inner(), &session_id, &session.ticket_id,
+                    &ticket.title, &ticket.board_id, event_tx.inner(),
+                );
+                return Ok(retry_msg);
+            }
+            Err(e) => {
+                tracing::error!("Failed to start app: {}", e);
+                // Fall through -- don't block the response
+            }
+            Ok(StartResult::Running) => {}
+        }
+
+        if app_process_manager.is_running(&session_id) {
             let _ = db.update_validation_session_status(
                 &session_id,
                 &ValidationSessionStatus::AppRunning,
@@ -622,11 +784,11 @@ pub async fn send_validation_message(
 
     // If the agent requested to create fix tasks, create them automatically
     process_fix_tasks_in_response(
-        &response_text, db.inner(), &session_id, &session.ticket_id,
+        &current_response, db.inner(), &session_id, &session.ticket_id,
         &ticket.title, &ticket.board_id, event_tx.inner(),
     );
 
-    Ok(assistant_msg)
+    Ok(last_assistant_msg)
 }
 
 #[derive(Debug, serde::Deserialize)]
