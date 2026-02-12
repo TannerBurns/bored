@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import type { AppLogEntry } from '../../stores/validationStore';
 
 interface AppLogPanelProps {
@@ -6,15 +6,24 @@ interface AppLogPanelProps {
   isAppRunning: boolean;
 }
 
+/** Max visible lines rendered at once to avoid DOM overload */
+const MAX_RENDERED = 200;
+
 export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+
+  // Only render the tail slice to keep the DOM small
+  const visibleLogs = useMemo(
+    () => (logs.length > MAX_RENDERED ? logs.slice(-MAX_RENDERED) : logs),
+    [logs]
+  );
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs, autoScroll]);
+  }, [visibleLogs, autoScroll]);
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
@@ -24,7 +33,7 @@ export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       <div className="flex items-center justify-between px-3 py-2 border-b border-board-border">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-board-text-secondary">App Logs</span>
@@ -50,16 +59,23 @@ export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
             {isAppRunning ? 'Waiting for output...' : 'No logs yet. Start the app to see output.'}
           </div>
         ) : (
-          logs.map((log) => (
-            <div
-              key={log.id}
-              className={`py-0.5 ${
-                log.stream === 'stderr' ? 'text-red-400' : 'text-board-text-secondary'
-              }`}
-            >
-              {log.message}
-            </div>
-          ))
+          <>
+            {logs.length > MAX_RENDERED && (
+              <div className="text-board-text-muted text-center py-1">
+                ... {logs.length - MAX_RENDERED} earlier lines omitted ...
+              </div>
+            )}
+            {visibleLogs.map((log, i) => (
+              <div
+                key={i}
+                className={`py-0.5 break-all ${
+                  log.stream === 'stderr' ? 'text-red-400' : 'text-board-text-secondary'
+                }`}
+              >
+                {log.message}
+              </div>
+            ))}
+          </>
         )}
       </div>
 

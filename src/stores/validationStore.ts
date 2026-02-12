@@ -249,9 +249,11 @@ export const useValidationStore = create<ValidationState>((set) => ({
 
   // App log actions
   addAppLog: (log) => {
-    set((state) => ({
-      appLogs: [...state.appLogs, log],
-    }));
+    set((state) => {
+      const MAX_APP_LOGS = 500;
+      const next = [...state.appLogs, log];
+      return { appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next };
+    });
   },
 
   clearAppLogs: () => set({ appLogs: [] }),
