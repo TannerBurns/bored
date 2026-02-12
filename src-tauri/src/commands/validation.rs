@@ -214,7 +214,7 @@ pub async fn send_validation_message(
         role: "assistant".to_string(),
     });
 
-    Ok(user_message)
+    Ok(assistant_msg)
 }
 
 #[derive(Debug, serde::Deserialize)]
