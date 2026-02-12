@@ -98,13 +98,13 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       <div className="grid grid-cols-2 gap-2">
         {/* Validate with agent dropdown */}
         {onValidate && (
-          <div className="col-span-2 flex items-center gap-2">
+          <div className="col-span-2">
             <BuildWithDropdown
               label="Validate with"
+              title="Open validation chat — choose Cursor or Claude to verify this ticket's changes in a dedicated chat view"
               onSelect={(agent: 'cursor' | 'claude') => onValidate(ticket.id, agent)}
               disabled={false}
             />
-            <span className="text-xs text-board-text-muted">to validate</span>
           </div>
         )}
 

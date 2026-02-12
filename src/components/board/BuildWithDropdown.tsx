@@ -8,6 +8,8 @@ interface BuildWithDropdownProps {
   disabledReason?: string;
   /** Button label (default: "Build with") */
   label?: string;
+  /** Tooltip shown on hover (e.g. explains what the button does) */
+  title?: string;
 }
 
 export function BuildWithDropdown({
@@ -15,6 +17,7 @@ export function BuildWithDropdown({
   disabled = false,
   disabledReason,
   label = 'Build with',
+  title: titleProp,
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
@@ -75,7 +78,7 @@ export function BuildWithDropdown({
         ref={buttonRef}
         onClick={handleToggle}
         disabled={disabled}
-        title={disabled && disabledReason ? disabledReason : undefined}
+        title={titleProp ?? (disabled && disabledReason ? disabledReason : undefined)}
         className={`
           glass rounded-xl px-4 py-2 text-sm font-medium
           flex items-center gap-2
