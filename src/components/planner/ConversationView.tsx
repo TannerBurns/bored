@@ -34,6 +34,11 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
   const status: SpecVersionStatus = spec.latestVersion?.status ?? 'conversing';
   const prevStatusRef = useRef(status);
 
+  const agentType =
+    spec.settings?.agentType === 'cursor' || spec.settings?.agentType === 'claude'
+      ? spec.settings.agentType
+      : undefined;
+
   // Clear conversation state when switching to a different spec
   useEffect(() => {
     if (prevSpecIdRef.current !== spec.id) {
@@ -56,7 +61,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
           setAgentThinking(true);
           
           try {
-            await startConversation(spec.id, plannerTimeoutMinutes);
+            await startConversation(spec.id, plannerTimeoutMinutes, agentType);
             // Messages will arrive via SSE, but also fetch to be safe
             const newMessages = await getConversationMessages(spec.id);
             setConversationMessages(newMessages);
@@ -74,7 +79,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
     
     // Don't clear on unmount - preserve logs and messages for when user returns
     // Cleanup only happens when spec changes or conversation completes
-  }, [spec.id, status, setConversationMessages, setAgentThinking]);
+  }, [spec.id, status, agentType, setConversationMessages, setAgentThinking]);
 
   const handleSendMessage = async (content: string) => {
     if (!content.trim() || isSending) return;
@@ -86,7 +91,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
     try {
       // Don't add optimistically - SSE will add the message
       // This prevents duplicates from optimistic + SSE + fetch
-      await sendConversationMessage(spec.id, content.trim(), plannerTimeoutMinutes);
+      await sendConversationMessage(spec.id, content.trim(), plannerTimeoutMinutes, agentType);
       // SSE will handle adding the messages in real-time
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');

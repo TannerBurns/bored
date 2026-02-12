@@ -386,6 +386,8 @@ export interface CreateSpecInput {
   userInput: string;
   /** Preferred model */
   model?: string;
+  /** Optional settings (e.g. agentType: 'cursor' | 'claude' for brainstorm) */
+  settings?: Record<string, unknown>;
 }
 
 export interface UpdateSpecInput {
@@ -483,6 +485,8 @@ export interface ValidationSession {
   status: ValidationSessionStatus;
   appCommand?: string;
   appPort?: number;
+  /** Agent used for validation chat (e.g. 'cursor', 'claude') */
+  agentType?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -520,5 +524,25 @@ export interface BranchDiff {
   diff: string;
   filesChanged: number;
   branch: string;
+}
+
+export interface DiffLine {
+  lineType: 'add' | 'delete' | 'context';
+  content: string;
+  oldLineNum?: number;
+  newLineNum?: number;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface FileDiff {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hunks: DiffHunk[];
 }
 

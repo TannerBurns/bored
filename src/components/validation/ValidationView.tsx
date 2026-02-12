@@ -1,15 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useValidationStore } from '../../stores/validationStore';
 import { ValidationChatView } from './ValidationChatView';
 import type { ValidationSession, Ticket } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
+import { getTicket } from '../../lib/tauri';
 
 interface ValidationViewProps {
-  /** If provided, auto-opens validation for this ticket */
+  /** When both set, auto-create a session and open chat (from ticket Next Steps) */
   initialTicketId?: string;
+  initialAgentType?: 'cursor' | 'claude';
+  /** Called after auto-created session is opened so parent can clear initial state */
+  onConsumedInitial?: () => void;
 }
 
-export function ValidationView({ initialTicketId }: ValidationViewProps) {
+export function ValidationView({
+  initialTicketId,
+  initialAgentType,
+  onConsumedInitial,
+}: ValidationViewProps) {
   const {
     currentSession,
     createSession,
@@ -20,11 +28,8 @@ export function ValidationView({ initialTicketId }: ValidationViewProps) {
   } = useValidationStore();
 
   const [tickets, setTickets] = useState<Record<string, Ticket>>({});
-  const [showNewSession, setShowNewSession] = useState(false);
-  const [newSessionTicketId, setNewSessionTicketId] = useState(initialTicketId || '');
-  const [newSessionCommand, setNewSessionCommand] = useState('');
-  const [newSessionPort, setNewSessionPort] = useState('');
   const [allSessions, setAllSessions] = useState<ValidationSession[]>([]);
+  const initialConsumedRef = useRef(false);
 
   // Load all sessions on mount
   const loadAllSessions = useCallback(async () => {
@@ -65,37 +70,43 @@ export function ValidationView({ initialTicketId }: ValidationViewProps) {
     loadAllSessions();
   }, [loadAllSessions]);
 
-  // Auto-create session for initial ticket
+  // Auto-create session when opened from ticket Next Steps (initialTicketId + initialAgentType)
   useEffect(() => {
-    if (initialTicketId && allSessions.length === 0) {
-      // Check if there's already a session for this ticket
-      const existing = allSessions.find(
-        (s) => s.ticketId === initialTicketId && s.status !== 'passed' && s.status !== 'failed'
-      );
-      if (existing) {
-        selectSession(existing);
-      }
+    if (
+      !initialTicketId ||
+      !initialAgentType ||
+      initialConsumedRef.current ||
+      isLoading
+    ) {
+      return;
     }
-  }, [initialTicketId, allSessions, selectSession]);
+    initialConsumedRef.current = true;
 
-  const handleCreateSession = async () => {
-    if (!newSessionTicketId) return;
-    try {
-      const session = await createSession({
-        ticketId: newSessionTicketId,
-        appCommand: newSessionCommand || undefined,
-        appPort: newSessionPort ? parseInt(newSessionPort, 10) : undefined,
-      });
-      setShowNewSession(false);
-      setNewSessionTicketId('');
-      setNewSessionCommand('');
-      setNewSessionPort('');
-      selectSession(session);
-      loadAllSessions();
-    } catch {
-      // Error handled in store
-    }
-  };
+    const run = async () => {
+      try {
+        const ticket = await getTicket(initialTicketId);
+        const session = await createSession({
+          ticketId: initialTicketId,
+          projectId: ticket.projectId ?? undefined,
+          agentType: initialAgentType,
+        });
+        selectSession(session);
+        loadAllSessions();
+        onConsumedInitial?.();
+      } catch {
+        initialConsumedRef.current = false;
+      }
+    };
+    void run();
+  }, [
+    initialTicketId,
+    initialAgentType,
+    isLoading,
+    createSession,
+    selectSession,
+    loadAllSessions,
+    onConsumedInitial,
+  ]);
 
   const handleDeleteSession = async (sessionId: string) => {
     await deleteSession(sessionId);
@@ -141,77 +152,15 @@ export function ValidationView({ initialTicketId }: ValidationViewProps) {
           <div>
             <h2 className="text-lg font-semibold text-board-text">Validation</h2>
             <p className="text-xs text-board-text-muted mt-0.5">
-              Validate completed tickets with an AI agent
+              Validate completed tickets from a ticket&apos;s &quot;Work Complete&quot; panel
             </p>
           </div>
-          <button
-            onClick={() => setShowNewSession(true)}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-board-accent hover:bg-board-accent-hover text-white transition-colors"
-          >
-            New Session
-          </button>
         </div>
 
         {/* Error */}
         {error && (
           <div className="mx-6 mt-4 p-3 rounded-lg bg-red-500/10 text-red-400 text-xs">
             {error}
-          </div>
-        )}
-
-        {/* New session form */}
-        {showNewSession && (
-          <div className="mx-6 mt-4 p-4 rounded-lg border border-board-border bg-board-hover/50 space-y-3">
-            <h3 className="text-sm font-medium text-board-text">Create Validation Session</h3>
-            <div className="space-y-2">
-              <div>
-                <label className="text-xs text-board-text-muted block mb-1">Ticket ID</label>
-                <input
-                  type="text"
-                  value={newSessionTicketId}
-                  onChange={(e) => setNewSessionTicketId(e.target.value)}
-                  placeholder="ticket-id..."
-                  className="w-full px-3 py-2 text-xs rounded-lg glass text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-board-text-muted block mb-1">App Command (optional)</label>
-                  <input
-                    type="text"
-                    value={newSessionCommand}
-                    onChange={(e) => setNewSessionCommand(e.target.value)}
-                    placeholder="npm run dev"
-                    className="w-full px-3 py-2 text-xs rounded-lg glass text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-board-text-muted block mb-1">Port (optional)</label>
-                  <input
-                    type="number"
-                    value={newSessionPort}
-                    onChange={(e) => setNewSessionPort(e.target.value)}
-                    placeholder="3000"
-                    className="w-full px-3 py-2 text-xs rounded-lg glass text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setShowNewSession(false)}
-                className="px-3 py-1.5 text-xs rounded-lg bg-board-hover text-board-text-muted hover:text-board-text transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateSession}
-                disabled={!newSessionTicketId || isLoading}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-board-accent hover:bg-board-accent-hover text-white transition-colors disabled:opacity-50"
-              >
-                {isLoading ? 'Creating...' : 'Create'}
-              </button>
-            </div>
           </div>
         )}
 
@@ -225,7 +174,7 @@ export function ValidationView({ initialTicketId }: ValidationViewProps) {
               </svg>
               <p className="text-sm">No validation sessions yet</p>
               <p className="text-xs mt-1">
-                Create a session from a completed ticket's "Next Steps" panel, or click "New Session" above.
+                Move a ticket to Done or Review and use &quot;Build with&quot; (Cursor or Claude) to validate from the Work Complete panel.
               </p>
             </div>
           ) : (
@@ -252,7 +201,6 @@ export function ValidationView({ initialTicketId }: ValidationViewProps) {
                         </span>
                       </div>
                       <div className="text-xs text-board-text-muted mt-0.5">
-                        {session.appCommand && <span>{session.appCommand} </span>}
                         <span>Created {new Date(session.createdAt).toLocaleDateString()}</span>
                       </div>
                     </div>

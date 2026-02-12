@@ -53,6 +53,8 @@ pub struct ValidationSession {
     pub app_command: Option<String>,
     /// Port the app runs on
     pub app_port: Option<i32>,
+    /// Agent used for validation chat (e.g. "cursor", "claude")
+    pub agent_type: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -65,6 +67,8 @@ pub struct CreateValidationSession {
     pub project_id: Option<String>,
     pub app_command: Option<String>,
     pub app_port: Option<i32>,
+    /// Agent for validation chat (e.g. "cursor", "claude")
+    pub agent_type: Option<String>,
 }
 
 /// Update a validation session

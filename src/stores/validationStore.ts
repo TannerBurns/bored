@@ -12,9 +12,9 @@ import {
   pushBranch as apiPushBranch,
   createPullRequest as apiCreatePR,
   getBranchDiff as apiGetDiff,
-  openInEditor as apiOpenInEditor,
+  getBranchDiffFiles as apiGetDiffFiles,
 } from '../lib/tauri';
-import type { FixTask, PushResult, PullRequestResult, BranchDiff } from '../types';
+import type { FixTask, PushResult, PullRequestResult, BranchDiff, FileDiff } from '../types';
 import { logger } from '../lib/logger';
 
 /** A log entry from the app runner */
@@ -50,6 +50,7 @@ interface ValidationState {
     projectId?: string;
     appCommand?: string;
     appPort?: number;
+    agentType?: 'cursor' | 'claude';
   }) => Promise<ValidationSession>;
   selectSession: (session: ValidationSession | null) => void;
   updateSessionStatus: (sessionId: string, status: string) => Promise<void>;
@@ -72,7 +73,7 @@ interface ValidationState {
   pushBranch: (ticketId: string) => Promise<PushResult>;
   createPullRequest: (ticketId: string, title?: string, body?: string) => Promise<PullRequestResult>;
   getBranchDiff: (ticketId: string) => Promise<BranchDiff>;
-  openInEditor: (ticketId: string) => Promise<void>;
+  getBranchDiffFiles: (ticketId: string) => Promise<FileDiff[]>;
 
   // Fix task actions
   createFixTasks: (sessionId: string, ticketId: string, tasks: FixTask[]) => Promise<string[]>;
@@ -189,7 +190,7 @@ export const useValidationStore = create<ValidationState>((set) => ({
 
   sendMessage: async (sessionId, content) => {
     try {
-      set({ isAgentThinking: true });
+      set({ isAgentThinking: true, appLogs: [] });
       const message = await apiSendMessage(sessionId, content);
       set((state) => ({
         messages: [...state.messages, message],
@@ -265,9 +266,9 @@ export const useValidationStore = create<ValidationState>((set) => ({
     }
   },
 
-  openInEditor: async (ticketId) => {
+  getBranchDiffFiles: async (ticketId) => {
     try {
-      await apiOpenInEditor(ticketId);
+      return await apiGetDiffFiles(ticketId);
     } catch (e) {
       set({ error: String(e) });
       throw e;

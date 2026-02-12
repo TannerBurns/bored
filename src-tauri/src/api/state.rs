@@ -137,8 +137,8 @@ pub enum LiveEvent {
         ticket_id: String,
         task_count: usize,
     },
-    /// Real-time log entry from app runner
-    AppRunnerLog {
+    /// Real-time log entry from validation agent (streaming CLI output)
+    ValidationLogEntry {
         session_id: String,
         stream: String,
         message: String,

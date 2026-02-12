@@ -9,13 +9,13 @@ interface ValidationLiveEvent {
     | 'validation_session_updated'
     | 'validation_message_added'
     | 'validation_fix_tasks_created'
-    | 'app_runner_log';
+    | 'validation_log_entry';
   session_id?: string;
   ticket_id?: string;
   message_id?: string;
   role?: string;
   task_count?: number;
-  // For app_runner_log
+  // For validation_log_entry
   stream?: string;
   message?: string;
   timestamp?: string;
@@ -60,7 +60,7 @@ export function useValidationSync(
       'validation_session_updated',
       'validation_message_added',
       'validation_fix_tasks_created',
-      'app_runner_log',
+      'validation_log_entry',
     ].join(',');
 
     const url = `${apiUrl}/v1/stream/filtered?token=${encodeURIComponent(token)}&types=${encodeURIComponent(eventTypes)}`;
@@ -111,7 +111,7 @@ export function useValidationSync(
             }
             break;
 
-          case 'app_runner_log':
+          case 'validation_log_entry':
             if (
               data.session_id &&
               currentSessionRef.current?.id === data.session_id &&

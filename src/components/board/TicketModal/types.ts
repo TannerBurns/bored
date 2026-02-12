@@ -41,6 +41,7 @@ export interface TicketModalProps {
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
+  onValidate?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
 }

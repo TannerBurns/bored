@@ -77,12 +77,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
           <h3 className="text-sm font-medium text-board-text">Validation Chat</h3>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={`text-xs font-medium ${statusColor}`}>{statusLabel}</span>
-            {session.appCommand && (
-              <span className="text-xs text-board-text-muted">
-                | {session.appCommand}
-                {session.appPort ? ` :${session.appPort}` : ''}
-              </span>
-            )}
           </div>
         </div>
 
@@ -131,22 +125,10 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             ))}
 
             {isAgentThinking && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                </div>
-                <div className="px-4 py-2 rounded-lg bg-board-hover">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              </div>
+              <ValidationThinkingBlock
+                sessionId={session.id}
+                logs={appLogs.filter((e) => e.sessionId === session.id).map((e) => e.message)}
+              />
             )}
 
             <div ref={messagesEndRef} />
@@ -172,6 +154,51 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             <AppLogPanel logs={appLogs} isAppRunning={isAppRunning} />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ValidationThinkingBlock({
+  sessionId,
+  logs,
+}: {
+  sessionId: string;
+  logs: string[];
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <div className="flex-1 max-w-[85%] min-w-0">
+        <div className="rounded-xl border border-board-border/40 bg-board-card/30 overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-board-border/30 bg-board-card/50">
+            <span className="inline-block w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+            <span className="text-xs font-medium text-board-text-muted">Agent thinking</span>
+          </div>
+          <div className="px-3 py-2.5 font-mono text-xs leading-relaxed max-h-48 overflow-y-auto">
+            {logs.length > 0 ? (
+              <div className="space-y-0.5">
+                {logs.slice(-50).map((line, i) => (
+                  <div key={`${sessionId}-${i}-${line.slice(0, 20)}`} className="truncate text-board-text-secondary">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-1 text-board-text-muted">
+                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-purple-400/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

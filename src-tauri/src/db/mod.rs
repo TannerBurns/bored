@@ -552,6 +552,16 @@ impl Database {
                 tracing::info!("Migration to version 6 complete: validation tables added");
             }
 
+            // Migration from version 6 to 7: Add agent_type to validation_sessions
+            if current_version < 7 {
+                tracing::info!("Running migration to version 7: validation_sessions.agent_type");
+                conn.execute(
+                    "ALTER TABLE validation_sessions ADD COLUMN agent_type TEXT",
+                    [],
+                )?;
+                tracing::info!("Migration to version 7 complete: agent_type added");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

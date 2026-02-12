@@ -292,6 +292,7 @@ fn main() {
             commands::factory_reset,
             commands::repair_specs_table,
             commands::get_tickets,
+            commands::get_ticket,
             commands::create_ticket,
             commands::move_ticket,
             commands::update_ticket,
@@ -433,7 +434,7 @@ fn main() {
             commands::next_steps::push_branch,
             commands::next_steps::create_pull_request,
             commands::next_steps::get_branch_diff,
-            commands::next_steps::open_in_editor,
+            commands::next_steps::get_branch_diff_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

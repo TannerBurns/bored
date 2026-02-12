@@ -113,6 +113,10 @@ export async function getTickets(boardId: string): Promise<Ticket[]> {
   return invoke('get_tickets', { boardId });
 }
 
+export async function getTicket(ticketId: string): Promise<Ticket> {
+  return invoke('get_ticket', { ticketId });
+}
+
 export async function createTicket(
   ticket: Omit<Ticket, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<Ticket> {
@@ -363,13 +367,27 @@ export async function getConversationMessages(specId: string): Promise<Conversat
 export async function sendConversationMessage(
   specId: string,
   content: string,
-  timeoutMinutes?: number
+  timeoutMinutes?: number,
+  agentType?: 'cursor' | 'claude'
 ): Promise<ConversationMessage> {
-  return invoke('send_conversation_message', { specId, content, timeoutMinutes });
+  return invoke('send_conversation_message', {
+    specId,
+    content,
+    timeoutMinutes,
+    agentType: agentType ?? null,
+  });
 }
 
-export async function startConversation(specId: string, timeoutMinutes?: number): Promise<ConversationMessage> {
-  return invoke('start_conversation', { specId, timeoutMinutes });
+export async function startConversation(
+  specId: string,
+  timeoutMinutes?: number,
+  agentType?: 'cursor' | 'claude'
+): Promise<ConversationMessage> {
+  return invoke('start_conversation', {
+    specId,
+    timeoutMinutes,
+    agentType: agentType ?? null,
+  });
 }
 
 export async function getTicketCost(ticketId: string): Promise<AggregatedCost> {
@@ -403,6 +421,7 @@ import type {
   PushResult,
   PullRequestResult,
   BranchDiff,
+  FileDiff,
 } from '../types';
 
 export async function createValidationSession(input: {
@@ -410,6 +429,7 @@ export async function createValidationSession(input: {
   projectId?: string;
   appCommand?: string;
   appPort?: number;
+  agentType?: 'cursor' | 'claude';
 }): Promise<ValidationSession> {
   return invoke('create_validation_session', { input });
 }
@@ -477,6 +497,6 @@ export async function getBranchDiff(ticketId: string): Promise<BranchDiff> {
   return invoke('get_branch_diff', { ticketId });
 }
 
-export async function openInEditor(ticketId: string): Promise<void> {
-  return invoke('open_in_editor', { ticketId });
+export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> {
+  return invoke('get_branch_diff_files', { ticketId });
 }

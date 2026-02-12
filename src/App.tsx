@@ -29,6 +29,8 @@ function App() {
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
   const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
+  const [validationTicketId, setValidationTicketId] = useState<string | null>(null);
+  const [validationAgentType, setValidationAgentType] = useState<'cursor' | 'claude' | null>(null);
 
   const { theme } = useSettingsStore();
   const {
@@ -129,6 +131,13 @@ function App() {
     setRenameBoardModalOpen(true);
   };
 
+  const handleValidateFromTicket = (ticketId: string, agentType: 'cursor' | 'claude') => {
+    closeTicketModal();
+    setValidationTicketId(ticketId);
+    setValidationAgentType(agentType);
+    setActiveNav('validation');
+  };
+
   return (
     <div className="flex h-screen app-gradient-bg text-board-text">
       <Sidebar
@@ -210,7 +219,16 @@ function App() {
 
         {activeNav === 'projects' && <ProjectsView />}
 
-        {activeNav === 'validation' && <ValidationView />}
+        {activeNav === 'validation' && (
+          <ValidationView
+            initialTicketId={validationTicketId ?? undefined}
+            initialAgentType={validationAgentType ?? undefined}
+            onConsumedInitial={() => {
+              setValidationTicketId(null);
+              setValidationAgentType(null);
+            }}
+          />
+        )}
 
         {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
       </main>
@@ -225,6 +243,7 @@ function App() {
           onAddComment={handleAddComment}
           onUpdateComment={handleUpdateComment}
           onRunWithAgent={handleRunWithAgent}
+          onValidate={handleValidateFromTicket}
           onDelete={handleDeleteTicket}
           onAgentComplete={handleAgentComplete}
         />

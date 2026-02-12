@@ -1,22 +1,25 @@
 import { useState } from 'react';
 import { useValidationStore } from '../../../stores/validationStore';
-import type { Ticket, Column } from '../../../types';
+import { BuildWithDropdown } from '../BuildWithDropdown';
+import { FileDiffViewer } from '../../common/FileDiffViewer';
+import type { Ticket, Column, FileDiff } from '../../../types';
 
 interface NextStepsPanelProps {
   ticket: Ticket;
   columns: Column[];
-  onValidate?: (ticketId: string) => void;
+  onValidate?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
 }
 
 export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelProps) {
   const [pushStatus, setPushStatus] = useState<{ message: string; success: boolean } | null>(null);
   const [prStatus, setPrStatus] = useState<{ message: string; url?: string; success: boolean } | null>(null);
   const [diffVisible, setDiffVisible] = useState(false);
-  const [diffContent, setDiffContent] = useState<string | null>(null);
+  const [diffFiles, setDiffFiles] = useState<FileDiff[] | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const { pushBranch, createPullRequest, getBranchDiff, openInEditor } = useValidationStore();
+  const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
   // Only show for tickets in Done or Review columns that have a branch
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
@@ -54,29 +57,22 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
   const handleViewDiff = async () => {
     if (diffVisible) {
       setDiffVisible(false);
+      setDiffFiles(null);
+      setDiffError(null);
       return;
     }
     try {
       setDiffLoading(true);
-      const result = await getBranchDiff(ticket.id);
-      setDiffContent(result.diff);
+      setDiffError(null);
+      const files = await getBranchDiffFiles(ticket.id);
+      setDiffFiles(files);
       setDiffVisible(true);
     } catch (e) {
-      setDiffContent(`Error loading diff: ${e}`);
+      setDiffError(String(e));
+      setDiffFiles([]);
       setDiffVisible(true);
     } finally {
       setDiffLoading(false);
-    }
-  };
-
-  const handleOpenInEditor = async () => {
-    try {
-      setActionLoading('editor');
-      await openInEditor(ticket.id);
-    } catch {
-      // Silently fail - cursor may not be available
-    } finally {
-      setActionLoading(null);
     }
   };
 
@@ -100,17 +96,15 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       </p>
 
       <div className="grid grid-cols-2 gap-2">
-        {/* Validate */}
+        {/* Validate with agent dropdown */}
         {onValidate && (
-          <button
-            onClick={() => onValidate(ticket.id)}
-            className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors col-span-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            Validate with AI Agent
-          </button>
+          <div className="col-span-2 flex items-center gap-2">
+            <BuildWithDropdown
+              onSelect={(agent: 'cursor' | 'claude') => onValidate(ticket.id, agent)}
+              disabled={false}
+            />
+            <span className="text-xs text-board-text-muted">to validate</span>
+          </div>
         )}
 
         {/* Push Branch */}
@@ -153,19 +147,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           </svg>
           {diffLoading ? 'Loading...' : diffVisible ? 'Hide Diff' : 'View Diff'}
         </button>
-
-        {/* Open in Editor */}
-        <button
-          onClick={handleOpenInEditor}
-          disabled={actionLoading === 'editor'}
-          className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-board-hover text-board-text-secondary hover:bg-board-border/50 transition-colors disabled:opacity-50"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="16 18 22 12 16 6" />
-            <polyline points="8 6 2 12 8 18" />
-          </svg>
-          Open in Cursor
-        </button>
       </div>
 
       {/* Status messages */}
@@ -192,11 +173,12 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       )}
 
       {/* Diff view */}
-      {diffVisible && diffContent && (
+      {diffVisible && (
         <div className="mt-2 max-h-64 overflow-auto rounded-lg bg-board-bg/50 border border-board-border">
-          <pre className="text-xs p-3 font-mono text-board-text-secondary whitespace-pre-wrap">
-            {diffContent}
-          </pre>
+          {diffError && (
+            <div className="p-3 text-xs text-red-400">{diffError}</div>
+          )}
+          {diffFiles && <FileDiffViewer files={diffFiles} className="max-h-60" />}
         </div>
       )}
     </div>
