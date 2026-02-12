@@ -5,9 +5,6 @@ import type { ValidationSession, Ticket } from '../../types';
 import { invoke } from '@tauri-apps/api/core';
 import { getTicket } from '../../lib/tauri';
 
-const INITIAL_VALIDATION_MESSAGE =
-  'Please start the application for this ticket so we can validate the changes. Review the diff and start the app as needed for testing.';
-
 interface ValidationViewProps {
   /** When both set, auto-create a session and open chat (from ticket Next Steps) */
   initialTicketId?: string;
@@ -26,7 +23,6 @@ export function ValidationView({
     createSession,
     selectSession,
     deleteSession,
-    sendMessage,
     isLoading,
     error,
   } = useValidationStore();
@@ -34,7 +30,6 @@ export function ValidationView({
   const [tickets, setTickets] = useState<Record<string, Ticket>>({});
   const [allSessions, setAllSessions] = useState<ValidationSession[]>([]);
   const initialConsumedRef = useRef(false);
-  const autoStartSentRef = useRef<string | null>(null);
 
   // Load all sessions on mount
   const loadAllSessions = useCallback(async () => {
@@ -112,21 +107,6 @@ export function ValidationView({
     loadAllSessions,
     onConsumedInitial,
   ]);
-
-  // Auto-send first message for newly created sessions from "Validate with"
-  useEffect(() => {
-    if (
-      !currentSession ||
-      currentSession.status !== 'created' ||
-      autoStartSentRef.current === currentSession.id
-    ) {
-      return;
-    }
-    // Only auto-send for sessions we just created via initialTicketId
-    if (!initialTicketId) return;
-    autoStartSentRef.current = currentSession.id;
-    void sendMessage(currentSession.id, INITIAL_VALIDATION_MESSAGE);
-  }, [currentSession, initialTicketId, sendMessage]);
 
   const handleDeleteSession = async (sessionId: string) => {
     await deleteSession(sessionId);

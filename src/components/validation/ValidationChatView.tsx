@@ -5,6 +5,7 @@ import { MessageInput } from '../planner/MessageInput';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { AppLogPanel } from './AppLogPanel';
 import { invoke } from '@tauri-apps/api/core';
+import { getValidationAppStatus } from '../../lib/tauri';
 
 interface ValidationChatViewProps {
   session: ValidationSession;
@@ -17,7 +18,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     isAgentThinking,
     agentLogs,
     appLogs,
-    isAppRunning,
     loadMessages,
     sendMessage,
     updateSessionStatus,
@@ -26,6 +26,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showLogs, setShowLogs] = useState(true);
+  const [appRunning, setAppRunning] = useState(false);
 
   useEffect(() => {
     loadMessages(session.id);
@@ -34,6 +35,22 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Poll app process status so Stop App button works even when session status changes
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const status = await getValidationAppStatus(session.id);
+        if (!cancelled) setAppRunning(status.running);
+      } catch {
+        // ignore
+      }
+    };
+    check();
+    const interval = setInterval(check, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [session.id]);
 
   const handleSend = async (content: string) => {
     try {
@@ -84,9 +101,12 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
         </div>
 
         <div className="flex items-center gap-2">
-          {(session.status === 'app_running' || isAppRunning) && (
+          {appRunning && (
             <button
-              onClick={() => stopApp(session.id)}
+              onClick={async () => {
+                await stopApp(session.id);
+                setAppRunning(false);
+              }}
               className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
             >
               Stop App
@@ -123,10 +143,26 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && !isAgentThinking && (
               <div className="flex items-center justify-center h-full text-board-text-muted text-sm">
-                <div className="text-center space-y-2">
-                  <p>Start a conversation to validate this ticket's changes.</p>
-                  <p className="text-xs">
-                    The agent can help you verify functionality, test APIs, and identify issues.
+                <div className="text-center space-y-3 max-w-sm">
+                  <p>What would you like to validate?</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {[
+                      { label: 'Start the app', message: 'Start the application so I can test the changes.' },
+                      { label: 'Review the diff', message: 'Review the diff and summarize what changed.' },
+                      { label: 'Run the tests', message: 'Run the test suite and report any failures.' },
+                      { label: 'Check for issues', message: 'Review the code changes for potential bugs or issues.' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        onClick={() => handleSend(preset.message)}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-board-border bg-board-card/50 text-board-text-secondary hover:bg-board-hover hover:text-board-text transition-colors"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-board-text-muted/60">
+                    Or type your own message below.
                   </p>
                 </div>
               </div>
@@ -160,7 +196,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
         {/* App logs panel */}
         {showLogs && (
           <div className="w-1/2 bg-board-bg/30">
-            <AppLogPanel logs={appLogs} isAppRunning={isAppRunning} />
+            <AppLogPanel logs={appLogs} isAppRunning={appRunning} />
           </div>
         )}
       </div>
