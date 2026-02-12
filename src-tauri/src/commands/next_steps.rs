@@ -283,10 +283,10 @@ fn parse_unified_diff(diff: &str) -> Vec<FileDiff> {
                     if let Some(rest) = rest.strip_suffix(" @@") {
                         let parts: Vec<&str> = rest.split(' ').collect();
                         if let Some(old_part) = parts.first() {
-                            old_line = old_part.split(',').next().and_then(|s| s.parse().ok()).unwrap_or(1);
+                            old_line = old_part.split(',').next().and_then(|s| s.trim_start_matches('-').parse().ok()).unwrap_or(1);
                         }
                         if let Some(new_part) = parts.get(1) {
-                            new_line = new_part.split(',').next().and_then(|s| s.parse().ok()).unwrap_or(1);
+                            new_line = new_part.split(',').next().and_then(|s| s.trim_start_matches('+').parse().ok()).unwrap_or(1);
                         }
                     }
                 }

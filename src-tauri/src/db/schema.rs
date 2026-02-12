@@ -246,6 +246,7 @@ CREATE TABLE IF NOT EXISTS validation_sessions (
     status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'chatting', 'app_running', 'passed', 'failed')),
     app_command TEXT,
     app_port INTEGER,
+    agent_type TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
