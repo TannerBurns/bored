@@ -212,6 +212,11 @@ pub fn get_branch_diff_sync(db: &Database, ticket_id: &str) -> Result<BranchDiff
         .output()
         .map_err(|e| format!("Failed to run git diff: {}", e))?;
 
+    if !diff_output.status.success() {
+        let stderr = String::from_utf8_lossy(&diff_output.stderr);
+        return Err(format!("git diff failed (exit {}): {}", diff_output.status, stderr.trim()));
+    }
+
     let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
 
     let stat_output = Command::new("git")
@@ -223,6 +228,11 @@ pub fn get_branch_diff_sync(db: &Database, ticket_id: &str) -> Result<BranchDiff
         .current_dir(&working_dir)
         .output()
         .map_err(|e| format!("Failed to run git diff --stat: {}", e))?;
+
+    if !stat_output.status.success() {
+        let stderr = String::from_utf8_lossy(&stat_output.stderr);
+        return Err(format!("git diff --stat failed (exit {}): {}", stat_output.status, stderr.trim()));
+    }
 
     let stat = String::from_utf8_lossy(&stat_output.stdout).to_string();
     let files_changed = stat.lines().count().saturating_sub(1);

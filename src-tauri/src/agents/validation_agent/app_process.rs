@@ -110,7 +110,7 @@ impl AppProcessManager {
     pub fn is_running(&self, session_id: &str) -> bool {
         if let Ok(mut guard) = self.processes.lock() {
             if let Some(handle) = guard.get_mut(session_id) {
-                return handle.child.try_wait().map(|s| s.is_none()).unwrap_or(true);
+                return handle.child.try_wait().map(|s| s.is_none()).unwrap_or(false);
             }
         }
         false
