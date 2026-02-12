@@ -73,6 +73,7 @@ interface ValidationState {
 
   // App log actions
   addAppLog: (log: AppLogEntry) => void;
+  addAppLogs: (logs: AppLogEntry[]) => void;
   clearAppLogs: () => void;
   setAppRunning: (running: boolean) => void;
   stopApp: (sessionId: string) => Promise<void>;
@@ -252,6 +253,15 @@ export const useValidationStore = create<ValidationState>((set) => ({
     set((state) => {
       const MAX_APP_LOGS = 500;
       const next = [...state.appLogs, log];
+      return { appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next };
+    });
+  },
+
+  addAppLogs: (logs) => {
+    if (logs.length === 0) return;
+    set((state) => {
+      const MAX_APP_LOGS = 500;
+      const next = [...state.appLogs, ...logs];
       return { appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next };
     });
   },

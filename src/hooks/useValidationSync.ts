@@ -49,7 +49,7 @@ export function useValidationSync(
     refreshSession,
     loadMessages,
     addAgentLog,
-    addAppLog,
+    addAppLogs,
     clearAppLogs,
     stopApp,
     sendMessage,
@@ -59,6 +59,45 @@ export function useValidationSync(
 
   const currentSessionRef = useRef(currentSession);
   currentSessionRef.current = currentSession;
+
+  // Buffer app log entries and flush every 250ms to avoid per-line re-renders
+  const appLogBufferRef = useRef<AppLogEntry[]>([]);
+  const flushTimerRef = useRef<number | null>(null);
+
+  const flushAppLogs = useCallback(() => {
+    if (appLogBufferRef.current.length > 0) {
+      addAppLogs(appLogBufferRef.current);
+      appLogBufferRef.current = [];
+    }
+  }, [addAppLogs]);
+
+  const bufferAppLog = useCallback(
+    (entry: AppLogEntry) => {
+      appLogBufferRef.current.push(entry);
+      if (flushTimerRef.current === null) {
+        flushTimerRef.current = window.setTimeout(() => {
+          flushTimerRef.current = null;
+          flushAppLogs();
+        }, 250);
+      }
+    },
+    [flushAppLogs]
+  );
+
+  // Clean up flush timer on unmount
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current !== null) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      // Flush any remaining
+      if (appLogBufferRef.current.length > 0) {
+        addAppLogs(appLogBufferRef.current);
+        appLogBufferRef.current = [];
+      }
+    };
+  }, [addAppLogs]);
 
   const connect = useCallback(() => {
     if (!apiUrl || !token) return;
@@ -130,14 +169,13 @@ export function useValidationSync(
               data.message &&
               data.timestamp
             ) {
-              const logEntry: AppLogEntry = {
+              bufferAppLog({
                 id: `${data.session_id}-${data.timestamp}-${Math.random()}`,
                 sessionId: data.session_id,
                 stream: (data.stream as 'stdout' | 'stderr') || 'stdout',
                 message: data.message,
                 timestamp: data.timestamp,
-              };
-              addAppLog(logEntry);
+              });
             }
             break;
 
@@ -188,7 +226,7 @@ export function useValidationSync(
     refreshSession,
     loadMessages,
     addAgentLog,
-    addAppLog,
+    bufferAppLog,
     clearAppLogs,
     stopApp,
     sendMessage,

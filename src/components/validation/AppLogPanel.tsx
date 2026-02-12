@@ -6,30 +6,33 @@ interface AppLogPanelProps {
   isAppRunning: boolean;
 }
 
-/** Max visible lines rendered at once to avoid DOM overload */
+/** Max lines rendered to keep the DOM lightweight */
 const MAX_RENDERED = 200;
 
 export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLPreElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  // Only render the tail slice to keep the DOM small
-  const visibleLogs = useMemo(
-    () => (logs.length > MAX_RENDERED ? logs.slice(-MAX_RENDERED) : logs),
-    [logs]
-  );
+  // Build a single string from the tail of the log buffer
+  const { text, omitted } = useMemo(() => {
+    const start = Math.max(0, logs.length - MAX_RENDERED);
+    const slice = logs.slice(start);
+    return {
+      text: slice.map((l) => l.message).join('\n'),
+      omitted: start,
+    };
+  }, [logs]);
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [visibleLogs, autoScroll]);
+  }, [text, autoScroll]);
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-    setAutoScroll(isAtBottom);
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
   };
 
   return (
@@ -45,39 +48,28 @@ export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
           )}
         </div>
         {logs.length > 0 && (
-          <span className="text-xs text-board-text-muted">{logs.length} entries</span>
+          <span className="text-xs text-board-text-muted">{logs.length} lines</span>
         )}
       </div>
 
-      <div
+      <pre
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-2 font-mono text-xs"
+        className="flex-1 overflow-y-auto p-2 m-0 font-mono text-xs text-board-text-secondary whitespace-pre-wrap break-all"
       >
         {logs.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-board-text-muted text-xs">
+          <span className="text-board-text-muted">
             {isAppRunning ? 'Waiting for output...' : 'No logs yet. Start the app to see output.'}
-          </div>
+          </span>
         ) : (
           <>
-            {logs.length > MAX_RENDERED && (
-              <div className="text-board-text-muted text-center py-1">
-                ... {logs.length - MAX_RENDERED} earlier lines omitted ...
-              </div>
+            {omitted > 0 && (
+              <span className="text-board-text-muted">... {omitted} earlier lines omitted ...\n\n</span>
             )}
-            {visibleLogs.map((log, i) => (
-              <div
-                key={i}
-                className={`py-0.5 break-all ${
-                  log.stream === 'stderr' ? 'text-red-400' : 'text-board-text-secondary'
-                }`}
-              >
-                {log.message}
-              </div>
-            ))}
+            {text}
           </>
         )}
-      </div>
+      </pre>
 
       {!autoScroll && logs.length > 0 && (
         <button
