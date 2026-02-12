@@ -36,7 +36,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Poll app process status so Stop App button works even when session status changes
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
@@ -52,8 +51,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     return () => { cancelled = true; clearInterval(interval); };
   }, [session.id]);
 
-  // Poll task statuses for the ticket so fix-task cards show live status.
-  // This hook is always called (stable hook count) -- data is passed to children.
   const [ticketTasks, setTicketTasks] = useState<Task[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -193,7 +190,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
             )}
 
             {messages.map((msg) => (
-              <ValidationMessageBubble key={msg.id} message={msg} ticketId={session.ticketId} getTasksForIds={getTasksForIds} />
+              <ValidationMessageBubble key={msg.id} message={msg} getTasksForIds={getTasksForIds} />
             ))}
 
             {isAgentThinking && (
@@ -362,7 +359,6 @@ function ValidationMessageBubble({
   getTasksForIds,
 }: {
   message: ValidationMessageType;
-  ticketId?: string;
   getTasksForIds: (ids?: string[]) => Task[];
 }) {
   const isUser = message.role === 'user';
@@ -372,7 +368,7 @@ function ValidationMessageBubble({
 
   // Hide the raw assistant response when it contained a fix task JSON block
   if (metaType === 'fix_task_response') {
-    return <div className="hidden" />;
+    return null;
   }
 
   // Fix task card -- pure render, tasks come from parent

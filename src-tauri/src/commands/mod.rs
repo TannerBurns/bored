@@ -10,7 +10,9 @@ pub mod specs;
 pub mod tasks;
 pub mod tickets;
 pub mod validation;
+mod validation_parsing;
 pub mod workers;
+pub mod workflow_settings;
 
 pub use boards::*;
 pub use claude::*;

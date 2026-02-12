@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
-import { ClaudeIcon, CursorIcon } from '../common';
+import { ClaudeIcon, CursorIcon, ConfirmModal } from '../common';
 import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 
 export function WorkerPanel() {
@@ -21,6 +21,7 @@ export function WorkerPanel() {
   const [cursorCount, setCursorCount] = useState<number>(0);
   const [claudeCount, setClaudeCount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [stopConfirm, setStopConfirm] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -48,6 +49,9 @@ export function WorkerPanel() {
     setError(null);
     
     try {
+      // Ensure backend has the latest workflow settings BEFORE starting workers
+      await ensureWorkflowSettingsSynced();
+
       // Start Cursor workers
       for (let i = 0; i < cursorCount; i++) {
         await invoke('start_worker', {
@@ -85,15 +89,16 @@ export function WorkerPanel() {
     }
   };
 
-  const handleStopWorker = async (workerId: string, isWorking: boolean) => {
+  const handleStopWorker = (workerId: string, isWorking: boolean) => {
     // If worker is actively processing a ticket, confirm before stopping
     if (isWorking) {
-      const confirmed = window.confirm(
-        'This worker is currently processing a ticket. Are you sure you want to stop it? The ticket will be unlocked and returned to the queue.'
-      );
-      if (!confirmed) return;
+      setStopConfirm(workerId);
+      return;
     }
-    
+    doStopWorker(workerId);
+  };
+
+  const doStopWorker = async (workerId: string) => {
     try {
       await invoke('stop_worker', { workerId });
       await loadStatus();
@@ -298,6 +303,19 @@ export function WorkerPanel() {
           <li>On completion, tickets move to Review or Blocked</li>
         </ul>
       </div>
+
+      <ConfirmModal
+        open={stopConfirm !== null}
+        onOpenChange={(open) => { if (!open) setStopConfirm(null); }}
+        title="Stop Worker"
+        message="This worker is currently processing a ticket. Are you sure you want to stop it? The ticket will be unlocked and returned to the queue."
+        confirmLabel="Stop Worker"
+        variant="danger"
+        onConfirm={() => {
+          if (stopConfirm) doStopWorker(stopConfirm);
+          setStopConfirm(null);
+        }}
+      />
     </div>
   );
 }

@@ -142,3 +142,108 @@ fn truncate_diff(diff: &str, max_bytes: usize) -> &str {
     }
     &diff[..end]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::{ValidationMessage, ValidationMessageRole};
+    use chrono::Utc;
+
+    #[test]
+    fn initial_prompt_contains_ticket_fields() {
+        let prompt = build_initial_prompt("My Title", "My Description", "diff here", None);
+        assert!(prompt.contains("My Title"));
+        assert!(prompt.contains("My Description"));
+        assert!(prompt.contains("diff here"));
+    }
+
+    #[test]
+    fn initial_prompt_includes_acceptance_criteria() {
+        let prompt = build_initial_prompt("T", "D", "diff", Some("Must pass all tests"));
+        assert!(prompt.contains("## Acceptance Criteria"));
+        assert!(prompt.contains("Must pass all tests"));
+    }
+
+    #[test]
+    fn initial_prompt_omits_criteria_when_none() {
+        let prompt = build_initial_prompt("T", "D", "diff", None);
+        assert!(!prompt.contains("## Acceptance Criteria"));
+    }
+
+    #[test]
+    fn initial_prompt_omits_criteria_when_empty() {
+        let prompt = build_initial_prompt("T", "D", "diff", Some(""));
+        assert!(!prompt.contains("## Acceptance Criteria"));
+    }
+
+    #[test]
+    fn conversation_prompt_includes_history() {
+        let messages = vec![
+            ValidationMessage {
+                id: "1".into(),
+                session_id: "s".into(),
+                role: ValidationMessageRole::User,
+                content: "Start the app".into(),
+                metadata: None,
+                created_at: Utc::now(),
+            },
+            ValidationMessage {
+                id: "2".into(),
+                session_id: "s".into(),
+                role: ValidationMessageRole::Assistant,
+                content: "Starting now".into(),
+                metadata: None,
+                created_at: Utc::now(),
+            },
+        ];
+        let prompt =
+            build_conversation_prompt("Title", "Desc", "diff", None, &messages);
+        assert!(prompt.contains("User: Start the app"));
+        assert!(prompt.contains("Assistant: Starting now"));
+    }
+
+    #[test]
+    fn conversation_prompt_maps_system_role() {
+        let messages = vec![ValidationMessage {
+            id: "1".into(),
+            session_id: "s".into(),
+            role: ValidationMessageRole::System,
+            content: "App started".into(),
+            metadata: None,
+            created_at: Utc::now(),
+        }];
+        let prompt =
+            build_conversation_prompt("T", "D", "diff", None, &messages);
+        assert!(prompt.contains("System: App started"));
+    }
+
+    // --- truncate_diff ---
+
+    #[test]
+    fn truncate_diff_within_limit() {
+        assert_eq!(truncate_diff("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_diff_at_limit() {
+        assert_eq!(truncate_diff("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_diff_over_limit() {
+        assert_eq!(truncate_diff("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_diff_respects_char_boundary() {
+        // 'é' is 2 bytes; cutting at 1 must back up to 0
+        assert_eq!(truncate_diff("é", 1), "");
+        // "aé" is 3 bytes; cutting at 2 must yield "a"
+        assert_eq!(truncate_diff("aé", 2), "a");
+    }
+
+    #[test]
+    fn truncate_diff_empty() {
+        assert_eq!(truncate_diff("", 100), "");
+    }
+}

@@ -196,13 +196,10 @@ export function TicketModal({
           {/* Agent Status Panel */}
           <AgentStatusPanel
             lockedByRunId={ticket.lockedByRunId}
-            agentLogs={agentEvents.agentLogs}
             agentError={agentEvents.agentError}
             setAgentError={agentEvents.setAgentError}
             isCancelling={agentEvents.isCancelling}
             isPausing={agentEvents.isPausing}
-            logsContainerRef={agentEvents.logsContainerRef}
-            handleLogsScroll={agentEvents.handleLogsScroll}
             handleCancelAgent={agentEvents.handleCancelAgent}
             handlePauseTicket={() => agentEvents.handlePauseTicket(runsHistory.agentRuns)}
             handleForceClearLock={agentEvents.handleForceClearLock}

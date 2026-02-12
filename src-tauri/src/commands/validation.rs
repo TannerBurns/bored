@@ -1,10 +1,14 @@
 //! Tauri commands for validation sessions and messages
 
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 use tauri::State;
 use tokio::sync::broadcast;
 
+use super::validation_parsing::{
+    parse_create_fix_tasks_from_response, parse_run_command_from_response,
+    parse_start_app_from_response,
+};
 use crate::agents::validation_agent::{AppProcessManager, StartResult};
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::api::state::LiveEvent;
@@ -12,134 +16,10 @@ use crate::commands::claude::ClaudeApiSettingsState;
 use crate::commands::next_steps::{get_branch_diff_sync, get_ticket_working_dir};
 use crate::commands::ApiConnState;
 use crate::db::models::{
-    CreateValidationMessage, CreateValidationSession, FixTask,
-    ValidationMessage, ValidationMessageRole, ValidationSession, ValidationSessionStatus,
+    CreateValidationMessage, CreateValidationSession, FixTask, ValidationMessage,
+    ValidationMessageRole, ValidationSession, ValidationSessionStatus,
 };
 use crate::db::Database;
-
-/// Parsed start_app block from agent response
-struct StartAppBlock {
-    command: String,
-    port: Option<i32>,
-}
-
-/// Parsed run_command block from agent response
-struct RunCommandBlock {
-    command: String,
-}
-
-/// Parsed create_fix_tasks block from agent response
-struct CreateFixTasksBlock {
-    tasks: Vec<FixTask>,
-}
-
-/// Parse JSON blocks from the agent response.
-/// Tries fenced code blocks first (```json ... ```), then falls back to
-/// scanning for bare `{ ... }` objects on individual lines so the agent's
-/// output is recognised even without fences.
-fn parse_fenced_json_blocks(response_text: &str) -> Vec<serde_json::Value> {
-    let mut results = Vec::new();
-
-    // 1. Fenced code blocks
-    let blocks: Vec<&str> = response_text.split("```").collect();
-    for (i, segment) in blocks.iter().enumerate() {
-        if i % 2 == 0 {
-            continue;
-        }
-        let content = segment.trim_start();
-        let json_str = content.strip_prefix("json").map(|s| s.trim()).unwrap_or(content);
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-            results.push(v);
-        }
-    }
-
-    // 2. Bare JSON objects (lines starting with '{' and ending with '}')
-    if results.is_empty() {
-        for line in response_text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                    if v.is_object() {
-                        results.push(v);
-                    }
-                }
-            }
-        }
-    }
-
-    results
-}
-
-fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
-        if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
-            if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
-                let port = start_app.get("port").and_then(|p| p.as_i64()).map(|p| p as i32);
-                return Some(StartAppBlock {
-                    command: command.to_string(),
-                    port,
-                });
-            }
-        }
-    }
-    None
-}
-
-fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
-        if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
-            if let Some(command) = rc.get("command").and_then(|c| c.as_str()) {
-                return Some(RunCommandBlock {
-                    command: command.to_string(),
-                });
-            }
-        }
-    }
-    None
-}
-
-fn parse_fix_task_from_json_obj(obj: &serde_json::Map<String, serde_json::Value>) -> FixTask {
-    let title = obj.get("title").and_then(|t| t.as_str()).unwrap_or("Fix task");
-    let description = obj.get("description").and_then(|d| d.as_str()).unwrap_or("");
-    let acceptance_criteria = obj
-        .get("acceptance_criteria")
-        .or_else(|| obj.get("acceptanceCriteria"))
-        .and_then(|ac| ac.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
-    FixTask {
-        title: title.to_string(),
-        description: description.to_string(),
-        acceptance_criteria,
-    }
-}
-
-fn parse_create_fix_tasks_from_response(response_text: &str) -> Option<CreateFixTasksBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
-        // Singular form: { "create_fix_task": { "title": "...", "description": "..." } }
-        if let Some(task_obj) = v.get("create_fix_task").and_then(|s| s.as_object()) {
-            return Some(CreateFixTasksBlock {
-                tasks: vec![parse_fix_task_from_json_obj(task_obj)],
-            });
-        }
-        // Plural form (backward compat): { "create_fix_tasks": { "tasks": [...] } }
-        if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
-            if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
-                let tasks: Vec<FixTask> = tasks_arr
-                    .iter()
-                    .filter_map(|tv| tv.as_object().map(parse_fix_task_from_json_obj))
-                    .collect();
-                if !tasks.is_empty() {
-                    return Some(CreateFixTasksBlock { tasks });
-                }
-            }
-        }
-    }
-    None
-}
 
 /// Process any create_fix_task blocks found in an agent response.
 /// Creates tasks in the DB, updates session status, moves ticket to Ready, and emits events.
@@ -483,8 +363,6 @@ pub async fn send_validation_message(
         role: "assistant".to_string(),
     });
 
-    // Resolve the working directory (worktree) for commands and app startup.
-    // Done once, used by both run_command and start_app.
     let (working_dir_path, worktree_path, repo_path_for_cleanup) = {
         match get_ticket_working_dir(db.inner(), &session.ticket_id) {
             Ok((wt_path, _branch)) => {

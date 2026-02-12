@@ -31,8 +31,6 @@ struct AppProcessHandle {
     child: Child,
     /// PID used for process-group kill on Unix
     pid: u32,
-    /// Path to the log file on disk
-    log_path: PathBuf,
     /// Worktree path to clean up on stop (if we created one)
     worktree_path: Option<PathBuf>,
     /// Repo path for worktree cleanup
@@ -79,16 +77,13 @@ impl AppProcessManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Put the child in its own process group so we can kill the whole tree
         #[cfg(unix)]
         cmd.process_group(0);
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn app: {}", e))?;
         let pid = child.id();
 
-        // Create a log file in the working directory the agent can read
         let log_path = working_dir.join(".validation-app.log");
-        // Truncate any previous log
         if let Err(e) = File::create(&log_path) {
             tracing::warn!("Could not create app log file at {:?}: {}", log_path, e);
         }
@@ -131,7 +126,7 @@ impl AppProcessManager {
 
         self.processes.lock().map_err(|e| e.to_string())?.insert(
             session_id.clone(),
-            AppProcessHandle { child, pid, log_path: log_path.clone(), worktree_path, repo_path },
+            AppProcessHandle { child, pid, worktree_path, repo_path },
         );
 
         // Wait briefly and check if the process exited immediately (bad command, missing binary, etc.)
@@ -188,16 +183,6 @@ impl AppProcessManager {
             }
         }
         false
-    }
-
-    /// Return the path to the app log file for this session, if running.
-    pub fn log_path(&self, session_id: &str) -> Option<PathBuf> {
-        if let Ok(guard) = self.processes.lock() {
-            if let Some(handle) = guard.get(session_id) {
-                return Some(handle.log_path.clone());
-            }
-        }
-        None
     }
 
     /// Stop all app processes (e.g. on app exit).

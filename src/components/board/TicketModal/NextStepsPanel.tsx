@@ -21,13 +21,11 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
 
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
-  // Determine visibility BEFORE any conditional returns
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const isDone = currentColumn?.name === 'Done';
   const hasBranch = !!ticket.branchName;
   const shouldShow = isDone && hasBranch;
 
-  // Load diff stats eagerly -- hook must always be called (React rules of hooks)
   useEffect(() => {
     if (!shouldShow) return;
     let cancelled = false;
@@ -46,7 +44,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     return () => { cancelled = true; };
   }, [ticket.id, shouldShow, getBranchDiffFiles]);
 
-  // Now safe to bail out after all hooks have been called
   if (!shouldShow) return null;
 
   const handlePush = async () => {

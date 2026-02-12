@@ -75,6 +75,11 @@ impl WorkflowOrchestrator {
                 self.ticket.id
             );
         }
+
+        tracing::info!(
+            "Workflow stage_configs: {} entries",
+            self.stage_configs.len(),
+        );
     }
 
     /// Run the plan stage and return the extracted plan.

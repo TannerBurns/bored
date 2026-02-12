@@ -1,5 +1,5 @@
 import { useBoardStore } from '../stores/boardStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useSettingsStore, ensureWorkflowSettingsSynced } from '../stores/settingsStore';
 import { deleteTicket, startAgentRun } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Ticket, Project, CreateTicketInput } from '../types';
@@ -93,7 +93,12 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     
     logger.debug('Starting agent with project', { projectId: project.id, path: project.path });
     
-    // Read workflow settings from the settings store
+    // Ensure backend has the latest workflow settings BEFORE starting the run.
+    // This is the critical sync point — the backend's shared WorkflowSettingsState
+    // is the source of truth that the orchestrator reads from.
+    await ensureWorkflowSettingsSynced();
+
+    // Also pass settings in the request as a fallback
     const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries, workflowStages } = useSettingsStore.getState();
     
     try {

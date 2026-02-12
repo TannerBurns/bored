@@ -1,15 +1,9 @@
-import { cn } from '../../../lib/utils';
-import type { AgentLog } from './types';
-
 export interface AgentStatusPanelProps {
   lockedByRunId?: string;
-  agentLogs: AgentLog[];
   agentError: string | null;
   setAgentError: (error: string | null) => void;
   isCancelling: boolean;
   isPausing: boolean;
-  logsContainerRef: React.RefObject<HTMLDivElement>;
-  handleLogsScroll: () => void;
   handleCancelAgent: () => Promise<void>;
   handlePauseTicket: () => Promise<void>;
   handleForceClearLock: () => Promise<void>;
@@ -17,18 +11,15 @@ export interface AgentStatusPanelProps {
 
 export function AgentStatusPanel({
   lockedByRunId,
-  agentLogs,
   agentError,
   setAgentError,
   isCancelling,
   isPausing,
-  logsContainerRef,
-  handleLogsScroll,
   handleCancelAgent,
   handlePauseTicket,
   handleForceClearLock,
 }: AgentStatusPanelProps) {
-  const hasContent = lockedByRunId || agentLogs.length > 0 || agentError;
+  const hasContent = lockedByRunId || agentError;
   
   if (!hasContent) {
     return null;
@@ -89,37 +80,6 @@ export function AgentStatusPanel({
         </div>
       )}
 
-      {/* Agent Output Logs */}
-      {agentLogs.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-board-text-muted mb-2">
-            Agent Output ({agentLogs.length} lines)
-          </h3>
-          <div 
-            ref={logsContainerRef}
-            onScroll={handleLogsScroll}
-            className="bg-board-surface rounded-lg p-3 max-h-60 overflow-y-auto font-mono text-xs"
-          >
-            {agentLogs.map((log, i) => (
-              <div
-                key={i}
-                className={cn(
-                  log.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
-                )}
-              >
-                {log.content}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Debug: Show if logs are empty but agent is running */}
-      {lockedByRunId && agentLogs.length === 0 && (
-        <div className="text-xs text-board-text-muted italic">
-          Waiting for agent output... (Run ID: {lockedByRunId})
-        </div>
-      )}
     </div>
   );
 }

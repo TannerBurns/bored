@@ -243,7 +243,7 @@ fn reconstruct_stdout_from_events(conn: &rusqlite::Connection, run_id: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{AgentType, CreateRun, CreateTicket, Priority, RunStatus, WorkflowType};
+    use crate::db::models::{AgentType, CreateRun, CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Ticket, AgentRun, AgentType } from '../../types';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
 import { BuildWithDropdown } from './BuildWithDropdown';
 
 interface AgentLogEvent {
@@ -174,6 +174,9 @@ export function AgentControls({
     setError(null);
 
     try {
+      // Ensure backend has the latest workflow settings BEFORE starting the run
+      await ensureWorkflowSettingsSynced();
+
       const runId = await invoke<string>('start_agent_run', {
         input: {
           ticketId: ticket.id,

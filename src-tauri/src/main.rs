@@ -6,6 +6,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use agent_kanban::agents::validation_agent::AppProcessManager;
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
+use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
 use agent_kanban::{api, commands, db, logging};
 
@@ -202,6 +203,9 @@ fn main() {
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
             app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
 
+            // Workflow settings (synced from frontend, read by workers at task time)
+            app.manage(WorkflowSettingsState::new());
+
             // Configure API server with persistent token
             // Try to read existing token from file, or generate a new one
             let token_path = app_data_dir.join("api_token");
@@ -351,6 +355,9 @@ fn main() {
             commands::get_claude_hook_script_path,
             commands::get_claude_api_settings,
             commands::set_claude_api_settings,
+            // Workflow settings sync
+            commands::workflow_settings::sync_workflow_settings,
+            commands::workflow_settings::get_workflow_settings,
             // Worker management
             commands::workers::start_worker,
             commands::workers::stop_worker,

@@ -25,24 +25,9 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--dangerously-skip-permissions".to_string(),
     ];
 
-    let model_to_use = config
-        .claude_api_config
-        .as_ref()
-        .and_then(|c| c.model_override.as_ref())
-        .filter(|s| !s.is_empty())
-        .cloned();
-
-    if let Some(model) = model_to_use {
-        args.push("--model".to_string());
-        args.push(model);
-    } else {
-        let model = config
-            .model
-            .as_deref()
-            .unwrap_or(DEFAULT_MODEL);
-        args.push("--model".to_string());
-        args.push(map_model_for_claude(model));
-    }
+    let model = config.model.as_deref().unwrap_or(DEFAULT_MODEL);
+    args.push("--model".to_string());
+    args.push(map_model_for_claude(model));
 
     args.push("--settings".to_string());
     args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
@@ -199,6 +184,27 @@ mod tests {
         assert!(
             args.contains(&"claude-opus-4-6".to_string()),
             "Should default to claude-opus-4-6 when no model specified"
+        );
+    }
+
+    #[test]
+    fn build_command_ignores_model_override() {
+        // model_override on ClaudeApiConfig should NOT affect model selection.
+        // Only config.model (from workflow settings) matters.
+        let mut config = create_test_config();
+        config.model = Some("sonnet-4.5".to_string());
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            model_override: Some("custom-model-override".to_string()),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(
+            args.contains(&"claude-sonnet-4-5".to_string()),
+            "Per-stage model from workflow settings should always be used"
+        );
+        assert!(
+            !args.contains(&"custom-model-override".to_string()),
+            "model_override should never override workflow settings"
         );
     }
 

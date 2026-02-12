@@ -136,6 +136,31 @@ impl WorkflowOrchestrator {
             std::collections::HashMap::new()
         };
 
+        let ws = config
+            .workflow_settings
+            .lock()
+            .expect("workflow settings mutex poisoned");
+
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries) =
+            if !ws.stage_configs.is_empty() {
+                (
+                    ws.stage_configs.clone(),
+                    ws.code_review_max_iterations,
+                    ws.stage_timeout_minutes as u64 * 60,
+                    ws.stage_max_retries,
+                )
+            } else {
+                tracing::warn!("WorkflowSettings empty, using config fallback");
+                (
+                    config.stage_configs,
+                    config.code_review_max_iterations,
+                    config.stage_timeout_secs,
+                    config.stage_max_retries,
+                )
+            };
+
+        drop(ws);
+
         Self {
             db: config.db,
             window: config.window,
@@ -154,12 +179,12 @@ impl WorkflowOrchestrator {
             branch_already_created: config.branch_already_created,
             is_temp_branch: config.is_temp_branch,
             claude_api_config: config.claude_api_config,
-            code_review_max_iterations: config.code_review_max_iterations,
-            stage_timeout_secs: config.stage_timeout_secs,
-            stage_max_retries: config.stage_max_retries,
+            code_review_max_iterations,
+            stage_timeout_secs,
+            stage_max_retries,
             resume_from_stage: config.resume_from_stage,
             previous_stage_outputs,
-            stage_configs: config.stage_configs,
+            stage_configs,
         }
     }
 

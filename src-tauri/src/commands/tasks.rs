@@ -11,7 +11,7 @@ const COMPLETED_COLUMNS: &[&str] = &["Done", "Review"];
 
 /// Move ticket back to Ready if it's in a completed column (Done/Review)
 /// This allows workers to pick up the ticket again for the new task
-fn move_to_ready_if_completed(db: &Database, ticket_id: &str) -> Result<(), String> {
+pub(crate) fn move_to_ready_if_completed(db: &Database, ticket_id: &str) -> Result<(), String> {
     // Get the ticket to find its current column and board
     let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
 

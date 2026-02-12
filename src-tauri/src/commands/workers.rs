@@ -10,6 +10,7 @@ use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::{claude, cursor, AgentKind, ClaudeApiConfig};
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::commands::runs::RunningAgents;
+use crate::commands::workflow_settings::WorkflowSettingsState;
 use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
@@ -55,6 +56,7 @@ pub async fn start_worker(
     db: State<'_, Arc<Database>>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
     running_agents: State<'_, RunningAgents>,
+    workflow_settings_state: State<'_, WorkflowSettingsState>,
 ) -> Result<StartWorkerResponse, String> {
     let StartWorkerRequest {
         agent_type,
@@ -92,6 +94,9 @@ pub async fn start_worker(
     let claude_api_config =
         (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
 
+    // Pass the shared workflow settings so workers read the latest values at task time
+    let workflow_settings = Some(workflow_settings_state.shared());
+
     let config = WorkerConfig {
         agent_type: agent_kind,
         project_id,
@@ -103,6 +108,7 @@ pub async fn start_worker(
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
         stage_max_retries: stage_max_retries.unwrap_or(2),
+        workflow_settings,
         ..Default::default()
     };
 

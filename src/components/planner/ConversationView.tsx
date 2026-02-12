@@ -79,7 +79,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
     
     // Don't clear on unmount - preserve logs and messages for when user returns
     // Cleanup only happens when spec changes or conversation completes
-  }, [spec.id, status, agentType, setConversationMessages, setAgentThinking]);
+  }, [spec.id, status, agentType, plannerTimeoutMinutes, setConversationMessages, setAgentThinking]);
 
   const handleSendMessage = async (content: string) => {
     if (!content.trim() || isSending) return;

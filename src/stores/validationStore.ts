@@ -9,14 +9,12 @@ import {
   stopValidationApp as apiStopValidationApp,
   updateValidationSessionStatus as apiUpdateStatus,
   deleteValidationSession as apiDeleteSession,
-  createFixTasks as apiCreateFixTasks,
   pushBranch as apiPushBranch,
   createPullRequest as apiCreatePR,
-  getBranchDiff as apiGetDiff,
   getBranchDiffFiles as apiGetDiffFiles,
 } from '../lib/tauri';
 import { useSettingsStore } from './settingsStore';
-import type { FixTask, PushResult, PullRequestResult, BranchDiff, FileDiff } from '../types';
+import type { PushResult, PullRequestResult, FileDiff } from '../types';
 import { logger } from '../lib/logger';
 
 /** A log entry from the app runner */
@@ -63,29 +61,19 @@ interface ValidationState {
   // Chat actions
   loadMessages: (sessionId: string) => Promise<void>;
   sendMessage: (sessionId: string, content: string) => Promise<ValidationMessage>;
-  addMessage: (message: ValidationMessage) => void;
-  setAgentThinking: (thinking: boolean) => void;
-  clearMessages: () => void;
 
   // Agent log actions (thinking block)
   addAgentLog: (message: string) => void;
-  clearAgentLogs: () => void;
 
   // App log actions
-  addAppLog: (log: AppLogEntry) => void;
   addAppLogs: (logs: AppLogEntry[]) => void;
   clearAppLogs: () => void;
-  setAppRunning: (running: boolean) => void;
   stopApp: (sessionId: string) => Promise<void>;
 
   // Next steps actions
   pushBranch: (ticketId: string) => Promise<PushResult>;
   createPullRequest: (ticketId: string, title?: string, body?: string) => Promise<PullRequestResult>;
-  getBranchDiff: (ticketId: string) => Promise<BranchDiff>;
   getBranchDiffFiles: (ticketId: string) => Promise<FileDiff[]>;
-
-  // Fix task actions
-  createFixTasks: (sessionId: string, ticketId: string, tasks: FixTask[]) => Promise<string[]>;
 
   // Reset
   reset: () => void;
@@ -221,24 +209,6 @@ export const useValidationStore = create<ValidationState>((set) => ({
     }
   },
 
-  addMessage: (message) => {
-    set((state) => {
-      // Deduplicate
-      if (state.messages.some((m) => m.id === message.id)) {
-        return state;
-      }
-      return {
-        messages: [...state.messages, message],
-        // Clear thinking state when assistant responds
-        isAgentThinking: message.role === 'assistant' ? false : state.isAgentThinking,
-      };
-    });
-  },
-
-  setAgentThinking: (thinking) => set({ isAgentThinking: thinking }),
-
-  clearMessages: () => set({ messages: [] }),
-
   // Agent log actions (thinking block)
   addAgentLog: (message) => {
     set((state) => ({
@@ -246,17 +216,7 @@ export const useValidationStore = create<ValidationState>((set) => ({
     }));
   },
 
-  clearAgentLogs: () => set({ agentLogs: [] }),
-
   // App log actions
-  addAppLog: (log) => {
-    set((state) => {
-      const MAX_APP_LOGS = 500;
-      const next = [...state.appLogs, log];
-      return { appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next };
-    });
-  },
-
   addAppLogs: (logs) => {
     if (logs.length === 0) return;
     set((state) => {
@@ -267,8 +227,6 @@ export const useValidationStore = create<ValidationState>((set) => ({
   },
 
   clearAppLogs: () => set({ appLogs: [] }),
-
-  setAppRunning: (running) => set({ isAppRunning: running }),
 
   stopApp: async (sessionId) => {
     try {
@@ -312,33 +270,11 @@ export const useValidationStore = create<ValidationState>((set) => ({
     }
   },
 
-  getBranchDiff: async (ticketId) => {
-    try {
-      return await apiGetDiff(ticketId);
-    } catch (e) {
-      set({ error: String(e) });
-      throw e;
-    }
-  },
-
   getBranchDiffFiles: async (ticketId) => {
     try {
       return await apiGetDiffFiles(ticketId);
     } catch (e) {
       set({ error: String(e) });
-      throw e;
-    }
-  },
-
-  // Fix task actions
-  createFixTasks: async (sessionId, ticketId, tasks) => {
-    try {
-      set({ isLoading: true, error: null });
-      const taskIds = await apiCreateFixTasks({ sessionId, ticketId, tasks });
-      set({ isLoading: false });
-      return taskIds;
-    } catch (e) {
-      set({ isLoading: false, error: String(e) });
       throw e;
     }
   },

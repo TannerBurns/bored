@@ -521,3 +521,13 @@ export async function getBranchDiff(ticketId: string): Promise<BranchDiff> {
 export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> {
   return invoke('get_branch_diff_files', { ticketId });
 }
+
+// Workflow settings sync
+export async function syncWorkflowSettings(settings: {
+  stageConfigs: Record<string, { enabled: boolean; model: string }>;
+  codeReviewMaxIterations: number;
+  stageTimeoutMinutes: number;
+  stageMaxRetries: number;
+}): Promise<void> {
+  return invoke('sync_workflow_settings', { settings });
+}

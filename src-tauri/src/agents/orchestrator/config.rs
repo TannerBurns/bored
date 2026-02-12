@@ -2,12 +2,13 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
 use super::CancelHandlesMap;
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::commands::runs::StageConfig;
+use crate::commands::workflow_settings::WorkflowSettings;
 use crate::db::Database;
 
 /// Configuration for creating a WorkflowOrchestrator
@@ -32,23 +33,21 @@ pub struct OrchestratorConfig {
     pub branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
-    /// Claude API configuration (auth token, api key, base url, model override)
+    /// Claude API configuration (auth token, api key, base url)
     pub claude_api_config: Option<ClaudeApiConfig>,
-    /// Maximum iterations for the code review loop (default: 3)
-    pub code_review_max_iterations: usize,
-    /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
-    pub stage_timeout_secs: u64,
-    /// Maximum retries per stage (default: 2)
-    pub stage_max_retries: u32,
     /// Stage to resume from (when resuming a paused ticket).
     /// If set, stages before this one will be skipped.
     pub resume_from_stage: Option<String>,
     /// The previous run ID (when resuming a paused ticket).
     /// Used to retrieve stage outputs from the run that was paused.
     pub previous_run_id: Option<String>,
-    /// Per-stage configuration (enabled/disabled + model selection).
-    /// Keys are user-facing stage names (e.g., "plan", "codeReview", "deslop").
+    /// Shared workflow settings (stage configs, timeouts, retries).
+    pub workflow_settings: Arc<Mutex<WorkflowSettings>>,
+    /// Fallback stage configs used when workflow_settings hasn't been synced yet.
     pub stage_configs: HashMap<String, StageConfig>,
+    pub code_review_max_iterations: usize,
+    pub stage_timeout_secs: u64,
+    pub stage_max_retries: u32,
 }
 
 /// The stages in a multi-stage workflow.

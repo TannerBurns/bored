@@ -48,6 +48,16 @@ pub(super) fn update_project_hooks_for_run(
 pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), String> {
     tracing::info!("Starting multi-stage workflow for run {}", config.run_id);
 
+    let workflow_settings = config
+        .workflow_settings
+        .clone()
+        .unwrap_or_else(|| {
+            tracing::warn!("No shared WorkflowSettings on RunnerConfig — using empty defaults");
+            std::sync::Arc::new(std::sync::Mutex::new(
+                crate::commands::workflow_settings::WorkflowSettings::default(),
+            ))
+        });
+
     let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
         db: config.db.clone(),
         window: config.window.clone(),
@@ -65,12 +75,13 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         branch_already_created: config.branch_already_created,
         is_temp_branch: config.is_temp_branch,
         claude_api_config: config.claude_api_config.clone(),
+        resume_from_stage: config.resume_from_stage.clone(),
+        previous_run_id: config.previous_run_id.clone(),
+        workflow_settings,
+        stage_configs: config.stage_configs.clone(),
         code_review_max_iterations: config.code_review_max_iterations,
         stage_timeout_secs: config.stage_timeout_secs,
         stage_max_retries: config.stage_max_retries,
-        resume_from_stage: config.resume_from_stage.clone(),
-        previous_run_id: config.previous_run_id.clone(),
-        stage_configs: config.stage_configs.clone(),
     });
 
     orchestrator.execute().await
