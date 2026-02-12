@@ -271,6 +271,7 @@ mod tests {
             code_review_max_iterations: 10,
             stage_timeout_minutes: 20,
             stage_max_retries: 5,
+            synced: true,
         }));
 
         let config = WorkerConfig {

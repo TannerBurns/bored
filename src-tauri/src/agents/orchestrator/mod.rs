@@ -142,7 +142,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries) =
-            if !ws.stage_configs.is_empty() {
+            if ws.synced {
                 (
                     ws.stage_configs.clone(),
                     ws.code_review_max_iterations,
@@ -150,7 +150,7 @@ impl WorkflowOrchestrator {
                     ws.stage_max_retries,
                 )
             } else {
-                tracing::warn!("WorkflowSettings empty, using config fallback");
+                tracing::warn!("WorkflowSettings not yet synced from frontend, using config fallback");
                 (
                     config.stage_configs,
                     config.code_review_max_iterations,

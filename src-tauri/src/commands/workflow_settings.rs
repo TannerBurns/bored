@@ -30,6 +30,12 @@ pub struct WorkflowSettings {
     pub stage_timeout_minutes: u32,
     /// Maximum retries per stage.
     pub stage_max_retries: u32,
+    /// Whether the frontend has synced settings at least once.
+    /// This is `false` on the default-constructed value and set to `true`
+    /// by `sync_workflow_settings`. The orchestrator uses this flag (not
+    /// `stage_configs.is_empty()`) to decide whether to trust shared state.
+    #[serde(default)]
+    pub synced: bool,
 }
 
 impl Default for WorkflowSettings {
@@ -39,6 +45,7 @@ impl Default for WorkflowSettings {
             code_review_max_iterations: 3,
             stage_timeout_minutes: 30,
             stage_max_retries: 2,
+            synced: false,
         }
     }
 }
@@ -82,7 +89,7 @@ impl Default for WorkflowSettingsState {
 /// Tauri command: frontend calls this whenever workflow settings change.
 #[tauri::command]
 pub async fn sync_workflow_settings(
-    settings: WorkflowSettings,
+    mut settings: WorkflowSettings,
     state: State<'_, WorkflowSettingsState>,
 ) -> Result<(), String> {
     tracing::debug!(
@@ -92,6 +99,9 @@ pub async fn sync_workflow_settings(
         settings.stage_timeout_minutes,
         settings.stage_max_retries,
     );
+    // Mark as synced so the orchestrator trusts shared state even when
+    // stage_configs happens to be empty.
+    settings.synced = true;
     state.set(settings);
     Ok(())
 }
@@ -115,6 +125,7 @@ mod tests {
         assert_eq!(settings.code_review_max_iterations, 3);
         assert_eq!(settings.stage_timeout_minutes, 30);
         assert_eq!(settings.stage_max_retries, 2);
+        assert!(!settings.synced, "default settings should not be marked as synced");
     }
 
     #[test]
@@ -132,6 +143,7 @@ mod tests {
             code_review_max_iterations: 5,
             stage_timeout_minutes: 15,
             stage_max_retries: 1,
+            synced: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("stageConfigs"));
@@ -155,6 +167,23 @@ mod tests {
         assert_eq!(settings.code_review_max_iterations, 5);
         assert_eq!(settings.stage_timeout_minutes, 15);
         assert_eq!(settings.stage_max_retries, 1);
+        // `synced` is not in the JSON, so it should default to false
+        assert!(!settings.synced, "synced should default to false when absent from JSON");
+    }
+
+    #[test]
+    fn workflow_settings_deserializes_with_synced_field() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":10,
+            "stageTimeoutMinutes":60,
+            "stageMaxRetries":5,
+            "synced":true
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.stage_configs.is_empty());
+        assert_eq!(settings.code_review_max_iterations, 10);
+        assert!(settings.synced, "synced should be true when present in JSON");
     }
 
     #[test]
@@ -180,6 +209,7 @@ mod tests {
             code_review_max_iterations: 7,
             stage_timeout_minutes: 20,
             stage_max_retries: 4,
+            synced: true,
         });
 
         // Verify update
@@ -211,5 +241,33 @@ mod tests {
         let state = WorkflowSettingsState::default();
         let settings = state.get();
         assert!(settings.stage_configs.is_empty());
+        assert!(!settings.synced);
+    }
+
+    /// Regression: synced settings with empty stage_configs should still be
+    /// recognized as synced — the orchestrator must not fall back to config
+    /// defaults just because stage_configs is empty.
+    #[test]
+    fn workflow_settings_synced_with_empty_stage_configs() {
+        let state = WorkflowSettingsState::new();
+
+        // Simulate what sync_workflow_settings does
+        let mut settings = WorkflowSettings {
+            stage_configs: HashMap::new(),
+            code_review_max_iterations: 10,
+            stage_timeout_minutes: 60,
+            stage_max_retries: 5,
+            synced: false, // frontend doesn't send this
+        };
+        settings.synced = true; // sync_workflow_settings sets this
+
+        state.set(settings);
+
+        let stored = state.get();
+        assert!(stored.synced, "settings should be marked as synced");
+        assert!(stored.stage_configs.is_empty(), "stage_configs should still be empty");
+        assert_eq!(stored.code_review_max_iterations, 10);
+        assert_eq!(stored.stage_timeout_minutes, 60);
+        assert_eq!(stored.stage_max_retries, 5);
     }
 }
