@@ -330,6 +330,35 @@ function FixTasksStatusBadge({ ticketId, taskIds }: { ticketId: string; taskIds?
   );
 }
 
+function FixTasksCard({
+  message,
+  ticketId,
+  taskIds,
+}: {
+  message: ValidationMessageType;
+  ticketId: string;
+  taskIds?: string[];
+}) {
+  return (
+    <div className="flex justify-center">
+      <div className="w-full max-w-lg rounded-lg border border-board-border bg-board-card/60 overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-board-border/40 bg-board-card/80">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+          <span className="text-xs font-medium text-board-text">Fix Task Created</span>
+        </div>
+        <div className="px-3 py-2.5 text-xs text-board-text-secondary">
+          <MarkdownViewer content={message.content} />
+        </div>
+        <div className="px-3 py-2 border-t border-board-border/30 bg-board-bg/30">
+          <FixTasksStatusBadge ticketId={ticketId} taskIds={taskIds} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ValidationMessageBubble({
   message,
   ticketId,
@@ -340,38 +369,22 @@ function ValidationMessageBubble({
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const metadata = message.metadata as Record<string, unknown> | undefined;
-  const isFixTasksCreated = metadata?.type === 'fix_tasks_created';
-  const isFixTaskResponse = metadata?.type === 'fix_task_response';
+  const metaType = metadata?.type as string | undefined;
 
-  // Hide the raw assistant response when it contained a fix task JSON block --
-  // the system message that follows (with the task card) is what the user sees.
-  if (isFixTaskResponse) {
-    return null;
+  // Hide the raw assistant response when it contained a fix task JSON block
+  if (metaType === 'fix_task_response') {
+    return <div className="hidden" />;
   }
 
-  if (isSystem && isFixTasksCreated) {
+  // Fix task card with live status polling (rendered as a separate component
+  // so its hooks are stable and independent of the parent's branch logic)
+  if (isSystem && metaType === 'fix_tasks_created' && ticketId) {
     return (
-      <div className="flex justify-center">
-        <div className="w-full max-w-lg rounded-lg border border-board-border bg-board-card/60 overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-board-border/40 bg-board-card/80">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400">
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-            </svg>
-            <span className="text-xs font-medium text-board-text">Fix Task Created</span>
-          </div>
-          <div className="px-3 py-2.5 text-xs text-board-text-secondary">
-            <MarkdownViewer content={message.content} />
-          </div>
-          {ticketId && (
-            <div className="px-3 py-2 border-t border-board-border/30 bg-board-bg/30">
-              <FixTasksStatusBadge
-                ticketId={ticketId}
-                taskIds={metadata?.task_ids as string[] | undefined}
-              />
-            </div>
-          )}
-        </div>
-      </div>
+      <FixTasksCard
+        message={message}
+        ticketId={ticketId}
+        taskIds={metadata?.task_ids as string[] | undefined}
+      />
     );
   }
 
