@@ -379,6 +379,9 @@ pub struct StructuredSpec {
     pub requirements: String,
     pub decisions: Vec<String>,
     pub constraints: Vec<String>,
+    /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case)
+    /// since the brainstorm prompt examples use snake_case.
+    #[serde(alias = "technical_notes")]
     pub technical_notes: Option<String>,
 }
 
@@ -545,6 +548,25 @@ mod tests {
             let spec: StructuredSpec = serde_json::from_str(json).unwrap();
             assert_eq!(spec.requirements, "Build feature");
             assert!(spec.technical_notes.is_none());
+        }
+
+        #[test]
+        fn deserialize_with_snake_case_technical_notes() {
+            // The brainstorm prompt examples use "technical_notes" (snake_case),
+            // so agents often output it that way instead of "technicalNotes" (camelCase).
+            let json = r#"{
+                "requirements": "Build auth",
+                "decisions": ["Use JWT"],
+                "constraints": ["Must be fast"],
+                "technical_notes": "Extend the existing auth module in src/auth/"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, "Build auth");
+            assert_eq!(
+                spec.technical_notes,
+                Some("Extend the existing auth module in src/auth/".to_string()),
+                "snake_case technical_notes should be accepted via serde alias"
+            );
         }
 
         #[test]
