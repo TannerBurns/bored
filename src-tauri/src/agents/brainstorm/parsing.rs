@@ -111,6 +111,7 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
 
 /// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
 fn extract_json_block(response: &str) -> Option<String> {
+    // Strategy 1: code-fenced JSON (```json ... ```)
     if let Some(fence_start) = response.find("```json") {
         let content_start = fence_start + 7;
         if let Some(fence_end) = response[content_start..].find("```") {
@@ -121,18 +122,25 @@ fn extract_json_block(response: &str) -> Option<String> {
         }
     }
     
-    if let Some(json_start) = response.find("{\"spec_complete\"") {
-        let mut depth = 0;
-        for (i, c) in response[json_start..].char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(response[json_start..json_start + i + 1].to_string());
+    // Strategy 2: raw JSON containing "spec_complete" key.
+    // Find the key first, then walk backwards to the opening brace.
+    // This handles both compact `{"spec_complete":...}` and pretty-printed
+    // `{\n  "spec_complete":...}` forms that agents often produce without code fences.
+    if let Some(key_pos) = response.find("\"spec_complete\"") {
+        if let Some(brace_offset) = response[..key_pos].rfind('{') {
+            let json_start = brace_offset;
+            let mut depth = 0;
+            for (i, c) in response[json_start..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(response[json_start..json_start + i + 1].to_string());
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     }
@@ -240,6 +248,8 @@ mod tests {
         let spec = response.structured_spec.unwrap();
         assert!(spec.requirements.contains("OAuth"));
         assert_eq!(spec.decisions.len(), 2);
+        // Verify technical_notes (snake_case from prompt) is preserved via serde alias
+        assert_eq!(spec.technical_notes, Some("Extend existing auth module".to_string()));
         let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
         assert!(msg["observations"].as_str().unwrap().contains("Final summary"));
     }
@@ -474,5 +484,72 @@ The API follows RESTful conventions."#;
 
         assert!(!response.is_complete);
         assert!(!response.has_questions);
+    }
+
+    // === Pretty-printed raw JSON tests (no code fence) ===
+
+    #[test]
+    fn parse_raw_pretty_printed_json_completion() {
+        // Agent outputs pretty-printed JSON without code fences — the primary bug case.
+        let response_text = r#"{
+  "spec_complete": true,
+  "observations": "All decisions made.",
+  "structured_spec": {
+    "requirements": "Build a real-time app",
+    "decisions": ["Use WebSockets"],
+    "constraints": ["Must scale to 1000 users"],
+    "technical_notes": "Extend existing socket module"
+  }
+}"#;
+
+        let response = parse_response(response_text).unwrap();
+        assert!(response.is_complete, "pretty-printed raw JSON should be detected as complete");
+        assert!(response.structured_spec.is_some());
+        let spec = response.structured_spec.unwrap();
+        assert!(spec.requirements.contains("real-time"));
+        assert_eq!(spec.decisions.len(), 1);
+        assert_eq!(spec.technical_notes, Some("Extend existing socket module".to_string()));
+    }
+
+    #[test]
+    fn parse_raw_pretty_printed_json_with_preamble() {
+        // Agent outputs preamble text before pretty-printed JSON — common pattern.
+        let response_text = concat!(
+            "Now I have comprehensive research. Let me synthesize this into the final spec.\n\n",
+            "{\n",
+            "  \"spec_complete\": true,\n",
+            "  \"observations\": \"All key technical decisions have been made.\",\n",
+            "  \"structured_spec\": {\n",
+            "    \"requirements\": \"Build a cross-platform desktop app\",\n",
+            "    \"decisions\": [\"Use Tauri v2\", \"Use React and TypeScript\"],\n",
+            "    \"constraints\": [\"Must support macOS and Windows\"],\n",
+            "    \"technical_notes\": \"Extend existing patterns in src/\"\n",
+            "  }\n",
+            "}",
+        );
+
+        let response = parse_response(response_text).unwrap();
+        assert!(response.is_complete, "pretty-printed raw JSON with preamble should be detected as complete");
+        assert!(response.structured_spec.is_some());
+        let spec = response.structured_spec.unwrap();
+        assert!(spec.requirements.contains("cross-platform"));
+        assert_eq!(spec.decisions.len(), 2);
+        assert_eq!(spec.technical_notes, Some("Extend existing patterns in src/".to_string()));
+    }
+
+    #[test]
+    fn parse_raw_pretty_printed_json_not_complete() {
+        // Pretty-printed raw JSON with questions, not complete.
+        let response_text = r#"{
+  "spec_complete": false,
+  "observations": "Found existing auth patterns.",
+  "questions": "1. Which provider?\n   - A) Google\n   - B) GitHub"
+}"#;
+
+        let response = parse_response(response_text).unwrap();
+        assert!(!response.is_complete);
+        assert!(response.has_questions);
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["questions"].as_str().unwrap().contains("Which provider"));
     }
 }
