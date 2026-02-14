@@ -197,7 +197,7 @@ impl Database {
         self.with_conn(|conn| {
             // Match on primary dependency OR anywhere in the JSON array.
             // The JSON pattern uses '"<id>"' to avoid partial-id false positives.
-            let pattern = format!("%\"{}\"%" , epic_id);
+            let pattern = format!("%\"{}\"%", epic_id);
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
@@ -246,8 +246,6 @@ impl Database {
         &self,
         epic: &Ticket,
     ) -> Result<Option<IncompleteDependency>, DbError> {
-        // Build the effective dependency list: prefer the full list, but fall
-        // back to the singular field for legacy tickets.
         let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
             epic.depends_on_epic_ids.iter().map(|s| s.as_str()).collect()
         } else if let Some(ref dep_id) = epic.depends_on_epic_id {

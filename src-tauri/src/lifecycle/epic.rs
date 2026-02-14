@@ -38,11 +38,7 @@ pub fn on_epic_moved_to_ready(
         return Ok(EpicAdvancement::NoAction);
     }
 
-    // Check ALL dependencies, not just the primary one.
-    // For multi-dependency epics this prevents starting work when only some
-    // dependencies are complete while others are still blocked/in-progress.
-    // We also enter this block for legacy epics that only have
-    // `depends_on_epic_id` set (with an empty `depends_on_epic_ids` vec).
+    // Check all dependencies (includes legacy single-dep epics)
     if !epic.depends_on_epic_ids.is_empty() || epic.depends_on_epic_id.is_some() {
         if let Some(incomplete) = db.are_all_dependencies_complete(epic)? {
             // At least one dependency is not Done -- block the epic back to Backlog
@@ -215,8 +211,6 @@ pub fn advance_dependent_epics(
 ) -> Result<Vec<String>, DbError> {
     let mut advanced = Vec::new();
 
-    // Find all epics that depend on this one (checks both primary and
-    // the full depends_on_epic_ids_json list).
     let dependents = db.get_epics_depending_on(&completed_epic.id)?;
 
     for dependent in dependents {
@@ -232,9 +226,7 @@ pub fn advance_dependent_epics(
             continue;
         }
 
-        // For multi-dependency epics, verify ALL dependencies are Done
-        // before advancing. If any other dependency is still incomplete
-        // the epic will be re-evaluated when that dependency completes.
+        // Skip if any other dependency is still incomplete
         if db.are_all_dependencies_complete(&dependent)?.is_some() {
             tracing::info!(
                 "Epic {} still has incomplete dependencies, not advancing yet",
@@ -243,7 +235,6 @@ pub fn advance_dependent_epics(
             continue;
         }
 
-        // All dependencies satisfied -- move to Ready
         if let Some(ready_column) = db.find_column_by_name(&dependent.board_id, "Ready")? {
             db.move_ticket(&dependent.id, &ready_column.id)?;
 
