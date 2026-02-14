@@ -1,5 +1,42 @@
 [
   {
+    "version": "0.1.0-beta.15",
+    "published_at": "2026-02-14",
+    "summary": "Multi-dependency tracking fixes, active-child advancement guard, and planner now receives full conversation context",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Planner now receives full brainstorm conversation context (observations, clarifications, Q&A history) for more informed ticket generation",
+          "New extract_latest_observations and build_conversation_context helpers surface codebase findings from the discovery phase into planning"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "RunsHistory is now scrollable and displays all runs instead of capping at 5",
+          "Renamed \"runs\" to \"stages\" in CostBadge and EpicProgressPanel for clarity with multi-stage workflows",
+          "Simplified dependency checking by returning blocking dep info directly, eliminating duplicate DB queries"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed dependency tracker only checking the primary dependency for multi-dependency epics — now validates ALL dependencies before advancing",
+          "Fixed dragging an epic back to Ready advancing a new child ticket when another child was already active (added active-child guard)",
+          "Fixed legacy depends_on_epic_id field being ignored by multi-dependency code when depends_on_epic_ids_json was NULL"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 16 unit tests for extract_latest_observations and build_conversation_context covering all branches",
+          "Added 15 DB-level tests for has_active_epic_child, are_all_dependencies_complete, and get_epics_depending_on edge cases"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.14",
     "published_at": "2026-02-14",
     "summary": "Blocked ticket UX overhaul with guided clarification flow, one-click resolve, and automatic task syncing",
