@@ -1,5 +1,35 @@
 [
   {
+    "version": "0.1.0-beta.14",
+    "published_at": "2026-02-14",
+    "summary": "Blocked ticket UX overhaul with guided clarification flow, one-click resolve, and automatic task syncing",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "BlockedTicketBanner component with task-aware guidance that adapts messaging for initial vs follow-up task failures",
+          "One-click \"Resolve & Move to Ready\" action to reset failed tasks and advance the ticket without manual drag-and-drop",
+          "\"Needs Input\" badge on ticket cards in the Blocked column for at-a-glance visibility",
+          "Ticket description edits now sync to the initial task so clarification updates propagate to the agent automatically"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "CommentsSection auto-expands when clarification comments are present, including when clarification arrives after mount",
+          "Clarification comment metadata now includes task_id and task_order_index so the frontend knows which task was blocked",
+          "Backend resets failed tasks to pending on description update so the agent re-reads updated content"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed CommentsSection not expanding when a clarification comment arrived after the component had already mounted"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.13",
     "published_at": "2026-02-13",
     "summary": "Fix spec agent failing to parse pretty-printed raw JSON responses from AI agents",
