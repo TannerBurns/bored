@@ -2,6 +2,16 @@ use crate::db::models::Ticket;
 use crate::db::{Database, DbError};
 use rusqlite::OptionalExtension;
 
+/// Info about the first incomplete dependency found by
+/// [`Database::are_all_dependencies_complete`].
+#[derive(Debug, Clone)]
+pub struct IncompleteDependency {
+    /// The ticket ID of the incomplete dependency epic.
+    pub id: String,
+    /// The title of the incomplete dependency epic.
+    pub title: String,
+}
+
 impl Database {
     /// Get all children of an epic, ordered by order_in_epic
     ///
@@ -177,21 +187,98 @@ impl Database {
         })
     }
 
-    /// Get all epics that depend on the given epic (via depends_on_epic_id)
+    /// Get all epics that depend on the given epic.
+    ///
+    /// Checks both `depends_on_epic_id` (primary/legacy) and `depends_on_epic_ids_json`
+    /// (full list for multi-dependency epics). This ensures that when ANY dependency
+    /// completes, all dependent epics are discovered -- not just those whose primary
+    /// dependency matches.
     pub fn get_epics_depending_on(&self, epic_id: &str) -> Result<Vec<Ticket>, DbError> {
         self.with_conn(|conn| {
+            // Match on primary dependency OR anywhere in the JSON array.
+            // The JSON pattern uses '"<id>"' to avoid partial-id false positives.
+            let pattern = format!("%\"{}\"%", epic_id);
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
                           lock_expires_at, project_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
-                   FROM tickets WHERE depends_on_epic_id = ? AND is_epic = 1"#,
+                   FROM tickets
+                   WHERE (depends_on_epic_id = ?1 OR depends_on_epic_ids_json LIKE ?2)
+                     AND is_epic = 1"#,
             )?;
 
-            let rows = stmt.query_map([epic_id], Self::map_ticket_row)?;
+            let rows = stmt.query_map(rusqlite::params![epic_id, pattern], Self::map_ticket_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
         })
+    }
+
+    /// Check whether an epic has any child ticket that is currently active
+    /// (i.e. not in Backlog and not in Done).
+    ///
+    /// This is used to prevent advancing a second child to Ready when one is
+    /// already being worked on.
+    pub fn has_active_epic_child(&self, epic_id: &str) -> Result<bool, DbError> {
+        self.with_conn(|conn| {
+            let active: i32 = conn.query_row(
+                r#"SELECT COUNT(*) FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   WHERE t.epic_id = ? AND c.name NOT IN ('Backlog', 'Done')"#,
+                [epic_id],
+                |row| row.get(0),
+            )?;
+            Ok(active > 0)
+        })
+    }
+
+    /// Check whether ALL of an epic's dependencies are in the Done column.
+    ///
+    /// Uses `depends_on_epic_ids` when available, but falls back to the
+    /// legacy `depends_on_epic_id` field for older tickets that were created
+    /// before multi-dependency support (where `depends_on_epic_ids_json` is
+    /// NULL and the vector is therefore empty).
+    ///
+    /// Returns `Ok(None)` when every dependency is complete (or the epic has
+    /// no dependencies).  Returns `Ok(Some(info))` with the first incomplete
+    /// dependency's ID and title when at least one dependency is not Done.
+    pub fn are_all_dependencies_complete(
+        &self,
+        epic: &Ticket,
+    ) -> Result<Option<IncompleteDependency>, DbError> {
+        let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
+            epic.depends_on_epic_ids.iter().map(|s| s.as_str()).collect()
+        } else if let Some(ref dep_id) = epic.depends_on_epic_id {
+            vec![dep_id.as_str()]
+        } else {
+            return Ok(None); // No dependencies at all
+        };
+
+        for dep_id in &effective_deps {
+            let dep = self.get_ticket(dep_id)?;
+            let columns = self.get_columns(&dep.board_id)?;
+            let dep_column = columns.into_iter().find(|c| c.id == dep.column_id);
+
+            let is_done = match dep_column {
+                Some(ref col) => col.name == "Done",
+                None => {
+                    tracing::warn!(
+                        "Epic {}: could not find column {} for dependency {}, treating as incomplete",
+                        epic.id, dep.column_id, dep_id
+                    );
+                    false
+                }
+            };
+
+            if !is_done {
+                return Ok(Some(IncompleteDependency {
+                    id: dep.id,
+                    title: dep.title,
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Check if all children of an epic are in Done column

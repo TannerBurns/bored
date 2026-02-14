@@ -1365,3 +1365,286 @@ fn get_epic_children_orders_null_last() {
     // Legacy ticket with NULL order should be last
     assert_eq!(children[2].id, legacy.id);
 }
+
+// ======================================================================
+// has_active_epic_child
+// ======================================================================
+
+#[test]
+fn has_active_child_false_when_no_children() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    assert!(!db.has_active_epic_child(&epic.id).unwrap());
+}
+
+#[test]
+fn has_active_child_false_when_all_backlog() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "C1");
+    create_child_ticket(&db, &board.id, &backlog.id, &epic.id, "C2");
+    assert!(!db.has_active_epic_child(&epic.id).unwrap());
+}
+
+#[test]
+fn has_active_child_false_when_all_done() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    create_child_ticket(&db, &board.id, &done.id, &epic.id, "C1");
+    assert!(!db.has_active_epic_child(&epic.id).unwrap());
+}
+
+#[test]
+fn has_active_child_true_when_child_in_ready() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    create_child_ticket(&db, &board.id, &ready.id, &epic.id, "C1");
+    assert!(db.has_active_epic_child(&epic.id).unwrap());
+}
+
+#[test]
+fn has_active_child_true_when_child_in_progress() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let in_progress = columns.iter().find(|c| c.name == "In Progress").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    create_child_ticket(&db, &board.id, &in_progress.id, &epic.id, "C1");
+    assert!(db.has_active_epic_child(&epic.id).unwrap());
+}
+
+// ======================================================================
+// are_all_dependencies_complete
+// ======================================================================
+
+fn create_epic_with_multi_deps(
+    db: &crate::db::Database,
+    board_id: &str,
+    column_id: &str,
+    dep_ids: Vec<String>,
+) -> crate::db::models::Ticket {
+    db.create_ticket(&CreateTicket {
+        board_id: board_id.to_string(),
+        column_id: column_id.to_string(),
+        title: "Multi-Dep Epic".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![],
+        project_id: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: true,
+        epic_id: None,
+        depends_on_epic_id: dep_ids.first().cloned(),
+        depends_on_epic_ids: dep_ids,
+        spec_version_id: None,
+    })
+    .unwrap()
+}
+
+#[test]
+fn all_deps_complete_returns_none_when_no_dependencies() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+
+    let epic = create_epic_ticket(&db, &board.id, &backlog.id, "Epic");
+    assert!(db.are_all_dependencies_complete(&epic).unwrap().is_none());
+}
+
+#[test]
+fn all_deps_complete_returns_none_when_single_dep_done() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    let dep = create_epic_ticket(&db, &board.id, &done.id, "Dep");
+    let epic = create_epic_with_dependency(&db, &board.id, &backlog.id, &dep.id);
+    assert!(db.are_all_dependencies_complete(&epic).unwrap().is_none());
+}
+
+#[test]
+fn all_deps_complete_returns_incomplete_when_single_dep_not_done() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+    let dep = create_epic_ticket(&db, &board.id, &ready.id, "Dep");
+    let epic = create_epic_with_dependency(&db, &board.id, &backlog.id, &dep.id);
+    let result = db.are_all_dependencies_complete(&epic).unwrap();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().id, dep.id);
+}
+
+#[test]
+fn all_deps_complete_returns_none_when_all_multi_deps_done() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    let dep_a = create_epic_ticket(&db, &board.id, &done.id, "A");
+    let dep_b = create_epic_ticket(&db, &board.id, &done.id, "B");
+    let epic = create_epic_with_multi_deps(
+        &db,
+        &board.id,
+        &backlog.id,
+        vec![dep_a.id.clone(), dep_b.id.clone()],
+    );
+    assert!(db.are_all_dependencies_complete(&epic).unwrap().is_none());
+}
+
+#[test]
+fn all_deps_complete_returns_first_incomplete_multi_dep() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+    let dep_a = create_epic_ticket(&db, &board.id, &done.id, "A");
+    let dep_b = create_epic_ticket(&db, &board.id, &ready.id, "B");
+    let epic = create_epic_with_multi_deps(
+        &db,
+        &board.id,
+        &backlog.id,
+        vec![dep_a.id.clone(), dep_b.id.clone()],
+    );
+    let result = db.are_all_dependencies_complete(&epic).unwrap();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().id, dep_b.id);
+}
+
+#[test]
+fn all_deps_complete_legacy_fallback_with_empty_depends_on_epic_ids() {
+    // Simulates a ticket created before multi-dep support: only
+    // depends_on_epic_id is set, depends_on_epic_ids is empty.
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+    let dep = create_epic_ticket(&db, &board.id, &ready.id, "Dep");
+
+    // Create with only depends_on_epic_id, empty depends_on_epic_ids
+    let legacy = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: backlog.id.clone(),
+            title: "Legacy".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+            depends_on_epic_id: Some(dep.id.clone()),
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    let result = db.are_all_dependencies_complete(&legacy).unwrap();
+    assert!(result.is_some(), "Legacy fallback should check depends_on_epic_id");
+    assert_eq!(result.unwrap().id, dep.id);
+}
+
+// ======================================================================
+// get_epics_depending_on (JSON LIKE search)
+// ======================================================================
+
+#[test]
+fn get_epics_depending_on_finds_via_json_field() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    let dep_a = create_epic_ticket(&db, &board.id, &done.id, "A");
+    let dep_b = create_epic_ticket(&db, &board.id, &done.id, "B");
+
+    // depends_on_epic_id = dep_a (primary), depends_on_epic_ids = [dep_a, dep_b]
+    let dependent = create_epic_with_multi_deps(
+        &db,
+        &board.id,
+        &backlog.id,
+        vec![dep_a.id.clone(), dep_b.id.clone()],
+    );
+
+    // Search by non-primary dep_b should find via JSON LIKE
+    let results = db.get_epics_depending_on(&dep_b.id).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, dependent.id);
+
+    // Search by primary dep_a should also find it
+    let results = db.get_epics_depending_on(&dep_a.id).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, dependent.id);
+}
+
+#[test]
+fn get_epics_depending_on_ignores_non_epic_tickets() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+    let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+    let dep = create_epic_ticket(&db, &board.id, &done.id, "Dep");
+
+    // Create a non-epic ticket with depends_on_epic_id set
+    db.create_ticket(&CreateTicket {
+        board_id: board.id.clone(),
+        column_id: backlog.id.clone(),
+        title: "Not an epic".to_string(),
+        description_md: "".to_string(),
+        priority: Priority::Medium,
+        labels: vec![],
+        project_id: None,
+        workflow_type: WorkflowType::default(),
+        model: None,
+        branch_name: None,
+        is_epic: false,
+        epic_id: None,
+        depends_on_epic_id: Some(dep.id.clone()),
+        depends_on_epic_ids: vec![dep.id.clone()],
+        spec_version_id: None,
+    })
+    .unwrap();
+
+    let results = db.get_epics_depending_on(&dep.id).unwrap();
+    assert!(results.is_empty(), "Should only return epics, not regular tickets");
+}

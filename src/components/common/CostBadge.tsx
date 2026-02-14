@@ -137,7 +137,7 @@ function buildTooltip(cost: RunCostData | AggregatedCost): string {
 
   if ('runCount' in cost && cost.runCount > 1) {
     lines.push('');
-    lines.push(`Across ${cost.runCount} runs`);
+    lines.push(`Across ${cost.runCount} stages`);
   }
 
   return lines.join('\n');
@@ -153,7 +153,7 @@ export function CostSummary({ cost, className }: { cost: AggregatedCost | null |
       <CostBadge cost={cost} size="md" />
       {cost.runCount > 0 && (
         <span className="opacity-60">
-          across {cost.runCount} run{cost.runCount !== 1 ? 's' : ''}
+          across {cost.runCount} stage{cost.runCount !== 1 ? 's' : ''}
         </span>
       )}
     </div>

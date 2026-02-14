@@ -215,10 +215,10 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
             <div className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <span className="text-board-text-muted">Total spec cost:</span>
-                <CostBadge cost={specCost} size="md" showTokens />
+                <CostBadge cost={specCost} size="md" />
               </div>
               <span className="text-xs text-board-text-muted">
-                {specCost.runCount} run{specCost.runCount !== 1 ? 's' : ''}
+                {specCost.runCount} stage{specCost.runCount !== 1 ? 's' : ''}
                 {specCost.estimatedCount > 0 && ` (${specCost.estimatedCount} estimated)`}
               </span>
             </div>

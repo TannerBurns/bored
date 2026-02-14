@@ -342,10 +342,14 @@ struct PlanTriggerConfig {
 }
 
 const COMPLETION_PROMPT: &str = "Based on your observations and the conversation so far, you have enough information. \
-    Please produce the final specification JSON block now:\n\
-    ```json\n{\n  \"spec_complete\": true,\n  \"structured_spec\": {\n    \
-    \"requirements\": \"...\",\n    \"decisions\": [...],\n    \
-    \"constraints\": [...],\n    \"technical_notes\": \"...\"\n  }\n}\n```";
+    Please produce the final specification JSON block now. Remember: the spec must be EXHAUSTIVE and VERBOSE. \
+    The requirements field should be a complete, multi-paragraph description of everything to build. \
+    The technical_notes field should be a comprehensive implementation guide listing every file to create or modify, \
+    patterns to follow, types to define, integration points, and edge cases. \
+    This spec is the ONLY document implementing agents will see — capture EVERY detail from the conversation.\n\
+    ```json\n{\n  \"spec_complete\": true,\n  \"observations\": \"<comprehensive final summary>\",\n  \"structured_spec\": {\n    \
+    \"requirements\": \"<VERBOSE detailed requirements — multiple paragraphs>\",\n    \"decisions\": [\"Decision: WHAT — WHY — HOW it affects implementation\"],\n    \
+    \"constraints\": [\"Constraint with context and codebase evidence\"],\n    \"technical_notes\": \"<EXHAUSTIVE implementation guide with files, patterns, types, integration points, testing>\"\n  }\n}\n```";
 
 /// Create a system error message, emit it via SSE, and signal conversation complete.
 fn emit_conversation_error(
@@ -457,13 +461,16 @@ fn handle_spec_completion(
     plan_trigger: Option<PlanTriggerConfig>,
 ) -> Result<(), String> {
     if let Some(structured) = structured_spec {
+        let observations_section = extract_latest_observations(db, spec_id);
+
         let enhanced_input = format!(
-            "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}",
+            "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}{}",
             original_user_input,
             structured.requirements,
             structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
             structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
-            structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default()
+            structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default(),
+            observations_section
         );
 
         let exploration_entry = crate::db::Exploration {
@@ -517,6 +524,93 @@ fn handle_spec_completion(
     Ok(())
 }
 
+/// Extract the observations from the most recent assistant message in the conversation.
+/// Returns a formatted section string to append to the enhanced input, or empty string if none found.
+fn extract_latest_observations(db: &Arc<Database>, spec_id: &str) -> String {
+    let messages = match db.get_conversation_messages(spec_id) {
+        Ok(m) => m,
+        Err(_) => return String::new(),
+    };
+
+    for msg in messages.iter().rev() {
+        if msg.role == ConversationRole::Assistant {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
+                if let Some(obs) = parsed.get("observations").and_then(|v| v.as_str()) {
+                    let trimmed = obs.trim();
+                    if !trimmed.is_empty() {
+                        return format!("\n\n## Codebase Observations (from discovery)\n{}", trimmed);
+                    }
+                }
+            }
+        }
+    }
+
+    String::new()
+}
+
+/// Build a conversation summary from the brainstorm Q&A to use as exploration context for the planner.
+/// This preserves the full back-and-forth between the user and brainstorm agent so the planner
+/// has access to all clarifications, decisions, and context discussed during discovery.
+fn build_conversation_context(db: &Arc<Database>, spec_id: &str, technical_notes: &str) -> String {
+    let messages = match db.get_conversation_messages(spec_id) {
+        Ok(m) => m,
+        Err(_) => return technical_notes.to_string(),
+    };
+
+    // Filter to meaningful conversation messages (skip system messages like "Starting brainstorming session...")
+    let conversation_entries: Vec<String> = messages
+        .iter()
+        .filter(|msg| msg.role != ConversationRole::System)
+        .map(|msg| {
+            let role_label = match msg.role {
+                ConversationRole::User => "User",
+                ConversationRole::Assistant => "Assistant",
+                ConversationRole::System => "System",
+            };
+            // For assistant messages, try to extract the readable observations/questions
+            // instead of raw JSON
+            if msg.role == ConversationRole::Assistant {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
+                    let mut parts = Vec::new();
+                    if let Some(obs) = parsed.get("observations").and_then(|v| v.as_str()) {
+                        if !obs.trim().is_empty() {
+                            parts.push(format!("**Observations:** {}", obs.trim()));
+                        }
+                    }
+                    if let Some(qs) = parsed.get("questions").and_then(|v| v.as_str()) {
+                        if !qs.trim().is_empty() {
+                            parts.push(format!("**Questions:** {}", qs.trim()));
+                        }
+                    }
+                    if !parts.is_empty() {
+                        return format!("**{}:**\n{}", role_label, parts.join("\n\n"));
+                    }
+                }
+            }
+            format!("**{}:** {}", role_label, msg.content)
+        })
+        .collect();
+
+    if conversation_entries.is_empty() {
+        return technical_notes.to_string();
+    }
+
+    let mut context = String::new();
+
+    if !technical_notes.is_empty() {
+        context.push_str("## Technical Notes from Codebase Exploration\n\n");
+        context.push_str(technical_notes);
+        context.push_str("\n\n");
+    }
+
+    context.push_str("## Discovery Conversation History\n\n");
+    context.push_str("The following is the complete Q&A from the spec discovery session. ");
+    context.push_str("Use the decisions, clarifications, and context discussed here to inform the work plan.\n\n");
+    context.push_str(&conversation_entries.join("\n\n---\n\n"));
+
+    context
+}
+
 /// Run plan generation in background after spec completion
 async fn run_plan_generation(
     db: Arc<Database>,
@@ -524,6 +618,12 @@ async fn run_plan_generation(
     config: PlanTriggerConfig,
 ) {
     tracing::info!("Starting plan generation for spec {} after conversation complete", config.spec_id);
+
+    let exploration_context = build_conversation_context(
+        &db,
+        &config.spec_id,
+        &config.exploration_context,
+    );
     
     let planner_config = PlannerConfig {
         spec_id: config.spec_id.clone(),
@@ -541,7 +641,7 @@ async fn run_plan_generation(
     
     let agent = PlannerAgent::with_events(db.clone(), planner_config, event_tx.clone());
     
-    match agent.run_plan_only(&config.exploration_context).await {
+    match agent.run_plan_only(&exploration_context).await {
         Ok(result) => {
             tracing::info!(
                 "Plan generation completed for spec {}: status={:?}",
@@ -584,5 +684,245 @@ async fn run_plan_generation(
                 spec_id: config.spec_id.clone(),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{CreateConversationMessage, CreateProject, CreateSpec};
+    use std::sync::Arc;
+
+    fn create_test_db() -> Arc<Database> {
+        Arc::new(Database::open_in_memory().unwrap())
+    }
+
+    fn setup_spec(db: &Database) -> String {
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: std::env::temp_dir().to_string_lossy().to_string(),
+                requires_git: true,
+            })
+            .unwrap();
+        let board = db.create_board("Board").unwrap();
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: None,
+                project_id: project.id,
+                name: "Spec".to_string(),
+                user_input: "Build something".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+        spec.id
+    }
+
+    fn add_msg(db: &Database, spec_id: &str, role: ConversationRole, content: &str) {
+        db.create_conversation_message(&CreateConversationMessage {
+            spec_id: spec_id.to_string(),
+            role,
+            content: content.to_string(),
+        })
+        .unwrap();
+    }
+
+    // ====================================================================
+    // extract_latest_observations
+    // ====================================================================
+
+    #[test]
+    fn extract_observations_empty_conversation() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        assert_eq!(extract_latest_observations(&db, &spec_id), "");
+    }
+
+    #[test]
+    fn extract_observations_no_assistant_messages() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::User, "hello");
+        add_msg(&db, &spec_id, ConversationRole::System, "started");
+        assert_eq!(extract_latest_observations(&db, &spec_id), "");
+    }
+
+    #[test]
+    fn extract_observations_assistant_non_json() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::Assistant, "plain text, not JSON");
+        assert_eq!(extract_latest_observations(&db, &spec_id), "");
+    }
+
+    #[test]
+    fn extract_observations_json_without_observations_key() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"questions": "What color?"}"#,
+        );
+        assert_eq!(extract_latest_observations(&db, &spec_id), "");
+    }
+
+    #[test]
+    fn extract_observations_empty_observations_value() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "   "}"#,
+        );
+        assert_eq!(extract_latest_observations(&db, &spec_id), "");
+    }
+
+    #[test]
+    fn extract_observations_valid() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "Found auth module in src/auth/"}"#,
+        );
+        let result = extract_latest_observations(&db, &spec_id);
+        assert!(result.contains("## Codebase Observations (from discovery)"));
+        assert!(result.contains("Found auth module in src/auth/"));
+    }
+
+    #[test]
+    fn extract_observations_uses_most_recent_assistant() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "Old finding"}"#,
+        );
+        add_msg(&db, &spec_id, ConversationRole::User, "thanks");
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "Latest finding"}"#,
+        );
+        let result = extract_latest_observations(&db, &spec_id);
+        assert!(result.contains("Latest finding"));
+        assert!(!result.contains("Old finding"));
+    }
+
+    #[test]
+    fn extract_observations_skips_non_json_assistant_to_find_earlier_json() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "Good finding"}"#,
+        );
+        // A later assistant message that isn't JSON
+        add_msg(&db, &spec_id, ConversationRole::Assistant, "plain text");
+        // extract walks backward: hits plain text first (skip), then JSON (match)
+        let result = extract_latest_observations(&db, &spec_id);
+        assert!(result.contains("Good finding"));
+    }
+
+    // ====================================================================
+    // build_conversation_context
+    // ====================================================================
+
+    #[test]
+    fn context_empty_conversation_returns_tech_notes() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        let result = build_conversation_context(&db, &spec_id, "Some notes");
+        assert_eq!(result, "Some notes");
+    }
+
+    #[test]
+    fn context_only_system_messages_returns_tech_notes() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::System, "Starting session...");
+        let result = build_conversation_context(&db, &spec_id, "Tech notes");
+        assert_eq!(result, "Tech notes");
+    }
+
+    #[test]
+    fn context_includes_user_messages() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::User, "Build a login page");
+        let result = build_conversation_context(&db, &spec_id, "");
+        assert!(result.contains("**User:** Build a login page"));
+        assert!(result.contains("## Discovery Conversation History"));
+    }
+
+    #[test]
+    fn context_prepends_tech_notes_when_present() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::User, "hello");
+        let result = build_conversation_context(&db, &spec_id, "Existing patterns...");
+        assert!(result.starts_with("## Technical Notes from Codebase Exploration"));
+        assert!(result.contains("Existing patterns..."));
+        assert!(result.contains("## Discovery Conversation History"));
+    }
+
+    #[test]
+    fn context_omits_tech_notes_section_when_empty() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::User, "hello");
+        let result = build_conversation_context(&db, &spec_id, "");
+        assert!(!result.contains("## Technical Notes"));
+        assert!(result.contains("## Discovery Conversation History"));
+    }
+
+    #[test]
+    fn context_extracts_assistant_json_observations_and_questions() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(
+            &db,
+            &spec_id,
+            ConversationRole::Assistant,
+            r#"{"observations": "Found Zustand stores", "questions": "1. Which auth provider?"}"#,
+        );
+        let result = build_conversation_context(&db, &spec_id, "");
+        assert!(result.contains("**Observations:** Found Zustand stores"));
+        assert!(result.contains("**Questions:** 1. Which auth provider?"));
+    }
+
+    #[test]
+    fn context_falls_back_to_raw_content_for_non_json_assistant() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::Assistant, "I explored the codebase.");
+        let result = build_conversation_context(&db, &spec_id, "");
+        assert!(result.contains("**Assistant:** I explored the codebase."));
+    }
+
+    #[test]
+    fn context_filters_out_system_messages() {
+        let db = create_test_db();
+        let spec_id = setup_spec(&db);
+        add_msg(&db, &spec_id, ConversationRole::System, "Session started");
+        add_msg(&db, &spec_id, ConversationRole::User, "Build auth");
+        add_msg(&db, &spec_id, ConversationRole::Assistant, "OK, looking...");
+        let result = build_conversation_context(&db, &spec_id, "");
+        assert!(!result.contains("Session started"));
+        assert!(result.contains("Build auth"));
+        assert!(result.contains("OK, looking..."));
     }
 }

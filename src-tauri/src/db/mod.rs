@@ -21,6 +21,7 @@ use thiserror::Error;
 
 pub use models::*;
 use schema::{CREATE_TABLES, SCHEMA_VERSION};
+pub use tickets::IncompleteDependency;
 pub use tickets::ReadyTicketDiagnostics;
 
 #[derive(Error, Debug)]
