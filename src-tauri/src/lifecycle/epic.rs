@@ -44,12 +44,8 @@ pub fn on_epic_moved_to_ready(
     // We also enter this block for legacy epics that only have
     // `depends_on_epic_id` set (with an empty `depends_on_epic_ids` vec).
     if !epic.depends_on_epic_ids.is_empty() || epic.depends_on_epic_id.is_some() {
-        let (all_complete, incomplete_title) = db.are_all_dependencies_complete(epic)?;
-
-        if !all_complete {
+        if let Some(incomplete) = db.are_all_dependencies_complete(epic)? {
             // At least one dependency is not Done -- block the epic back to Backlog
-            let display_title = incomplete_title.unwrap_or_else(|| "unknown".to_string());
-
             if let Some(backlog) = db.find_column_by_name(&epic.board_id, "Backlog")? {
                 db.move_ticket(&epic.id, &backlog.id)?;
 
@@ -58,7 +54,7 @@ pub fn on_epic_moved_to_ready(
                     author_type: AuthorType::System,
                     body_md: format!(
                         "Epic blocked: depends on \"{}\" which is not yet complete. Moved back to Backlog.",
-                        display_title
+                        incomplete.title
                     ),
                     metadata: None,
                 })?;
@@ -66,7 +62,7 @@ pub fn on_epic_moved_to_ready(
                 tracing::info!(
                     "Epic {} blocked by incomplete dependency \"{}\", moved to Backlog",
                     epic.id,
-                    display_title
+                    incomplete.title
                 );
             } else {
                 tracing::warn!(
@@ -75,36 +71,8 @@ pub fn on_epic_moved_to_ready(
                 );
             }
 
-            // Return the first incomplete dependency id for callers that need it.
-            // Build the effective list the same way are_all_dependencies_complete
-            // does so legacy single-dep tickets are covered.
-            let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
-                epic.depends_on_epic_ids.iter().map(|s| s.as_str()).collect()
-            } else if let Some(ref dep_id) = epic.depends_on_epic_id {
-                vec![dep_id.as_str()]
-            } else {
-                vec![]
-            };
-
-            let blocking_dep_id = effective_deps
-                .iter()
-                .find(|dep_id| {
-                    // Re-check which one is incomplete (cheap -- small list)
-                    db.get_ticket(dep_id)
-                        .ok()
-                        .and_then(|dep| {
-                            db.get_columns(&dep.board_id)
-                                .ok()
-                                .and_then(|cols| cols.into_iter().find(|c| c.id == dep.column_id))
-                                .map(|col| col.name != "Done")
-                        })
-                        .unwrap_or(true)
-                })
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             return Ok(EpicAdvancement::BlockedByDependency {
-                dependency_id: blocking_dep_id,
+                dependency_id: incomplete.id,
             });
         }
     }
@@ -267,8 +235,7 @@ pub fn advance_dependent_epics(
         // For multi-dependency epics, verify ALL dependencies are Done
         // before advancing. If any other dependency is still incomplete
         // the epic will be re-evaluated when that dependency completes.
-        let (all_deps_done, _) = db.are_all_dependencies_complete(&dependent)?;
-        if !all_deps_done {
+        if db.are_all_dependencies_complete(&dependent)?.is_some() {
             tracing::info!(
                 "Epic {} still has incomplete dependencies, not advancing yet",
                 dependent.id

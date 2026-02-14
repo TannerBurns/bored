@@ -3,6 +3,8 @@ mod epics;
 mod locking;
 mod state;
 
+pub use epics::IncompleteDependency;
+
 #[cfg(test)]
 mod tests;
 

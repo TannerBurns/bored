@@ -73,11 +73,11 @@ Any complexity, edge cases, or considerations discovered during exploration.
 /// a structured work plan with epics and tickets.
 pub fn generate_planning_prompt(user_input: &str, exploration_context: &str) -> String {
     format!(
-        r#"# Work Plan Generation
+        r###"# Work Plan Generation
 
-Based on your exploration of the codebase, create a structured work plan for the following request:
+Based on the detailed specification below, create a structured work plan with **implementation-ready tickets**.
 
-## User Request
+## User Request & Specification
 {user_input}
 
 ## Exploration Context
@@ -93,13 +93,13 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
   "epics": [
     {{
       "title": "Epic Title (concise, descriptive)",
-      "description": "What this epic accomplishes and its scope",
+      "description": "What this epic accomplishes, its scope, and how it fits into the overall implementation",
       "dependsOn": [],
       "tickets": [
         {{
           "title": "Ticket Title (action-oriented)",
-          "description": "Detailed implementation task with context",
-          "acceptanceCriteria": ["Criterion 1", "Criterion 2"]
+          "description": "DETAILED mini-spec for this ticket (see Ticket Description Requirements below)",
+          "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"]
         }}
       ]
     }},
@@ -123,6 +123,52 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
 - `[]` = root epic, no dependencies (can start immediately)
 - `["Epic A"]` = depends on one epic
 - `["Epic A", "Epic B"]` = depends on multiple epics (waits for ALL to complete)
+
+## CRITICAL: Ticket Description Requirements
+
+**Each ticket description is a MINI-SPEC.** The implementing agent will ONLY see the ticket title and description — it will NOT have access to the overall spec, the exploration context, or any conversation history. Therefore, each ticket description MUST be a **self-contained implementation document** that includes ALL of the following:
+
+### What EVERY ticket description MUST contain:
+
+1. **Objective**: A clear 1-2 sentence summary of what this ticket accomplishes and WHY it's needed in the larger context.
+
+2. **Specific files to create or modify**: List EVERY file path that needs to be touched. For modifications, describe what changes are needed in each file. For new files, describe what they should contain.
+   - Example: "Modify `src/stores/authStore.ts` to add a `refreshToken` field to the store state and a `setRefreshToken` action"
+   - Example: "Create `src/components/auth/LoginForm.tsx` following the component pattern in `src/components/auth/SignupForm.tsx`"
+
+3. **Implementation details**: Describe the actual logic, algorithms, data flow, or UI behavior to implement. Don't just say "implement the feature" — describe HOW.
+   - What functions/methods to create and what they should do
+   - What types/interfaces to define or use (include the shape if they're new)
+   - What API endpoints to call or create (include request/response shapes)
+   - What database queries or migrations to write
+
+4. **Patterns and conventions to follow**: Reference specific existing code as templates.
+   - Example: "Follow the same pattern as the `useTicketSync` hook in `src/hooks/useTicketSync.ts` for the new `useEpicSync` hook"
+   - Example: "Use the same error handling pattern as `src-tauri/src/commands/tickets.rs` — return `Result<T, String>` with `.map_err(|e| e.to_string())`"
+
+5. **Integration points**: How this ticket's work connects to existing code and to work from other tickets.
+   - Which existing functions/modules to import and use
+   - Which store actions to dispatch
+   - Which events to emit or listen for
+
+6. **Edge cases and error handling**: Specific scenarios to handle.
+   - What happens on invalid input?
+   - What happens when the network fails?
+   - What are the boundary conditions?
+
+7. **Testing notes** (when applicable): What should be tested and how.
+
+### Ticket description formatting:
+Use markdown within the description string for readability. Structure with headers, bullet points, and code references. Aim for 200-500 words per ticket description — be thorough.
+
+### Example of a GOOD ticket description:
+
+"## Objective\nAdd a refresh token mechanism to the auth store so user sessions persist across browser refreshes.\n\n## Files to Modify\n- `src/stores/authStore.ts`: Add `refreshToken: string | null` to the store state, add `setRefreshToken(token: string)` and `clearAuth()` actions\n- `src/utils/api.ts`: Update the `fetchWithAuth()` helper to check token expiry and auto-refresh using the stored refresh token\n- `src/components/App.tsx`: Add a `useEffect` that calls `refreshSession()` on mount to restore the session from the stored refresh token\n\n## Implementation Details\n1. In `authStore.ts`, extend the `AuthState` interface to include `refreshToken`. The `setRefreshToken` action should persist the token to `localStorage` under the key `app_refresh_token`. The `clearAuth` action should remove both tokens from the store and localStorage.\n2. In `api.ts`, the `fetchWithAuth()` function currently reads the access token from the store. Add a check: if the access token is expired (decode the JWT and check `exp`), call `POST /api/auth/refresh` with the refresh token to get a new access token before proceeding with the original request.\n3. In `App.tsx`, on initial mount, check localStorage for a refresh token. If found, call the refresh endpoint to validate it and restore the session.\n\n## Patterns to Follow\n- Follow the existing Zustand store pattern in `src/stores/authStore.ts` — use `set()` for state updates, `get()` for reading state\n- Follow the API call pattern in `src/utils/api.ts` — all API calls go through `fetchWithAuth()`\n\n## Error Handling\n- If the refresh token is expired or invalid, clear all auth state and redirect to login\n- If the refresh endpoint returns a network error, retry once after 2 seconds, then clear auth\n- Never expose the refresh token in URL parameters or logs"
+
+### Example of a BAD ticket description (DO NOT DO THIS):
+"Implement refresh token support for authentication. Update the auth store and API utilities to handle token refresh."
+
+This is BAD because it tells the implementer NOTHING about which files to touch, what the code should look like, or how it integrates with the existing codebase.
 
 ## Planning Guidelines
 
@@ -184,13 +230,15 @@ Scaffolding (root)
 - Create 2-8 epics for a logical breakdown of work
 - Each epic represents a coherent phase or component
 - First epic in greenfield projects MUST be scaffolding/setup
+- Epic descriptions should summarize the scope and list what the tickets within will accomplish
 
 ### Ticket Guidelines
 - Each epic should have 2-6 tickets
-- Tickets should be atomic, implementable by a single developer
+- Tickets should be atomic, implementable by a single AI coding agent
 - Use action-oriented titles: "Add X", "Implement Y", "Create Z"
-- Include enough detail in description for implementation
-- Acceptance criteria should be specific and testable
+- **Each ticket description MUST be a comprehensive mini-spec** (see Ticket Description Requirements above)
+- Acceptance criteria should be specific, testable, and verifiable by looking at code
+- Include at least 3 acceptance criteria per ticket
 
 ### Final Consolidation Epic (Required)
 Every plan MUST end with a "Consolidate Changes" epic that:
@@ -226,8 +274,8 @@ Epic 5: "Feature: Dashboard" (dependsOn: ["Consolidate Backend and Frontend"])
 Epic 6: "Consolidate Changes" (dependsOn: ["Feature: Dashboard"])
 - Ticket: "Merge all epic branches into consolidation branch"
 
-Now generate the JSON work plan for the user's request. Output ONLY the JSON, no other text.
-"#,
+Now generate the JSON work plan for the user's request. Remember: every ticket description must be a detailed mini-spec. Output ONLY the JSON, no other text.
+"###,
         user_input = user_input,
         exploration_context = exploration_context
     )
@@ -286,6 +334,21 @@ mod tests {
         assert!(prompt.contains("\"tickets\""));
         assert!(prompt.contains("\"title\""));
         assert!(prompt.contains("\"description\""));
+    }
+
+    #[test]
+    fn test_planning_prompt_requires_mini_spec_tickets() {
+        let prompt = generate_planning_prompt("Test", "Context");
+
+        // Verify the prompt instructs agents to write detailed mini-spec tickets
+        assert!(prompt.contains("MINI-SPEC"));
+        assert!(prompt.contains("self-contained implementation document"));
+        assert!(prompt.contains("Specific files to create or modify"));
+        assert!(prompt.contains("Implementation details"));
+        assert!(prompt.contains("Patterns and conventions to follow"));
+        assert!(prompt.contains("Integration points"));
+        assert!(prompt.contains("Edge cases and error handling"));
+        assert!(prompt.contains("200-500 words per ticket"));
     }
 
     #[test]

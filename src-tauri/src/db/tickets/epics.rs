@@ -2,6 +2,16 @@ use crate::db::models::Ticket;
 use crate::db::{Database, DbError};
 use rusqlite::OptionalExtension;
 
+/// Info about the first incomplete dependency found by
+/// [`Database::are_all_dependencies_complete`].
+#[derive(Debug, Clone)]
+pub struct IncompleteDependency {
+    /// The ticket ID of the incomplete dependency epic.
+    pub id: String,
+    /// The title of the incomplete dependency epic.
+    pub title: String,
+}
+
 impl Database {
     /// Get all children of an epic, ordered by order_in_epic
     ///
@@ -229,10 +239,13 @@ impl Database {
     /// before multi-dependency support (where `depends_on_epic_ids_json` is
     /// NULL and the vector is therefore empty).
     ///
-    /// Returns `true` when every dependency is complete (or the epic has no
-    /// dependencies). Returns `false` together with the first incomplete
-    /// dependency's title when at least one dependency is not Done.
-    pub fn are_all_dependencies_complete(&self, epic: &Ticket) -> Result<(bool, Option<String>), DbError> {
+    /// Returns `Ok(None)` when every dependency is complete (or the epic has
+    /// no dependencies).  Returns `Ok(Some(info))` with the first incomplete
+    /// dependency's ID and title when at least one dependency is not Done.
+    pub fn are_all_dependencies_complete(
+        &self,
+        epic: &Ticket,
+    ) -> Result<Option<IncompleteDependency>, DbError> {
         // Build the effective dependency list: prefer the full list, but fall
         // back to the singular field for legacy tickets.
         let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
@@ -240,7 +253,7 @@ impl Database {
         } else if let Some(ref dep_id) = epic.depends_on_epic_id {
             vec![dep_id.as_str()]
         } else {
-            return Ok((true, None)); // No dependencies at all
+            return Ok(None); // No dependencies at all
         };
 
         for dep_id in &effective_deps {
@@ -260,11 +273,14 @@ impl Database {
             };
 
             if !is_done {
-                return Ok((false, Some(dep.title)));
+                return Ok(Some(IncompleteDependency {
+                    id: dep.id,
+                    title: dep.title,
+                }));
             }
         }
 
-        Ok((true, None))
+        Ok(None)
     }
 
     /// Check if all children of an epic are in Done column

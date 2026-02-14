@@ -342,10 +342,14 @@ struct PlanTriggerConfig {
 }
 
 const COMPLETION_PROMPT: &str = "Based on your observations and the conversation so far, you have enough information. \
-    Please produce the final specification JSON block now:\n\
-    ```json\n{\n  \"spec_complete\": true,\n  \"structured_spec\": {\n    \
-    \"requirements\": \"...\",\n    \"decisions\": [...],\n    \
-    \"constraints\": [...],\n    \"technical_notes\": \"...\"\n  }\n}\n```";
+    Please produce the final specification JSON block now. Remember: the spec must be EXHAUSTIVE and VERBOSE. \
+    The requirements field should be a complete, multi-paragraph description of everything to build. \
+    The technical_notes field should be a comprehensive implementation guide listing every file to create or modify, \
+    patterns to follow, types to define, integration points, and edge cases. \
+    This spec is the ONLY document implementing agents will see — capture EVERY detail from the conversation.\n\
+    ```json\n{\n  \"spec_complete\": true,\n  \"observations\": \"<comprehensive final summary>\",\n  \"structured_spec\": {\n    \
+    \"requirements\": \"<VERBOSE detailed requirements — multiple paragraphs>\",\n    \"decisions\": [\"Decision: WHAT — WHY — HOW it affects implementation\"],\n    \
+    \"constraints\": [\"Constraint with context and codebase evidence\"],\n    \"technical_notes\": \"<EXHAUSTIVE implementation guide with files, patterns, types, integration points, testing>\"\n  }\n}\n```";
 
 /// Create a system error message, emit it via SSE, and signal conversation complete.
 fn emit_conversation_error(
