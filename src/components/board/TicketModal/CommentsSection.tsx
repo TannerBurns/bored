@@ -52,6 +52,13 @@ export function CommentsSection({
 
   const [isCollapsed, setIsCollapsed] = useState(!hasClarification);
 
+  // Auto-expand when a clarification comment arrives after mount
+  useEffect(() => {
+    if (hasClarification) {
+      setIsCollapsed(false);
+    }
+  }, [hasClarification]);
+
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-3">

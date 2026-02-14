@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { CommentsSection } from './CommentsSection';
 import type { Comment } from '../../../types';
 
@@ -78,5 +78,69 @@ describe('CommentsSection auto-expand', () => {
     );
     const heading = screen.getByRole('button', { name: /Comments/ });
     expect(heading).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('expands when a clarification comment arrives after mount', () => {
+    const planComment = makeComment({ metadata: { type: 'plan' } });
+    const { rerender } = render(
+      <CommentsSection
+        ticketId="t1"
+        comments={[planComment]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+      />
+    );
+    const heading = screen.getByRole('button', { name: /Comments/ });
+    expect(heading).toHaveAttribute('aria-expanded', 'false');
+
+    // A clarification comment arrives
+    const clarification = makeComment({
+      id: 'c2',
+      metadata: { type: 'clarification' },
+    });
+    rerender(
+      <CommentsSection
+        ticketId="t1"
+        comments={[planComment, clarification]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+      />
+    );
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('does not re-collapse if user manually expanded and clarification is removed', () => {
+    const clarification = makeComment({ metadata: { type: 'clarification' } });
+    const { rerender } = render(
+      <CommentsSection
+        ticketId="t1"
+        comments={[clarification]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+      />
+    );
+    const heading = screen.getByRole('button', { name: /Comments/ });
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
+
+    // User manually collapses, then expands
+    fireEvent.click(heading);
+    expect(heading).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(heading);
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
+
+    // Clarification removed — section should stay expanded (no forced collapse)
+    rerender(
+      <CommentsSection
+        ticketId="t1"
+        comments={[]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+      />
+    );
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
   });
 });
