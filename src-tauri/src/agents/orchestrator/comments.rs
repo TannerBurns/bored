@@ -131,9 +131,22 @@ impl WorkflowOrchestrator {
 
     /// Add a clarification request comment when the plan needs user input
     pub(super) fn add_clarification_comment(&self, message: &str) {
+        let is_followup_task = self
+            .task
+            .as_ref()
+            .map(|t| t.order_index > 0)
+            .unwrap_or(false);
+
+        let footer = if is_followup_task {
+            "Edit the blocked task's instructions with the requested information, then click **Resolve & Move to Ready** to continue."
+        } else {
+            "Update the ticket description with the requested information, then click **Resolve & Move to Ready** to continue."
+        };
+
         let comment_text = format!(
-            "## Clarification Needed\n\n{}\n\n---\n*Please update the ticket description with the requested information and move this ticket back to Ready to continue.*",
-            message.trim()
+            "## Clarification Needed\n\n{}\n\n---\n*{}*",
+            message.trim(),
+            footer
         );
         let create_comment = CreateComment {
             ticket_id: self.ticket.id.clone(),
@@ -142,6 +155,8 @@ impl WorkflowOrchestrator {
             metadata: Some(serde_json::json!({
                 "type": "clarification",
                 "parent_run_id": self.parent_run_id,
+                "task_id": self.task.as_ref().map(|t| &t.id),
+                "task_order_index": self.task.as_ref().map(|t| t.order_index),
             })),
         };
         if let Err(e) = self.db.create_comment(&create_comment) {

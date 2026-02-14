@@ -58,6 +58,7 @@ export function Column({ column, tickets, projectMap, onTicketClick }: ColumnPro
               key={ticket.id}
               ticket={ticket}
               projectName={ticket.projectId ? projectMap?.[ticket.projectId] : undefined}
+              columnName={column.name}
               onClick={() => onTicketClick?.(ticket)}
             />
           ))}
