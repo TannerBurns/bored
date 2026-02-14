@@ -222,19 +222,28 @@ impl Database {
         })
     }
 
-    /// Check whether ALL of an epic's dependencies (from `depends_on_epic_ids`)
-    /// are in the Done column.
+    /// Check whether ALL of an epic's dependencies are in the Done column.
+    ///
+    /// Uses `depends_on_epic_ids` when available, but falls back to the
+    /// legacy `depends_on_epic_id` field for older tickets that were created
+    /// before multi-dependency support (where `depends_on_epic_ids_json` is
+    /// NULL and the vector is therefore empty).
     ///
     /// Returns `true` when every dependency is complete (or the epic has no
     /// dependencies). Returns `false` together with the first incomplete
-    /// dependency's title via the `incomplete_dep_title` out-parameter when at
-    /// least one dependency is not Done.
+    /// dependency's title when at least one dependency is not Done.
     pub fn are_all_dependencies_complete(&self, epic: &Ticket) -> Result<(bool, Option<String>), DbError> {
-        if epic.depends_on_epic_ids.is_empty() {
-            return Ok((true, None));
-        }
+        // Build the effective dependency list: prefer the full list, but fall
+        // back to the singular field for legacy tickets.
+        let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
+            epic.depends_on_epic_ids.iter().map(|s| s.as_str()).collect()
+        } else if let Some(ref dep_id) = epic.depends_on_epic_id {
+            vec![dep_id.as_str()]
+        } else {
+            return Ok((true, None)); // No dependencies at all
+        };
 
-        for dep_id in &epic.depends_on_epic_ids {
+        for dep_id in &effective_deps {
             let dep = self.get_ticket(dep_id)?;
             let columns = self.get_columns(&dep.board_id)?;
             let dep_column = columns.into_iter().find(|c| c.id == dep.column_id);

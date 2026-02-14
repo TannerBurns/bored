@@ -41,7 +41,9 @@ pub fn on_epic_moved_to_ready(
     // Check ALL dependencies, not just the primary one.
     // For multi-dependency epics this prevents starting work when only some
     // dependencies are complete while others are still blocked/in-progress.
-    if !epic.depends_on_epic_ids.is_empty() {
+    // We also enter this block for legacy epics that only have
+    // `depends_on_epic_id` set (with an empty `depends_on_epic_ids` vec).
+    if !epic.depends_on_epic_ids.is_empty() || epic.depends_on_epic_id.is_some() {
         let (all_complete, incomplete_title) = db.are_all_dependencies_complete(epic)?;
 
         if !all_complete {
@@ -73,9 +75,18 @@ pub fn on_epic_moved_to_ready(
                 );
             }
 
-            // Return the first incomplete dependency id for callers that need it
-            let blocking_dep_id = epic
-                .depends_on_epic_ids
+            // Return the first incomplete dependency id for callers that need it.
+            // Build the effective list the same way are_all_dependencies_complete
+            // does so legacy single-dep tickets are covered.
+            let effective_deps: Vec<&str> = if !epic.depends_on_epic_ids.is_empty() {
+                epic.depends_on_epic_ids.iter().map(|s| s.as_str()).collect()
+            } else if let Some(ref dep_id) = epic.depends_on_epic_id {
+                vec![dep_id.as_str()]
+            } else {
+                vec![]
+            };
+
+            let blocking_dep_id = effective_deps
                 .iter()
                 .find(|dep_id| {
                     // Re-check which one is incomplete (cheap -- small list)
@@ -89,7 +100,7 @@ pub fn on_epic_moved_to_ready(
                         })
                         .unwrap_or(true)
                 })
-                .cloned()
+                .map(|s| s.to_string())
                 .unwrap_or_default();
 
             return Ok(EpicAdvancement::BlockedByDependency {
@@ -1024,6 +1035,125 @@ mod tests {
             merge_count, 1,
             "Should still have exactly one merge ticket after repair"
         );
+    }
+
+    // ======================================================================
+    // Bug-fix tests: legacy single-dep tickets (depends_on_epic_id only)
+    // ======================================================================
+
+    /// Helper: create an epic with ONLY the legacy `depends_on_epic_id`
+    /// field set and an empty `depends_on_epic_ids` vec. This simulates
+    /// tickets created before multi-dependency support was added.
+    fn create_legacy_epic_with_dependency(
+        db: &Database,
+        board_id: &str,
+        column_id: &str,
+        depends_on: &str,
+    ) -> Ticket {
+        db.create_ticket(&CreateTicket {
+            board_id: board_id.to_string(),
+            column_id: column_id.to_string(),
+            title: "Legacy Dependent Epic".to_string(),
+            description_md: "Epic with legacy dependency".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: true,
+            epic_id: None,
+            depends_on_epic_id: Some(depends_on.to_string()),
+            depends_on_epic_ids: vec![], // empty -- legacy ticket
+            spec_version_id: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn test_legacy_epic_blocked_when_dependency_not_complete() {
+        // A legacy epic with only depends_on_epic_id (empty
+        // depends_on_epic_ids) must still be blocked when its dependency
+        // is not Done.
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+        let dependency_epic = create_test_epic(&db, &board.id, &ready.id);
+
+        let dependent_epic =
+            create_legacy_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
+
+        create_test_child(&db, &board.id, &backlog.id, &dependent_epic.id, "Child");
+
+        let result = on_epic_moved_to_ready(&db, &dependent_epic).unwrap();
+
+        match result {
+            EpicAdvancement::BlockedByDependency { dependency_id } => {
+                assert_eq!(dependency_id, dependency_epic.id);
+                let updated = db.get_ticket(&dependent_epic.id).unwrap();
+                assert_eq!(updated.column_id, backlog.id);
+            }
+            _ => panic!(
+                "Expected BlockedByDependency for legacy epic, got {:?}",
+                result
+            ),
+        }
+    }
+
+    #[test]
+    fn test_legacy_epic_proceeds_when_dependency_complete() {
+        // A legacy epic should proceed normally when its single dependency
+        // is Done.
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+
+        let dependency_epic = create_test_epic(&db, &board.id, &done.id);
+
+        let dependent_epic =
+            create_legacy_epic_with_dependency(&db, &board.id, &ready.id, &dependency_epic.id);
+
+        let child = create_test_child(&db, &board.id, &backlog.id, &dependent_epic.id, "Child");
+
+        let result = on_epic_moved_to_ready(&db, &dependent_epic).unwrap();
+
+        match result {
+            EpicAdvancement::ChildAdvanced { child_id } => {
+                assert_eq!(child_id, child.id);
+            }
+            _ => panic!("Expected ChildAdvanced for legacy epic, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_advance_dependent_works_for_legacy_epic() {
+        // When a dependency completes, legacy dependents (with only
+        // depends_on_epic_id) should be discovered and advanced correctly.
+        let db = create_test_db();
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let backlog = columns.iter().find(|c| c.name == "Backlog").unwrap();
+        let done = columns.iter().find(|c| c.name == "Done").unwrap();
+        let ready = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+        let dep = create_test_epic(&db, &board.id, &done.id);
+
+        let legacy_dependent =
+            create_legacy_epic_with_dependency(&db, &board.id, &backlog.id, &dep.id);
+
+        let advanced = advance_dependent_epics(&db, &dep).unwrap();
+
+        assert_eq!(advanced.len(), 1);
+        assert_eq!(advanced[0], legacy_dependent.id);
+
+        let updated = db.get_ticket(&legacy_dependent.id).unwrap();
+        assert_eq!(updated.column_id, ready.id);
     }
 
     // ======================================================================

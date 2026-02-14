@@ -7,25 +7,39 @@ pub fn build_initial_prompt(user_input: &str) -> String {
     format!(
         r#"# Spec Discovery Session
 
-You are helping create a detailed software specification through an interactive conversation.
+You are helping create a **comprehensive, implementation-ready software specification** through an interactive conversation.
 Your job is to:
-1. **Explore the codebase** to understand the existing architecture, patterns, and conventions
-2. **Share observations** about what you found that's relevant to the user's request
-3. **Ask informed questions** based on both the user's request AND what you find in the code
-4. **Gather enough context** to create a comprehensive spec for implementation
+1. **Explore the codebase deeply** to understand the existing architecture, patterns, conventions, and relevant code
+2. **Share detailed observations** about what you found that's relevant to the user's request — include specific file paths, function names, type definitions, and patterns
+3. **Ask precise, informed questions** based on both the user's request AND what you find in the code — avoid vague questions; ask about specific technical decisions
+4. **Gather ALL context needed** so that the final spec is a complete, self-contained document that requires NO further clarification to implement
+
+## CRITICAL: BE EXHAUSTIVE AND VERBOSE
+
+The specification you produce will be used to generate implementation tickets. Each ticket will be handed to an AI coding agent that has **NO access to this conversation** — it will ONLY see the spec and the ticket description. Therefore:
+
+- **Capture EVERY detail** discussed in the conversation — nothing should be left implicit
+- **Include specific file paths**, module names, function signatures, type definitions, and database schemas discovered during exploration
+- **Document ALL decisions** with their rationale — not just what was decided, but WHY
+- **Describe exact integration points** — which existing functions to call, which types to use, which patterns to follow
+- **Specify error handling approaches**, edge cases, and validation rules discussed
+- **Note naming conventions**, code organization patterns, and architectural styles from the codebase
+- If the user mentions something in passing, still capture it — assume nothing will be remembered outside this spec
 
 ## User's Initial Request
 {}
 
 ## Your Task
 
-### Step 1: Explore the Codebase
+### Step 1: Explore the Codebase Thoroughly
 Explore the repository to understand:
-- Project structure and organization
-- Existing patterns and conventions (state management, component structure, API patterns)
-- Related existing code that this feature might integrate with or extend
-- Dependencies and tools already in use
-- Any existing similar functionality
+- Project structure, directory organization, and module boundaries
+- Existing patterns and conventions (state management, component structure, API patterns, error handling)
+- Related existing code that this feature might integrate with or extend — read the actual implementations, not just file names
+- Dependencies and tools already in use (versions matter)
+- Any existing similar functionality that can serve as a template or reference implementation
+- Database schemas, API contracts, and type definitions that are relevant
+- Test patterns and infrastructure
 
 ### Step 2: Respond
 Your FINAL text response MUST be ONLY a JSON code block with two or three fields.
@@ -40,26 +54,26 @@ When you still have questions to ask, respond with:
 }}
 ```
 
-Example `observations` value:
-```
-I explored the codebase and found:\n- The auth module is in `src/auth/` using JWT tokens\n- API routes follow RESTful conventions in `src/api/`\n- State management uses Zustand stores
-```
+**Observations should be DETAILED** — include specific file paths, code patterns, function names, and type definitions you discovered. Don't just say "the project uses React" — say "the project uses React 18 with TypeScript, Zustand for state management (stores in `src/stores/`), and TailwindCSS for styling. Components follow the pattern in `src/components/views/ExampleView.tsx` with..."
 
-Example `questions` value:
-```
-1. Which authentication provider should we integrate?\n   - A) Google OAuth\n   - B) GitHub OAuth\n   - C) Both\n\n2. Should sessions be stateless?\n   - A) Yes, use JWT tokens\n   - B) No, use server-side sessions
-```
+**Questions should be SPECIFIC and ACTIONABLE** — don't ask "how should we handle errors?" — ask "Should validation errors for the email field return a 422 with field-level error messages (like the existing `createUser` endpoint in `src/api/users.rs:45`), or should we use a different pattern?"
 
-When you have enough information (usually 3-6 exchanges, or immediately if the request is very clear), respond with:
+When you have enough information (usually 3-6 exchanges, or immediately if the request is very clear), respond with the COMPLETE spec:
 ```json
 {{
   "spec_complete": true,
-  "observations": "<markdown string — final summary>",
+  "observations": "<markdown string — comprehensive final summary of ALL findings>",
   "structured_spec": {{
-    "requirements": "Clear summary of what needs to be built",
-    "decisions": ["Decision 1 based on user input", "Decision 2 from discussion"],
-    "constraints": ["Constraint from codebase", "Constraint from user"],
-    "technical_notes": "Implementation approach based on codebase exploration - mention specific files, patterns, and integration points discovered"
+    "requirements": "<VERBOSE, DETAILED requirements — this must be a complete description of EVERYTHING that needs to be built. Include: feature behavior, user-facing changes, API contracts, data models, state management needs, UI components, interactions, edge cases, error states, and any non-obvious requirements discovered during conversation. Write this as if it's the ONLY document the implementer will read. Multiple paragraphs are expected. Use markdown formatting for structure.>",
+    "decisions": [
+      "Decision 1: <WHAT was decided> — <WHY this was chosen over alternatives> — <HOW it affects implementation>",
+      "Decision 2: <detailed decision with rationale and implementation impact>"
+    ],
+    "constraints": [
+      "Constraint 1: <specific constraint with context — e.g., 'Must use the existing `AuthMiddleware` in `src/middleware/auth.rs` for all new endpoints because...'>",
+      "Constraint 2: <detailed constraint>"
+    ],
+    "technical_notes": "<EXHAUSTIVE implementation guide based on codebase exploration. This MUST include:\n\n1. **Files to create or modify** — list every file with what changes are needed\n2. **Existing patterns to follow** — reference specific files as templates (e.g., 'Follow the pattern in `src/components/TicketCard.tsx` for the new component')\n3. **Type definitions and interfaces** — existing types to reuse, new types to create, with field descriptions\n4. **Database changes** — new tables/columns, migrations needed, with schema details\n5. **API endpoints** — routes, request/response shapes, middleware, error responses\n6. **State management** — which stores to modify, new state shapes, actions needed\n7. **Integration points** — exactly which existing functions/modules to connect with and how\n8. **Testing approach** — what to test, which test patterns to follow from existing tests\n9. **Edge cases and error handling** — specific scenarios to handle\n\nBe VERBOSE. Include code snippets where helpful. Reference specific line numbers or function names from the codebase. The implementing agents will ONLY see this spec — they won't have access to our conversation.>"
   }}
 }}
 ```
