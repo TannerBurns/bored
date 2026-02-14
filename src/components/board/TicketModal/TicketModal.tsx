@@ -18,11 +18,13 @@ import { DescriptionSection } from './DescriptionSection';
 import { EpicPanel } from './EpicPanel';
 import { AgentStatusPanel } from './AgentStatusPanel';
 import { PausedTicketBanner } from './PausedTicketBanner';
+import { BlockedTicketBanner } from './BlockedTicketBanner';
 import { RunsHistory } from './RunsHistory';
 import { TicketCostSummary } from './TicketCostSummary';
 import { CommentsSection } from './CommentsSection';
 import { TicketModalFooter } from './TicketModalFooter';
 import { NextStepsPanel } from './NextStepsPanel';
+import { useBoardStore } from '../../../stores/boardStore';
 
 export function TicketModal({
   ticket,
@@ -47,6 +49,7 @@ export function TicketModal({
   const [commentClearTrigger, setCommentClearTrigger] = useState(0);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
+  const tasks = useBoardStore((s) => s.tasks).filter((t) => t.ticketId === ticket.id);
 
   const editState = useTicketEdit({ ticket, onUpdate });
   
@@ -163,6 +166,15 @@ export function TicketModal({
             editDescription={editState.editDescription}
             setEditDescription={editState.setEditDescription}
             onOpenFullscreen={() => setIsFullscreenOpen(true)}
+          />
+
+          {/* Blocked ticket banner (clarification needed) */}
+          <BlockedTicketBanner
+            ticket={ticket}
+            columns={columns}
+            comments={comments}
+            tasks={tasks}
+            onUpdate={onUpdate}
           />
 
           {/* Epic Panel */}

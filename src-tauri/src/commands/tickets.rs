@@ -6,6 +6,7 @@ use crate::db::{
     AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
     Ticket, UpdateTicket, WorkflowType,
 };
+use crate::db::models::{TaskStatus, TaskType, UpdateTask};
 
 /// Input struct for creating tickets via Tauri command.
 /// Allows setting is_epic and epic_id at creation time.
@@ -176,6 +177,8 @@ pub async fn update_ticket(
         .map(|new_col| new_col != &old_column_id)
         .unwrap_or(false);
 
+    let new_description = updates.description_md.clone();
+
     // Convert to UpdateTicket, explicitly setting epic fields to None to prevent
     // clients from modifying epic relationships through this command.
     // Use dedicated epic commands (add_ticket_to_epic, remove_ticket_from_epic,
@@ -200,6 +203,44 @@ pub async fn update_ticket(
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())
         .map_err(|e| e.to_string())?;
+
+    // Keep the initial task's content in sync with the ticket description so
+    // clarification edits propagate; also reset failed tasks to pending.
+    if let Some(ref new_description) = new_description {
+        if let Ok(tasks) = db.get_tasks_for_ticket(&ticket_id) {
+            if let Some(initial_task) = tasks.iter().find(|t| {
+                t.order_index == 0
+                    && t.task_type == TaskType::Custom
+                    && (t.status == TaskStatus::Pending || t.status == TaskStatus::Failed)
+            }) {
+                let new_status = if initial_task.status == TaskStatus::Failed {
+                    Some(TaskStatus::Pending)
+                } else {
+                    None
+                };
+                if let Err(e) = db.update_task(
+                    &initial_task.id,
+                    &UpdateTask {
+                        title: None,
+                        content: Some(new_description.clone()),
+                        status: new_status,
+                        run_id: None,
+                    },
+                ) {
+                    tracing::warn!(
+                        "Failed to sync description to initial task for ticket {}: {}",
+                        ticket_id,
+                        e
+                    );
+                } else {
+                    tracing::info!(
+                        "Synced description to initial task for ticket {}",
+                        ticket_id,
+                    );
+                }
+            }
+        }
+    }
 
     // Epic lifecycle hooks for column changes
     if is_column_changing {

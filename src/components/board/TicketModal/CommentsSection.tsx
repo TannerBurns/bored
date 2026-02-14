@@ -34,6 +34,11 @@ export function CommentsSection({
 
   const ticketComments = comments.filter((c) => c.ticketId === ticketId);
 
+  // Auto-expand if any comments have clarification metadata
+  const hasClarification = ticketComments.some(
+    (c) => c.metadata?.type === 'clarification'
+  );
+
   const handleAddComment = async () => {
     if (!newComment.trim()) return;
     setIsSubmitting(true);
@@ -45,7 +50,14 @@ export function CommentsSection({
     }
   };
 
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(!hasClarification);
+
+  // Auto-expand when a clarification comment arrives after mount
+  useEffect(() => {
+    if (hasClarification) {
+      setIsCollapsed(false);
+    }
+  }, [hasClarification]);
 
   return (
     <div>
