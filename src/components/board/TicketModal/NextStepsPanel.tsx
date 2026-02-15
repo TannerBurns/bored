@@ -127,7 +127,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
             <path d="M13 6h3a2 2 0 0 1 2 2v7" />
             <line x1="6" y1="9" x2="6" y2="21" />
           </svg>
-          {actionLoading === 'pr' ? 'Creating...' : 'Create PR'}
+          {actionLoading === 'pr' ? 'Pushing & Creating...' : 'Create PR'}
         </button>
       </div>
 

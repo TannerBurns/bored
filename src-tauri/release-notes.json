@@ -15,6 +15,7 @@
       {
         "category": "Improvements",
         "items": [
+          "Create PR button now automatically pushes the branch to origin first if it hasn't been pushed yet, so you can go straight from Done to PR in one click",
           "Extracted comment assembly into a pure build_workflow_summary function for testability",
           "Implementation summary is safely truncated to 5 KB with a truncate_to_char_boundary helper"
         ]
