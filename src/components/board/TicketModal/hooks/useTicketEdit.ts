@@ -21,8 +21,6 @@ export interface UseTicketEditReturn {
   setEditProjectId: (id: string) => void;
   editBranchName: string;
   setEditBranchName: (branch: string) => void;
-  editColumnId: string;
-  setEditColumnId: (columnId: string) => void;
   isSaving: boolean;
   handleSave: () => Promise<void>;
   resetEditState: () => void;
@@ -36,7 +34,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
   const [editLabels, setEditLabels] = useState(ticket.labels.join(', '));
   const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
   const [editBranchName, setEditBranchName] = useState<string>(ticket.branchName || '');
-  const [editColumnId, setEditColumnId] = useState<string>(ticket.columnId);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -46,7 +43,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
     setEditBranchName(ticket.branchName || '');
-    setEditColumnId(ticket.columnId);
     setIsEditing(false);
   }, [ticket.id, ticket.pausedAt]);
 
@@ -57,7 +53,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
     setEditBranchName(ticket.branchName || '');
-    setEditColumnId(ticket.columnId);
   }, [ticket]);
 
   const handleSave = useCallback(async () => {
@@ -68,6 +63,12 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
         .map((l) => l.trim())
         .filter(Boolean);
       
+      // NOTE: We intentionally omit columnId here. Saving edits should only
+      // update content fields and never move the ticket between columns.
+      // Column moves must be explicit (drag-and-drop, "Resolve & Move to Ready"
+      // button, etc.) to avoid race conditions with the orchestrator which may
+      // have moved the ticket (e.g. to Blocked for clarification) while the
+      // user was editing.
       await onUpdate(ticket.id, {
         title: editTitle,
         descriptionMd: editDescription,
@@ -76,7 +77,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
         projectId: editProjectId,
         workflowType: 'multi_stage',
         branchName: editBranchName || undefined,
-        columnId: editColumnId,
       });
       
       setIsEditing(false);
@@ -91,7 +91,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     editLabels,
     editProjectId,
     editBranchName,
-    editColumnId,
     onUpdate,
   ]);
 
@@ -110,8 +109,6 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditProjectId,
     editBranchName,
     setEditBranchName,
-    editColumnId,
-    setEditColumnId,
     isSaving,
     handleSave,
     resetEditState,

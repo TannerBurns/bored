@@ -1,12 +1,9 @@
-import type { Column, Project } from '../../../types';
+import type { Project } from '../../../types';
 
 export interface TicketEditFormProps {
-  columns: Column[];
   projects: Project[];
   projectsLoading: boolean;
   // Edit state
-  editColumnId: string;
-  setEditColumnId: (id: string) => void;
   editPriority: 'low' | 'medium' | 'high' | 'urgent';
   setEditPriority: (priority: 'low' | 'medium' | 'high' | 'urgent') => void;
   editLabels: string;
@@ -18,11 +15,8 @@ export interface TicketEditFormProps {
 }
 
 export function TicketEditForm({
-  columns,
   projects,
   projectsLoading,
-  editColumnId,
-  setEditColumnId,
   editPriority,
   setEditPriority,
   editLabels,
@@ -34,22 +28,6 @@ export function TicketEditForm({
 }: TicketEditFormProps) {
   return (
     <>
-      {/* Column */}
-      <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-2">Column</h3>
-        <select
-          value={editColumnId}
-          onChange={(e) => setEditColumnId(e.target.value)}
-          className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-        >
-          {columns.map((column) => (
-            <option key={column.id} value={column.id}>
-              {column.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {/* Priority */}
       <div>
         <h3 className="text-sm font-medium text-board-text-muted mb-2">Priority</h3>
