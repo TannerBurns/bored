@@ -42,7 +42,6 @@ describe('useTicketEdit', () => {
       expect(result.current.editLabels).toBe('bug, frontend');
       expect(result.current.editProjectId).toBe('proj-1');
       expect(result.current.editBranchName).toBe('feat/test');
-      expect(result.current.editColumnId).toBe('col-1');
       expect(result.current.isSaving).toBe(false);
     });
 
@@ -152,7 +151,6 @@ describe('useTicketEdit', () => {
         projectId: 'proj-1',
         workflowType: 'multi_stage',
         branchName: 'feat/test',
-        columnId: 'col-1',
       });
     });
 

@@ -138,11 +138,8 @@ export function TicketModal({
           {/* Edit form fields (only visible when editing) */}
           {editState.isEditing && (
             <TicketEditForm
-              columns={columns}
               projects={projects}
               projectsLoading={projectsLoading}
-              editColumnId={editState.editColumnId}
-              setEditColumnId={editState.setEditColumnId}
               editPriority={editState.editPriority}
               setEditPriority={editState.setEditPriority}
               editLabels={editState.editLabels}
