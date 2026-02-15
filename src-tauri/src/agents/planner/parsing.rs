@@ -160,4 +160,56 @@ Done!"#;
         let result = extract_json_code_block(text);
         assert_eq!(result, None);
     }
+
+    #[test]
+    fn test_parse_plan_ticket_with_branch_name() {
+        let text = r#"{"overview":"Test","epics":[{
+            "title":"Epic 1","description":"Desc","dependsOn":[],
+            "tickets":[{
+                "title":"Ticket 1",
+                "description":"Do the thing",
+                "acceptanceCriteria":["Done"],
+                "branchName":"feat/epic-1/do-the-thing"
+            }]
+        }]}"#;
+
+        let plan = parse_project_plan(text).unwrap();
+        let ticket = &plan.epics[0].tickets[0];
+        assert_eq!(
+            ticket.branch_name,
+            Some("feat/epic-1/do-the-thing".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_plan_ticket_without_branch_name() {
+        // Backward compat: old plans that don't include branchName
+        let text = r#"{"overview":"Test","epics":[{
+            "title":"Epic 1","description":"Desc","dependsOn":[],
+            "tickets":[{
+                "title":"Ticket 1",
+                "description":"Do the thing",
+                "acceptanceCriteria":["Done"]
+            }]
+        }]}"#;
+
+        let plan = parse_project_plan(text).unwrap();
+        let ticket = &plan.epics[0].tickets[0];
+        assert_eq!(ticket.branch_name, None);
+    }
+
+    #[test]
+    fn test_parse_plan_ticket_with_null_branch_name() {
+        let text = r#"{"overview":"Test","epics":[{
+            "title":"Epic 1","description":"Desc","dependsOn":[],
+            "tickets":[{
+                "title":"Ticket 1",
+                "description":"Do the thing",
+                "branchName":null
+            }]
+        }]}"#;
+
+        let plan = parse_project_plan(text).unwrap();
+        assert_eq!(plan.epics[0].tickets[0].branch_name, None);
+    }
 }

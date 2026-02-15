@@ -107,6 +107,7 @@ mod tests {
                     title: "Ticket 1".to_string(),
                     description: "Ticket description".to_string(),
                     acceptance_criteria: Some(vec!["Criteria 1".to_string()]),
+                    branch_name: Some("feat/epic-1/ticket-1".to_string()),
                 }],
             }],
         };

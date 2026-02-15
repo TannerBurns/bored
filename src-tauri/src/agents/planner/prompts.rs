@@ -99,7 +99,8 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
         {{
           "title": "Ticket Title (action-oriented)",
           "description": "DETAILED mini-spec for this ticket (see Ticket Description Requirements below)",
-          "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"]
+          "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"],
+          "branchName": "feat/epic-slug/ticket-slug"
         }}
       ]
     }},
@@ -158,12 +159,18 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
 
 7. **Testing notes** (when applicable): What should be tested and how.
 
+8. **Branch context**: Every ticket description MUST include a `## Branch` section that states:
+   - The branch name this ticket will be implemented on (MUST match the ticket's `branchName` field exactly)
+   - For tickets that build on previous work in the same epic: the branch of the preceding ticket so the implementing agent knows its base
+   - For the final consolidation merge ticket: list ALL branch names from all epics that need to be merged, in order
+   - Example: "## Branch\nThis ticket is implemented on branch `feat/auth-core/add-refresh-token`.\nThis branch is based on the previous ticket's branch `feat/auth-core/setup-auth-store`."
+
 ### Ticket description formatting:
 Use markdown within the description string for readability. Structure with headers, bullet points, and code references. Aim for 200-500 words per ticket description — be thorough.
 
 ### Example of a GOOD ticket description:
 
-"## Objective\nAdd a refresh token mechanism to the auth store so user sessions persist across browser refreshes.\n\n## Files to Modify\n- `src/stores/authStore.ts`: Add `refreshToken: string | null` to the store state, add `setRefreshToken(token: string)` and `clearAuth()` actions\n- `src/utils/api.ts`: Update the `fetchWithAuth()` helper to check token expiry and auto-refresh using the stored refresh token\n- `src/components/App.tsx`: Add a `useEffect` that calls `refreshSession()` on mount to restore the session from the stored refresh token\n\n## Implementation Details\n1. In `authStore.ts`, extend the `AuthState` interface to include `refreshToken`. The `setRefreshToken` action should persist the token to `localStorage` under the key `app_refresh_token`. The `clearAuth` action should remove both tokens from the store and localStorage.\n2. In `api.ts`, the `fetchWithAuth()` function currently reads the access token from the store. Add a check: if the access token is expired (decode the JWT and check `exp`), call `POST /api/auth/refresh` with the refresh token to get a new access token before proceeding with the original request.\n3. In `App.tsx`, on initial mount, check localStorage for a refresh token. If found, call the refresh endpoint to validate it and restore the session.\n\n## Patterns to Follow\n- Follow the existing Zustand store pattern in `src/stores/authStore.ts` — use `set()` for state updates, `get()` for reading state\n- Follow the API call pattern in `src/utils/api.ts` — all API calls go through `fetchWithAuth()`\n\n## Error Handling\n- If the refresh token is expired or invalid, clear all auth state and redirect to login\n- If the refresh endpoint returns a network error, retry once after 2 seconds, then clear auth\n- Never expose the refresh token in URL parameters or logs"
+"## Objective\nAdd a refresh token mechanism to the auth store so user sessions persist across browser refreshes.\n\n## Files to Modify\n- `src/stores/authStore.ts`: Add `refreshToken: string | null` to the store state, add `setRefreshToken(token: string)` and `clearAuth()` actions\n- `src/utils/api.ts`: Update the `fetchWithAuth()` helper to check token expiry and auto-refresh using the stored refresh token\n- `src/components/App.tsx`: Add a `useEffect` that calls `refreshSession()` on mount to restore the session from the stored refresh token\n\n## Implementation Details\n1. In `authStore.ts`, extend the `AuthState` interface to include `refreshToken`. The `setRefreshToken` action should persist the token to `localStorage` under the key `app_refresh_token`. The `clearAuth` action should remove both tokens from the store and localStorage.\n2. In `api.ts`, the `fetchWithAuth()` function currently reads the access token from the store. Add a check: if the access token is expired (decode the JWT and check `exp`), call `POST /api/auth/refresh` with the refresh token to get a new access token before proceeding with the original request.\n3. In `App.tsx`, on initial mount, check localStorage for a refresh token. If found, call the refresh endpoint to validate it and restore the session.\n\n## Patterns to Follow\n- Follow the existing Zustand store pattern in `src/stores/authStore.ts` — use `set()` for state updates, `get()` for reading state\n- Follow the API call pattern in `src/utils/api.ts` — all API calls go through `fetchWithAuth()`\n\n## Error Handling\n- If the refresh token is expired or invalid, clear all auth state and redirect to login\n- If the refresh endpoint returns a network error, retry once after 2 seconds, then clear auth\n- Never expose the refresh token in URL parameters or logs\n\n## Branch\nThis ticket is implemented on branch `feat/auth-core/add-refresh-token`.\nThis branch is based on the previous ticket's branch `feat/auth-core/setup-auth-store`."
 
 ### Example of a BAD ticket description (DO NOT DO THIS):
 "Implement refresh token support for authentication. Update the auth store and API utilities to handle token refresh."
@@ -240,39 +247,66 @@ Scaffolding (root)
 - Acceptance criteria should be specific, testable, and verifiable by looking at code
 - Include at least 3 acceptance criteria per ticket
 
+### Branch Naming Rules (Required)
+
+Every ticket MUST have a `branchName` field. Branch names are determined at planning time so the full branching strategy is known upfront and each implementing agent knows exactly what branch to work on.
+
+**Branch name format**: `<type>/<epic-slug>/<ticket-slug>`
+
+**Type prefixes** (choose based on the nature of the work):
+- `feat/` — New features or functionality
+- `fix/` — Bug fixes
+- `chore/` — Maintenance tasks, dependency updates, config changes
+- `refactor/` — Code restructuring without changing behavior
+- `docs/` — Documentation only changes
+- `test/` — Adding or updating tests
+
+**Slug rules**:
+- Lowercase, hyphen-separated, 2-5 words
+- Epic slug should be a short identifier for the epic (e.g., `backend-api`, `frontend-core`, `auth-system`)
+- Ticket slug should describe the specific work (e.g., `add-user-endpoints`, `setup-router`)
+- All tickets within the same epic MUST share the same epic slug
+
+**Examples**:
+- `feat/backend-api/add-user-endpoints`
+- `feat/backend-api/add-auth-middleware`
+- `feat/frontend-core/setup-router`
+- `chore/consolidate/merge-all-branches`
+
 ### Final Consolidation Epic (Required)
 Every plan MUST end with a "Consolidate Changes" epic that:
 - Has a title starting with "Consolidate" (e.g., "Consolidate Changes")
 - Depends on ALL leaf epics (epics that nothing else depends on)
 - Has a single ticket: "Merge all epic branches into consolidation branch"
-- Description should list all epics to merge
+- The ticket description MUST list ALL branch names from all epics to merge (in its `## Branch` section)
+- The ticket's `branchName` should use the `chore/consolidate/` prefix (e.g., `chore/consolidate/merge-all-branches`)
 
 ## Example: Greenfield Project
 
 For a "Build a Tauri app with React frontend and Rust backend":
 
 Epic 1: "Project Scaffolding" (dependsOn: [])  ← ONLY root epic
-- Ticket: "Initialize Tauri project with React"
-- Ticket: "Configure TypeScript and build tools"
+- Ticket: "Initialize Tauri project with React" → branchName: `feat/scaffolding/init-tauri-react`
+- Ticket: "Configure TypeScript and build tools" → branchName: `chore/scaffolding/configure-ts-build`
 
 Epic 2: "Backend Core" (dependsOn: ["Project Scaffolding"])
-- Ticket: "Create Rust service module"
-- Ticket: "Implement Tauri IPC commands"
+- Ticket: "Create Rust service module" → branchName: `feat/backend-core/create-rust-service`
+- Ticket: "Implement Tauri IPC commands" → branchName: `feat/backend-core/implement-ipc-commands`
 
 Epic 3: "Frontend Core" (dependsOn: ["Project Scaffolding"])
-- Ticket: "Set up React Router and layout"
-- Ticket: "Create UI component library"
+- Ticket: "Set up React Router and layout" → branchName: `feat/frontend-core/setup-router-layout`
+- Ticket: "Create UI component library" → branchName: `feat/frontend-core/create-ui-components`
 
 Epic 4: "Consolidate Backend and Frontend" (dependsOn: ["Backend Core", "Frontend Core"])
-- Ticket: "Integrate frontend with backend APIs"
-- Ticket: "Verify end-to-end functionality"
+- Ticket: "Integrate frontend with backend APIs" → branchName: `feat/integrate-be-fe/connect-apis`
+- Ticket: "Verify end-to-end functionality" → branchName: `test/integrate-be-fe/verify-e2e`
 
 Epic 5: "Feature: Dashboard" (dependsOn: ["Consolidate Backend and Frontend"])
-- Ticket: "Create dashboard component"
-- Ticket: "Connect to backend data"
+- Ticket: "Create dashboard component" → branchName: `feat/dashboard/create-component`
+- Ticket: "Connect to backend data" → branchName: `feat/dashboard/connect-backend-data`
 
 Epic 6: "Consolidate Changes" (dependsOn: ["Feature: Dashboard"])
-- Ticket: "Merge all epic branches into consolidation branch"
+- Ticket: "Merge all epic branches into consolidation branch" → branchName: `chore/consolidate/merge-all-branches`
 
 Now generate the JSON work plan for the user's request. Remember: every ticket description must be a detailed mini-spec. Output ONLY the JSON, no other text.
 "###,
@@ -334,6 +368,7 @@ mod tests {
         assert!(prompt.contains("\"tickets\""));
         assert!(prompt.contains("\"title\""));
         assert!(prompt.contains("\"description\""));
+        assert!(prompt.contains("\"branchName\""));
     }
 
     #[test]
@@ -349,6 +384,31 @@ mod tests {
         assert!(prompt.contains("Integration points"));
         assert!(prompt.contains("Edge cases and error handling"));
         assert!(prompt.contains("200-500 words per ticket"));
+        assert!(prompt.contains("Branch context"));
+    }
+
+    #[test]
+    fn test_planning_prompt_has_branch_naming_rules() {
+        let prompt = generate_planning_prompt("Test", "Context");
+
+        assert!(prompt.contains("Branch Naming Rules"));
+        assert!(prompt.contains("branchName"));
+        assert!(prompt.contains("feat/"));
+        assert!(prompt.contains("fix/"));
+        assert!(prompt.contains("chore/"));
+        assert!(prompt.contains("refactor/"));
+        assert!(prompt.contains("<type>/<epic-slug>/<ticket-slug>"));
+        assert!(prompt.contains("chore/consolidate/"));
+    }
+
+    #[test]
+    fn test_planning_prompt_example_includes_branch_names() {
+        let prompt = generate_planning_prompt("Test", "Context");
+
+        assert!(prompt.contains("feat/scaffolding/init-tauri-react"));
+        assert!(prompt.contains("feat/backend-core/create-rust-service"));
+        assert!(prompt.contains("feat/frontend-core/setup-router-layout"));
+        assert!(prompt.contains("chore/consolidate/merge-all-branches"));
     }
 
     #[test]
