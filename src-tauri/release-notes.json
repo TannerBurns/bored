@@ -1,5 +1,41 @@
 [
   {
+    "version": "0.1.0-beta.16",
+    "published_at": "2026-02-15",
+    "summary": "Pre-determined branch names in plans, rich workflow-complete summaries, and a race condition fix for ticket edits",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Planner now generates branch names for every ticket at planning time following a type/epic-slug/ticket-slug convention, visible during plan review",
+          "Each ticket mini-spec includes a Branch section referencing its own branch and base branch for chain context",
+          "Workflow-complete comments now include the full plan and implementation summary instead of a generic static message"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Extracted comment assembly into a pure build_workflow_summary function for testability",
+          "Implementation summary is safely truncated to 5 KB with a truncate_to_char_boundary helper"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed race condition where saving ticket edits overwrote the column status set by the orchestrator (e.g. Blocked reverting to In Progress)",
+          "Removed column selector from the edit form — column moves are now exclusively via drag-and-drop or the Resolve & Move to Ready button"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added serde round-trip tests for branch_name (present, absent, null) and PlanViewer component tests for conditional branch name rendering",
+          "Added 16 unit tests for build_workflow_summary and truncate_to_char_boundary covering all branches"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.15",
     "published_at": "2026-02-14",
     "summary": "Multi-dependency tracking fixes, active-child advancement guard, and planner now receives full conversation context",
