@@ -149,6 +149,16 @@ pub async fn push_branch(
     }
 }
 
+/// Check whether the branch has been pushed to origin.
+fn is_branch_on_remote(working_dir: &str, branch: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--verify", &format!("refs/remotes/origin/{}", branch)])
+        .current_dir(working_dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn create_pull_request(
     ticket_id: String,
@@ -157,6 +167,25 @@ pub async fn create_pull_request(
     db: State<'_, Arc<Database>>,
 ) -> Result<PullRequestResult, String> {
     let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
+
+    // Push branch to origin first if it hasn't been pushed yet
+    if !is_branch_on_remote(&working_dir, &branch) {
+        let push_output = Command::new("git")
+            .args(["push", "-u", "origin", &branch])
+            .current_dir(&working_dir)
+            .output()
+            .map_err(|e| format!("Failed to run git push: {}", e))?;
+
+        if !push_output.status.success() {
+            let stdout = String::from_utf8_lossy(&push_output.stdout);
+            let stderr = String::from_utf8_lossy(&push_output.stderr);
+            return Ok(PullRequestResult {
+                success: false,
+                url: None,
+                message: format!("Failed to push branch to origin: {}{}", stdout, stderr),
+            });
+        }
+    }
 
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
