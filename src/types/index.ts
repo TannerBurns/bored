@@ -413,6 +413,8 @@ export interface PlanTicket {
   title: string;
   description: string;
   acceptanceCriteria?: string[];
+  /** Branch name assigned at planning time (skips AI generation at work time if set) */
+  branchName?: string;
 }
 
 /** A generated project plan */

@@ -273,7 +273,7 @@ impl PlanExecutor {
                     project_id: Some(project_id.to_string()),
                     workflow_type: WorkflowType::MultiStage,
                     model: model.clone(),
-                    branch_name: None,
+                    branch_name: plan_ticket.branch_name.clone(),
                     is_epic: false,
                     epic_id: Some(epic.id.clone()),
                     depends_on_epic_id: None,

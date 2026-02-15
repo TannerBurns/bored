@@ -232,6 +232,8 @@ pub struct PlanTicket {
     pub title: String,
     pub description: String,
     pub acceptance_criteria: Option<Vec<String>>,
+    /// Branch name assigned at planning time (skips AI generation at work time if set)
+    pub branch_name: Option<String>,
 }
 
 /// A generated project plan
