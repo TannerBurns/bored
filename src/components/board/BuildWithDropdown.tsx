@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { getAgentIcon, CLAUDE_BRAND_COLOR } from '../common/AgentIcons';
+import { getAgentIcon } from '../common/AgentIcons';
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 import { getAvailableAgents } from '../../lib/tauri';
 import type { AgentInfo, AgentType } from '../../types';
@@ -84,7 +84,8 @@ export function BuildWithDropdown({
   /** Get icon color override for known agents. */
   const getIconColor = (agentId: string, available: boolean): string | undefined => {
     if (!available) return 'text-board-text-muted';
-    if (agentId === 'claude') return `text-[${CLAUDE_BRAND_COLOR}]`;
+    // Use literal class string so Tailwind JIT can detect it at build time
+    if (agentId === 'claude') return 'text-[#da7756]';
     return 'text-board-text-secondary';
   };
 

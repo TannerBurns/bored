@@ -24,7 +24,6 @@ pub struct AgentRunConfig {
     pub model: Option<String>,
     /// Opaque agent-specific configuration.
     /// Each provider knows its own keys (e.g. Claude uses "auth_token", "api_key", etc.).
-    #[allow(clippy::type_complexity)]
     pub agent_config: HashMap<String, serde_json::Value>,
 }
 

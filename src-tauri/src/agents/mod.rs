@@ -166,7 +166,6 @@ pub struct AgentRunConfig {
     /// Agent-agnostic configuration map.
     /// Each provider knows its own keys. Populated automatically from
     /// `claude_api_config` when using the legacy construction path.
-    #[allow(clippy::type_complexity)]
     pub agent_config: std::collections::HashMap<String, serde_json::Value>,
 }
 
