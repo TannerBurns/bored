@@ -20,7 +20,7 @@ fn get_base_command(stage: &str) -> &str {
 ///
 /// For each provider, constructs `<repo>/<config_dir>/<subdir>/<command>.md`.
 /// Appends the bundled commands directory as a final fallback.
-fn build_command_search_paths(
+pub(crate) fn build_command_search_paths(
     base_command: &str,
     repo_path: &Path,
     providers: &[&dyn AgentProvider],

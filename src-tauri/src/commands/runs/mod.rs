@@ -1,5 +1,6 @@
 mod branch;
 mod cost_commands;
+mod orchestrate;
 mod queries;
 #[cfg(test)]
 mod tests;
@@ -9,20 +10,18 @@ pub use cost_commands::*;
 pub use queries::*;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager, State, Window};
+use tauri::{Manager, State, Window};
 
-use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::spawner::CancelHandle;
-use crate::agents::{self, AgentProvider, AgentRegistry};
+use crate::agents::AgentRegistry;
 use crate::commands::claude::ClaudeApiSettingsState;
-use crate::db::models::{AgentRun, AgentType, CreateRun, RunStatus};
+use crate::db::models::{AgentType, CreateRun, RunStatus};
 use crate::db::Database;
 
-use branch::{generate_ai_branch_name, get_hook_script_path, start_heartbeat, update_project_hooks_for_run};
+use branch::{get_hook_script_path, setup_worktree_and_branch, update_project_hooks_for_run};
 
 /// Shared state for tracking running agents
 pub struct RunningAgents {
@@ -195,140 +194,11 @@ pub async fn start_agent_run(
     let api_token =
         std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
-    // Create a git worktree for isolated agent execution
-    // - First runs (no branch): generate AI branch name first, then create worktree
-    // - Subsequent runs: use worktree with existing branch
-    let (worktree_info, branch_name) = {
-        use agents::worktree::{
-            create_worktree, create_worktree_with_existing_branch, generate_branch_name,
-            WorktreeConfig,
-        };
-
-        let repo_path_buf = std::path::PathBuf::from(&repo_path);
-
-        // Determine the branch to use
-        let branch_to_use = if let Some(ref existing_branch) = ticket.branch_name {
-            tracing::info!(
-                "Ticket {} already has branch: {}",
-                ticket_id,
-                existing_branch
-            );
-            existing_branch.clone()
-        } else {
-            // First run - generate AI branch name
-            tracing::info!(
-                "Ticket {} has no branch yet, generating AI branch name...",
-                ticket_id
-            );
-
-            // Generate branch name using AI
-            let ai_branch = generate_ai_branch_name(
-                &ticket,
-                &repo_path_buf,
-                &agent_id,
-                provider.clone(),
-                db.inner().clone(),
-                Some(&window),
-            )
-            .await;
-
-            let branch = if let Some(name) = ai_branch {
-                tracing::info!("AI generated branch name: {}", name);
-                name
-            } else {
-                // Fallback to deterministic naming
-                let fallback = generate_branch_name(&ticket.id, &ticket.title);
-                tracing::warn!("AI branch generation failed, using fallback: {}", fallback);
-                fallback
-            };
-
-            // Store the branch name on the ticket immediately
-            // This is critical - if we fail to store, we must abort to prevent
-            // orphaned branches and inconsistent state between DB and git
-            if let Err(e) = db.set_ticket_branch(&ticket_id, &branch) {
-                // Unlock the ticket before returning error
-                let _ = db.unlock_ticket(&ticket_id);
-                return Err(format!("Failed to store branch name on ticket: {}. Aborting run to prevent inconsistent state.", e));
-            }
-            tracing::info!("Stored branch name '{}' on ticket {}", branch, ticket_id);
-            // Emit event for frontend to update
-            let _ = window.emit(
-                "ticket-branch-updated",
-                serde_json::json!({
-                    "ticketId": ticket_id,
-                    "branchName": branch,
-                }),
-            );
-
-            branch
-        };
-
-        // Now create worktree with the branch
-        tracing::info!(
-            "Creating worktree for ticket {} with branch: {}",
-            ticket_id,
-            branch_to_use
-        );
-
-        // Try to create worktree with existing branch first (for subsequent runs)
-        let worktree = if ticket.branch_name.is_some() {
-            // Branch already exists, use it
-            match create_worktree_with_existing_branch(
-                &repo_path_buf,
-                &branch_to_use,
-                &run_id,
-                None,
-            ) {
-                Ok(info) => {
-                    tracing::info!(
-                        "Created worktree for run {} at {} using existing branch {}",
-                        run_id,
-                        info.path.display(),
-                        info.branch_name
-                    );
-                    Some(info)
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to create worktree with existing branch, falling back to main repo: {}",
-                        e
-                    );
-                    None
-                }
-            }
-        } else {
-            // First run - create new worktree with new branch
-            match create_worktree(&WorktreeConfig {
-                repo_path: repo_path_buf.clone(),
-                branch_name: branch_to_use.clone(),
-                run_id: run_id.clone(),
-                base_dir: None,
-                base_branch: None,
-            }) {
-                Ok(info) => {
-                    tracing::info!(
-                        "Created new worktree for run {} at {} with new branch {}",
-                        run_id,
-                        info.path.display(),
-                        info.branch_name
-                    );
-                    Some(info)
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to create new worktree, falling back to main repo: {}",
-                        e
-                    );
-                    None
-                }
-            }
-        };
-
-        (worktree, branch_to_use)
-    };
-
-    // Track whether worktree (and thus the branch) was successfully created
-    let worktree_created = worktree_info.is_some();
+    // Resolve branch name (AI-generated or existing) and create a git worktree
+    let (worktree_info, branch_name) = setup_worktree_and_branch(
+        &ticket, &run_id, &repo_path,
+        &agent_id, provider.clone(), db.inner(), &window,
+    ).await?;
 
     // Use worktree path if available, otherwise fall back to main repo
     let working_path = worktree_info
@@ -338,9 +208,9 @@ pub async fn start_agent_run(
     let working_path_str = working_path.to_string_lossy().to_string();
 
     tracing::info!(
-        "Agent will work in: {} (worktree_created: {})",
+        "Agent will work in: {} (worktree: {})",
         working_path_str,
-        worktree_created
+        worktree_info.is_some()
     );
 
     // Get hook script path for updating project hooks
@@ -391,340 +261,31 @@ pub async fn start_agent_run(
     // We pass the Arc reference so the orchestrator can lock and read it.
     let shared_workflow_settings = workflow_settings_state.shared();
 
-    // Execute multi-stage workflow
-    {
-        let ticket_for_orchestrator = ticket.clone();
-        let api_url_for_orchestrator = api_url.clone();
-        let api_token_for_orchestrator = api_token.clone();
-        let hook_script_path_for_orchestrator = hook_script_path.clone();
-        let cancel_handles_for_orchestrator = running_agents_handles.clone();
-        let worktree_for_cleanup = worktree_info.clone();
-        let main_repo_for_cleanup = main_repo_path.clone();
-        let branch_name_for_orchestrator = branch_name.clone();
-        let db_for_heartbeat = db.inner().clone();
-        let ticket_id_for_heartbeat = ticket_id.clone();
-        let run_id_for_heartbeat = run_id.clone();
-        let agent_config_for_orchestrator = agent_config.clone();
-        let provider_for_orchestrator = provider.clone();
-        let agent_id_for_orchestrator = agent_id.clone();
+    // Build workflow context and spawn background task
+    let ctx = orchestrate::WorkflowTaskContext {
+        db: db_clone,
+        window: window_clone,
+        run_id: run_id_for_task,
+        ticket_id: ticket_id_for_task,
+        ticket,
+        worktree_info,
+        main_repo_path,
+        branch_name,
+        agent_id,
+        provider,
+        api_url,
+        api_token,
+        hook_script_path,
+        cancel_handles: running_agents_handles,
+        agent_config,
+        workflow_settings: shared_workflow_settings,
+        stage_configs: stage_configs.unwrap_or_default(),
+        code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
+        stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
+        stage_max_retries: stage_max_retries.unwrap_or(2),
+    };
 
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) =
-                db_clone.update_run_status(&run_id_for_task, RunStatus::Running, None, None)
-            {
-                tracing::error!("Failed to update run status: {}", e);
-            }
-
-            // Start heartbeat to keep the lock alive during long-running workflows
-            let running_flag = Arc::new(AtomicBool::new(true));
-            let heartbeat_handle = start_heartbeat(
-                db_for_heartbeat,
-                ticket_id_for_heartbeat,
-                run_id_for_heartbeat,
-                running_flag.clone(),
-            );
-            tracing::info!("Started heartbeat for run {}", run_id_for_task);
-
-            // Clone for cleanup after orchestrator takes ownership
-            let cancel_handles_for_cleanup = cancel_handles_for_orchestrator.clone();
-
-            // Use the working path (worktree if created, otherwise main repo)
-            let orchestrator_working_path = worktree_for_cleanup
-                .as_ref()
-                .map(|w| w.path.clone())
-                .unwrap_or_else(|| main_repo_for_cleanup.clone());
-
-            // Always pass the branch name to skip branch name generation
-            // The branch name was already generated (via AI or fallback) and stored in DB
-            // The `branch_already_created` flag tells orchestrator if it needs to create the branch
-            //
-            // Branch already created if:
-            // - Worktree was created (branch created/attached via worktree), OR
-            // - Ticket already had a branch name from a previous run (branch exists in git)
-            //
-            // Note: We check the original ticket.branch_name, NOT the newly generated one,
-            // because ticket.branch_name reflects whether the branch existed BEFORE this run.
-            let worktree_branch = Some(branch_name_for_orchestrator);
-            let branch_already_created =
-                worktree_for_cleanup.is_some() || ticket_for_orchestrator.branch_name.is_some();
-
-            tracing::info!(
-                "Orchestrator config: worktree_branch={:?}, branch_already_created={}",
-                worktree_branch,
-                branch_already_created
-            );
-
-            // Get the next pending task for this ticket (for task-based workflow)
-            let task = db_clone
-                .get_next_pending_task(&ticket_for_orchestrator.id)
-                .ok()
-                .flatten();
-
-            // Mark task as in progress if we found one - CRITICAL: must succeed before continuing
-            // If this fails (e.g., task is not pending, already claimed by another run),
-            // we must abort to prevent complete_task/fail_task from failing later
-            // (they require status = 'in_progress')
-            if let Some(ref t) = task {
-                if let Err(e) = db_clone.start_task(&t.id, &run_id_for_task) {
-                    tracing::error!(
-                        "Failed to mark task {} as in_progress: {}. Aborting run to prevent stuck task.",
-                        t.id, e
-                    );
-                    // Update run status to Error and emit error event
-                    let _ = db_clone.update_run_status(
-                        &run_id_for_task,
-                        RunStatus::Error,
-                        None,
-                        Some(&format!("Failed to start task: {}", e)),
-                    );
-                    let _ = db_clone.unlock_ticket(&ticket_id_for_task);
-
-                    // Clean up worktree if created
-                    if let Some(ref worktree) = worktree_for_cleanup {
-                        use agents::worktree::remove_worktree;
-                        let _ = remove_worktree(&worktree.path, &main_repo_for_cleanup);
-                    }
-
-                    let event = AgentErrorEvent {
-                        run_id: run_id_for_task.clone(),
-                        error: format!("Failed to start task: {}", e),
-                    };
-                    let _ = window_clone.emit("agent-error", &event);
-                    return;
-                }
-            }
-
-            // Check if we're resuming from a paused state
-            let resume_from_stage = ticket_for_orchestrator.paused_at_stage.clone();
-            let previous_run_id = ticket_for_orchestrator.paused_run_id.clone();
-            if let Some(ref stage) = resume_from_stage {
-                tracing::info!(
-                    "Resuming ticket {} from stage '{}' (previous run: {:?})",
-                    ticket_for_orchestrator.id,
-                    stage,
-                    previous_run_id
-                );
-            }
-
-            // Clear pause state now that we've captured the resume info
-            if ticket_for_orchestrator.paused_run_id.is_some() {
-                if let Err(e) = db_clone.clear_ticket_pause(&ticket_for_orchestrator.id) {
-                    tracing::warn!("Failed to clear ticket pause state: {}", e);
-                } else {
-                    tracing::info!(
-                        "Cleared pause state for ticket {} after capturing resume info",
-                        ticket_for_orchestrator.id
-                    );
-                }
-            }
-
-            let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
-                db: db_clone.clone(),
-                window: Some(window_clone.clone()),
-                app_handle: None, // Direct runs use Window for event emission
-                parent_run_id: run_id_for_task.clone(),
-                ticket: ticket_for_orchestrator.clone(),
-                task: task.clone(),
-                repo_path: orchestrator_working_path,
-                agent_id: agent_id_for_orchestrator,
-                provider: provider_for_orchestrator,
-                api_url: api_url_for_orchestrator,
-                api_token: api_token_for_orchestrator,
-                hook_script_path: hook_script_path_for_orchestrator,
-                cancel_handles: cancel_handles_for_orchestrator,
-                worktree_branch,
-                branch_already_created,
-                is_temp_branch: false,
-                agent_config: agent_config_for_orchestrator,
-                resume_from_stage,
-                previous_run_id,
-                // Source of truth — orchestrator reads directly from this
-                workflow_settings: shared_workflow_settings,
-                // Legacy fallback fields (only if shared state has empty stage_configs)
-                stage_configs: stage_configs.unwrap_or_default(),
-                code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
-                stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
-                stage_max_retries: stage_max_retries.unwrap_or(2),
-            });
-
-            // Execute workflow - log callbacks are handled per-stage with correct sub-run IDs
-            tracing::info!(
-                "Starting multi-stage workflow execution for run {}",
-                run_id_for_task
-            );
-            let start_time = std::time::Instant::now();
-            let result = orchestrator.execute().await;
-            let duration_secs = start_time.elapsed().as_secs_f64();
-
-            tracing::info!(
-                "Multi-stage workflow execution completed for run {} in {:.1}s, result: {:?}",
-                run_id_for_task,
-                duration_secs,
-                result.is_ok()
-            );
-
-            // Stop heartbeat
-            running_flag.store(false, Ordering::SeqCst);
-            heartbeat_handle.abort();
-            tracing::info!("Stopped heartbeat for run {}", run_id_for_task);
-
-            // Clean up cancel handles for the parent run
-            {
-                let mut handles = cancel_handles_for_cleanup
-                    .lock()
-                    .expect("cancel handles mutex poisoned");
-                handles.remove(&run_id_for_task);
-            }
-
-            // Update parent run status based on result
-            match result {
-                Ok(()) => {
-                    tracing::info!("Updating parent run {} status to Finished", run_id_for_task);
-                    if let Err(e) = db_clone.update_run_status(
-                        &run_id_for_task,
-                        RunStatus::Finished,
-                        Some(0),
-                        Some("Multi-stage workflow completed successfully"),
-                    ) {
-                        tracing::error!("Failed to update run status to Finished: {}", e);
-                    } else {
-                        tracing::info!(
-                            "Successfully updated parent run {} status to Finished",
-                            run_id_for_task
-                        );
-                    }
-
-                    // Mark task as completed
-                    if let Some(ref t) = task {
-                        if let Err(e) = db_clone.complete_task(&t.id) {
-                            tracing::warn!("Failed to mark task {} as completed: {}", t.id, e);
-                        }
-                    }
-
-                    // If there are more pending tasks, move ticket back to Ready for worker pickup
-                    if task.is_some() {
-                        match db_clone.has_pending_tasks(&ticket_id_for_task) {
-                            Ok(true) => {
-                                tracing::info!(
-                                    "Ticket {} has more pending tasks after completing task, moving back to Ready",
-                                    ticket_id_for_task
-                                );
-                                if let Err(e) = super::tasks::move_to_ready_if_completed(
-                                    &db_clone,
-                                    &ticket_id_for_task,
-                                ) {
-                                    tracing::warn!(
-                                        "Failed to move ticket {} back to Ready for next task: {}",
-                                        ticket_id_for_task,
-                                        e
-                                    );
-                                }
-                            }
-                            Ok(false) => {
-                                tracing::info!(
-                                    "No more pending tasks for ticket {}, staying in Done",
-                                    ticket_id_for_task
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Failed to check pending tasks for ticket {}: {}",
-                                    ticket_id_for_task,
-                                    e
-                                );
-                            }
-                        }
-                    }
-
-                    let event = AgentCompleteEvent {
-                        run_id: run_id_for_task.clone(),
-                        status: "finished".to_string(),
-                        exit_code: Some(0),
-                        duration_secs,
-                    };
-                    if let Err(e) = window_clone.emit("agent-complete", &event) {
-                        tracing::error!("Failed to emit agent-complete event: {}", e);
-                    } else {
-                        tracing::info!("Emitted agent-complete event for run {}", run_id_for_task);
-                    }
-                }
-                Err(e) => {
-                    // Check if this was a cancellation/pause vs a real failure
-                    let was_cancelled_or_paused = e.contains("cancelled")
-                        || e.contains("Cancelled")
-                        || e.contains("paused")
-                        || e.contains("Paused");
-
-                    if was_cancelled_or_paused {
-                        tracing::info!(
-                            "Multi-stage workflow was cancelled/paused for run {}",
-                            run_id_for_task
-                        );
-                        // Don't update run status - cancel_agent_run already set it to Aborted/Paused
-                        // Don't mark task as failed - cancel_agent_run already reset it to pending
-                    } else {
-                        tracing::error!(
-                            "Multi-stage workflow failed for run {}: {}",
-                            run_id_for_task,
-                            e
-                        );
-                        if let Err(db_err) = db_clone.update_run_status(
-                            &run_id_for_task,
-                            RunStatus::Error,
-                            None,
-                            Some(&format!("Multi-stage workflow failed: {}", e)),
-                        ) {
-                            tracing::error!("Failed to update run status to Error: {}", db_err);
-                        }
-
-                        // Mark task as failed (only for real failures, not cancellations/pauses)
-                        if let Some(ref t) = task {
-                            if let Err(fail_err) = db_clone.fail_task(&t.id) {
-                                tracing::warn!(
-                                    "Failed to mark task {} as failed: {}",
-                                    t.id,
-                                    fail_err
-                                );
-                            }
-                        }
-                    }
-
-                    let event = AgentErrorEvent {
-                        run_id: run_id_for_task.clone(),
-                        error: e,
-                    };
-                    if let Err(emit_err) = window_clone.emit("agent-error", &event) {
-                        tracing::error!("Failed to emit agent-error event: {}", emit_err);
-                    }
-                }
-            }
-
-            // Unlock the ticket
-            tracing::info!(
-                "Unlocking ticket {} after multi-stage workflow",
-                ticket_id_for_task
-            );
-            if let Err(e) = db_clone.unlock_ticket(&ticket_id_for_task) {
-                tracing::error!("Failed to unlock ticket: {}", e);
-            } else {
-                tracing::info!("Successfully unlocked ticket {}", ticket_id_for_task);
-            }
-
-            // Clean up the worktree if we created one
-            if let Some(ref worktree) = worktree_for_cleanup {
-                use agents::worktree::remove_worktree;
-                if let Err(e) = remove_worktree(&worktree.path, &main_repo_for_cleanup) {
-                    tracing::error!(
-                        "Failed to remove worktree {}: {}",
-                        worktree.path.display(),
-                        e
-                    );
-                } else {
-                    tracing::info!("Removed worktree at {}", worktree.path.display());
-                }
-            }
-        });
-    }
+    tauri::async_runtime::spawn(orchestrate::execute_workflow_task(ctx));
 
     Ok(run_id)
 }

@@ -10,6 +10,7 @@ pub struct Project {
     pub name: String,
     pub path: String,
     /// Hook installation status per agent (keyed by agent ID, e.g. "cursor" -> true).
+    #[serde(default)]
     pub hooks_installed: HashMap<String, bool>,
     pub allow_shell_commands: bool,
     pub allow_file_writes: bool,
@@ -72,6 +73,58 @@ mod tests {
         assert!(json.contains("\"cursor\":true"));
         assert!(json.contains("\"allowFileWrites\":false"));
         assert!(json.contains("\"requiresGit\":true"));
+    }
+
+    #[test]
+    fn project_serializes_empty_hooks() {
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            path: "/tmp".to_string(),
+            hooks_installed: HashMap::new(),
+            allow_shell_commands: true,
+            allow_file_writes: true,
+            blocked_patterns: vec![],
+            settings: serde_json::json!({}),
+            requires_git: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(json.contains("\"hooksInstalled\":{}"));
+    }
+
+    #[test]
+    fn project_deserialization_roundtrip() {
+        let mut hooks = HashMap::new();
+        hooks.insert("cursor".to_string(), true);
+        hooks.insert("claude".to_string(), false);
+        let original = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            path: "/tmp".to_string(),
+            hooks_installed: hooks,
+            allow_shell_commands: true,
+            allow_file_writes: true,
+            blocked_patterns: vec!["*.log".to_string()],
+            settings: serde_json::json!({}),
+            requires_git: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.hooks_installed.get("cursor"), Some(&true));
+        assert_eq!(parsed.hooks_installed.get("claude"), Some(&false));
+        assert_eq!(parsed.hooks_installed.len(), 2);
+    }
+
+    #[test]
+    fn project_deserializes_missing_hooks_as_empty() {
+        // When hooksInstalled is absent from JSON (e.g. legacy data), it should default to empty
+        let json = r#"{"id":"p1","name":"Test","path":"/tmp","allowShellCommands":true,"allowFileWrites":true,"blockedPatterns":[],"settings":{},"requiresGit":true,"createdAt":"2024-01-01T00:00:00Z","updatedAt":"2024-01-01T00:00:00Z"}"#;
+        let project: Project = serde_json::from_str(json).unwrap();
+        assert!(project.hooks_installed.is_empty());
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
 };
 use crate::agents::prompt::{
-    generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
+    generate_command_prompt_with_providers, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
 };
 use crate::db::models::TaskType;
@@ -231,7 +231,7 @@ impl WorkflowOrchestrator {
         let implement_prompt = if let Some(ref task) = self.task {
             // For preset tasks, use the preset-specific prompt
             if task.task_type != TaskType::Custom {
-                generate_task_prompt(task, &self.ticket, &self.repo_path)
+                generate_task_prompt(task, &self.ticket, &self.repo_path, &[self.provider.as_ref()])
             } else {
                 generate_task_implement_prompt(task, &self.ticket, plan)
             }
@@ -273,7 +273,7 @@ impl WorkflowOrchestrator {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            self.run_stage(cmd, &generate_command_prompt(cmd, &self.repo_path))
+            self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
                 .await?;
         }
 

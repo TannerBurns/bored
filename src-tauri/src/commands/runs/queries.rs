@@ -2,21 +2,19 @@ use std::sync::Arc;
 
 use tauri::State;
 
-use crate::db::models::{AgentRun, AgentRunWithContext, RunStatus};
+use crate::db::models::{AgentRun, AgentRunWithContext};
 use crate::db::Database;
 
-/// Clean up stale runs that are stuck in "Running" status
-/// This is useful for runs that crashed or were interrupted without proper cleanup
+/// Clean up runs stuck in "Running" status (e.g. after a crash).
 #[tauri::command]
 pub async fn cleanup_stale_runs(db: State<'_, Arc<Database>>) -> Result<u32, String> {
-    tracing::info!("Cleaning up stale runs");
-
-    // Find all runs with status "running" and mark them as aborted
     let count = db
         .cleanup_stale_running_status()
         .map_err(|e| format!("Failed to cleanup stale runs: {}", e))?;
 
-    tracing::info!("Cleaned up {} stale runs", count);
+    if count > 0 {
+        tracing::info!("Cleaned up {} stale runs", count);
+    }
     Ok(count)
 }
 

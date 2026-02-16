@@ -7,7 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::prompt::generate_command_prompt;
+use crate::agents::prompt::generate_command_prompt_with_providers;
 use crate::agents::spawner::run_agent_via_provider_with_cancel;
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
@@ -367,7 +367,7 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
 
-            let review_prompt = generate_command_prompt("code-review", &self.repo_path);
+            let review_prompt = generate_command_prompt_with_providers("code-review", &self.repo_path, &[self.provider.as_ref()]);
             let review_result = self.run_stage("code-review", &review_prompt).await?;
             let raw_output = review_result.captured_stdout.unwrap_or_default();
             let text = self.extract_text(&raw_output);
@@ -389,7 +389,7 @@ impl WorkflowOrchestrator {
                     );
 
                     let issues_context = extract_issues_section(&text);
-                    let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
+                    let base_fix_prompt = generate_command_prompt_with_providers("code-review-fix", &self.repo_path, &[self.provider.as_ref()]);
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, issues_context
@@ -403,7 +403,7 @@ impl WorkflowOrchestrator {
                         iteration
                     );
 
-                    let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
+                    let base_fix_prompt = generate_command_prompt_with_providers("code-review-fix", &self.repo_path, &[self.provider.as_ref()]);
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, text

@@ -1,14 +1,17 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager, Window};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
 use crate::agents::prompt::{
     generate_branch_name_generation_prompt, parse_branch_name_from_output,
 };
+use crate::agents::worktree::{
+    self, create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeInfo,
+};
 use crate::agents::{run_agent_via_provider, AgentProvider, AgentRunConfig};
 use crate::db::models::{AgentType, CreateRun, RunStatus};
-use crate::db::Database;
+use crate::db::{Database, Ticket};
 
 /// Get the hook script path from app data directory
 pub(super) fn get_hook_script_path(app: &AppHandle) -> Option<String> {
@@ -52,7 +55,7 @@ pub(super) fn update_project_hooks_for_run(
 /// This runs a quick Claude/Cursor agent call to generate a meaningful branch name
 /// based on the ticket's title and description.
 pub(super) async fn generate_ai_branch_name(
-    ticket: &crate::db::Ticket,
+    ticket: &Ticket,
     repo_path: &std::path::Path,
     agent_id: &str,
     provider: Arc<dyn AgentProvider>,
@@ -144,6 +147,101 @@ pub(super) async fn generate_ai_branch_name(
     }
 
     None
+}
+
+/// Resolve the branch name and create a git worktree for isolated agent execution.
+///
+/// - First runs (no branch): generates an AI branch name, stores it on the ticket, then creates a worktree.
+/// - Subsequent runs: reuses the existing branch via worktree.
+///
+/// Returns `(Option<WorktreeInfo>, branch_name)`.
+pub(super) async fn setup_worktree_and_branch(
+    ticket: &Ticket,
+    run_id: &str,
+    repo_path: &str,
+    agent_id: &str,
+    provider: Arc<dyn AgentProvider>,
+    db: &Arc<Database>,
+    window: &Window,
+) -> Result<(Option<WorktreeInfo>, String), String> {
+    let ticket_id = &ticket.id;
+    let repo_path_buf = std::path::PathBuf::from(repo_path);
+
+    // Determine the branch to use
+    let branch_to_use = if let Some(ref existing_branch) = ticket.branch_name {
+        tracing::info!("Ticket {} already has branch: {}", ticket_id, existing_branch);
+        existing_branch.clone()
+    } else {
+        tracing::info!("Ticket {} has no branch yet, generating AI branch name...", ticket_id);
+
+        let ai_branch = generate_ai_branch_name(
+            ticket, &repo_path_buf, agent_id,
+            provider.clone(), db.clone(), Some(window),
+        ).await;
+
+        let branch = if let Some(name) = ai_branch {
+            tracing::info!("AI generated branch name: {}", name);
+            name
+        } else {
+            let fallback = worktree::generate_branch_name(&ticket.id, &ticket.title);
+            tracing::warn!("AI branch generation failed, using fallback: {}", fallback);
+            fallback
+        };
+
+        if let Err(e) = db.set_ticket_branch(ticket_id, &branch) {
+            let _ = db.unlock_ticket(ticket_id);
+            return Err(format!(
+                "Failed to store branch name on ticket: {}. Aborting run to prevent inconsistent state.", e
+            ));
+        }
+        tracing::info!("Stored branch name '{}' on ticket {}", branch, ticket_id);
+        let _ = window.emit(
+            "ticket-branch-updated",
+            serde_json::json!({ "ticketId": ticket_id, "branchName": branch }),
+        );
+
+        branch
+    };
+
+    tracing::info!("Creating worktree for ticket {} with branch: {}", ticket_id, branch_to_use);
+
+    let worktree = if ticket.branch_name.is_some() {
+        match create_worktree_with_existing_branch(&repo_path_buf, &branch_to_use, run_id, None) {
+            Ok(info) => {
+                tracing::info!(
+                    "Created worktree for run {} at {} using existing branch {}",
+                    run_id, info.path.display(), info.branch_name
+                );
+                Some(info)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create worktree with existing branch, falling back to main repo: {}", e);
+                None
+            }
+        }
+    } else {
+        match create_worktree(&WorktreeConfig {
+            repo_path: repo_path_buf.clone(),
+            branch_name: branch_to_use.clone(),
+            run_id: run_id.to_string(),
+            base_dir: None,
+            base_branch: None,
+        }) {
+            Ok(info) => {
+                tracing::info!(
+                    "Created new worktree for run {} at {} with new branch {}",
+                    run_id, info.path.display(), info.branch_name
+                );
+                Some(info)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create new worktree, falling back to main repo: {}", e);
+                None
+            }
+        }
+    };
+
+    Ok((worktree, branch_to_use))
 }
 
 /// Start a heartbeat task to extend the lock periodically

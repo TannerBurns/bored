@@ -116,7 +116,139 @@ pub fn check_git_clean_state(repo_path: &Path) -> ValidationCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::agents::cost::RunCostData;
+    use crate::agents::provider::{AgentProvider, AgentRunConfig};
+    use std::path::{Path, PathBuf};
+
+    /// Configurable stub for testing check functions that take `&dyn AgentProvider`.
+    #[derive(Debug)]
+    struct CheckStub {
+        available: bool,
+        global_hooks: bool,
+        project_hooks: bool,
+        user_commands: bool,
+        project_commands: bool,
+    }
+
+    impl Default for CheckStub {
+        fn default() -> Self {
+            Self {
+                available: false,
+                global_hooks: false,
+                project_hooks: false,
+                user_commands: false,
+                project_commands: false,
+            }
+        }
+    }
+
+    impl AgentProvider for CheckStub {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub Agent" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { ("stub".into(), vec![]) }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.to_string() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
+        fn is_available(&self) -> bool { self.available }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".stub" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
+        fn check_hooks_installed_global(&self) -> bool { self.global_hooks }
+        fn check_hooks_installed_project(&self, _: &Path) -> bool { self.project_hooks }
+        fn check_commands_installed_user(&self) -> bool { self.user_commands }
+        fn check_commands_installed_project(&self, _: &Path) -> bool { self.project_commands }
+    }
+
+    // ── check_cli_available ──────────────────────────────────────────
+
+    #[test]
+    fn cli_available_passes_when_provider_is_available() {
+        let stub = CheckStub { available: true, ..Default::default() };
+        let check = check_cli_available(&stub);
+        assert!(check.passed);
+        assert_eq!(check.name, "cli_available");
+        assert!(check.message.contains("Stub Agent"));
+    }
+
+    #[test]
+    fn cli_available_fails_when_provider_is_unavailable() {
+        let stub = CheckStub { available: false, ..Default::default() };
+        let check = check_cli_available(&stub);
+        assert!(!check.passed);
+        assert!(check.message.contains("not installed"));
+    }
+
+    // ── check_hooks_configured ───────────────────────────────────────
+
+    #[test]
+    fn hooks_configured_passes_with_global_hooks() {
+        let stub = CheckStub { global_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("global"));
+    }
+
+    #[test]
+    fn hooks_configured_passes_with_project_hooks() {
+        let stub = CheckStub { project_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn hooks_configured_prefers_project_over_global() {
+        let stub = CheckStub { global_hooks: true, project_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn hooks_configured_fails_when_neither_installed() {
+        let stub = CheckStub::default();
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(!check.passed);
+        assert_eq!(check.fix_action.as_deref(), Some("install_hooks"));
+    }
+
+    // ── check_commands_installed ──────────────────────────────────────
+
+    #[test]
+    fn commands_installed_passes_with_user_commands() {
+        let stub = CheckStub { user_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("user"));
+    }
+
+    #[test]
+    fn commands_installed_passes_with_project_commands() {
+        let stub = CheckStub { project_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn commands_installed_prefers_user_over_project() {
+        let stub = CheckStub { user_commands: true, project_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("user"));
+    }
+
+    #[test]
+    fn commands_installed_fails_when_neither_installed() {
+        let stub = CheckStub::default();
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(!check.passed);
+        assert_eq!(check.fix_action.as_deref(), Some("install_commands"));
+    }
+
+    // ── existing tests ───────────────────────────────────────────────
 
     #[test]
     fn check_git_repository_detects_git_dir() {

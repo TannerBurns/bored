@@ -372,6 +372,70 @@ mod tests {
     }
 
     #[test]
+    fn update_project_hooks_set_false() {
+        let db = create_test_db();
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                requires_git: true,
+            })
+            .unwrap();
+
+        // Set hook to true then back to false
+        db.update_project_hooks(&project.id, "cursor", true).unwrap();
+        db.update_project_hooks(&project.id, "cursor", false).unwrap();
+        let updated = db.get_project(&project.id).unwrap().unwrap();
+        assert_eq!(updated.hooks_installed.get("cursor"), Some(&false));
+    }
+
+    #[test]
+    fn update_project_hooks_multiple_agents() {
+        let db = create_test_db();
+
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                requires_git: true,
+            })
+            .unwrap();
+
+        db.update_project_hooks(&project.id, "cursor", true).unwrap();
+        db.update_project_hooks(&project.id, "claude", true).unwrap();
+        db.update_project_hooks(&project.id, "windsurf", true).unwrap();
+        let updated = db.get_project(&project.id).unwrap().unwrap();
+        assert_eq!(updated.hooks_installed.len(), 3);
+        assert_eq!(updated.hooks_installed.get("windsurf"), Some(&true));
+    }
+
+    #[test]
+    fn update_project_hooks_nonexistent_project() {
+        let db = create_test_db();
+        let result = db.update_project_hooks("nonexistent-id", "cursor", true);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn create_project_hooks_start_empty() {
+        let db = create_test_db();
+        let project = db
+            .create_project(&CreateProject {
+                name: "Test".to_string(),
+                path: temp_dir_path(),
+                requires_git: true,
+            })
+            .unwrap();
+        assert!(project.hooks_installed.is_empty());
+
+        // Verify it persists empty via get
+        let fetched = db.get_project(&project.id).unwrap().unwrap();
+        assert!(fetched.hooks_installed.is_empty());
+    }
+
+    #[test]
     fn delete_project_fails_if_board_uses_it() {
         let db = create_test_db();
 
