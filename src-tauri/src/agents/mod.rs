@@ -299,6 +299,32 @@ mod tests {
         assert!(config.api_key.is_none());
         assert!(config.base_url.is_none());
         assert!(config.model_override.is_none());
+        assert!(config.thinking_enabled.is_none());
+        assert!(config.extended_context_enabled.is_none());
+        assert!(config.chrome_enabled.is_none());
+    }
+
+    #[test]
+    fn claude_api_config_from_settings_maps_cli_options() {
+        let settings = crate::commands::claude::ClaudeApiSettings {
+            thinking_enabled: Some(false),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        };
+        let config = ClaudeApiConfig::from(settings);
+        assert_eq!(config.thinking_enabled, Some(false));
+        assert_eq!(config.extended_context_enabled, Some(true));
+        assert_eq!(config.chrome_enabled, Some(true));
+    }
+
+    #[test]
+    fn claude_api_config_from_settings_maps_none_cli_options() {
+        let settings = crate::commands::claude::ClaudeApiSettings::default();
+        let config = ClaudeApiConfig::from(settings);
+        assert!(config.thinking_enabled.is_none());
+        assert!(config.extended_context_enabled.is_none());
+        assert!(config.chrome_enabled.is_none());
     }
 
     #[test]

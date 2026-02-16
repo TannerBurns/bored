@@ -219,7 +219,7 @@ impl Worker {
                 api_url: &self.config.api_url,
                 api_token: &self.config.api_token,
                 agent_kind: self.config.agent_type,
-                claude_api_config: self.config.claude_api_config.clone(),
+                claude_api_config: self.config.resolve_claude_api_config(),
             },
         )
         .await
@@ -421,7 +421,7 @@ impl Worker {
             branch_already_created,
             is_temp_branch,
             timeout_secs: self.config.agent_timeout_secs,
-            claude_api_config: self.config.claude_api_config.clone(),
+            claude_api_config: self.config.resolve_claude_api_config(),
             // Legacy fallback values (orchestrator prefers shared state)
             code_review_max_iterations: resolved.code_review_max_iterations,
             stage_timeout_secs: resolved.stage_timeout_secs,

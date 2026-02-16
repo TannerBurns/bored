@@ -234,6 +234,42 @@ describe('useClaudeSettings', () => {
       const storeState = useSettingsStore.getState();
       expect(storeState.claudeAuthToken).toBe('test-token'); // From mockApiSettings reload
     });
+
+    it('syncs CLI options back to store after save', async () => {
+      // Backend will return updated CLI options after save
+      vi.mocked(tauri.getClaudeApiSettings)
+        .mockResolvedValueOnce(mockApiSettings) // initial load
+        .mockResolvedValueOnce({
+          ...mockApiSettings,
+          thinkingEnabled: false,
+          extendedContextEnabled: true,
+          chromeEnabled: true,
+        }); // post-save reload
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Verify initial CLI option state
+      expect(result.current.cliOptions.thinkingEnabled).toBe(true);
+      expect(result.current.cliOptions.extendedContext).toBe(false);
+      expect(result.current.cliOptions.chromeEnabled).toBe(false);
+
+      await act(async () => {
+        await result.current.apiSettings.save();
+      });
+
+      // CLI options should be updated from the backend response
+      expect(result.current.cliOptions.thinkingEnabled).toBe(false);
+      expect(result.current.cliOptions.extendedContext).toBe(true);
+      expect(result.current.cliOptions.chromeEnabled).toBe(true);
+
+      // Zustand store should also reflect the updated values
+      const storeState = useSettingsStore.getState();
+      expect(storeState.claudeThinkingEnabled).toBe(false);
+      expect(storeState.claudeExtendedContext).toBe(true);
+      expect(storeState.claudeChromeEnabled).toBe(true);
+    });
   });
 
   describe('API settings setters', () => {
@@ -301,6 +337,71 @@ describe('useClaudeSettings', () => {
       });
 
       expect(tauri.setClaudeApiSettings).toHaveBeenCalled();
+    });
+
+    it('includes CLI options in the save payload', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        result.current.cliOptions.setExtendedContext(true);
+      });
+
+      // The last call should include the CLI option in the payload
+      const calls = vi.mocked(tauri.setClaudeApiSettings).mock.calls;
+      const lastCall = calls[calls.length - 1]?.[0];
+      expect(lastCall).toMatchObject({
+        extendedContextEnabled: true,
+        thinkingEnabled: true,
+        chromeEnabled: false,
+      });
+    });
+
+    it('sets error when CLI option auto-save fails', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Make the next save call fail
+      vi.mocked(tauri.setClaudeApiSettings).mockRejectedValueOnce(
+        new Error('Network error')
+      );
+
+      await act(async () => {
+        result.current.cliOptions.setChromeEnabled(true);
+      });
+
+      expect(result.current.error).toContain('Failed to save CLI option');
+    });
+
+    it('sets saving flag during CLI option toggle', async () => {
+      let resolveSave: () => void;
+      const savePromise = new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      });
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      // Make setClaudeApiSettings hang (for initial load it already resolved)
+      vi.mocked(tauri.setClaudeApiSettings).mockReturnValueOnce(savePromise);
+
+      let togglePromise: Promise<void> | undefined;
+      act(() => {
+        togglePromise = result.current.cliOptions.setChromeEnabled(true) as unknown as Promise<void>;
+      });
+
+      // saving should be true while the save is in progress
+      expect(result.current.cliOptions.saving).toBe(true);
+
+      await act(async () => {
+        resolveSave!();
+        await togglePromise;
+      });
+
+      expect(result.current.cliOptions.saving).toBe(false);
     });
   });
 

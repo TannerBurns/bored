@@ -18,21 +18,12 @@ fn map_model_for_claude(model: &str) -> String {
 
 /// Push conditional CLI flags based on ClaudeApiConfig settings.
 fn push_cli_option_flags(args: &mut Vec<String>, config: &AgentRunConfig) {
-    let thinking = config
-        .claude_api_config
-        .as_ref()
-        .and_then(|c| c.thinking_enabled)
-        .unwrap_or(true);
-    let extended_context = config
-        .claude_api_config
-        .as_ref()
+    let api_config = config.claude_api_config.as_ref();
+    let thinking = api_config.and_then(|c| c.thinking_enabled).unwrap_or(true);
+    let extended_context = api_config
         .and_then(|c| c.extended_context_enabled)
         .unwrap_or(false);
-    let chrome = config
-        .claude_api_config
-        .as_ref()
-        .and_then(|c| c.chrome_enabled)
-        .unwrap_or(false);
+    let chrome = api_config.and_then(|c| c.chrome_enabled).unwrap_or(false);
 
     if thinking {
         args.push("--settings".to_string());
@@ -384,5 +375,90 @@ mod tests {
         };
         let (cmd, _) = build_command_with_settings(&config, &settings);
         assert_eq!(cmd, "/usr/local/bin/claude");
+    }
+
+    // --- build_command_with_settings CLI option tests ---
+
+    #[test]
+    fn build_with_settings_includes_thinking_by_default() {
+        let config = create_test_config();
+        let settings = ClaudeSettings::default();
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(
+            args.contains(&"--settings".to_string()),
+            "Thinking should be on by default in build_command_with_settings"
+        );
+    }
+
+    #[test]
+    fn build_with_settings_excludes_betas_by_default() {
+        let config = create_test_config();
+        let settings = ClaudeSettings::default();
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(
+            !args.contains(&"--betas".to_string()),
+            "Extended context should be off by default in build_command_with_settings"
+        );
+    }
+
+    #[test]
+    fn build_with_settings_excludes_chrome_by_default() {
+        let config = create_test_config();
+        let settings = ClaudeSettings::default();
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(
+            !args.contains(&"--chrome".to_string()),
+            "Chrome should be off by default in build_command_with_settings"
+        );
+    }
+
+    #[test]
+    fn build_with_settings_respects_cli_options() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(false),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        });
+        let settings = ClaudeSettings::default();
+        let (_, args) = build_command_with_settings(&config, &settings);
+        assert!(!args.contains(&"--settings".to_string()));
+        assert!(args.contains(&"--betas".to_string()));
+        assert!(args.contains(&"--chrome".to_string()));
+    }
+
+    #[test]
+    fn build_command_explicit_true_same_as_none_for_thinking() {
+        // explicit Some(true) and None (default) should both include thinking
+        let config_none = create_test_config(); // claude_api_config is None
+        let (_, args_none) = build_command(&config_none);
+
+        let mut config_explicit = create_test_config();
+        config_explicit.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(true),
+            ..Default::default()
+        });
+        let (_, args_explicit) = build_command(&config_explicit);
+
+        assert!(args_none.contains(&"--settings".to_string()));
+        assert!(args_explicit.contains(&"--settings".to_string()));
+    }
+
+    #[test]
+    fn build_command_prompt_is_last_with_cli_options() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(true),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert_eq!(
+            args.last(),
+            Some(&"Test prompt".to_string()),
+            "Prompt must be the last argument even with all CLI options enabled"
+        );
     }
 }

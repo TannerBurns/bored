@@ -94,11 +94,6 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
         setApiModelOverride(apiSettings.modelOverride ?? '');
         setUserHooksInstalled(claudeStatus.userHooksInstalled);
 
-        // Sync CLI options from backend to Zustand store
-        setClaudeThinkingEnabled(apiSettings.thinkingEnabled ?? true);
-        setClaudeExtendedContext(apiSettings.extendedContextEnabled ?? false);
-        setClaudeChromeEnabled(apiSettings.chromeEnabled ?? false);
-
         updateStoreSettings({
           authToken: apiSettings.authToken ?? '',
           apiKey: apiSettings.apiKey ?? '',
@@ -114,9 +109,8 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     };
 
     loadApiSettings();
-  }, [updateStoreSettings, setClaudeThinkingEnabled, setClaudeExtendedContext, setClaudeChromeEnabled]);
+  }, [updateStoreSettings]);
 
-  // Build the full settings object from current state for backend sync
   const buildFullSettings = useCallback((): ClaudeApiSettings => ({
     authToken: apiAuthToken || null,
     apiKey: apiKey || null,
@@ -127,7 +121,8 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     chromeEnabled: claudeChromeEnabled,
   }), [apiAuthToken, apiKey, apiBaseUrl, apiModelOverride, claudeThinkingEnabled, claudeExtendedContext, claudeChromeEnabled]);
 
-  // Auto-save CLI option toggles to backend
+  // Reads fresh values from the Zustand store (not buildFullSettings) because
+  // the setter hasn't re-rendered yet when we build the save payload.
   const handleCliOptionChange = useCallback(async (
     setter: (value: boolean) => void,
     value: boolean,
@@ -135,14 +130,23 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     setter(value);
     setSavingCliOptions(true);
     try {
-      const settings = buildFullSettings();
+      const store = useSettingsStore.getState();
+      const settings: ClaudeApiSettings = {
+        authToken: apiAuthToken || null,
+        apiKey: apiKey || null,
+        baseUrl: apiBaseUrl || null,
+        modelOverride: apiModelOverride || null,
+        thinkingEnabled: store.claudeThinkingEnabled,
+        extendedContextEnabled: store.claudeExtendedContext,
+        chromeEnabled: store.claudeChromeEnabled,
+      };
       await setClaudeApiSettings(settings);
     } catch (e) {
       base.setError(`Failed to save CLI option: ${e}`);
     } finally {
       setSavingCliOptions(false);
     }
-  }, [buildFullSettings, base]);
+  }, [apiAuthToken, apiKey, apiBaseUrl, apiModelOverride, base]);
 
   const handleSaveApiSettings = useCallback(async () => {
     setSavingApiSettings(true);
@@ -159,6 +163,9 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
       const normalizedApiKey = savedSettings.apiKey ?? '';
       const normalizedBaseUrl = savedSettings.baseUrl ?? '';
       const normalizedModelOverride = savedSettings.modelOverride ?? '';
+      const normalizedThinking = savedSettings.thinkingEnabled ?? true;
+      const normalizedExtendedContext = savedSettings.extendedContextEnabled ?? false;
+      const normalizedChrome = savedSettings.chromeEnabled ?? false;
 
       setApiAuthToken(normalizedAuthToken);
       setApiKey(normalizedApiKey);
@@ -170,6 +177,9 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
         apiKey: normalizedApiKey,
         baseUrl: normalizedBaseUrl,
         modelOverride: normalizedModelOverride,
+        thinkingEnabled: normalizedThinking,
+        extendedContext: normalizedExtendedContext,
+        chromeEnabled: normalizedChrome,
       });
 
       base.setSuccess('Claude API settings saved successfully!');

@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
 use super::super::{AgentKind, ClaudeApiConfig};
+use crate::commands::claude::SharedClaudeApiSettings;
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::WorkflowSettings;
 
@@ -22,8 +23,10 @@ pub struct WorkerConfig {
     pub agent_timeout_secs: u64,
     pub hook_script_path: Option<String>,
     pub app_handle: Option<AppHandle>,
-    /// Claude API configuration (auth token, api key, base url, model override)
+    /// Claude API configuration snapshot (legacy fallback).
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Shared Claude API settings, read at task-processing time for fresh values.
+    pub claude_api_settings: Option<SharedClaudeApiSettings>,
     /// Maximum iterations for the code review loop (default: 3)
     pub code_review_max_iterations: usize,
     /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
@@ -50,6 +53,7 @@ impl Default for WorkerConfig {
             hook_script_path: None,
             app_handle: None,
             claude_api_config: None,
+            claude_api_settings: None,
             code_review_max_iterations: 3,
             stage_timeout_secs: 1800, // 30 minutes
             stage_max_retries: 2,
@@ -69,6 +73,16 @@ pub struct ResolvedWorkflowSettings {
 }
 
 impl WorkerConfig {
+    /// Read the current Claude API config from shared state.
+    /// If no shared state is available, falls back to the static snapshot.
+    pub fn resolve_claude_api_config(&self) -> Option<ClaudeApiConfig> {
+        if let Some(ref shared) = self.claude_api_settings {
+            Some(ClaudeApiConfig::from(shared.get()))
+        } else {
+            self.claude_api_config.clone()
+        }
+    }
+
     /// Read the current workflow settings from the shared state.
     /// If no shared state is available, falls back to the static config values.
     pub fn resolve_workflow_settings(&self) -> ResolvedWorkflowSettings {
@@ -195,6 +209,7 @@ mod tests {
             hook_script_path: Some("/path/to/hook.js".to_string()),
             app_handle: None,
             claude_api_config: None,
+            claude_api_settings: None,
             code_review_max_iterations: 5,
             stage_timeout_secs: 900,
             stage_max_retries: 3,
@@ -301,5 +316,72 @@ mod tests {
         let resolved2 = config.resolve_workflow_settings();
         assert_eq!(resolved2.code_review_max_iterations, 1);
         assert_eq!(resolved2.stage_timeout_secs, 3 * 3600); // 3 hours -> 10800 secs
+    }
+
+    #[test]
+    fn resolve_claude_api_config_without_shared_state_uses_snapshot() {
+        use crate::agents::ClaudeApiConfig;
+
+        let snapshot = ClaudeApiConfig {
+            thinking_enabled: Some(false),
+            ..Default::default()
+        };
+
+        let config = WorkerConfig {
+            claude_api_config: Some(snapshot),
+            claude_api_settings: None,
+            ..Default::default()
+        };
+
+        let resolved = config.resolve_claude_api_config();
+        assert!(resolved.is_some());
+        assert_eq!(resolved.unwrap().thinking_enabled, Some(false));
+    }
+
+    #[test]
+    fn resolve_claude_api_config_without_any_config_returns_none() {
+        let config = WorkerConfig::default();
+        assert!(config.resolve_claude_api_config().is_none());
+    }
+
+    #[test]
+    fn resolve_claude_api_config_with_shared_state_reads_latest() {
+        use crate::agents::ClaudeApiConfig;
+        use crate::commands::claude::ClaudeApiSettingsState;
+
+        let state = ClaudeApiSettingsState::new();
+        state.set(crate::commands::claude::ClaudeApiSettings {
+            thinking_enabled: Some(false),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        });
+        let shared = state.shared();
+
+        let config = WorkerConfig {
+            // Stale snapshot should be ignored when shared state is present
+            claude_api_config: Some(ClaudeApiConfig {
+                thinking_enabled: Some(true),
+                ..Default::default()
+            }),
+            claude_api_settings: Some(shared.clone()),
+            ..Default::default()
+        };
+
+        let resolved = config.resolve_claude_api_config().unwrap();
+        assert_eq!(resolved.thinking_enabled, Some(false));
+        assert_eq!(resolved.extended_context_enabled, Some(true));
+        assert_eq!(resolved.chrome_enabled, Some(true));
+
+        // Update the shared state and verify fresh values are read
+        state.set(crate::commands::claude::ClaudeApiSettings {
+            thinking_enabled: Some(true),
+            chrome_enabled: Some(false),
+            ..Default::default()
+        });
+
+        let resolved2 = config.resolve_claude_api_config().unwrap();
+        assert_eq!(resolved2.thinking_enabled, Some(true));
+        assert_eq!(resolved2.chrome_enabled, Some(false));
     }
 }

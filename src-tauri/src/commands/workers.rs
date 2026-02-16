@@ -93,6 +93,8 @@ pub async fn start_worker(
 
     let claude_api_config =
         (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
+    let claude_api_settings =
+        (agent_kind == AgentKind::Claude).then(|| claude_api_state.shared());
 
     // Pass the shared workflow settings so workers read the latest values at task time
     let workflow_settings = Some(workflow_settings_state.shared());
@@ -105,6 +107,7 @@ pub async fn start_worker(
         hook_script_path,
         app_handle: Some(app.clone()),
         claude_api_config,
+        claude_api_settings,
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
         stage_max_retries: stage_max_retries.unwrap_or(2),

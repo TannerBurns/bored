@@ -569,8 +569,107 @@ describe('useSettingsStore', () => {
     });
   });
 
+  describe('claude CLI option settings', () => {
+    beforeEach(() => {
+      useSettingsStore.setState({
+        claudeThinkingEnabled: true,
+        claudeExtendedContext: false,
+        claudeChromeEnabled: false,
+      });
+    });
+
+    it('has correct CLI option defaults', () => {
+      const state = useSettingsStore.getState();
+      expect(state.claudeThinkingEnabled).toBe(true);
+      expect(state.claudeExtendedContext).toBe(false);
+      expect(state.claudeChromeEnabled).toBe(false);
+    });
+
+    it('sets thinking enabled', () => {
+      useSettingsStore.getState().setClaudeThinkingEnabled(false);
+      expect(useSettingsStore.getState().claudeThinkingEnabled).toBe(false);
+    });
+
+    it('sets extended context', () => {
+      useSettingsStore.getState().setClaudeExtendedContext(true);
+      expect(useSettingsStore.getState().claudeExtendedContext).toBe(true);
+    });
+
+    it('sets chrome enabled', () => {
+      useSettingsStore.getState().setClaudeChromeEnabled(true);
+      expect(useSettingsStore.getState().claudeChromeEnabled).toBe(true);
+    });
+
+    it('sets CLI options via setClaudeApiSettings', () => {
+      useSettingsStore.getState().setClaudeApiSettings({
+        thinkingEnabled: false,
+        extendedContext: true,
+        chromeEnabled: true,
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeThinkingEnabled).toBe(false);
+      expect(state.claudeExtendedContext).toBe(true);
+      expect(state.claudeChromeEnabled).toBe(true);
+    });
+
+    it('preserves CLI options when setClaudeApiSettings omits them', () => {
+      useSettingsStore.getState().setClaudeThinkingEnabled(false);
+      useSettingsStore.getState().setClaudeExtendedContext(true);
+      // Update only authToken, CLI options should be preserved
+      useSettingsStore.getState().setClaudeApiSettings({
+        authToken: 'new-token',
+      });
+      const state = useSettingsStore.getState();
+      expect(state.claudeThinkingEnabled).toBe(false);
+      expect(state.claudeExtendedContext).toBe(true);
+      expect(state.claudeChromeEnabled).toBe(false);
+    });
+  });
+
+  describe('workflow migration v7->v8 (CLI option settings)', () => {
+    it('adds CLI option defaults when migrating from v7', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {} as unknown,
+        7
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.claudeThinkingEnabled).toBe(true);
+      expect(migrated.claudeExtendedContext).toBe(false);
+      expect(migrated.claudeChromeEnabled).toBe(false);
+    });
+
+    it('preserves existing CLI option values during migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          claudeThinkingEnabled: false,
+          claudeExtendedContext: true,
+          claudeChromeEnabled: true,
+        } as unknown,
+        7
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.claudeThinkingEnabled).toBe(false);
+      expect(migrated.claudeExtendedContext).toBe(true);
+      expect(migrated.claudeChromeEnabled).toBe(true);
+    });
+
+    it('full migration from v0 includes CLI option defaults', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.claudeThinkingEnabled).toBe(true);
+      expect(migrated.claudeExtendedContext).toBe(false);
+      expect(migrated.claudeChromeEnabled).toBe(false);
+    });
+  });
+
   describe('persist config', () => {
-    it('uses version 7', () => {
+    it('uses version 8', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       expect(options.version).toBe(8);
