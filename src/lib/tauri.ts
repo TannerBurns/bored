@@ -307,6 +307,9 @@ export interface ClaudeApiSettings {
   apiKey: string | null;
   baseUrl: string | null;
   modelOverride: string | null;
+  thinkingEnabled: boolean | null;
+  extendedContextEnabled: boolean | null;
+  chromeEnabled: boolean | null;
 }
 
 export async function getClaudeApiSettings(): Promise<ClaudeApiSettings> {

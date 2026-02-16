@@ -121,6 +121,7 @@ mod tests {
                 api_key: Some("my-api-key".to_string()),
                 base_url: Some("https://custom.api.com".to_string()),
                 model_override: Some("claude-opus-4-6".to_string()),
+                ..Default::default()
             }),
         };
         let env_vars = build_env_vars(&config);
@@ -159,6 +160,7 @@ mod tests {
                 api_key: Some("key".to_string()),
                 base_url: None,
                 model_override: None,
+                ..Default::default()
             }),
         };
         let env_vars = build_env_vars(&config);
@@ -190,6 +192,7 @@ mod tests {
                 api_key: Some("key".to_string()),
                 base_url: Some("url".to_string()),
                 model_override: Some("model".to_string()),
+                ..Default::default()
             }),
         };
         let env_vars = build_env_vars(&config);

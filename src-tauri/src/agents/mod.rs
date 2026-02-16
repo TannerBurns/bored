@@ -104,6 +104,12 @@ pub struct ClaudeApiConfig {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub model_override: Option<String>,
+    /// Enable extended thinking. Defaults to true when None.
+    pub thinking_enabled: Option<bool>,
+    /// Enable 1M token extended context. Defaults to false when None.
+    pub extended_context_enabled: Option<bool>,
+    /// Enable browser automation via Chrome. Defaults to false when None.
+    pub chrome_enabled: Option<bool>,
 }
 
 impl From<crate::commands::claude::ClaudeApiSettings> for ClaudeApiConfig {
@@ -113,6 +119,9 @@ impl From<crate::commands::claude::ClaudeApiSettings> for ClaudeApiConfig {
             api_key: s.api_key,
             base_url: s.base_url,
             model_override: s.model_override,
+            thinking_enabled: s.thinking_enabled,
+            extended_context_enabled: s.extended_context_enabled,
+            chrome_enabled: s.chrome_enabled,
         }
     }
 }
@@ -290,6 +299,32 @@ mod tests {
         assert!(config.api_key.is_none());
         assert!(config.base_url.is_none());
         assert!(config.model_override.is_none());
+        assert!(config.thinking_enabled.is_none());
+        assert!(config.extended_context_enabled.is_none());
+        assert!(config.chrome_enabled.is_none());
+    }
+
+    #[test]
+    fn claude_api_config_from_settings_maps_cli_options() {
+        let settings = crate::commands::claude::ClaudeApiSettings {
+            thinking_enabled: Some(false),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        };
+        let config = ClaudeApiConfig::from(settings);
+        assert_eq!(config.thinking_enabled, Some(false));
+        assert_eq!(config.extended_context_enabled, Some(true));
+        assert_eq!(config.chrome_enabled, Some(true));
+    }
+
+    #[test]
+    fn claude_api_config_from_settings_maps_none_cli_options() {
+        let settings = crate::commands::claude::ClaudeApiSettings::default();
+        let config = ClaudeApiConfig::from(settings);
+        assert!(config.thinking_enabled.is_none());
+        assert!(config.extended_context_enabled.is_none());
+        assert!(config.chrome_enabled.is_none());
     }
 
     #[test]
@@ -299,6 +334,7 @@ mod tests {
             api_key: Some("key456".to_string()),
             base_url: Some("https://custom.api.com".to_string()),
             model_override: Some("claude-opus-4-6".to_string()),
+            ..Default::default()
         };
         assert_eq!(config.auth_token.as_deref(), Some("auth123"));
         assert_eq!(config.api_key.as_deref(), Some("key456"));

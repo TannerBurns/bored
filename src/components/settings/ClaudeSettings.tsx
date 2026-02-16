@@ -6,6 +6,7 @@ import {
 import {
   useClaudeSettings,
   ApiConfigSection,
+  CliOptionsSection,
   ClaudeInfoSections,
 } from './claude';
 
@@ -33,6 +34,8 @@ export function ClaudeSettings() {
         isAvailable={claude.status?.isAvailable ?? false}
         version={claude.status?.version}
       />
+
+      <CliOptionsSection cliOptions={claude.cliOptions} />
 
       <ApiConfigSection apiSettings={claude.apiSettings} />
 

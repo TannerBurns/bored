@@ -17,6 +17,13 @@ pub struct ClaudeApiSettings {
     pub base_url: Option<String>,
     /// Model override - bypasses normal model mapping, uses value directly for --model
     pub model_override: Option<String>,
+    /// Enable extended thinking (--settings). Defaults to true when None.
+    pub thinking_enabled: Option<bool>,
+    /// Enable 1M token extended context (--betas). Defaults to false when None.
+    /// Only works with API key users.
+    pub extended_context_enabled: Option<bool>,
+    /// Enable browser automation via Chrome (--chrome). Defaults to false when None.
+    pub chrome_enabled: Option<bool>,
 }
 
 /// Internal state containing both the settings and optional persistence path
@@ -123,6 +130,34 @@ impl ClaudeApiSettingsState {
 impl Default for ClaudeApiSettingsState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Shared handle for reading Claude API settings at task-processing time.
+/// Workers hold this to read fresh settings before each ticket instead of
+/// using a snapshot cached at startup.
+#[derive(Clone)]
+pub struct SharedClaudeApiSettings(Arc<Mutex<ClaudeApiSettingsInner>>);
+
+impl SharedClaudeApiSettings {
+    pub fn get(&self) -> ClaudeApiSettings {
+        self.0
+            .lock()
+            .expect("claude api settings mutex poisoned")
+            .settings
+            .clone()
+    }
+}
+
+impl std::fmt::Debug for SharedClaudeApiSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedClaudeApiSettings").finish()
+    }
+}
+
+impl ClaudeApiSettingsState {
+    pub fn shared(&self) -> SharedClaudeApiSettings {
+        SharedClaudeApiSettings(self.0.clone())
     }
 }
 
@@ -278,12 +313,66 @@ mod tests {
             api_key: Some("key456".to_string()),
             base_url: Some("https://api.example.com".to_string()),
             model_override: Some("claude-opus-4-6".to_string()),
+            ..Default::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("authToken"));
         assert!(json.contains("apiKey"));
         assert!(json.contains("baseUrl"));
         assert!(json.contains("modelOverride"));
+    }
+
+    #[test]
+    fn claude_api_settings_serializes_cli_option_fields() {
+        let settings = ClaudeApiSettings {
+            thinking_enabled: Some(true),
+            extended_context_enabled: Some(false),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("thinkingEnabled"));
+        assert!(json.contains("extendedContextEnabled"));
+        assert!(json.contains("chromeEnabled"));
+    }
+
+    #[test]
+    fn claude_api_settings_deserializes_cli_option_fields() {
+        let json = r#"{"thinkingEnabled":false,"extendedContextEnabled":true,"chromeEnabled":true}"#;
+        let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.thinking_enabled, Some(false));
+        assert_eq!(settings.extended_context_enabled, Some(true));
+        assert_eq!(settings.chrome_enabled, Some(true));
+    }
+
+    #[test]
+    fn claude_api_settings_backward_compat_old_json_without_cli_options() {
+        // Old persisted JSON files lack CLI option fields; they must deserialize to None
+        let json =
+            r#"{"authToken":"tok","apiKey":"key","baseUrl":"https://x","modelOverride":"model"}"#;
+        let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
+        assert!(
+            settings.thinking_enabled.is_none(),
+            "Missing thinkingEnabled should default to None"
+        );
+        assert!(
+            settings.extended_context_enabled.is_none(),
+            "Missing extendedContextEnabled should default to None"
+        );
+        assert!(
+            settings.chrome_enabled.is_none(),
+            "Missing chromeEnabled should default to None"
+        );
+        // Existing fields still present
+        assert_eq!(settings.auth_token, Some("tok".to_string()));
+    }
+
+    #[test]
+    fn claude_api_settings_cli_options_default_to_none() {
+        let settings = ClaudeApiSettings::default();
+        assert!(settings.thinking_enabled.is_none());
+        assert!(settings.extended_context_enabled.is_none());
+        assert!(settings.chrome_enabled.is_none());
     }
 
     #[test]
@@ -311,6 +400,7 @@ mod tests {
             api_key: None,
             base_url: Some("https://custom.api".to_string()),
             model_override: None,
+            ..Default::default()
         });
 
         // Verify update
@@ -338,6 +428,7 @@ mod tests {
             api_key: Some("persisted-key".to_string()),
             base_url: None,
             model_override: Some("custom-model".to_string()),
+            ..Default::default()
         };
         std::fs::write(&path, serde_json::to_string(&settings).unwrap()).unwrap();
 
@@ -373,6 +464,7 @@ mod tests {
             api_key: None,
             base_url: Some("https://api.test.com".to_string()),
             model_override: None,
+            ..Default::default()
         });
 
         assert!(result.is_ok());
@@ -409,6 +501,7 @@ mod tests {
             api_key: None,
             base_url: None,
             model_override: None,
+            ..Default::default()
         });
 
         // Settings should be in memory
@@ -430,6 +523,7 @@ mod tests {
             api_key: None,
             base_url: None,
             model_override: None,
+            ..Default::default()
         });
 
         // Should return an error

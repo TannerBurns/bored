@@ -169,6 +169,11 @@ interface SettingsState {
   claudeBaseUrl: string;
   claudeModelOverride: string;
 
+  // Claude CLI option settings
+  claudeThinkingEnabled: boolean;
+  claudeExtendedContext: boolean;
+  claudeChromeEnabled: boolean;
+
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setValidationModel: (model: AIModel) => void;
   setValidationTimeoutMinutes: (min: number) => void;
@@ -187,11 +192,17 @@ interface SettingsState {
   setClaudeApiKey: (key: string) => void;
   setClaudeBaseUrl: (url: string) => void;
   setClaudeModelOverride: (model: string) => void;
+  setClaudeThinkingEnabled: (enabled: boolean) => void;
+  setClaudeExtendedContext: (enabled: boolean) => void;
+  setClaudeChromeEnabled: (enabled: boolean) => void;
   setClaudeApiSettings: (settings: {
     authToken?: string;
     apiKey?: string;
     baseUrl?: string;
     modelOverride?: string;
+    thinkingEnabled?: boolean;
+    extendedContext?: boolean;
+    chromeEnabled?: boolean;
   }) => void;
 }
 
@@ -225,6 +236,11 @@ export const useSettingsStore = create<SettingsState>()(
       claudeApiKey: '',
       claudeBaseUrl: '',
       claudeModelOverride: '',
+
+      // Claude CLI option defaults
+      claudeThinkingEnabled: true,
+      claudeExtendedContext: false,
+      claudeChromeEnabled: false,
 
       setTheme: (theme) => set({ theme }),
       setPlannerAutoApprove: (plannerAutoApprove) => set({ plannerAutoApprove }),
@@ -260,18 +276,30 @@ export const useSettingsStore = create<SettingsState>()(
       setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
       setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
       setClaudeModelOverride: (claudeModelOverride) => set({ claudeModelOverride }),
+      setClaudeThinkingEnabled: (claudeThinkingEnabled) => set({ claudeThinkingEnabled }),
+      setClaudeExtendedContext: (claudeExtendedContext) => set({ claudeExtendedContext }),
+      setClaudeChromeEnabled: (claudeChromeEnabled) => set({ claudeChromeEnabled }),
       setClaudeApiSettings: (settings) => set(() => ({
         ...(settings.authToken !== undefined && { claudeAuthToken: settings.authToken }),
         ...(settings.apiKey !== undefined && { claudeApiKey: settings.apiKey }),
         ...(settings.baseUrl !== undefined && { claudeBaseUrl: settings.baseUrl }),
         ...(settings.modelOverride !== undefined && { claudeModelOverride: settings.modelOverride }),
+        ...(settings.thinkingEnabled !== undefined && { claudeThinkingEnabled: settings.thinkingEnabled }),
+        ...(settings.extendedContext !== undefined && { claudeExtendedContext: settings.extendedContext }),
+        ...(settings.chromeEnabled !== undefined && { claudeChromeEnabled: settings.chromeEnabled }),
       })),
     }),
     {
       name: 'agent-kanban-settings',
-      version: 7,
+      version: 8,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+        if (version < 8) {
+          // v7 -> v8: add Claude CLI option settings with sensible defaults
+          if (state.claudeThinkingEnabled === undefined) state.claudeThinkingEnabled = true;
+          if (state.claudeExtendedContext === undefined) state.claudeExtendedContext = false;
+          if (state.claudeChromeEnabled === undefined) state.claudeChromeEnabled = false;
+        }
         if (version < 7) {
           // v6 -> v7: convert stageTimeoutMinutes to stageTimeoutHours
           const oldMinutes = state.stageTimeoutMinutes as number | undefined;
