@@ -99,13 +99,13 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     await ensureWorkflowSettingsSynced();
 
     // Also pass settings in the request as a fallback
-    const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries, workflowStages } = useSettingsStore.getState();
+    const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries, workflowStages } = useSettingsStore.getState();
     
     try {
       logger.debug('Calling startAgentRun...');
       const runId = await startAgentRun(ticketId, agentType, project.path, {
         codeReviewMaxIterations,
-        stageTimeoutMinutes,
+        stageTimeoutHours,
         stageMaxRetries,
         stageConfigs: workflowStages,
       });

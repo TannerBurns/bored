@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({
     codeReviewMaxIterations: 3,
-    stageTimeoutMinutes: 30,
+    stageTimeoutHours: 1,
     stageMaxRetries: 2,
   }),
 }));

@@ -77,7 +77,7 @@ impl WorkerConfig {
             ResolvedWorkflowSettings {
                 stage_configs: settings.stage_configs.clone(),
                 code_review_max_iterations: settings.code_review_max_iterations,
-                stage_timeout_secs: settings.stage_timeout_minutes as u64 * 60,
+                stage_timeout_secs: settings.stage_timeout_hours as u64 * 3600,
                 stage_max_retries: settings.stage_max_retries,
             }
         } else {
@@ -269,7 +269,7 @@ mod tests {
                 m
             },
             code_review_max_iterations: 10,
-            stage_timeout_minutes: 20,
+            stage_timeout_hours: 2,
             stage_max_retries: 5,
             synced: true,
         }));
@@ -288,18 +288,18 @@ mod tests {
         assert!(resolved.stage_configs["plan"].enabled);
         assert_eq!(resolved.stage_configs["plan"].model, "opus-4.6");
         assert_eq!(resolved.code_review_max_iterations, 10);
-        assert_eq!(resolved.stage_timeout_secs, 20 * 60); // 20 min -> 1200 secs
+        assert_eq!(resolved.stage_timeout_secs, 2 * 3600); // 2 hours -> 7200 secs
         assert_eq!(resolved.stage_max_retries, 5);
 
         // Now update the shared state and verify the config reads the new values
         {
             let mut settings = shared_settings.lock().unwrap();
             settings.code_review_max_iterations = 1;
-            settings.stage_timeout_minutes = 5;
+            settings.stage_timeout_hours = 3;
         }
 
         let resolved2 = config.resolve_workflow_settings();
         assert_eq!(resolved2.code_review_max_iterations, 1);
-        assert_eq!(resolved2.stage_timeout_secs, 5 * 60); // 5 min -> 300 secs
+        assert_eq!(resolved2.stage_timeout_secs, 3 * 3600); // 3 hours -> 10800 secs
     }
 }
