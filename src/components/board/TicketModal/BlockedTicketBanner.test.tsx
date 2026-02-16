@@ -260,6 +260,79 @@ describe('BlockedTicketBanner', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  describe('stale clarification detection', () => {
+    it('returns null when a newer diagnostic comment supersedes clarification', () => {
+      const clarification = makeClarificationComment({
+        createdAt: new Date('2024-01-01'),
+      });
+      const diagnostic: Comment = {
+        id: 'c-diag',
+        ticketId: 't1',
+        authorType: 'system',
+        bodyMd: '## Blocked: SshAuth\n\nDiagnosing issue...',
+        createdAt: new Date('2024-06-01'),
+        metadata: { type: 'diagnostic' },
+      };
+      const { container } = render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[clarification, diagnostic]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      expect(container.innerHTML).toBe('');
+    });
+
+    it('returns null when a newer error comment supersedes clarification', () => {
+      const clarification = makeClarificationComment({
+        createdAt: new Date('2024-01-01'),
+      });
+      const errorComment: Comment = {
+        id: 'c-err',
+        ticketId: 't1',
+        authorType: 'system',
+        bodyMd: '## Blocked: Workflow Error\n\nSomething failed',
+        createdAt: new Date('2024-06-01'),
+        metadata: { type: 'error' },
+      };
+      const { container } = render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[clarification, errorComment]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      expect(container.innerHTML).toBe('');
+    });
+
+    it('still shows banner when only user comments are newer than clarification', () => {
+      const clarification = makeClarificationComment({
+        createdAt: new Date('2024-01-01'),
+      });
+      const userReply: Comment = {
+        id: 'c-user',
+        ticketId: 't1',
+        authorType: 'user',
+        bodyMd: 'I updated the description.',
+        createdAt: new Date('2024-06-01'),
+      };
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[clarification, userReply]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      expect(screen.getByText('Clarification Needed')).toBeInTheDocument();
+    });
+  });
+
   describe('extractClarificationBody (via render)', () => {
     it('extracts body between header and footer', () => {
       const comment = makeClarificationComment({

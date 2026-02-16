@@ -167,6 +167,12 @@ export function useBoardSync(): BoardSyncState {
                   pausedAtStage: updatedSelectedTicket.pausedAtStage,
                 });
                 selectTicket(updatedSelectedTicket);
+
+                // Reload tasks when ticket state changes
+                const { isTicketModalOpen, loadTasks } = useBoardStore.getState();
+                if (isTicketModalOpen) {
+                  loadTasks(updatedSelectedTicket.id);
+                }
               }
             }
           }

@@ -8,7 +8,7 @@ use crate::agents::claude as claude_hooks;
 use crate::agents::cursor as cursor_hooks;
 use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::AgentKind;
-use crate::db::{Database, RunStatus, Ticket};
+use crate::db::{AuthorType, CreateComment, Database, RunStatus, Ticket};
 
 pub(super) fn update_project_hooks_for_run(
     repo_path: &std::path::Path,
@@ -185,6 +185,14 @@ pub(super) fn handle_workflow_error(
             Some(&format!("Workflow failed: {}", error)),
         )
         .map_err(|db_err| format!("Failed to update run status: {}", db_err))?;
+
+    // Post error comment before the move to prevent stale clarification banner.
+    let _ = config.db.create_comment(&CreateComment {
+        ticket_id: config.ticket.id.clone(),
+        author_type: AuthorType::System,
+        body_md: format!("## Blocked: Workflow Error\n\n{}", error),
+        metadata: Some(serde_json::json!({ "type": "error" })),
+    });
 
     move_ticket_to_column(
         &config.db,
