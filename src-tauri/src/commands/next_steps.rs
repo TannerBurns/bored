@@ -6,6 +6,9 @@ use tauri::State;
 
 use crate::db::Database;
 
+pub use super::diff_parser::{DiffHunk, DiffLine, FileDiff};
+use super::diff_parser::parse_unified_diff;
+
 /// Result of a git push operation
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,37 +34,6 @@ pub struct BranchDiff {
     pub diff: String,
     pub files_changed: usize,
     pub branch: String,
-}
-
-/// Per-file diff for the file-by-file diff viewer
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileDiff {
-    pub path: String,
-    /// "modified", "added", "deleted", "renamed"
-    pub status: String,
-    pub additions: usize,
-    pub deletions: usize,
-    pub hunks: Vec<DiffHunk>,
-}
-
-/// A hunk in a unified diff (e.g. @@ -1,5 +1,7 @@)
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffHunk {
-    pub header: String,
-    pub lines: Vec<DiffLine>,
-}
-
-/// A single line in a hunk
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffLine {
-    /// "add", "delete", "context"
-    pub line_type: String,
-    pub content: String,
-    pub old_line_num: Option<usize>,
-    pub new_line_num: Option<usize>,
 }
 
 /// Find the working directory for a ticket (worktree or project path).
@@ -120,6 +92,19 @@ pub async fn push_branch(
 ) -> Result<PushResult, String> {
     let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
 
+    // Commit any uncommitted changes before pushing
+    if has_uncommitted_changes(&working_dir) {
+        let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+        let commit_msg = format!("feat: {}", ticket.title);
+        if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
+            return Ok(PushResult {
+                success: false,
+                message: format!("Failed to commit uncommitted changes: {}", e),
+                branch,
+            });
+        }
+    }
+
     let output = Command::new("git")
         .args(["push", "-u", "origin", &branch])
         .current_dir(&working_dir)
@@ -149,14 +134,47 @@ pub async fn push_branch(
     }
 }
 
-/// Check whether the branch has been pushed to origin.
-fn is_branch_on_remote(working_dir: &str, branch: &str) -> bool {
+/// Check whether there are uncommitted changes (staged or unstaged) in the working directory.
+fn has_uncommitted_changes(working_dir: &str) -> bool {
+    // `git status --porcelain` outputs one line per changed file; empty = clean
     Command::new("git")
-        .args(["rev-parse", "--verify", &format!("refs/remotes/origin/{}", branch)])
+        .args(["status", "--porcelain"])
         .current_dir(working_dir)
         .output()
-        .map(|o| o.status.success())
+        .map(|o| {
+            o.status.success()
+                && !String::from_utf8_lossy(&o.stdout).trim().is_empty()
+        })
         .unwrap_or(false)
+}
+
+/// Stage all changes and commit them. Returns Ok(()) on success or an error message.
+fn commit_all_changes(working_dir: &str, message: &str) -> Result<(), String> {
+    // Stage everything (new, modified, deleted)
+    let add_output = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git add: {}", e))?;
+
+    if !add_output.status.success() {
+        let stderr = String::from_utf8_lossy(&add_output.stderr);
+        return Err(format!("git add -A failed: {}", stderr));
+    }
+
+    // Commit
+    let commit_output = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git commit: {}", e))?;
+
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        return Err(format!("git commit failed: {}", stderr));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -167,27 +185,36 @@ pub async fn create_pull_request(
     db: State<'_, Arc<Database>>,
 ) -> Result<PullRequestResult, String> {
     let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
+    let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
-    // Push branch to origin first if it hasn't been pushed yet
-    if !is_branch_on_remote(&working_dir, &branch) {
-        let push_output = Command::new("git")
-            .args(["push", "-u", "origin", &branch])
-            .current_dir(&working_dir)
-            .output()
-            .map_err(|e| format!("Failed to run git push: {}", e))?;
-
-        if !push_output.status.success() {
-            let stdout = String::from_utf8_lossy(&push_output.stdout);
-            let stderr = String::from_utf8_lossy(&push_output.stderr);
+    // Commit any uncommitted changes so they are included in the push
+    if has_uncommitted_changes(&working_dir) {
+        let commit_msg = format!("feat: {}", ticket.title);
+        if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
             return Ok(PullRequestResult {
                 success: false,
                 url: None,
-                message: format!("Failed to push branch to origin: {}{}", stdout, stderr),
+                message: format!("Failed to commit uncommitted changes: {}", e),
             });
         }
     }
 
-    let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+    // Always push to ensure the remote is up-to-date with local commits
+    let push_output = Command::new("git")
+        .args(["push", "-u", "origin", &branch])
+        .current_dir(&working_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git push: {}", e))?;
+
+    if !push_output.status.success() {
+        let stdout = String::from_utf8_lossy(&push_output.stdout);
+        let stderr = String::from_utf8_lossy(&push_output.stderr);
+        return Ok(PullRequestResult {
+            success: false,
+            url: None,
+            message: format!("Failed to push branch to origin: {}{}", stdout, stderr),
+        });
+    }
 
     let pr_title = title.unwrap_or_else(|| ticket.title.clone());
     let pr_body = body.unwrap_or_else(|| {
@@ -273,143 +300,6 @@ pub fn get_branch_diff_sync(db: &Database, ticket_id: &str) -> Result<BranchDiff
     })
 }
 
-/// Parse unified diff output into per-file structured diffs.
-fn parse_unified_diff(diff: &str) -> Vec<FileDiff> {
-    let mut files = Vec::new();
-    let diff_splits = diff.split("\ndiff --git ");
-    for (i, block) in diff_splits.enumerate() {
-        let block = block.trim_start();
-        let block = if i == 0 && !block.starts_with("diff --git ") {
-            continue;
-        } else if i == 0 {
-            block.strip_prefix("diff --git ").unwrap_or(block)
-        } else {
-            block
-        };
-        let mut lines = block.lines();
-        let first = match lines.next() {
-            Some(l) => l,
-            None => continue,
-        };
-        // First line: "a/path b/path" or "a/path b/path\n"
-        let path = first
-            .strip_prefix("a/")
-            .and_then(|s| s.split(" b/").next())
-            .unwrap_or(first)
-            .to_string();
-        if path.is_empty() {
-            continue;
-        }
-        let (mut additions, mut deletions) = (0usize, 0usize);
-        let mut hunks = Vec::new();
-        let mut in_header = true;
-        let mut header_status: Option<&str> = None;
-        let mut current_hunk_header = String::new();
-        let mut current_hunk_lines: Vec<DiffLine> = Vec::new();
-        let mut old_line = 0usize;
-        let mut new_line = 0usize;
-
-        for line in lines {
-            if line.starts_with("@@ ") {
-                if !current_hunk_header.is_empty() {
-                    hunks.push(DiffHunk {
-                        header: current_hunk_header.clone(),
-                        lines: current_hunk_lines.clone(),
-                    });
-                }
-                current_hunk_header = line.to_string();
-                current_hunk_lines.clear();
-                if let Some(rest) = line.strip_prefix("@@ ") {
-                    // Use split_once instead of strip_suffix so that
-                    // function context after the closing @@ is ignored
-                    // (e.g. "@@ -10,3 +10,4 @@ fn main()").
-                    if let Some((nums, _)) = rest.split_once(" @@") {
-                        let parts: Vec<&str> = nums.split(' ').collect();
-                        if let Some(old_part) = parts.first() {
-                            old_line = old_part.split(',').next().and_then(|s| s.trim_start_matches('-').parse().ok()).unwrap_or(1);
-                        }
-                        if let Some(new_part) = parts.get(1) {
-                            new_line = new_part.split(',').next().and_then(|s| s.trim_start_matches('+').parse().ok()).unwrap_or(1);
-                        }
-                    }
-                }
-                in_header = false;
-                continue;
-            }
-            if in_header {
-                if line.starts_with("new file mode") {
-                    header_status = Some("added");
-                } else if line.starts_with("deleted file mode") {
-                    header_status = Some("deleted");
-                } else if line.starts_with("rename from") || line.starts_with("rename to") {
-                    header_status = Some("renamed");
-                }
-                continue;
-            }
-            let (line_type, content) = if let Some(rest) = line.get(1..) {
-                match line.chars().next() {
-                    Some('+') => {
-                        additions += 1;
-                        (Some("add"), rest.to_string())
-                    }
-                    Some('-') => {
-                        deletions += 1;
-                        (Some("delete"), rest.to_string())
-                    }
-                    Some(' ') => (Some("context"), rest.to_string()),
-                    _ => (None, line.to_string()),
-                }
-            } else {
-                (Some("context"), String::new())
-            };
-            if let Some(lt) = line_type {
-                let (old_num, new_num) = match lt {
-                    "add" => (None, Some(new_line)),
-                    "delete" => (Some(old_line), None),
-                    _ => (Some(old_line), Some(new_line)),
-                };
-                current_hunk_lines.push(DiffLine {
-                    line_type: lt.to_string(),
-                    content,
-                    old_line_num: old_num,
-                    new_line_num: new_num,
-                });
-                match lt {
-                    "add" => new_line = new_line.saturating_add(1),
-                    "delete" => old_line = old_line.saturating_add(1),
-                    _ => {
-                        old_line = old_line.saturating_add(1);
-                        new_line = new_line.saturating_add(1);
-                    }
-                }
-            }
-        }
-        if !current_hunk_header.is_empty() {
-            hunks.push(DiffHunk {
-                header: current_hunk_header,
-                lines: current_hunk_lines,
-            });
-        }
-        let status = if let Some(s) = header_status {
-            s
-        } else if additions > 0 && deletions == 0 && hunks.iter().all(|h| h.lines.iter().all(|l| l.line_type != "delete")) {
-            "added"
-        } else if deletions > 0 && additions == 0 && hunks.iter().all(|h| h.lines.iter().all(|l| l.line_type != "add")) {
-            "deleted"
-        } else {
-            "modified"
-        };
-        files.push(FileDiff {
-            path,
-            status: status.to_string(),
-            additions,
-            deletions,
-            hunks,
-        });
-    }
-    files
-}
-
 /// Get structured per-file diffs for a ticket's branch.
 pub fn get_branch_diff_files_sync(db: &Database, ticket_id: &str) -> Result<Vec<FileDiff>, String> {
     let BranchDiff { diff, .. } = get_branch_diff_sync(db, ticket_id)?;
@@ -469,206 +359,138 @@ pub fn get_default_branch(working_dir: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
-    // --- parse_unified_diff ---
+    // --- test helpers ---
+
+    /// Create a temporary git repo with an initial commit.
+    /// Returns the TempDir (keeps it alive) and its path as a String.
+    fn init_temp_repo() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().to_str().unwrap().to_string();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&path)
+            .output()
+            .expect("git init");
+
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&path)
+            .output()
+            .expect("git config email");
+
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&path)
+            .output()
+            .expect("git config name");
+
+        // Create an initial commit so HEAD exists
+        std::fs::write(dir.path().join("README.md"), "# init").unwrap();
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(&path)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&path)
+            .output()
+            .expect("git commit");
+
+        (dir, path)
+    }
+
+    // --- has_uncommitted_changes ---
 
     #[test]
-    fn parse_empty_diff() {
-        assert!(parse_unified_diff("").is_empty());
+    fn uncommitted_changes_clean_repo_returns_false() {
+        let (_dir, path) = init_temp_repo();
+        assert!(!has_uncommitted_changes(&path));
     }
 
     #[test]
-    fn parse_single_modified_file() {
-        let diff = "\
-diff --git a/src/main.rs b/src/main.rs
-index abc..def 100644
---- a/src/main.rs
-+++ b/src/main.rs
-@@ -1,3 +1,3 @@
- fn main() {
--    let x = 1;
-+    let x = 2;
- }
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "src/main.rs");
-        assert_eq!(files[0].status, "modified");
-        assert_eq!(files[0].additions, 1);
-        assert_eq!(files[0].deletions, 1);
-        assert_eq!(files[0].hunks.len(), 1);
-        assert!(files[0].hunks[0].header.starts_with("@@ "));
+    fn uncommitted_changes_modified_file_returns_true() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("README.md"), "# modified").unwrap();
+        assert!(has_uncommitted_changes(&path));
     }
 
     #[test]
-    fn parse_new_file() {
-        let diff = "\
-diff --git a/new.txt b/new.txt
-new file mode 100644
-index 0000000..abc1234
---- /dev/null
-+++ b/new.txt
-@@ -0,0 +1,2 @@
-+line one
-+line two
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "new.txt");
-        assert_eq!(files[0].status, "added");
-        assert_eq!(files[0].additions, 2);
-        assert_eq!(files[0].deletions, 0);
+    fn uncommitted_changes_staged_file_returns_true() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("README.md"), "# staged").unwrap();
+        Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(&path)
+            .output()
+            .expect("git add");
+        assert!(has_uncommitted_changes(&path));
     }
 
     #[test]
-    fn parse_deleted_file() {
-        let diff = "\
-diff --git a/old.txt b/old.txt
-deleted file mode 100644
-index abc1234..0000000
---- a/old.txt
-+++ /dev/null
-@@ -1,2 +0,0 @@
--line one
--line two
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "old.txt");
-        assert_eq!(files[0].status, "deleted");
-        assert_eq!(files[0].additions, 0);
-        assert_eq!(files[0].deletions, 2);
+    fn uncommitted_changes_untracked_file_returns_true() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("new_file.txt"), "hello").unwrap();
+        assert!(has_uncommitted_changes(&path));
     }
 
     #[test]
-    fn parse_multiple_files() {
-        let diff = "\
-diff --git a/a.rs b/a.rs
-index abc..def 100644
---- a/a.rs
-+++ b/a.rs
-@@ -1,1 +1,2 @@
- existing
-+added
+    fn uncommitted_changes_invalid_dir_returns_false() {
+        assert!(!has_uncommitted_changes("/nonexistent/path/that/does/not/exist"));
+    }
 
-diff --git a/b.rs b/b.rs
-index abc..def 100644
---- a/b.rs
-+++ b/b.rs
-@@ -1,2 +1,1 @@
- keep
--removed
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 2);
-        assert_eq!(files[0].path, "a.rs");
-        assert_eq!(files[0].additions, 1);
-        assert_eq!(files[1].path, "b.rs");
-        assert_eq!(files[1].deletions, 1);
+    // --- commit_all_changes ---
+
+    #[test]
+    fn commit_all_changes_happy_path() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("README.md"), "# changed").unwrap();
+
+        let result = commit_all_changes(&path, "test commit");
+        assert!(result.is_ok());
+        // Working tree should be clean after commit
+        assert!(!has_uncommitted_changes(&path));
     }
 
     #[test]
-    fn parse_line_numbers_tracked_correctly() {
-        let diff = "\
-diff --git a/f.rs b/f.rs
-index abc..def 100644
---- a/f.rs
-+++ b/f.rs
-@@ -10,3 +10,4 @@
- context
-+added
--removed
- context2
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        let lines = &files[0].hunks[0].lines;
+    fn commit_all_changes_includes_untracked_files() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("brand_new.txt"), "new content").unwrap();
 
-        // "context" at old=10, new=10
-        assert_eq!(lines[0].line_type, "context");
-        assert_eq!(lines[0].old_line_num, Some(10));
-        assert_eq!(lines[0].new_line_num, Some(10));
+        let result = commit_all_changes(&path, "add new file");
+        assert!(result.is_ok());
+        assert!(!has_uncommitted_changes(&path));
 
-        // "added" at new=11 (no old)
-        assert_eq!(lines[1].line_type, "add");
-        assert_eq!(lines[1].old_line_num, None);
-        assert_eq!(lines[1].new_line_num, Some(11));
-
-        // "removed" at old=11 (no new)
-        assert_eq!(lines[2].line_type, "delete");
-        assert_eq!(lines[2].old_line_num, Some(11));
-        assert_eq!(lines[2].new_line_num, None);
+        // Verify the file is tracked by checking git log
+        let log = Command::new("git")
+            .args(["log", "--oneline", "--name-only", "-1"])
+            .current_dir(&path)
+            .output()
+            .expect("git log");
+        let output = String::from_utf8_lossy(&log.stdout);
+        assert!(output.contains("brand_new.txt"));
     }
 
     #[test]
-    fn parse_multiple_hunks() {
-        let diff = "\
-diff --git a/f.rs b/f.rs
-index abc..def 100644
---- a/f.rs
-+++ b/f.rs
-@@ -1,2 +1,2 @@
--old1
-+new1
- same
-@@ -10,2 +10,2 @@
--old2
-+new2
- same2
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].hunks.len(), 2);
-        assert_eq!(files[0].additions, 2);
-        assert_eq!(files[0].deletions, 2);
+    fn commit_all_changes_uses_provided_message() {
+        let (dir, path) = init_temp_repo();
+        std::fs::write(dir.path().join("README.md"), "# updated").unwrap();
+
+        commit_all_changes(&path, "feat: my custom message").unwrap();
+
+        let log = Command::new("git")
+            .args(["log", "-1", "--format=%s"])
+            .current_dir(&path)
+            .output()
+            .expect("git log");
+        let msg = String::from_utf8_lossy(&log.stdout).trim().to_string();
+        assert_eq!(msg, "feat: my custom message");
     }
 
     #[test]
-    fn parse_hunk_header_with_function_context() {
-        // Real git diffs include function context after the closing @@
-        let diff = "\
-diff --git a/f.rs b/f.rs
-index abc..def 100644
---- a/f.rs
-+++ b/f.rs
-@@ -10,3 +10,4 @@ fn main() {
- context
-+added
--removed
- context2
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        let lines = &files[0].hunks[0].lines;
-
-        assert_eq!(lines[0].line_type, "context");
-        assert_eq!(lines[0].old_line_num, Some(10));
-        assert_eq!(lines[0].new_line_num, Some(10));
-
-        assert_eq!(lines[1].line_type, "add");
-        assert_eq!(lines[1].old_line_num, None);
-        assert_eq!(lines[1].new_line_num, Some(11));
-
-        assert_eq!(lines[2].line_type, "delete");
-        assert_eq!(lines[2].old_line_num, Some(11));
-        assert_eq!(lines[2].new_line_num, None);
-    }
-
-    #[test]
-    fn parse_renamed_file() {
-        let diff = "\
-diff --git a/old_name.rs b/new_name.rs
-similarity index 95%
-rename from old_name.rs
-rename to new_name.rs
-index abc..def 100644
---- a/old_name.rs
-+++ b/new_name.rs
-@@ -1,1 +1,1 @@
--old
-+new
-";
-        let files = parse_unified_diff(diff);
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].status, "renamed");
+    fn commit_all_changes_invalid_dir_returns_err() {
+        let result = commit_all_changes("/nonexistent/path/that/does/not/exist", "msg");
+        assert!(result.is_err());
     }
 }
