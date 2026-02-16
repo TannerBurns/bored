@@ -4,6 +4,8 @@
 // Submodules
 mod availability;
 mod command;
+#[cfg(test)]
+mod command_tests;
 mod commands;
 mod hooks;
 pub mod provider;
