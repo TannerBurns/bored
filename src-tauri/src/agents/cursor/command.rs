@@ -266,4 +266,65 @@ mod tests {
             "model_override should never override workflow settings"
         );
     }
+
+    // ── build_command_from_provider_config tests ────────────────────
+
+    fn create_provider_config() -> ProviderAgentRunConfig {
+        ProviderAgentRunConfig {
+            agent_id: "cursor".to_string(),
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/tmp/test"),
+            prompt: "Test prompt".to_string(),
+            timeout_secs: None,
+            api_url: "http://localhost:7432".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            agent_config: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn provider_build_returns_cursor_command() {
+        let (cmd, args) = build_command_from_provider_config(&create_provider_config());
+        assert_eq!(cmd, "cursor");
+        assert_eq!(args[0], "agent");
+    }
+
+    #[test]
+    fn provider_build_includes_headless_flags() {
+        let (_, args) = build_command_from_provider_config(&create_provider_config());
+        assert!(args.contains(&"--print".to_string()));
+        assert!(args.contains(&"--force".to_string()));
+        assert!(args.contains(&"--approve-mcps".to_string()));
+        assert!(args.contains(&"--output-format".to_string()));
+        assert!(args.contains(&"text".to_string()));
+    }
+
+    #[test]
+    fn provider_build_includes_workspace() {
+        let (_, args) = build_command_from_provider_config(&create_provider_config());
+        assert!(args.contains(&"--workspace".to_string()));
+        assert!(args.contains(&"/tmp/test".to_string()));
+    }
+
+    #[test]
+    fn provider_build_defaults_to_opus_model() {
+        let (_, args) = build_command_from_provider_config(&create_provider_config());
+        assert!(args.contains(&"claude-opus-4-6".to_string()));
+    }
+
+    #[test]
+    fn provider_build_maps_model_name() {
+        let mut config = create_provider_config();
+        config.model = Some("sonnet-4.5".to_string());
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
+    }
+
+    #[test]
+    fn provider_build_prompt_is_last() {
+        let (_, args) = build_command_from_provider_config(&create_provider_config());
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
 }

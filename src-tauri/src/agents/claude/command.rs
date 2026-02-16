@@ -502,4 +502,103 @@ mod tests {
             "Prompt must be the last argument even with all CLI options enabled"
         );
     }
+
+    // ── build_command_from_provider_config tests ────────────────────
+
+    fn create_provider_config() -> ProviderAgentRunConfig {
+        ProviderAgentRunConfig {
+            agent_id: "claude".to_string(),
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/tmp/test"),
+            prompt: "Test prompt".to_string(),
+            timeout_secs: None,
+            api_url: "http://localhost:7432".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            agent_config: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn provider_build_returns_claude_command() {
+        let config = create_provider_config();
+        let (cmd, _) = build_command_from_provider_config(&config);
+        assert_eq!(cmd, "claude");
+    }
+
+    #[test]
+    fn provider_build_includes_stream_json_and_verbose() {
+        let config = create_provider_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--output-format".to_string()));
+        assert!(args.contains(&"stream-json".to_string()));
+        assert!(args.contains(&"--verbose".to_string()));
+        assert!(args.contains(&"--dangerously-skip-permissions".to_string()));
+    }
+
+    #[test]
+    fn provider_build_defaults_to_opus_model() {
+        let config = create_provider_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"claude-opus-4-6".to_string()));
+    }
+
+    #[test]
+    fn provider_build_maps_model_name() {
+        let mut config = create_provider_config();
+        config.model = Some("sonnet-4.5".to_string());
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"claude-sonnet-4-5".to_string()));
+    }
+
+    #[test]
+    fn provider_build_includes_thinking_by_default() {
+        let config = create_provider_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--settings".to_string()));
+    }
+
+    #[test]
+    fn provider_build_disables_thinking_via_agent_config() {
+        let mut config = create_provider_config();
+        config
+            .agent_config
+            .insert("thinking_enabled".to_string(), serde_json::json!(false));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(!args.contains(&"--settings".to_string()));
+    }
+
+    #[test]
+    fn provider_build_enables_betas_via_agent_config() {
+        let mut config = create_provider_config();
+        config
+            .agent_config
+            .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--betas".to_string()));
+    }
+
+    #[test]
+    fn provider_build_enables_chrome_via_agent_config() {
+        let mut config = create_provider_config();
+        config
+            .agent_config
+            .insert("chrome_enabled".to_string(), serde_json::json!(true));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--chrome".to_string()));
+    }
+
+    #[test]
+    fn provider_build_prompt_is_last() {
+        let mut config = create_provider_config();
+        config
+            .agent_config
+            .insert("thinking_enabled".to_string(), serde_json::json!(true));
+        config
+            .agent_config
+            .insert("chrome_enabled".to_string(), serde_json::json!(true));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
 }
