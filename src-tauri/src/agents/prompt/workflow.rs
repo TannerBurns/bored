@@ -79,7 +79,6 @@ Execute these instructions carefully. When complete, report what was done.
 "#
         )
     } else {
-        // Fallback prompts if command file not found
         get_fallback_command_prompt(base_command)
     }
 }
@@ -221,17 +220,12 @@ mod tests {
 
     #[test]
     fn format_macro_with_raw_string_interpolates_variables() {
-        // This test verifies that format!() with raw string literals correctly
-        // interpolates variables. Raw strings in Rust only affect escape sequence
-        // handling, NOT macro variable interpolation.
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let cleanup_file = manifest_dir.join("scripts/commands/cleanup.md");
 
         if cleanup_file.exists() {
             let prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
 
-            // The format! macro should interpolate {base_command} to "cleanup"
-            // If raw strings blocked interpolation, we'd see literal "{base_command}"
             assert!(
                 !prompt.contains("{base_command}"),
                 "Variable was not interpolated - prompt contains literal '{{base_command}}'"
@@ -240,14 +234,10 @@ mod tests {
                 !prompt.contains("{content}"),
                 "Variable was not interpolated - prompt contains literal '{{content}}'"
             );
-
-            // Verify the actual interpolation worked
             assert!(
                 prompt.contains("/cleanup"),
                 "base_command should be interpolated to '/cleanup'"
             );
-
-            // The file content should be present (not the literal "{content}")
             assert!(
                 prompt.contains("senior engineer"),
                 "File content should be interpolated into prompt"

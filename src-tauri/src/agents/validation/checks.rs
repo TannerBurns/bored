@@ -120,26 +120,13 @@ mod tests {
     use crate::agents::provider::{AgentProvider, AgentRunConfig};
     use std::path::{Path, PathBuf};
 
-    /// Configurable stub for testing check functions that take `&dyn AgentProvider`.
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct CheckStub {
         available: bool,
         global_hooks: bool,
         project_hooks: bool,
         user_commands: bool,
         project_commands: bool,
-    }
-
-    impl Default for CheckStub {
-        fn default() -> Self {
-            Self {
-                available: false,
-                global_hooks: false,
-                project_hooks: false,
-                user_commands: false,
-                project_commands: false,
-            }
-        }
     }
 
     impl AgentProvider for CheckStub {

@@ -40,12 +40,10 @@ impl AgentProvider for CursorProvider {
     }
 
     fn build_env_vars(&self, _config: &AgentRunConfig) -> Vec<(String, String)> {
-        // Cursor doesn't need any extra environment variables
         Vec::new()
     }
 
     fn extract_text(&self, output: &str) -> String {
-        // Cursor returns plain text — no parsing needed
         output.to_string()
     }
 

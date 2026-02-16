@@ -90,7 +90,6 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         .map(|w| w.path.clone())
         .unwrap_or_else(|| main_repo_path.clone());
 
-    // branch_already_created: worktree was created OR ticket already had a branch from a prior run
     let worktree_branch = Some(branch_name);
     let branch_already_created = worktree_info.is_some() || ticket.branch_name.is_some();
 

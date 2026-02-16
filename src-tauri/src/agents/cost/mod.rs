@@ -97,8 +97,6 @@ impl AggregatedCost {
         }
 
         if cost.model_usage.is_empty() {
-            // Legacy data without a per-model breakdown — attribute the
-            // entire cost so the model totals stay consistent with the total.
             if cost.total_cost_usd > 0.0 || cost.input_tokens > 0 || cost.output_tokens > 0
                 || cost.cache_read_tokens > 0 || cost.cache_creation_tokens > 0 {
                 let entry = self.model_totals.entry("other".to_string()).or_default();
@@ -120,7 +118,6 @@ impl AggregatedCost {
             }
         }
 
-        // Single source of truth: total is always the sum of model costs.
         self.total_cost_usd = self.model_totals.values().map(|d| d.cost_usd).sum();
     }
 }

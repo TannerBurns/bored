@@ -78,8 +78,6 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0),
             };
-            // Normalize model name so that e.g. "claude-opus-4-6" and "opus-4.6"
-            // are merged under the same key.
             let canonical = normalize_model_name(model_name);
             let entry = model_usage.entry(canonical).or_insert_with(ModelCostData::default);
             entry.input_tokens += data.input_tokens;
@@ -90,12 +88,8 @@ fn parse_cost_from_result_json(json: &serde_json::Value) -> Option<RunCostData> 
         }
     }
 
-    // Always derive total_cost_usd from the sum of per-model costs.
-    // This is the single source of truth — it guarantees the total shown
-    // in the UI always equals the sum of the "By model" breakdown.
+    // Prefer per-model sum; fall back to API-level total when no model breakdown exists.
     let total_cost_usd: f64 = if model_usage.is_empty() {
-        // No model breakdown available; fall back to the API-level total
-        // so we don't lose cost data entirely.
         total_cost_usd
     } else {
         model_usage.values().map(|d| d.cost_usd).sum()

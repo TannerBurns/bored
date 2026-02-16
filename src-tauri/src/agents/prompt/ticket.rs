@@ -58,9 +58,7 @@ pub fn generate_ticket_prompt_full(
 
         let mut step = 1;
 
-        // Only include git branch step if git is required
         if requires_git {
-            // Use char-based iteration to safely handle multi-byte UTF-8 characters
             let id_prefix: String = ticket.id.chars().take(8).collect();
             let branch_name = format!("ticket/{}/{}", id_prefix, slugify(&ticket.title));
             prompt.push_str(&format!("{}. Create a branch: `{}`\n", step, branch_name));

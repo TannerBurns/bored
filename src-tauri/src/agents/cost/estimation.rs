@@ -48,7 +48,6 @@ fn get_model_pricing(model: &str) -> ModelPricing {
             cache_write_per_mtok: 1.25,
         }
     } else {
-        // Default to Sonnet pricing
         ModelPricing {
             input_per_mtok: 3.0,
             output_per_mtok: 15.0,

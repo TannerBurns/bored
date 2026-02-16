@@ -84,8 +84,7 @@ pub(super) async fn generate_ai_branch_name(
         tracing::warn!("Failed to create branch-gen sub-run: {}", e);
     }
 
-    // Default to Opus 4.6 for branch generation unless overridden
-    let model: Option<String> = None; // build_command defaults to opus-4.6
+    let model: Option<String> = None;
 
     let config = AgentRunConfig {
         agent_id: agent_id.to_string(),
@@ -110,7 +109,6 @@ pub(super) async fn generate_ai_branch_name(
     match result {
         Ok(Ok(agent_result)) => {
             if let Some(ref stdout) = agent_result.captured_stdout {
-                // Extract text using the provider's parser
                 let text_content = provider_for_extract.extract_text(stdout);
 
                 tracing::debug!("Branch-gen output (extracted): {}", text_content);
@@ -167,7 +165,6 @@ pub(super) async fn setup_worktree_and_branch(
     let ticket_id = &ticket.id;
     let repo_path_buf = std::path::PathBuf::from(repo_path);
 
-    // Determine the branch to use
     let branch_to_use = if let Some(ref existing_branch) = ticket.branch_name {
         tracing::info!("Ticket {} already has branch: {}", ticket_id, existing_branch);
         existing_branch.clone()
