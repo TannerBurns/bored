@@ -369,8 +369,9 @@ impl WorkflowOrchestrator {
 
             let review_prompt = generate_command_prompt("code-review", &self.repo_path);
             let review_result = self.run_stage("code-review", &review_prompt).await?;
-            let output = review_result.captured_stdout.unwrap_or_default();
-            let issue_count = parse_code_review_issues(&output);
+            let raw_output = review_result.captured_stdout.unwrap_or_default();
+            let text = self.extract_text(&raw_output);
+            let issue_count = parse_code_review_issues(&text);
 
             match issue_count {
                 Some(0) => {
@@ -387,7 +388,7 @@ impl WorkflowOrchestrator {
                         iteration
                     );
 
-                    let issues_context = extract_issues_section(&output);
+                    let issues_context = extract_issues_section(&text);
                     let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
@@ -397,9 +398,17 @@ impl WorkflowOrchestrator {
                 }
                 None => {
                     tracing::warn!(
-                        "Could not parse issue count from code review output, assuming complete"
+                        "Could not parse ISSUES_FOUND from code review output (iteration {}), \
+                         running fix phase with full review text",
+                        iteration
                     );
-                    return Ok(());
+
+                    let base_fix_prompt = generate_command_prompt("code-review-fix", &self.repo_path);
+                    let fix_prompt = format!(
+                        "{}\n\n## Issues to Address\n\n{}",
+                        base_fix_prompt, text
+                    );
+                    self.run_stage("code-review-fix", &fix_prompt).await?;
                 }
             }
         }

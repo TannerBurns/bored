@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { WorkerPanel } from '../workers';
 import { getTimeAgo, formatDuration } from '../../lib/utils';
 import type { AgentRunWithContext, RunStatus } from '../../types';
-import { getAgentDisplayName, getAgentIcon } from '../common/AgentIcons';
+import { getAgentDisplayName, getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { CostBadge, getRunCost } from '../common/CostBadge';
 
 interface AgentsViewProps {
@@ -168,8 +168,10 @@ function RunItem({ run }: { run: AgentRunWithContext }) {
           <span className="flex items-center gap-1">
             {(() => {
               const Icon = getAgentIcon(run.agentType);
-              const iconColor = run.agentType === 'claude' ? 'text-[#da7756]' : 'text-board-text-muted';
-              return <Icon size={12} className={iconColor} />;
+              const brandColor = getAgentBrandColor(run.agentType);
+              return brandColor
+                ? <Icon size={12} style={{ color: brandColor }} />
+                : <Icon size={12} className="text-board-text-muted" />;
             })()}
             {getAgentDisplayName(run.agentType)}
           </span>

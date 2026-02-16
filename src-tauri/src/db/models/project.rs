@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -7,8 +9,8 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
-    pub cursor_hooks_installed: bool,
-    pub claude_hooks_installed: bool,
+    /// Hook installation status per agent (keyed by agent ID, e.g. "cursor" -> true).
+    pub hooks_installed: HashMap<String, bool>,
     pub allow_shell_commands: bool,
     pub allow_file_writes: bool,
     pub blocked_patterns: Vec<String>,
@@ -50,12 +52,13 @@ mod tests {
 
     #[test]
     fn project_serializes_to_camel_case() {
+        let mut hooks = HashMap::new();
+        hooks.insert("cursor".to_string(), true);
         let project = Project {
             id: "p1".to_string(),
             name: "Test".to_string(),
             path: "/tmp".to_string(),
-            cursor_hooks_installed: true,
-            claude_hooks_installed: false,
+            hooks_installed: hooks,
             allow_shell_commands: true,
             allow_file_writes: false,
             blocked_patterns: vec!["*.log".to_string()],
@@ -65,7 +68,8 @@ mod tests {
             updated_at: chrono::Utc::now(),
         };
         let json = serde_json::to_string(&project).unwrap();
-        assert!(json.contains("\"cursorHooksInstalled\":true"));
+        assert!(json.contains("\"hooksInstalled\""));
+        assert!(json.contains("\"cursor\":true"));
         assert!(json.contains("\"allowFileWrites\":false"));
         assert!(json.contains("\"requiresGit\":true"));
     }

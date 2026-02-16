@@ -1,7 +1,7 @@
+pub mod agents;
 pub mod boards;
 pub mod claude;
 pub mod conversations;
-pub mod cursor;
 mod diff_parser;
 pub mod next_steps;
 pub mod projects;
@@ -15,12 +15,16 @@ mod validation_parsing;
 pub mod workers;
 pub mod workflow_settings;
 
+pub use agents::{
+    check_agent_available, check_agent_project_hooks_installed, get_agent_hook_script_path,
+    get_agent_hooks_config, get_agent_status, install_agent_hooks_global,
+    install_agent_hooks_project, AgentStatus,
+};
 pub use boards::*;
-pub use claude::*;
+pub use claude::{ClaudeApiSettings, ClaudeApiSettingsState, SharedClaudeApiSettings};
 pub use conversations::{
     get_conversation_messages, send_conversation_message, start_conversation,
 };
-pub use cursor::*;
 pub use projects::*;
 pub use runs::{
     backfill_run_costs, cancel_agent_run, get_agent_run, get_agent_runs, get_board_cost_summary,
@@ -69,6 +73,7 @@ pub struct AgentInfo {
     pub display_name: String,
     pub is_available: bool,
     pub version: Option<String>,
+    pub brand_color: Option<String>,
 }
 
 /// Return the list of all registered agents with their availability status.
@@ -84,6 +89,7 @@ pub fn get_available_agents(
             display_name: p.display_name().to_string(),
             is_available: p.is_available(),
             version: p.get_version(),
+            brand_color: p.brand_color().map(|s| s.to_string()),
         })
         .collect()
 }

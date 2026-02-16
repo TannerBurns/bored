@@ -33,43 +33,57 @@ function getDefaultSpoolDir() {
 
 function detectAgentType() {
   const args = process.argv.slice(2);
-  if (args.includes('--agent=cursor')) return 'cursor';
-  if (args.includes('--agent=claude')) return 'claude';
+  // Check explicit --agent=<type> flag first
+  for (const arg of args) {
+    const match = arg.match(/^--agent=(.+)$/);
+    if (match) return match[1];
+  }
+  // Detect by environment variables
   if (process.env.CLAUDE_SESSION_ID) return 'claude';
+  // Default fallback
   return 'cursor';
 }
 
-const CURSOR_EVENT_MAP = {
-  'beforeShellExecution': 'command_requested',
-  'afterShellExecution': 'command_executed',
-  'beforeReadFile': 'file_read',
-  'afterFileEdit': 'file_edited',
-  'beforeMCPExecution': 'command_requested',
-  'stop': 'run_stopped',
-  'beforeSubmitPrompt': 'prompt_submitted',
-};
-
-const CLAUDE_EVENT_MAP = {
-  'UserPromptSubmit': 'prompt_submitted',
-  'PreToolUse': 'command_requested',
-  'PostToolUse': 'command_executed',
-  'PostToolUseFailure': 'error',
-  'Stop': 'run_stopped',
-  'SessionStart': 'run_started',
-  'SessionEnd': 'run_stopped',
+// Event maps keyed by agent type — add new agents here.
+const EVENT_MAPS = {
+  cursor: {
+    'beforeShellExecution': 'command_requested',
+    'afterShellExecution': 'command_executed',
+    'beforeReadFile': 'file_read',
+    'afterFileEdit': 'file_edited',
+    'beforeMCPExecution': 'command_requested',
+    'stop': 'run_stopped',
+    'beforeSubmitPrompt': 'prompt_submitted',
+  },
+  claude: {
+    'UserPromptSubmit': 'prompt_submitted',
+    'PreToolUse': 'command_requested',
+    'PostToolUse': 'command_executed',
+    'PostToolUseFailure': 'error',
+    'Stop': 'run_stopped',
+    'SessionStart': 'run_started',
+    'SessionEnd': 'run_stopped',
+  },
 };
 
 function mapEventType(rawEvent, agentType) {
-  const map = agentType === 'cursor' ? CURSOR_EVENT_MAP : CLAUDE_EVENT_MAP;
+  const map = EVENT_MAPS[agentType] || {};
   return map[rawEvent] || rawEvent.toLowerCase();
 }
 
+// Data extractors keyed by agent type — add new agents here.
+const DATA_EXTRACTORS = {
+  cursor: extractCursorData,
+  claude: extractClaudeData,
+};
+
 function extractStructuredData(eventType, rawEvent, payload, agentType) {
-  if (agentType === 'cursor') {
-    return extractCursorData(rawEvent, payload);
-  } else {
-    return extractClaudeData(rawEvent, payload);
+  const extractor = DATA_EXTRACTORS[agentType];
+  if (extractor) {
+    return extractor(rawEvent, payload);
   }
+  // Unknown agent — return payload as-is
+  return payload;
 }
 
 function extractCursorData(eventType, payload) {

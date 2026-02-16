@@ -1,13 +1,15 @@
 //! Parsing utilities for plan validation responses.
 
 use super::config::{PlanValidationError, PlanValidationResult};
-use crate::agents::extract_text_from_stream_json;
 
-/// Parse the validation agent's response to extract the structured result
+/// Parse the validation agent's response to extract the structured result.
+///
+/// Expects pre-extracted text (callers should use `provider.extract_text()`
+/// before passing output here).
 pub fn parse_validation_response(
     output: &str,
 ) -> Result<PlanValidationResult, PlanValidationError> {
-    let text_content = extract_text_from_stream_json(output).unwrap_or_else(|| output.to_string());
+    let text_content = output.to_string();
     let trimmed = text_content.trim();
 
     if let Some(start) = trimmed.find('{') {

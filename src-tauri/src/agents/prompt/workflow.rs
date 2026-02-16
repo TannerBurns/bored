@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::agents::provider::AgentProvider;
+
 /// Extract the base command name from a contextual stage name.
 /// e.g., "cleanup-post-tests" -> "cleanup", "review-changes-final" -> "review-changes"
 fn get_base_command(stage: &str) -> &str {
@@ -14,27 +16,52 @@ fn get_base_command(stage: &str) -> &str {
     }
 }
 
-/// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
-pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
-    // Map contextual stage names to base command names for file lookup
-    let base_command = get_base_command(command);
+/// Build the list of command file search locations from registered providers.
+///
+/// For each provider, constructs `<repo>/<config_dir>/<subdir>/<command>.md`.
+/// Appends the bundled commands directory as a final fallback.
+fn build_command_search_paths(
+    base_command: &str,
+    repo_path: &Path,
+    providers: &[&dyn AgentProvider],
+) -> Vec<std::path::PathBuf> {
+    let mut locations: Vec<std::path::PathBuf> = providers
+        .iter()
+        .map(|p| {
+            repo_path
+                .join(p.config_dir_name())
+                .join(p.command_instructions_subdir())
+                .join(format!("{}.md", base_command))
+        })
+        .collect();
 
-    // Try to read the command file content from all known agent command directories.
-    // Each agent stores commands in its own subdirectory (e.g. .cursor/rules, .claude/commands).
-    let mut locations = vec![
-        repo_path
-            .join(".cursor/rules")
-            .join(format!("{}.md", base_command)),
-        repo_path
-            .join(".claude/commands")
-            .join(format!("{}.md", base_command)),
-    ];
     // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
     locations.push(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
             .join(format!("{}.md", base_command)),
     );
+
+    locations
+}
+
+/// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
+///
+/// Searches bundled command files only. Use `generate_command_prompt_with_providers`
+/// to also search provider-specific repo directories.
+pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
+    generate_command_prompt_with_providers(command, repo_path, &[])
+}
+
+/// Like `generate_command_prompt`, but also searches each provider's command directory.
+pub fn generate_command_prompt_with_providers(
+    command: &str,
+    repo_path: &Path,
+    providers: &[&dyn AgentProvider],
+) -> String {
+    let base_command = get_base_command(command);
+
+    let locations = build_command_search_paths(base_command, repo_path, providers);
 
     let cmd_content = locations
         .iter()
@@ -126,7 +153,7 @@ Use conventional commit format if the project uses it.
             r#"Execute the /{command} command:
 
 Follow the project's conventions for this command.
-If a command file exists at .cursor/rules/{command}.md or .claude/commands/{command}.md, follow those instructions.
+If a command file exists in the project's agent configuration directory, follow those instructions.
 "#
         ),
     }
@@ -310,5 +337,51 @@ mod tests {
                 && !review_final_prompt.contains("/review-changes-final"),
             "review-changes-final should show /review-changes in header, not /review-changes-final"
         );
+    }
+
+    // ── Provider-aware path building ──────────────────────────────
+
+    #[test]
+    fn build_search_paths_with_providers() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::cursor::provider::CursorProvider;
+
+        let claude = ClaudeProvider::new();
+        let cursor = CursorProvider::new();
+        let providers: Vec<&dyn crate::agents::provider::AgentProvider> =
+            vec![&claude, &cursor];
+
+        let paths = build_command_search_paths("deslop", Path::new("/repo"), &providers);
+
+        // First two paths from providers, third is bundled fallback
+        assert!(paths.len() >= 3);
+        assert_eq!(paths[0], PathBuf::from("/repo/.claude/commands/deslop.md"));
+        assert_eq!(paths[1], PathBuf::from("/repo/.cursor/rules/deslop.md"));
+        // Last path is the bundled commands dir
+        assert!(paths.last().unwrap().ends_with("scripts/commands/deslop.md"));
+    }
+
+    #[test]
+    fn build_search_paths_empty_providers() {
+        let paths = build_command_search_paths("deslop", Path::new("/repo"), &[]);
+        // Only the bundled fallback
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].ends_with("scripts/commands/deslop.md"));
+    }
+
+    #[test]
+    fn generate_with_providers_falls_back_to_bundled() {
+        // With providers pointing at nonexistent dirs, should still find bundled or fallback
+        use crate::agents::claude::provider::ClaudeProvider;
+        let claude = ClaudeProvider::new();
+        let providers: Vec<&dyn crate::agents::provider::AgentProvider> = vec![&claude];
+
+        let prompt = generate_command_prompt_with_providers(
+            "deslop",
+            Path::new("/nonexistent"),
+            &providers,
+        );
+        // Should get either a bundled file or the hardcoded deslop fallback
+        assert!(prompt.contains("deslop"));
     }
 }

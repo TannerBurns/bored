@@ -110,6 +110,43 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// Install hooks at the global/user level (e.g. ~/.cursor, ~/Library/...).
+    fn install_hooks_global(
+        &self,
+        _hook_script_path: &str,
+        _api_url: Option<&str>,
+        _api_token: Option<&str>,
+    ) -> Result<(), String> {
+        Err("Global hook installation not supported by this agent".to_string())
+    }
+
+    /// Install hooks for a specific project directory.
+    fn install_hooks_project(
+        &self,
+        _repo_path: &Path,
+        _hook_script_path: &str,
+        _api_url: Option<&str>,
+        _api_token: Option<&str>,
+    ) -> Result<(), String> {
+        Err("Project hook installation not supported by this agent".to_string())
+    }
+
+    /// Generate the hooks configuration as a JSON string.
+    fn generate_hooks_config_json(&self, _hook_script_path: &str) -> Result<String, String> {
+        Ok("{}".to_string())
+    }
+
+    /// The filename of this agent's hook script (e.g. "cursor-hook.js"),
+    /// or empty if the agent doesn't use one.
+    fn hook_script_name(&self) -> &str {
+        ""
+    }
+
+    /// Brand color hex for UI display (e.g. "#da7756").
+    fn brand_color(&self) -> Option<&str> {
+        None
+    }
+
     // ── Commands checking and installation ───────────────────────────
 
     /// Check whether command templates are installed in a project.

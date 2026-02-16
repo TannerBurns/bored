@@ -591,6 +591,58 @@ impl Database {
                 tracing::info!("Migration to version 8 complete: app_command and app_port removed");
             }
 
+            // Migration from version 8 to 9: Replace per-agent hooks columns with hooks_installed_json
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has final schema
+            if current_version > 0 && current_version < 9 {
+                tracing::info!("Running migration to version 9: hooks_installed_json column");
+
+                // Check if old columns exist
+                let has_old_hooks: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='cursor_hooks_installed'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+
+                if has_old_hooks {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE projects_v9 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            name TEXT NOT NULL,
+                            path TEXT NOT NULL UNIQUE,
+                            hooks_installed_json TEXT NOT NULL DEFAULT '{}',
+                            allow_shell_commands INTEGER NOT NULL DEFAULT 1,
+                            allow_file_writes INTEGER NOT NULL DEFAULT 1,
+                            blocked_patterns_json TEXT NOT NULL DEFAULT '[]',
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            requires_git INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO projects_v9 (id, name, path, hooks_installed_json,
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json,
+                            settings_json, requires_git, created_at, updated_at)
+                        SELECT id, name, path,
+                            json_object('cursor', CASE WHEN cursor_hooks_installed != 0 THEN json('true') ELSE json('false') END,
+                                        'claude', CASE WHEN claude_hooks_installed != 0 THEN json('true') ELSE json('false') END),
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json,
+                            settings_json, requires_git, created_at, updated_at
+                        FROM projects;
+
+                        DROP TABLE projects;
+                        ALTER TABLE projects_v9 RENAME TO projects;
+
+                        CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
+                        "#
+                    )?;
+                }
+
+                tracing::info!("Migration to version 9 complete: hooks_installed_json column added");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

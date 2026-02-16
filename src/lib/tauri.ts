@@ -74,13 +74,13 @@ export async function checkTicketReadiness(
 
 export async function updateProjectHooks(
   projectId: string,
-  cursorInstalled?: boolean,
-  claudeInstalled?: boolean
+  agentId: string,
+  installed: boolean
 ): Promise<void> {
   return invoke('update_project_hooks', {
     projectId,
-    cursorInstalled,
-    claudeInstalled,
+    agentId,
+    installed,
   });
 }
 
@@ -204,107 +204,57 @@ export async function getRunEvents(runId: string): Promise<AgentEvent[]> {
   return invoke('get_run_events', { runId });
 }
 
-// Cursor integration
-export interface CursorStatus {
+// Unified agent integration
+export interface AgentStatus {
   isAvailable: boolean;
   version: string | null;
   globalHooksInstalled: boolean;
   hookScriptPath: string | null;
 }
 
-export async function getCursorStatus(): Promise<CursorStatus> {
-  return invoke('get_cursor_status');
+export async function getAgentStatus(agentId: string): Promise<AgentStatus> {
+  return invoke('get_agent_status', { agentId });
 }
 
-export async function installCursorHooksGlobal(
+export async function installAgentHooksGlobal(
+  agentId: string,
   hookScriptPath: string,
   apiUrl?: string,
   apiToken?: string
 ): Promise<void> {
-  return invoke('install_cursor_hooks_global', { hookScriptPath, apiUrl, apiToken });
+  return invoke('install_agent_hooks_global', { agentId, hookScriptPath, apiUrl, apiToken });
 }
 
-export async function installCursorHooksProject(
+export async function installAgentHooksProject(
+  agentId: string,
   hookScriptPath: string,
   projectPath: string,
   apiUrl?: string,
   apiToken?: string
 ): Promise<void> {
-  return invoke('install_cursor_hooks_project', { hookScriptPath, projectPath, apiUrl, apiToken });
+  return invoke('install_agent_hooks_project', { agentId, hookScriptPath, projectPath, apiUrl, apiToken });
 }
 
-export async function getCursorHooksConfig(
+export async function getAgentHooksConfig(
+  agentId: string,
   hookScriptPath: string
 ): Promise<string> {
-  return invoke('get_cursor_hooks_config', { hookScriptPath });
+  return invoke('get_agent_hooks_config', { agentId, hookScriptPath });
 }
 
-export async function checkProjectHooksInstalled(
+export async function checkAgentAvailable(agentId: string): Promise<boolean> {
+  return invoke('check_agent_available', { agentId });
+}
+
+export async function checkAgentProjectHooksInstalled(
+  agentId: string,
   projectPath: string
 ): Promise<boolean> {
-  return invoke('check_project_hooks_installed', { projectPath });
+  return invoke('check_agent_project_hooks_installed', { agentId, projectPath });
 }
 
-export async function getHookScriptPath(): Promise<string | null> {
-  return invoke('get_hook_script_path_cmd');
-}
-
-// Claude Code integration
-export interface ClaudeStatus {
-  isAvailable: boolean;
-  version: string | null;
-  userHooksInstalled: boolean;
-  hookScriptPath: string | null;
-}
-
-export async function getClaudeStatus(): Promise<ClaudeStatus> {
-  return invoke('get_claude_status');
-}
-
-export async function installClaudeHooksUser(
-  hookScriptPath: string,
-  apiUrl?: string,
-  apiToken?: string
-): Promise<void> {
-  return invoke('install_claude_hooks_user', { hookScriptPath, apiUrl, apiToken });
-}
-
-export async function installClaudeHooksProject(
-  hookScriptPath: string,
-  projectPath: string,
-  apiUrl?: string,
-  apiToken?: string
-): Promise<void> {
-  return invoke('install_claude_hooks_project', { hookScriptPath, projectPath, apiUrl, apiToken });
-}
-
-export async function installClaudeHooksLocal(
-  hookScriptPath: string,
-  projectPath: string,
-  apiUrl?: string,
-  apiToken?: string
-): Promise<void> {
-  return invoke('install_claude_hooks_local', { hookScriptPath, projectPath, apiUrl, apiToken });
-}
-
-export async function getClaudeHooksConfig(
-  hookScriptPath: string
-): Promise<string> {
-  return invoke('get_claude_hooks_config', { hookScriptPath });
-}
-
-export async function checkClaudeAvailable(): Promise<boolean> {
-  return invoke('check_claude_available');
-}
-
-export async function checkClaudeProjectHooksInstalled(
-  projectPath: string
-): Promise<boolean> {
-  return invoke('check_claude_project_hooks_installed', { projectPath });
-}
-
-export async function getClaudeHookScriptPath(): Promise<string | null> {
-  return invoke('get_claude_hook_script_path');
+export async function getAgentHookScriptPath(agentId: string): Promise<string | null> {
+  return invoke('get_agent_hook_script_path', { agentId });
 }
 
 // Claude API Settings

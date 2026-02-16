@@ -34,7 +34,7 @@ export function CreateSpecModal({
   const [targetBoardId, setTargetBoardId] = useState<string>(''); // Empty means same as boardId
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<'cursor' | 'claude'>('claude');
+  const [selectedAgent, setSelectedAgent] = useState<string>('claude');
   const { availability } = useCliAvailability();
   
   // Markdown editor state

@@ -74,17 +74,14 @@ Focus on completing this specific task. Additional QA stages will follow.
     prompt
 }
 
-/// Generate a prompt for a preset task type by reading the command file
-fn generate_preset_task_prompt(preset_name: &str, repo_path: &Path) -> String {
-    // Search all known agent command directories for the preset file.
+/// Generate a prompt for a preset task type by reading the command file.
+///
+/// Searches bundled command files first, then falls back to hardcoded prompts.
+/// For provider-aware path discovery (searching repo-level agent directories),
+/// use `workflow::generate_command_prompt_with_providers` instead.
+fn generate_preset_task_prompt(preset_name: &str, _repo_path: &Path) -> String {
     let locations = [
-        repo_path
-            .join(".cursor/rules")
-            .join(format!("{}.md", preset_name)),
-        repo_path
-            .join(".claude/commands")
-            .join(format!("{}.md", preset_name)),
-        // Fallback to our bundled command files
+        // Bundled command files
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
             .join(format!("{}.md", preset_name)),

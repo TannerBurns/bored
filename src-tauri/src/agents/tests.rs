@@ -27,96 +27,109 @@ fn log_stream_serializes_lowercase() {
 }
 
 #[test]
-fn extract_text_from_stream_event_format() {
+fn claude_extract_text_from_stream_event_format() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello "}}}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world!"}}}
 "#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Hello world!".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Hello world!");
 }
 
 #[test]
-fn extract_text_from_stream_event_with_plan() {
+fn claude_extract_text_from_stream_event_with_plan() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"## Plan\\n\\n\"}}}\n\
 {\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"1. First step\\n\"}}}\n\
 {\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"2. Second step\\n\"}}}\n";
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(
-        result,
-        Some("## Plan\n\n1. First step\n2. Second step\n".to_string())
-    );
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "## Plan\n\n1. First step\n2. Second step\n");
 }
 
 #[test]
-fn extract_text_ignores_non_text_events() {
+fn claude_extract_text_ignores_non_text_events() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"The plan"}}}
 {"type":"stream_event","event":{"type":"content_block_stop","index":0}}
 {"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}
 "#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("The plan".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "The plan");
 }
 
 #[test]
-fn extract_text_from_result_message() {
+fn claude_extract_text_from_result_message() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"result","result":"Final plan text"}"#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Final plan text".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Final plan text");
 }
 
 #[test]
-fn extract_text_from_assistant_message() {
+fn claude_extract_text_from_assistant_message() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Assistant response"}]}}"#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Assistant response".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Assistant response");
 }
 
 #[test]
-fn extract_text_returns_none_for_empty() {
-    let result = extract_text_from_stream_json("");
-    assert_eq!(result, None);
-}
-
-#[test]
-fn extract_agent_text_from_stream_json() {
+fn claude_provider_extract_text_from_stream_json() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello world"}}}"#;
-    let result = extract_agent_text(stream_output);
+    let result = provider.extract_text(stream_output);
     assert_eq!(result, "Hello world");
 }
 
 #[test]
-fn extract_agent_text_from_plain_text() {
+fn cursor_provider_extract_text_passthrough() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
     let plain_output = "This is plain text output from the agent.";
-    let result = extract_agent_text(plain_output);
+    let result = provider.extract_text(plain_output);
     assert_eq!(result, plain_output);
 }
 
 #[test]
-fn extract_agent_text_empty_returns_empty() {
-    let result = extract_agent_text("");
+fn cursor_provider_extract_text_empty() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let result = provider.extract_text("");
     assert_eq!(result, "");
 }
 
 #[test]
-fn extract_text_returns_none_for_no_text_content() {
+fn claude_provider_extract_text_no_text_content() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output =
         r#"{"type":"stream_event","event":{"type":"tool_use","name":"read_file"}}"#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, None);
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, stream_output);
 }
 
 #[test]
-fn extract_text_handles_mixed_content() {
+fn claude_extract_text_handles_mixed_content() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Part 1"}}}
 {"type":"result","result":" Part 2"}
 "#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Part 1 Part 2".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Part 1 Part 2");
 }
 
 #[test]
-fn extract_text_uses_only_last_assistant_message() {
+fn claude_extract_text_uses_only_last_assistant_message() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = concat!(
         r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Let me explore the codebase..."},{"type":"tool_use","id":"toolu_1","name":"read_file"}]}}"#, "\n",
         r#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","content":"file contents"}]}}"#, "\n",
@@ -124,28 +137,32 @@ fn extract_text_uses_only_last_assistant_message() {
         r#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_2","content":"more file contents"}]}}"#, "\n",
         r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Here are my findings.\n\n1. What approach do you prefer?"}]}}"#, "\n",
     );
-    let result = extract_text_from_stream_json(stream_output);
+    let result = provider.extract_text(stream_output);
     assert_eq!(
         result,
-        Some("Here are my findings.\n\n1. What approach do you prefer?".to_string())
+        "Here are my findings.\n\n1. What approach do you prefer?"
     );
 }
 
 #[test]
-fn extract_text_single_assistant_message_still_works() {
+fn claude_extract_text_single_assistant_message_still_works() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output =
         r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Direct response"}]}}"#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Direct response".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Direct response");
 }
 
 #[test]
-fn extract_text_stream_events_preferred_over_assistant() {
+fn claude_extract_text_stream_events_preferred_over_assistant() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let provider = ClaudeProvider::new();
     let stream_output = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Old message"}]}}
 {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Streamed response"}}}
 "#;
-    let result = extract_text_from_stream_json(stream_output);
-    assert_eq!(result, Some("Streamed response".to_string()));
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "Streamed response");
 }
 
 // ── AgentRunConfig tests ────────────────────────────────────
@@ -219,4 +236,54 @@ fn agent_run_config_empty_agent_config() {
     };
     assert!(config.agent_config.is_empty());
     assert_eq!(config.agent_id, "cursor");
+}
+
+// ── AgentProvider trait method tests ──────────────────────────
+
+#[test]
+fn claude_provider_hook_script_name() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let p = ClaudeProvider::new();
+    assert_eq!(p.hook_script_name(), "claude-hook.js");
+}
+
+#[test]
+fn cursor_provider_hook_script_name() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let p = CursorProvider::new();
+    assert_eq!(p.hook_script_name(), "cursor-hook.js");
+}
+
+#[test]
+fn claude_provider_brand_color() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let p = ClaudeProvider::new();
+    assert_eq!(p.brand_color(), Some("#da7756"));
+}
+
+#[test]
+fn cursor_provider_brand_color_is_none() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let p = CursorProvider::new();
+    assert_eq!(p.brand_color(), None);
+}
+
+#[test]
+fn claude_provider_generate_hooks_config_returns_json() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let p = ClaudeProvider::new();
+    let result = p.generate_hooks_config_json("/some/path/hook.js");
+    assert!(result.is_ok());
+    let json = result.unwrap();
+    let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+}
+
+#[test]
+fn cursor_provider_generate_hooks_config_returns_json() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let p = CursorProvider::new();
+    let result = p.generate_hooks_config_json("/some/path/hook.js");
+    assert!(result.is_ok());
+    let json = result.unwrap();
+    let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
 }

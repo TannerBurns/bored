@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
 import { ConfirmModal } from '../common';
-import { getAgentIcon, getAgentDisplayName } from '../common/AgentIcons';
+import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../common/AgentIcons';
 import type { WorkerStatus, WorkerQueueStatus, AgentInfo } from '../../types';
 import { logger } from '../../lib/logger';
 import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
@@ -12,8 +12,10 @@ import { getAvailableAgents } from '../../lib/tauri';
 
 function AgentIconInline({ agentType, size }: { agentType: string; size: number }) {
   const Icon = getAgentIcon(agentType);
-  const colorClass = agentType === 'claude' ? 'text-[#da7756]' : 'text-board-text-secondary';
-  return <Icon size={size} className={colorClass} />;
+  const brandColor = getAgentBrandColor(agentType);
+  return brandColor
+    ? <Icon size={size} style={{ color: brandColor }} />
+    : <Icon size={size} className="text-board-text-secondary" />;
 }
 
 export function WorkerPanel() {

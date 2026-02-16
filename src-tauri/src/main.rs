@@ -7,7 +7,7 @@ use agent_kanban::agents::claude::provider::ClaudeProvider;
 use agent_kanban::agents::cursor::provider::CursorProvider;
 use agent_kanban::agents::registry::AgentRegistry;
 use agent_kanban::agents::validation_agent::AppProcessManager;
-use agent_kanban::commands::claude::ClaudeApiSettingsState;
+use agent_kanban::commands::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
@@ -38,7 +38,10 @@ fn is_allowed_url(url: &url::Url) -> bool {
     false
 }
 
-fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn setup_hook_scripts(
+    app: &tauri::App,
+    registry: &AgentRegistry,
+) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -47,11 +50,13 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     let scripts_dir = app_data_dir.join("scripts");
     std::fs::create_dir_all(&scripts_dir)?;
 
-    // Copy Cursor hook script
-    copy_hook_script(app, "cursor-hook.js", &scripts_dir)?;
-
-    // Copy Claude hook script
-    copy_hook_script(app, "claude-hook.js", &scripts_dir)?;
+    // Copy each registered agent's hook script
+    for provider in registry.providers() {
+        let script = provider.hook_script_name();
+        if !script.is_empty() {
+            copy_hook_script(app, script, &scripts_dir)?;
+        }
+    }
 
     // Copy unified hook script (hook bridge)
     copy_hook_script(app, "agent-kanban-hook.js", &scripts_dir)?;
@@ -157,7 +162,12 @@ fn main() {
 
             tracing::info!("Main window created, continuing initialization...");
 
-            if let Err(e) = setup_hook_scripts(app) {
+            // Build the agent registry with all known providers
+            let mut agent_registry = AgentRegistry::new();
+            agent_registry.register(Arc::new(ClaudeProvider::new()));
+            agent_registry.register(Arc::new(CursorProvider::new()));
+
+            if let Err(e) = setup_hook_scripts(app, &agent_registry) {
                 tracing::warn!("Failed to setup hook scripts: {}", e);
             }
 
@@ -198,10 +208,6 @@ fn main() {
                 }
             });
 
-            // Build the agent registry with all known providers
-            let mut agent_registry = AgentRegistry::new();
-            agent_registry.register(Arc::new(ClaudeProvider::new()));
-            agent_registry.register(Arc::new(CursorProvider::new()));
             app.manage(agent_registry);
 
             app.manage(database.clone());
@@ -346,24 +352,17 @@ fn main() {
             commands::check_git_status,
             commands::init_git_repo,
             commands::create_project_folder,
-            // Cursor integration
-            commands::get_cursor_status,
-            commands::install_cursor_hooks_global,
-            commands::install_cursor_hooks_project,
-            commands::get_cursor_hooks_config,
-            commands::check_project_hooks_installed,
-            commands::get_hook_script_path_cmd,
-            // Claude Code integration
-            commands::get_claude_status,
-            commands::install_claude_hooks_user,
-            commands::install_claude_hooks_project,
-            commands::install_claude_hooks_local,
-            commands::get_claude_hooks_config,
-            commands::check_claude_available,
-            commands::check_claude_project_hooks_installed,
-            commands::get_claude_hook_script_path,
-            commands::get_claude_api_settings,
-            commands::set_claude_api_settings,
+            // Unified agent integration
+            commands::agents::get_agent_status,
+            commands::agents::install_agent_hooks_global,
+            commands::agents::install_agent_hooks_project,
+            commands::agents::get_agent_hooks_config,
+            commands::agents::check_agent_available,
+            commands::agents::check_agent_project_hooks_installed,
+            commands::agents::get_agent_hook_script_path,
+            // Claude-specific API settings
+            commands::claude::get_claude_api_settings,
+            commands::claude::set_claude_api_settings,
             // Workflow settings sync
             commands::workflow_settings::sync_workflow_settings,
             commands::workflow_settings::get_workflow_settings,

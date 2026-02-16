@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { ClaudeIcon, CursorIcon, AgentFallbackIcon, getAgentIcon, getAgentDisplayName, CLAUDE_BRAND_COLOR } from './AgentIcons';
+import { ClaudeIcon, CursorIcon, AgentFallbackIcon, getAgentIcon, getAgentDisplayName, getAgentBrandColor } from './AgentIcons';
 
 describe('ClaudeIcon', () => {
   it('renders with default size', () => {
@@ -141,8 +141,62 @@ describe('getAgentDisplayName', () => {
   });
 });
 
-describe('CLAUDE_BRAND_COLOR', () => {
-  it('exports correct brand color', () => {
-    expect(CLAUDE_BRAND_COLOR).toBe('#da7756');
+describe('getAgentBrandColor', () => {
+  it('returns Claude brand color', () => {
+    expect(getAgentBrandColor('claude')).toBe('#da7756');
+  });
+
+  it('returns undefined for unknown agent', () => {
+    expect(getAgentBrandColor('unknown')).toBeUndefined();
+  });
+
+  it('uses provided brandColor over default', () => {
+    expect(getAgentBrandColor('claude', '#ffffff')).toBe('#ffffff');
+  });
+
+  it('ignores empty string brandColor and falls back to default', () => {
+    expect(getAgentBrandColor('claude', '')).toBe('#da7756');
+  });
+
+  it('ignores null brandColor and falls back to default', () => {
+    expect(getAgentBrandColor('claude', null)).toBe('#da7756');
+  });
+
+  it('returns undefined for unknown agent with null brandColor', () => {
+    expect(getAgentBrandColor('windsurf', null)).toBeUndefined();
+  });
+});
+
+describe('getAgentDisplayName with override', () => {
+  it('uses displayName when provided', () => {
+    expect(getAgentDisplayName('claude', 'Claude Code')).toBe('Claude Code');
+  });
+
+  it('ignores empty displayName and falls back', () => {
+    expect(getAgentDisplayName('claude', '')).toBe('Claude');
+  });
+
+  it('falls back to capitalized ID for unknown agent without displayName', () => {
+    expect(getAgentDisplayName('windsurf')).toBe('Windsurf');
+  });
+});
+
+describe('icon style prop', () => {
+  it('ClaudeIcon passes style to svg', () => {
+    const { container } = render(<ClaudeIcon style={{ color: 'red' }} />);
+    const svg = container.querySelector('svg');
+    expect(svg?.style.color).toBe('red');
+  });
+
+  it('CursorIcon passes style to svg', () => {
+    const { container } = render(<CursorIcon style={{ color: 'blue' }} />);
+    const svg = container.querySelector('svg');
+    expect(svg?.style.color).toBe('blue');
+  });
+
+  it('AgentFallbackIcon passes style to svg', () => {
+    const { container } = render(<AgentFallbackIcon style={{ color: 'green' }} />);
+    const svg = container.querySelector('svg');
+    expect(svg?.style.color).toBe('green');
   });
 });

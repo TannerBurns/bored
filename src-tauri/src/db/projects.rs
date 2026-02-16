@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::db::models::{CreateProject, Project, ReadinessCheck, UpdateProject};
 use crate::db::{parse_datetime, Database, DbError};
 
@@ -45,8 +47,7 @@ impl Database {
                 id: project_id,
                 name: input.name.clone(),
                 path: canonical_path,
-                cursor_hooks_installed: false,
-                claude_hooks_installed: false,
+                hooks_installed: HashMap::new(),
                 allow_shell_commands: true,
                 allow_file_writes: true,
                 blocked_patterns: vec![],
@@ -61,7 +62,7 @@ impl Database {
     pub fn get_projects(&self) -> Result<Vec<Project>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, name, path, cursor_hooks_installed, claude_hooks_installed,
+                r#"SELECT id, name, path, hooks_installed_json,
                           allow_shell_commands, allow_file_writes,
                           blocked_patterns_json, settings_json, created_at, updated_at,
                           requires_git
@@ -70,23 +71,23 @@ impl Database {
 
             let projects = stmt
                 .query_map([], |row| {
-                    let blocked_json: String = row.get(7)?;
-                    let settings_json: String = row.get(8)?;
+                    let hooks_json: String = row.get(3)?;
+                    let blocked_json: String = row.get(6)?;
+                    let settings_json: String = row.get(7)?;
 
                     Ok(Project {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         path: row.get(2)?,
-                        cursor_hooks_installed: row.get::<_, i32>(3)? != 0,
-                        claude_hooks_installed: row.get::<_, i32>(4)? != 0,
-                        allow_shell_commands: row.get::<_, i32>(5)? != 0,
-                        allow_file_writes: row.get::<_, i32>(6)? != 0,
+                        hooks_installed: serde_json::from_str(&hooks_json).unwrap_or_default(),
+                        allow_shell_commands: row.get::<_, i32>(4)? != 0,
+                        allow_file_writes: row.get::<_, i32>(5)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
                         settings: serde_json::from_str(&settings_json)
                             .unwrap_or(serde_json::json!({})),
-                        requires_git: row.get::<_, i32>(11).unwrap_or(1) != 0,
-                        created_at: parse_datetime(row.get(9)?),
-                        updated_at: parse_datetime(row.get(10)?),
+                        requires_git: row.get::<_, i32>(10).unwrap_or(1) != 0,
+                        created_at: parse_datetime(row.get(8)?),
+                        updated_at: parse_datetime(row.get(9)?),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -160,25 +161,30 @@ impl Database {
     pub fn update_project_hooks(
         &self,
         project_id: &str,
-        cursor_installed: Option<bool>,
-        claude_installed: Option<bool>,
+        agent_id: &str,
+        installed: bool,
     ) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
 
-            if let Some(installed) = cursor_installed {
-                conn.execute(
-                    "UPDATE projects SET cursor_hooks_installed = ?, updated_at = ? WHERE id = ?",
-                    rusqlite::params![installed as i32, now, project_id],
-                )?;
-            }
+            // Read current JSON, merge in the new value, write back
+            let current_json: String = conn
+                .query_row(
+                    "SELECT hooks_installed_json FROM projects WHERE id = ?",
+                    [project_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| DbError::NotFound(format!("Project {} not found", project_id)))?;
 
-            if let Some(installed) = claude_installed {
-                conn.execute(
-                    "UPDATE projects SET claude_hooks_installed = ?, updated_at = ? WHERE id = ?",
-                    rusqlite::params![installed as i32, now, project_id],
-                )?;
-            }
+            let mut hooks: HashMap<String, bool> =
+                serde_json::from_str(&current_json).unwrap_or_default();
+            hooks.insert(agent_id.to_string(), installed);
+
+            let updated_json = serde_json::to_string(&hooks).unwrap_or_else(|_| "{}".to_string());
+            conn.execute(
+                "UPDATE projects SET hooks_installed_json = ?, updated_at = ? WHERE id = ?",
+                rusqlite::params![updated_json, now, project_id],
+            )?;
 
             Ok(())
         })
@@ -350,20 +356,19 @@ mod tests {
             })
             .unwrap();
 
-        assert!(!project.cursor_hooks_installed);
-        assert!(!project.claude_hooks_installed);
+        assert!(project.hooks_installed.is_empty());
 
-        db.update_project_hooks(&project.id, Some(true), None)
+        db.update_project_hooks(&project.id, "cursor", true)
             .unwrap();
         let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert!(updated.cursor_hooks_installed);
-        assert!(!updated.claude_hooks_installed);
+        assert_eq!(updated.hooks_installed.get("cursor"), Some(&true));
+        assert_eq!(updated.hooks_installed.get("claude"), None);
 
-        db.update_project_hooks(&project.id, None, Some(true))
+        db.update_project_hooks(&project.id, "claude", true)
             .unwrap();
         let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert!(updated.cursor_hooks_installed);
-        assert!(updated.claude_hooks_installed);
+        assert_eq!(updated.hooks_installed.get("cursor"), Some(&true));
+        assert_eq!(updated.hooks_installed.get("claude"), Some(&true));
     }
 
     #[test]

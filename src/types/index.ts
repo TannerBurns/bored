@@ -3,9 +3,8 @@ export interface Project {
   name: string;
   path: string;
   
-  // Hook status
-  cursorHooksInstalled: boolean;
-  claudeHooksInstalled: boolean;
+  // Hook installation status per agent (keyed by agent ID, e.g. { cursor: true, claude: true })
+  hooksInstalled: Record<string, boolean>;
   
   // Safety settings
   allowShellCommands: boolean;
@@ -109,6 +108,7 @@ export interface AgentInfo {
   displayName: string;
   isAvailable: boolean;
   version: string | null;
+  brandColor: string | null;
 }
 export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted' | 'paused';
 

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { getAgentIcon } from '../common/AgentIcons';
-import { useCliAvailability } from '../../hooks/useCliAvailability';
+import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { getAvailableAgents } from '../../lib/tauri';
 import type { AgentInfo, AgentType } from '../../types';
 
@@ -24,7 +23,6 @@ export function BuildWithDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
-  const { availability } = useCliAvailability();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -81,21 +79,18 @@ export function BuildWithDropdown({
     onSelect(agent);
   };
 
-  /** Get icon color override for known agents. */
-  const getIconColor = (agentId: string, available: boolean): string | undefined => {
-    if (!available) return 'text-board-text-muted';
-    // Use literal class string so Tailwind JIT can detect it at build time
-    if (agentId === 'claude') return 'text-[#da7756]';
-    return 'text-board-text-secondary';
+  /** Get icon color for agents. Uses brand color from registry when available. */
+  const getIconStyle = (agentId: string, available: boolean): { className?: string; style?: React.CSSProperties } => {
+    if (!available) return { className: 'text-board-text-muted' };
+    const brandColor = getAgentBrandColor(agentId, agents?.find(a => a.id === agentId)?.brandColor);
+    if (brandColor) return { style: { color: brandColor } };
+    return { className: 'text-board-text-secondary' };
   };
 
-  // Build the agent list: prefer registry, fall back to hardcoded
+  // Build the agent list from registry; empty if registry unavailable yet
   const agentList: { id: AgentType; name: string; available: boolean }[] = agents
     ? agents.map((a) => ({ id: a.id as AgentType, name: a.displayName, available: a.isAvailable }))
-    : [
-        { id: 'cursor', name: 'Cursor', available: availability['cursor'] ?? false },
-        { id: 'claude', name: 'Claude', available: availability['claude'] ?? false },
-      ];
+    : [];
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -165,7 +160,7 @@ export function BuildWithDropdown({
                     : 'text-board-text-muted cursor-not-allowed opacity-50'
                 }`}
               >
-                <Icon className={getIconColor(agent.id, available)} />
+                <Icon {...getIconStyle(agent.id, available)} />
                 <span>{agent.name}</span>
                 {!available && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
               </button>

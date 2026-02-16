@@ -19,7 +19,7 @@ use crate::api::state::LiveEvent;
 use crate::db::{Database, Exploration, ProjectPlan, Spec, SpecVersion, SpecVersionStatus};
 
 use super::spawner;
-use super::{extract_agent_text, AgentRunConfig};
+use super::AgentRunConfig;
 
 // Submodules
 mod config;
@@ -380,8 +380,8 @@ impl PlannerAgent {
         // Run the agent
         let output = self.run_agent(&prompt, spec, "exploration").await?;
 
-        // Extract text from agent output (handles Claude stream-json format)
-        let response = extract_agent_text(&output);
+        // Extract text from agent output using the provider's parser
+        let response = self.config.provider.extract_text(&output);
 
         // Store the exploration result
         let exploration = Exploration {
@@ -441,8 +441,8 @@ impl PlannerAgent {
             .await
             .map_err(|e| PlannerError::PlanGenerationFailed(e.to_string()))?;
 
-        // Extract text from agent output
-        let text = extract_agent_text(&output);
+        // Extract text from agent output using the provider's parser
+        let text = self.config.provider.extract_text(&output);
 
         // Parse the JSON plan from output
         let plan: ProjectPlan =

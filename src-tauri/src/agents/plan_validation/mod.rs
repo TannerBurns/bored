@@ -1,7 +1,7 @@
 //! Plan clarification detection for agent workflows.
 
 use crate::agents::spawner;
-use crate::agents::{extract_agent_text, AgentRunConfig};
+use crate::agents::AgentRunConfig;
 use crate::db::{AgentType, CreateRun, RunStatus};
 
 mod config;
@@ -78,7 +78,8 @@ pub async fn validate_plan_for_clarification(
             };
 
             let validation_result = agent_result.captured_stdout.as_ref().and_then(|output| {
-                match parse_validation_response(output) {
+                let text = config.provider.extract_text(output);
+                match parse_validation_response(&text) {
                     Ok(result) => Some(result),
                     Err(e) => {
                         tracing::warn!("Failed to parse plan validation response: {}", e);
@@ -195,7 +196,7 @@ pub async fn generate_clarification_message(
             let message = agent_result
                 .captured_stdout
                 .as_ref()
-                .map(|output| extract_agent_text(output))
+                .map(|output| config.provider.extract_text(output))
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
 

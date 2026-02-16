@@ -348,52 +348,25 @@ pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> Ru
     }
 }
 
-/// Extract cost from agent output, trying Claude parsing first, then falling back to estimation.
+/// Extract cost by agent ID, looking up the provider in the registry.
 ///
-/// When the Claude API result includes `usage` but no `modelUsage`, a
-/// fallback model entry is created so that `model_totals` always sums
-/// to `total_cost_usd` after aggregation.
-///
-/// Accepts `agent_type` as a string (e.g. "claude", "cursor") instead of a boolean
-/// so that any agent can be handled without hardcoding.
-pub fn extract_or_estimate_cost(
+/// Falls back to estimation when the agent is unknown (uses simple heuristic).
+pub fn extract_or_estimate_cost_by_agent(
+    registry: &super::registry::AgentRegistry,
+    agent_type: &str,
     stdout: &str,
     model: &str,
     duration_secs: f64,
-    is_claude: bool,
 ) -> Option<RunCostData> {
-    if is_claude {
-        if let Some(mut cost) = extract_cost_from_stream_json(stdout) {
-            // If the API gave us a total but no per-model breakdown, attribute
-            // the entire cost to the configured model so the numbers stay
-            // consistent when aggregated.
-            if cost.model_usage.is_empty()
-                && (cost.total_cost_usd > 0.0
-                    || cost.input_tokens > 0
-                    || cost.output_tokens > 0
-                    || cost.cache_read_tokens > 0
-                    || cost.cache_creation_tokens > 0)
-            {
-                cost.model_usage.insert(
-                    normalize_model_name(model),
-                    ModelCostData {
-                        input_tokens: cost.input_tokens,
-                        output_tokens: cost.output_tokens,
-                        cache_read_tokens: cost.cache_read_tokens,
-                        cache_creation_tokens: cost.cache_creation_tokens,
-                        cost_usd: cost.total_cost_usd,
-                    },
-                );
-            }
-            return Some(cost);
-        }
-    }
-
-    let output_chars = stdout.len();
-    if output_chars > 0 || duration_secs > 0.0 {
-        Some(estimate_cost(model, output_chars, duration_secs))
+    if let Some(provider) = registry.get(agent_type) {
+        provider.extract_cost(stdout, model, duration_secs)
     } else {
-        None
+        let output_chars = stdout.len();
+        if output_chars > 0 || duration_secs > 0.0 {
+            Some(estimate_cost(model, output_chars, duration_secs))
+        } else {
+            None
+        }
     }
 }
 
@@ -502,19 +475,23 @@ mod tests {
     }
 
     #[test]
-    fn extract_or_estimate_prefers_parsed() {
+    fn extract_via_claude_provider_prefers_parsed() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = ClaudeProvider::new();
         let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.01}}"#;
-        let cost =
-            extract_or_estimate_cost(stream_output, "opus-4.6", 10.0, true).unwrap();
-        // Should use parsed data, not estimation
+        let cost = provider.extract_cost(stream_output, "opus-4.6", 10.0).unwrap();
         assert!(!cost.is_estimated);
         assert_eq!(cost.input_tokens, 100);
     }
 
     #[test]
-    fn extract_or_estimate_falls_back_for_cursor() {
+    fn extract_via_cursor_provider_estimates() {
+        use crate::agents::cursor::provider::CursorProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = CursorProvider::new();
         let plain_output = "This is plain text from Cursor agent";
-        let cost = extract_or_estimate_cost(plain_output, "opus-4.6", 10.0, false).unwrap();
+        let cost = provider.extract_cost(plain_output, "opus-4.6", 10.0).unwrap();
         assert!(cost.is_estimated);
         assert!(cost.total_cost_usd > 0.0);
     }
@@ -730,22 +707,30 @@ mod tests {
     }
 
     #[test]
-    fn extract_or_estimate_claude_no_result_falls_back() {
-        // Claude stream-json with no result line -> falls back to estimation
+    fn extract_via_claude_provider_no_result_falls_back() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = ClaudeProvider::new();
         let stream_output = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"text":"hello"}}}"#;
-        let cost = extract_or_estimate_cost(stream_output, "opus-4.6", 5.0, true).unwrap();
+        let cost = provider.extract_cost(stream_output, "opus-4.6", 5.0).unwrap();
         assert!(cost.is_estimated);
     }
 
     #[test]
-    fn extract_or_estimate_empty_stdout_zero_duration_returns_none() {
-        let cost = extract_or_estimate_cost("", "opus-4.6", 0.0, false);
+    fn extract_via_cursor_provider_empty_returns_none() {
+        use crate::agents::cursor::provider::CursorProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = CursorProvider::new();
+        let cost = provider.extract_cost("", "opus-4.6", 0.0);
         assert!(cost.is_none());
     }
 
     #[test]
-    fn extract_or_estimate_empty_stdout_positive_duration() {
-        let cost = extract_or_estimate_cost("", "opus-4.6", 5.0, false).unwrap();
+    fn extract_via_cursor_provider_empty_positive_duration() {
+        use crate::agents::cursor::provider::CursorProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = CursorProvider::new();
+        let cost = provider.extract_cost("", "opus-4.6", 5.0).unwrap();
         assert!(cost.is_estimated);
         assert!(cost.input_tokens > 0);
         assert_eq!(cost.output_tokens, 0);
@@ -816,13 +801,13 @@ mod tests {
     }
 
     #[test]
-    fn extract_or_estimate_backfills_empty_model_usage() {
-        // When the API provides a total but no modelUsage, extract_or_estimate_cost
-        // should add a fallback model entry so model costs sum to total.
+    fn extract_via_provider_backfills_empty_model_usage() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = ClaudeProvider::new();
         let stream_output =
             r#"{"type":"result","result":"text","usage":{"input_tokens":50,"output_tokens":25,"total_cost_usd":0.01}}"#;
-        let cost =
-            extract_or_estimate_cost(stream_output, "opus-4.6", 10.0, true).unwrap();
+        let cost = provider.extract_cost(stream_output, "opus-4.6", 10.0).unwrap();
         assert!(!cost.is_estimated);
         assert!(!cost.model_usage.is_empty(), "model_usage should have a fallback entry");
         assert!(cost.model_usage.contains_key("opus-4.6"));
@@ -831,11 +816,12 @@ mod tests {
     }
 
     #[test]
-    fn extract_or_estimate_preserves_existing_model_usage() {
-        // When the API provides modelUsage, it should be kept as-is (normalized).
+    fn extract_via_provider_preserves_existing_model_usage() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::provider::AgentProvider;
+        let provider = ClaudeProvider::new();
         let stream_output = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":100,"outputTokens":50,"costUSD":0.05}}}"#;
-        let cost =
-            extract_or_estimate_cost(stream_output, "opus-4.6", 10.0, true).unwrap();
+        let cost = provider.extract_cost(stream_output, "opus-4.6", 10.0).unwrap();
         assert_eq!(cost.model_usage.len(), 1);
         assert!(cost.model_usage.contains_key("opus-4.6"));
         assert!((cost.model_usage["opus-4.6"].cost_usd - 0.05).abs() < 0.0001);
@@ -973,5 +959,49 @@ mod tests {
         assert_eq!(parsed.run_count, 1);
         assert_eq!(parsed.estimated_count, 1);
         assert_eq!(parsed.total_input_tokens, 500);
+    }
+
+    // ── extract_or_estimate_cost_by_agent (registry dispatch) ─────
+
+    fn make_test_registry() -> crate::agents::registry::AgentRegistry {
+        use crate::agents::claude::provider::ClaudeProvider;
+        use crate::agents::cursor::provider::CursorProvider;
+        use std::sync::Arc;
+
+        let mut registry = crate::agents::registry::AgentRegistry::new();
+        registry.register(Arc::new(ClaudeProvider::new()));
+        registry.register(Arc::new(CursorProvider::new()));
+        registry
+    }
+
+    #[test]
+    fn cost_by_agent_claude_parses_stream_json() {
+        let registry = make_test_registry();
+        let stream = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.01}}"#;
+        let cost = extract_or_estimate_cost_by_agent(&registry, "claude", stream, "opus-4.6", 5.0).unwrap();
+        assert!(!cost.is_estimated);
+        assert_eq!(cost.input_tokens, 100);
+    }
+
+    #[test]
+    fn cost_by_agent_cursor_estimates() {
+        let registry = make_test_registry();
+        let cost = extract_or_estimate_cost_by_agent(&registry, "cursor", "some output", "opus-4.6", 5.0).unwrap();
+        assert!(cost.is_estimated);
+    }
+
+    #[test]
+    fn cost_by_agent_unknown_falls_back_to_estimation() {
+        let registry = make_test_registry();
+        let cost = extract_or_estimate_cost_by_agent(&registry, "windsurf", "output", "opus-4.6", 5.0).unwrap();
+        assert!(cost.is_estimated);
+        assert!(cost.total_cost_usd > 0.0);
+    }
+
+    #[test]
+    fn cost_by_agent_unknown_empty_returns_none() {
+        let registry = make_test_registry();
+        let cost = extract_or_estimate_cost_by_agent(&registry, "windsurf", "", "opus-4.6", 0.0);
+        assert!(cost.is_none());
     }
 }

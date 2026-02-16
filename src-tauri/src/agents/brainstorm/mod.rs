@@ -8,7 +8,7 @@ use crate::db::{ConversationMessage, ConversationRole, CreateConversationMessage
 
 use super::log_utils::{extract_log_display_message, truncate_to_char_boundary};
 use super::spawner;
-use super::{extract_agent_text, AgentRunConfig, LogCallback, LogLine};
+use super::{AgentRunConfig, LogCallback, LogLine};
 
 // Submodules
 mod config;
@@ -110,7 +110,7 @@ impl BrainstormAgent {
         // Extract text from agent output
         let output = result.captured_stdout.unwrap_or_default();
 
-        let text = extract_agent_text(&output);
+        let text = self.config.provider.extract_text(&output);
 
         if text.is_empty() {
             return Err(BrainstormError::AgentFailed(

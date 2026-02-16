@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -10,9 +10,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
     
-    -- Hook installation status
-    cursor_hooks_installed INTEGER NOT NULL DEFAULT 0,
-    claude_hooks_installed INTEGER NOT NULL DEFAULT 0,
+    -- Hook installation status (JSON map of agent_id -> boolean)
+    hooks_installed_json TEXT NOT NULL DEFAULT '{}',
     
     -- Safety settings
     allow_shell_commands INTEGER NOT NULL DEFAULT 1,

@@ -1,7 +1,7 @@
 import { cn } from '../../../lib/utils';
 import type { AgentRun, RunCostData } from '../../../types';
 import type { RunEvent } from './types';
-import { getAgentIcon, getAgentDisplayName } from '../../common/AgentIcons';
+import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
 
 /** For multi-stage parent runs, sum sub-run costs so the badge matches
@@ -169,8 +169,10 @@ function CurrentRunSection({
             <span className="text-board-text-secondary flex items-center gap-1">
               {(() => {
                 const Icon = getAgentIcon(currentRun.agentType);
-                const iconColor = currentRun.agentType === 'claude' ? 'text-[#da7756]' : 'text-board-text-secondary';
-                return <Icon size={14} className={iconColor} />;
+                const brandColor = getAgentBrandColor(currentRun.agentType);
+                return brandColor
+                  ? <Icon size={14} style={{ color: brandColor }} />
+                  : <Icon size={14} className="text-board-text-secondary" />;
               })()}
               {getAgentDisplayName(currentRun.agentType)}
               {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
@@ -267,8 +269,10 @@ function PreviousRunsSection({
                   <span className="text-board-text-secondary flex items-center gap-1">
                     {(() => {
                       const Icon = getAgentIcon(run.agentType);
-                      const iconColor = run.agentType === 'claude' ? 'text-[#da7756]' : 'text-board-text-secondary';
-                      return <Icon size={14} className={iconColor} />;
+                      const brandColor = getAgentBrandColor(run.agentType);
+                      return brandColor
+                        ? <Icon size={14} style={{ color: brandColor }} />
+                        : <Icon size={14} className="text-board-text-secondary" />;
                     })()}
                     {getAgentDisplayName(run.agentType)}
                     {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}

@@ -15,7 +15,7 @@ use prompts::{build_conversation_prompt, build_initial_prompt};
 use crate::agents::log_utils::extract_log_display_message;
 use crate::agents::provider::AgentProvider;
 use crate::agents::spawner;
-use crate::agents::{extract_agent_text, AgentRunConfig, LogCallback, LogLine};
+use crate::agents::{AgentRunConfig, LogCallback, LogLine};
 
 /// Configuration for the validation agent
 #[derive(Debug, Clone)]
@@ -113,7 +113,7 @@ impl ValidationAgent {
         .map_err(|e| e.to_string())?;
 
         let output = result.captured_stdout.unwrap_or_default();
-        let text = extract_agent_text(&output);
+        let text = self.config.provider.extract_text(&output);
 
         if text.trim().is_empty() {
             return Err("Validation agent returned empty response".to_string());

@@ -5,10 +5,10 @@ import * as tauri from '../../../lib/tauri';
 import { useSettingsStore } from '../../../stores/settingsStore';
 
 vi.mock('../../../lib/tauri', () => ({
-  getClaudeStatus: vi.fn(),
-  installClaudeHooksUser: vi.fn(),
-  installClaudeHooksProject: vi.fn(),
-  getClaudeHooksConfig: vi.fn(),
+  getAgentStatus: vi.fn(),
+  installAgentHooksGlobal: vi.fn(),
+  installAgentHooksProject: vi.fn(),
+  getAgentHooksConfig: vi.fn(),
   getClaudeApiSettings: vi.fn(),
   setClaudeApiSettings: vi.fn(),
   getProjects: vi.fn(),
@@ -26,11 +26,11 @@ Object.assign(navigator, {
   },
 });
 
-const mockClaudeStatus = {
+const mockAgentStatus = {
   isAvailable: true,
   version: '1.2.3',
   hookScriptPath: '/path/to/claude-hook.sh',
-  userHooksInstalled: true,
+  globalHooksInstalled: true,
 };
 
 const mockApiSettings = {
@@ -55,7 +55,7 @@ describe('useClaudeSettings', () => {
       claudeExtendedContext: false,
       claudeChromeEnabled: false,
     });
-    vi.mocked(tauri.getClaudeStatus).mockResolvedValue(mockClaudeStatus);
+    vi.mocked(tauri.getAgentStatus).mockResolvedValue(mockAgentStatus);
     vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue(mockApiSettings);
     vi.mocked(tauri.setClaudeApiSettings).mockResolvedValue(undefined);
     vi.mocked(tauri.getProjects).mockResolvedValue([]);
@@ -407,7 +407,7 @@ describe('useClaudeSettings', () => {
 
   describe('extends useAgentSettings', () => {
     it('provides hook installation capabilities', async () => {
-      vi.mocked(tauri.installClaudeHooksUser).mockResolvedValue(undefined);
+      vi.mocked(tauri.installAgentHooksGlobal).mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -417,7 +417,7 @@ describe('useClaudeSettings', () => {
         await result.current.hookInstall.install();
       });
 
-      expect(tauri.installClaudeHooksUser).toHaveBeenCalledWith('/path/to/claude-hook.sh');
+      expect(tauri.installAgentHooksGlobal).toHaveBeenCalledWith('claude', '/path/to/claude-hook.sh');
       expect(result.current.success).toContain('Hooks installed in user settings');
     });
   });

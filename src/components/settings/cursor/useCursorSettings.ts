@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
-  getCursorStatus,
-  installCursorHooksGlobal,
-  installCursorHooksProject,
-  getCursorHooksConfig,
+  getAgentStatus,
+  installAgentHooksGlobal,
+  installAgentHooksProject,
+  getAgentHooksConfig,
 } from '../../../lib/tauri';
 import { useAgentSettings, type AgentSettingsConfig, type AgentSettingsReturn } from '../shared';
 
@@ -15,7 +15,7 @@ export interface CursorSettingsReturn extends AgentSettingsReturn {
 const cursorConfig: AgentSettingsConfig = {
   agentType: 'cursor',
   getStatus: async () => {
-    const status = await getCursorStatus();
+    const status = await getAgentStatus('cursor');
     return {
       isAvailable: status.isAvailable,
       version: status.version ?? undefined,
@@ -23,9 +23,10 @@ const cursorConfig: AgentSettingsConfig = {
       hooksInstalled: status.globalHooksInstalled,
     };
   },
-  installHooksUser: installCursorHooksGlobal,
-  installHooksProject: installCursorHooksProject,
-  getHooksConfig: getCursorHooksConfig,
+  installHooksUser: (hookPath: string) => installAgentHooksGlobal('cursor', hookPath),
+  installHooksProject: (hookPath: string, projectPath: string) =>
+    installAgentHooksProject('cursor', hookPath, projectPath),
+  getHooksConfig: (hookPath: string) => getAgentHooksConfig('cursor', hookPath),
   userSuccessMessage: 'Hooks installed globally! Restart Cursor to apply changes.',
   projectSuccessMessage: (path: string) =>
     `Hooks installed in ${path}! Restart Cursor to apply changes.`,
@@ -36,7 +37,7 @@ export function useCursorSettings(): CursorSettingsReturn {
   const [globalHooksInstalled, setGlobalHooksInstalled] = useState(false);
 
   useEffect(() => {
-    getCursorStatus()
+    getAgentStatus('cursor')
       .then((status) => setGlobalHooksInstalled(status.globalHooksInstalled))
       .catch(() => {});
   }, []);

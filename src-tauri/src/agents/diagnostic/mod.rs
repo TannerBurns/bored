@@ -71,6 +71,7 @@ pub async fn run_diagnostic_agent(
         agent_config,
     };
 
+    let provider_for_extract = provider.clone();
     let result = tokio::task::spawn_blocking(move || {
         spawner::run_agent_via_provider(&*provider, &config, None)
     }).await;
@@ -87,7 +88,7 @@ pub async fn run_diagnostic_agent(
             let extracted_text = agent_result
                 .captured_stdout
                 .as_ref()
-                .map(|output| crate::agents::extract_agent_text(output))
+                .map(|output| provider_for_extract.extract_text(output))
                 .filter(|s| !s.is_empty());
 
             if let Err(e) = db.update_run_status(

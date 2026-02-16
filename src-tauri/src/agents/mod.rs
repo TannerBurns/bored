@@ -36,6 +36,7 @@ pub use runner::{
 };
 pub use prompt::{
     generate_branch_name_generation_prompt, generate_branch_prompt, generate_command_prompt,
+    generate_command_prompt_with_providers,
     generate_custom_prompt, generate_get_branch_name_prompt, generate_implement_prompt,
     generate_plan_prompt, generate_system_prompt, generate_task_implement_prompt,
     generate_task_plan_prompt, generate_task_prompt, generate_ticket_prompt,
@@ -87,19 +88,6 @@ pub enum RunOutcome {
 
 /// Callback for receiving log output
 pub type LogCallback = Box<dyn Fn(LogLine) + Send + Sync>;
-
-/// Extract text from agent output, handling both Claude stream-json and plain text.
-/// Tries stream-json parsing first, falls back to raw output.
-pub fn extract_agent_text(output: &str) -> String {
-    extract_text_from_stream_json(output).unwrap_or_else(|| output.to_string())
-}
-
-/// Extract text content from Claude's stream-json format.
-///
-/// Delegates to the canonical implementation in `claude::provider`.
-pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
-    claude::provider::extract_text_from_stream_json(stream_output)
-}
 
 /// A line of log output
 #[derive(Debug, Clone, Serialize)]

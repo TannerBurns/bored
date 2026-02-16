@@ -223,6 +223,40 @@ impl AgentProvider for ClaudeProvider {
         settings::check_project_hooks_installed(repo_path)
     }
 
+    fn install_hooks_global(
+        &self,
+        hook_script_path: &str,
+        api_url: Option<&str>,
+        api_token: Option<&str>,
+    ) -> Result<(), String> {
+        hooks::install_user_hooks(hook_script_path, api_url, api_token)
+            .map_err(|e| e.to_string())
+    }
+
+    fn install_hooks_project(
+        &self,
+        repo_path: &Path,
+        hook_script_path: &str,
+        api_url: Option<&str>,
+        api_token: Option<&str>,
+    ) -> Result<(), String> {
+        hooks::install_project_hooks(repo_path, hook_script_path, api_url, api_token)
+            .map_err(|e| e.to_string())
+    }
+
+    fn generate_hooks_config_json(&self, hook_script_path: &str) -> Result<String, String> {
+        let config = hooks::generate_hooks_settings(hook_script_path);
+        serde_json::to_string_pretty(&config).map_err(|e| e.to_string())
+    }
+
+    fn hook_script_name(&self) -> &str {
+        "claude-hook.js"
+    }
+
+    fn brand_color(&self) -> Option<&str> {
+        Some("#da7756")
+    }
+
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
         commands::check_project_commands_installed(repo_path)
     }

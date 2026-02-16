@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getClaudeStatus,
-  installClaudeHooksUser,
-  installClaudeHooksProject,
-  getClaudeHooksConfig,
+  getAgentStatus,
+  installAgentHooksGlobal,
+  installAgentHooksProject,
+  getAgentHooksConfig,
   getClaudeApiSettings,
   setClaudeApiSettings,
 } from '../../../lib/tauri';
@@ -44,17 +44,18 @@ export interface ClaudeSettingsReturn extends AgentSettingsReturn {
 const claudeConfig: AgentSettingsConfig = {
   agentType: 'claude',
   getStatus: async () => {
-    const status = await getClaudeStatus();
+    const status = await getAgentStatus('claude');
     return {
       isAvailable: status.isAvailable,
       version: status.version ?? undefined,
       hookScriptPath: status.hookScriptPath ?? undefined,
-      hooksInstalled: status.userHooksInstalled,
+      hooksInstalled: status.globalHooksInstalled,
     };
   },
-  installHooksUser: installClaudeHooksUser,
-  installHooksProject: installClaudeHooksProject,
-  getHooksConfig: getClaudeHooksConfig,
+  installHooksUser: (hookPath: string) => installAgentHooksGlobal('claude', hookPath),
+  installHooksProject: (hookPath: string, projectPath: string) =>
+    installAgentHooksProject('claude', hookPath, projectPath),
+  getHooksConfig: (hookPath: string) => getAgentHooksConfig('claude', hookPath),
   userSuccessMessage: 'Hooks installed in user settings (~/.claude/settings.json)!',
   projectSuccessMessage: (path: string) =>
     `Hooks installed in ${path}/.claude/settings.json!`,
@@ -85,14 +86,14 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
       try {
         const [apiSettings, claudeStatus] = await Promise.all([
           getClaudeApiSettings(),
-          getClaudeStatus(),
+          getAgentStatus('claude'),
         ]);
 
         setApiAuthToken(apiSettings.authToken ?? '');
         setApiKey(apiSettings.apiKey ?? '');
         setApiBaseUrl(apiSettings.baseUrl ?? '');
         setApiModelOverride(apiSettings.modelOverride ?? '');
-        setUserHooksInstalled(claudeStatus.userHooksInstalled);
+        setUserHooksInstalled(claudeStatus.globalHooksInstalled);
 
         updateStoreSettings({
           authToken: apiSettings.authToken ?? '',

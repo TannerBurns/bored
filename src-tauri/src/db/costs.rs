@@ -95,7 +95,10 @@ impl Database {
     ///
     /// Parent runs that have sub-runs (multi-stage workflows) are skipped
     /// because their cost is captured on each sub-run.
-    pub fn backfill_run_costs(&self) -> Result<u32, DbError> {
+    pub fn backfill_run_costs(
+        &self,
+        registry: &crate::agents::registry::AgentRegistry,
+    ) -> Result<u32, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT r.id, r.agent_type, r.metadata_json, r.started_at, r.ended_at,
@@ -148,13 +151,13 @@ impl Database {
                     continue;
                 }
 
-                let is_claude = agent_type == "claude";
                 let model = ticket_model.as_deref().unwrap_or("opus-4.6");
-                let cost_data = crate::agents::cost::extract_or_estimate_cost(
+                let cost_data = crate::agents::cost::extract_or_estimate_cost_by_agent(
+                    registry,
+                    &agent_type,
                     &full_stdout,
                     model,
                     duration_secs,
-                    is_claude,
                 );
 
                 if let Some(cost) = cost_data {
@@ -596,5 +599,266 @@ mod tests {
         let agg = db.get_board_cost_summary(&board.id).unwrap();
         assert_eq!(agg.run_count, 2);
         assert_eq!(agg.total_input_tokens, 300);
+    }
+
+    // ── backfill_run_costs ───────────────────────────────────────────
+
+    mod backfill_tests {
+        use super::*;
+        use crate::agents::cost::RunCostData;
+        use crate::agents::provider::{AgentProvider, AgentRunConfig};
+        use crate::agents::registry::AgentRegistry;
+        use crate::db::models::{
+            AgentEventPayload, AgentType, EventType, NormalizedEvent, RunStatus,
+        };
+        use std::path::Path;
+        use std::sync::Arc;
+
+        /// Stub provider that returns fixed cost data from `extract_cost`.
+        /// Its `id()` matches the DB-serialized `AgentType` string so the
+        /// registry dispatch in `backfill_run_costs` can find it.
+        #[derive(Debug)]
+        struct CostStubProvider {
+            agent_id: &'static str,
+        }
+
+        impl AgentProvider for CostStubProvider {
+            fn id(&self) -> &str {
+                self.agent_id
+            }
+            fn display_name(&self) -> &str {
+                self.agent_id
+            }
+            fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+                (self.agent_id.to_string(), vec![])
+            }
+            fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> {
+                vec![]
+            }
+            fn extract_text(&self, output: &str) -> String {
+                output.to_string()
+            }
+            fn extract_cost(
+                &self,
+                _stdout: &str,
+                _model: &str,
+                _duration: f64,
+            ) -> Option<RunCostData> {
+                Some(RunCostData {
+                    input_tokens: 200,
+                    output_tokens: 100,
+                    cache_read_tokens: 0,
+                    cache_creation_tokens: 0,
+                    total_cost_usd: 0.03,
+                    model_usage: Default::default(),
+                    is_estimated: false,
+                })
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn get_version(&self) -> Option<String> {
+                None
+            }
+            fn config_dir_name(&self) -> &str {
+                ".stub"
+            }
+            fn command_instructions_subdir(&self) -> &str {
+                "commands"
+            }
+            fn format_command_reference(&self, cmd: &str) -> String {
+                format!("/{}", cmd)
+            }
+            fn install_hooks_for_run(
+                &self,
+                _: &Path,
+                _: &str,
+                _: Option<&str>,
+                _: Option<&str>,
+                _: Option<&str>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        fn make_registry() -> AgentRegistry {
+            let mut reg = AgentRegistry::new();
+            reg.register(Arc::new(CostStubProvider { agent_id: "claude" }));
+            reg.register(Arc::new(CostStubProvider { agent_id: "cursor" }));
+            reg
+        }
+
+        fn create_finished_run_without_cost(db: &Database) -> (String, String) {
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            let ticket = db
+                .create_ticket(&CreateTicket {
+                    board_id: board.id.clone(),
+                    column_id: columns[0].id.clone(),
+                    title: "Backfill Ticket".to_string(),
+                    description_md: "".to_string(),
+                    priority: Priority::Low,
+                    labels: vec![],
+                    project_id: None,
+                    workflow_type: WorkflowType::default(),
+                    model: None,
+                    branch_name: None,
+                    is_epic: false,
+                    epic_id: None,
+                    depends_on_epic_id: None,
+                    depends_on_epic_ids: vec![],
+                    spec_version_id: None,
+                })
+                .unwrap();
+            let run = db
+                .create_run(&CreateRun {
+                    ticket_id: ticket.id.clone(),
+                    agent_type: AgentType::Claude,
+                    repo_path: "/tmp".to_string(),
+                    parent_run_id: None,
+                    stage: None,
+                    ..Default::default()
+                })
+                .unwrap();
+
+            // Mark the run as finished so it qualifies for backfilling
+            db.update_run_status(&run.id, RunStatus::Finished, Some(0), None)
+                .unwrap();
+
+            (ticket.id, run.id)
+        }
+
+        #[test]
+        fn backfill_populates_cost_for_finished_run() {
+            let db = create_test_db();
+            let registry = make_registry();
+            let (ticket_id, run_id) = create_finished_run_without_cost(&db);
+
+            // Add a stdout log event so the backfill has something to extract from
+            db.create_event(&NormalizedEvent {
+                run_id: run_id.clone(),
+                ticket_id: ticket_id.clone(),
+                agent_type: AgentType::Claude,
+                event_type: EventType::Custom("log_stdout".to_string()),
+                payload: AgentEventPayload {
+                    raw: Some("some agent output".to_string()),
+                    structured: None,
+                },
+                timestamp: chrono::Utc::now(),
+            })
+            .unwrap();
+
+            // Before backfill: no cost metadata
+            assert!(db.get_run_cost(&run_id).unwrap().is_none());
+
+            let count = db.backfill_run_costs(&registry).unwrap();
+            assert_eq!(count, 1);
+
+            // After backfill: cost metadata is present
+            let cost = db.get_run_cost(&run_id).unwrap().unwrap();
+            assert_eq!(cost.input_tokens, 200);
+            assert_eq!(cost.output_tokens, 100);
+            assert!((cost.total_cost_usd - 0.03).abs() < 0.001);
+            assert!(!cost.is_estimated);
+        }
+
+        #[test]
+        fn backfill_skips_runs_already_with_cost() {
+            let db = create_test_db();
+            let registry = make_registry();
+            let (_, run_id) = create_finished_run_without_cost(&db);
+
+            // Pre-populate cost metadata
+            db.set_run_metadata(&run_id, &cost_metadata(500, 0.05, false))
+                .unwrap();
+
+            let count = db.backfill_run_costs(&registry).unwrap();
+            assert_eq!(count, 0);
+        }
+
+        #[test]
+        fn backfill_skips_parent_runs_with_sub_runs() {
+            let db = create_test_db();
+            let registry = make_registry();
+            let board = db.create_board("Board").unwrap();
+            let columns = db.get_columns(&board.id).unwrap();
+            let ticket = db
+                .create_ticket(&CreateTicket {
+                    board_id: board.id.clone(),
+                    column_id: columns[0].id.clone(),
+                    title: "Parent Ticket".to_string(),
+                    description_md: "".to_string(),
+                    priority: Priority::Low,
+                    labels: vec![],
+                    project_id: None,
+                    workflow_type: WorkflowType::default(),
+                    model: None,
+                    branch_name: None,
+                    is_epic: false,
+                    epic_id: None,
+                    depends_on_epic_id: None,
+                    depends_on_epic_ids: vec![],
+                    spec_version_id: None,
+                })
+                .unwrap();
+
+            // Create parent run
+            let parent_run = db
+                .create_run(&CreateRun {
+                    ticket_id: ticket.id.clone(),
+                    agent_type: AgentType::Claude,
+                    repo_path: "/tmp".to_string(),
+                    ..Default::default()
+                })
+                .unwrap();
+            db.update_run_status(&parent_run.id, RunStatus::Finished, Some(0), None)
+                .unwrap();
+
+            // Create a sub-run under the parent
+            let sub_run = db
+                .create_run(&CreateRun {
+                    ticket_id: ticket.id.clone(),
+                    agent_type: AgentType::Claude,
+                    repo_path: "/tmp".to_string(),
+                    parent_run_id: Some(parent_run.id.clone()),
+                    stage: Some("plan".to_string()),
+                    ..Default::default()
+                })
+                .unwrap();
+            db.update_run_status(&sub_run.id, RunStatus::Finished, Some(0), None)
+                .unwrap();
+
+            // Add log events to both
+            for rid in &[&parent_run.id, &sub_run.id] {
+                db.create_event(&NormalizedEvent {
+                    run_id: rid.to_string(),
+                    ticket_id: ticket.id.clone(),
+                    agent_type: AgentType::Claude,
+                    event_type: EventType::Custom("log_stdout".to_string()),
+                    payload: AgentEventPayload {
+                        raw: Some("output".to_string()),
+                        structured: None,
+                    },
+                    timestamp: chrono::Utc::now(),
+                })
+                .unwrap();
+            }
+
+            let count = db.backfill_run_costs(&registry).unwrap();
+            // Only the sub-run should be backfilled; parent is skipped
+            assert_eq!(count, 1);
+
+            // Verify the sub-run got cost data, parent did not
+            assert!(db.get_run_cost(&sub_run.id).unwrap().is_some());
+            assert!(db.get_run_cost(&parent_run.id).unwrap().is_none());
+        }
+
+        #[test]
+        fn backfill_returns_zero_when_nothing_to_do() {
+            let db = create_test_db();
+            let registry = make_registry();
+            let count = db.backfill_run_costs(&registry).unwrap();
+            assert_eq!(count, 0);
+        }
     }
 }
