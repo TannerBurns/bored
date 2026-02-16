@@ -413,6 +413,7 @@ impl Worker {
             run_id: run.id.clone(),
             repo_path: working_path.clone(),
             agent_kind: self.config.agent_type,
+            provider: self.config.provider.clone(),
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             hook_script_path: self.config.hook_script_path.clone(),

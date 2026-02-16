@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
 use super::CancelHandlesMap;
+use crate::agents::provider::AgentProvider;
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::WorkflowSettings;
@@ -22,6 +23,9 @@ pub struct OrchestratorConfig {
     pub task: Option<crate::db::models::Task>,
     pub repo_path: PathBuf,
     pub agent_kind: AgentKind,
+    /// Agent provider for agent-agnostic dispatch. When set, the orchestrator
+    /// delegates text extraction, cost parsing, and hook installation to the provider.
+    pub provider: Option<Arc<dyn AgentProvider>>,
     pub api_url: String,
     pub api_token: String,
     pub hook_script_path: Option<String>,

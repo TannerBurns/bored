@@ -38,5 +38,33 @@ export function CursorIcon({ className, size = 16 }: IconProps) {
   );
 }
 
+// Fallback icon for unknown/future agents
+export function AgentFallbackIcon({ className, size = 16 }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      fill="currentColor"
+      viewBox="0 0 16 16"
+      className={className}
+    >
+      <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM7.25 5a.75.75 0 011.5 0v3.19l2.03 2.03a.75.75 0 01-1.06 1.06l-2.22-2.22A.75.75 0 017.25 8.5V5z" />
+    </svg>
+  );
+}
+
+/** Get the appropriate icon component for any agent type. */
+export function getAgentIcon(agentType: string): React.ComponentType<IconProps> {
+  switch (agentType) {
+    case 'claude':
+      return ClaudeIcon;
+    case 'cursor':
+      return CursorIcon;
+    default:
+      return AgentFallbackIcon;
+  }
+}
+
 // Claude brand color constant
 export const CLAUDE_BRAND_COLOR = '#da7756';

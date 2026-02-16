@@ -132,6 +132,7 @@ async fn generate_ai_branch_name(
         api_token: String::new(),
         model,
         claude_api_config: None,
+        agent_config: std::collections::HashMap::new(),
     };
 
     // Run synchronously in a blocking task
@@ -706,6 +707,7 @@ pub async fn start_agent_run(
                 task: task.clone(),
                 repo_path: orchestrator_working_path,
                 agent_kind,
+                provider: None, // TODO: resolve from registry once commands are fully wired
                 api_url: api_url_for_orchestrator,
                 api_token: api_token_for_orchestrator,
                 hook_script_path: hook_script_path_for_orchestrator,

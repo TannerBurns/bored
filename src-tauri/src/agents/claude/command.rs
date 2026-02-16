@@ -1,6 +1,7 @@
 //! Claude CLI command building.
 
 use super::super::AgentRunConfig;
+use crate::agents::provider::AgentRunConfig as ProviderAgentRunConfig;
 
 /// Default model used when none is explicitly specified
 const DEFAULT_MODEL: &str = "opus-4.6";
@@ -16,7 +17,7 @@ fn map_model_for_claude(model: &str) -> String {
     }
 }
 
-/// Push conditional CLI flags based on ClaudeApiConfig settings.
+/// Push conditional CLI flags based on ClaudeApiConfig settings (legacy path).
 fn push_cli_option_flags(args: &mut Vec<String>, config: &AgentRunConfig) {
     let api_config = config.claude_api_config.as_ref();
     let thinking = api_config.and_then(|c| c.thinking_enabled).unwrap_or(true);
@@ -25,6 +26,16 @@ fn push_cli_option_flags(args: &mut Vec<String>, config: &AgentRunConfig) {
         .unwrap_or(false);
     let chrome = api_config.and_then(|c| c.chrome_enabled).unwrap_or(false);
 
+    push_cli_option_flags_raw(args, thinking, extended_context, chrome);
+}
+
+/// Push conditional CLI flags from raw booleans.
+fn push_cli_option_flags_raw(
+    args: &mut Vec<String>,
+    thinking: bool,
+    extended_context: bool,
+    chrome: bool,
+) {
     if thinking {
         args.push("--settings".to_string());
         args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
@@ -40,6 +51,7 @@ fn push_cli_option_flags(args: &mut Vec<String>, config: &AgentRunConfig) {
     }
 }
 
+/// Build command from the legacy `AgentRunConfig` (still used by existing callers).
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
     let mut args = vec![
@@ -54,6 +66,34 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     args.push(map_model_for_claude(model));
 
     push_cli_option_flags(&mut args, config);
+
+    args.push("-p".to_string());
+    args.push(config.prompt.clone());
+
+    (command, args)
+}
+
+/// Build command from the provider-based `AgentRunConfig`.
+pub fn build_command_from_provider_config(config: &ProviderAgentRunConfig) -> (String, Vec<String>) {
+    use super::provider::ClaudeApiConfig;
+
+    let command = "claude".to_string();
+    let mut args = vec![
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+        "--dangerously-skip-permissions".to_string(),
+    ];
+
+    let model = config.model.as_deref().unwrap_or(DEFAULT_MODEL);
+    args.push("--model".to_string());
+    args.push(map_model_for_claude(model));
+
+    let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
+    let thinking = api_config.thinking_enabled.unwrap_or(true);
+    let extended_context = api_config.extended_context_enabled.unwrap_or(false);
+    let chrome = api_config.chrome_enabled.unwrap_or(false);
+    push_cli_option_flags_raw(&mut args, thinking, extended_context, chrome);
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -121,6 +161,7 @@ mod tests {
             api_token: "token".to_string(),
             model: None,
             claude_api_config: None,
+            agent_config: std::collections::HashMap::new(),
         }
     }
 

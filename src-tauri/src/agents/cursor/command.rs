@@ -1,6 +1,7 @@
 //! Cursor CLI command building.
 
 use super::super::AgentRunConfig;
+use crate::agents::provider::AgentRunConfig as ProviderAgentRunConfig;
 
 /// Default model used when none is explicitly specified
 const DEFAULT_MODEL: &str = "opus-4.6";
@@ -26,6 +27,28 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
         "--output-format".to_string(),
         "text".to_string(),
         // Explicitly set workspace so Cursor finds .cursor/hooks.json
+        "--workspace".to_string(),
+        config.repo_path.to_string_lossy().to_string(),
+    ];
+
+    let model = config.model.as_deref().unwrap_or(DEFAULT_MODEL);
+    args.push("--model".to_string());
+    args.push(map_model_for_cursor(model));
+
+    args.push(config.prompt.clone());
+    (command, args)
+}
+
+/// Build command from the provider-based `AgentRunConfig`.
+pub fn build_command_from_provider_config(config: &ProviderAgentRunConfig) -> (String, Vec<String>) {
+    let command = "cursor".to_string();
+    let mut args = vec![
+        "agent".to_string(),
+        "--print".to_string(),
+        "--force".to_string(),
+        "--approve-mcps".to_string(),
+        "--output-format".to_string(),
+        "text".to_string(),
         "--workspace".to_string(),
         config.repo_path.to_string_lossy().to_string(),
     ];
@@ -93,6 +116,7 @@ mod tests {
             api_token: "token".to_string(),
             model: None,
             claude_api_config: None,
+            agent_config: std::collections::HashMap::new(),
         }
     }
 

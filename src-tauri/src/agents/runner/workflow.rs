@@ -67,6 +67,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         task: config.task.clone(),
         repo_path: config.repo_path.clone(),
         agent_kind: config.agent_kind,
+        provider: config.provider.clone(),
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         hook_script_path: config.hook_script_path.clone(),

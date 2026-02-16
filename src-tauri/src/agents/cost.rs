@@ -353,6 +353,9 @@ pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> Ru
 /// When the Claude API result includes `usage` but no `modelUsage`, a
 /// fallback model entry is created so that `model_totals` always sums
 /// to `total_cost_usd` after aggregation.
+///
+/// Accepts `agent_type` as a string (e.g. "claude", "cursor") instead of a boolean
+/// so that any agent can be handled without hardcoding.
 pub fn extract_or_estimate_cost(
     stdout: &str,
     model: &str,
@@ -392,6 +395,19 @@ pub fn extract_or_estimate_cost(
     } else {
         None
     }
+}
+
+/// Agent-agnostic cost extraction that accepts an agent_type string.
+///
+/// This is the preferred entry point for new code.  Callers that already
+/// have an `AgentProvider` should use `provider.extract_cost()` instead.
+pub fn extract_or_estimate_cost_by_agent(
+    stdout: &str,
+    model: &str,
+    duration_secs: f64,
+    agent_type: &str,
+) -> Option<RunCostData> {
+    extract_or_estimate_cost(stdout, model, duration_secs, agent_type == "claude")
 }
 
 #[cfg(test)]

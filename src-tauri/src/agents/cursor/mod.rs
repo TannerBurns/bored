@@ -6,6 +6,7 @@ mod availability;
 mod command;
 mod commands;
 mod hooks;
+pub mod provider;
 mod settings;
 
 // Public re-exports

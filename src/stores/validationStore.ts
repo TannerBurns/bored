@@ -51,7 +51,7 @@ interface ValidationState {
   createSession: (input: {
     ticketId: string;
     projectId?: string;
-    agentType?: 'cursor' | 'claude';
+    agentType?: string;
   }) => Promise<ValidationSession>;
   selectSession: (session: ValidationSession | null) => void;
   updateSessionStatus: (sessionId: string, status: string) => Promise<void>;

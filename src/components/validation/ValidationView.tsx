@@ -8,7 +8,7 @@ import { getTicket } from '../../lib/tauri';
 interface ValidationViewProps {
   /** When both set, auto-create a session and open chat (from ticket Next Steps) */
   initialTicketId?: string;
-  initialAgentType?: 'cursor' | 'claude';
+  initialAgentType?: string;
   /** Called after auto-created session is opened so parent can clear initial state */
   onConsumedInitial?: () => void;
 }

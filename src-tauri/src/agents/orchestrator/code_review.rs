@@ -1,6 +1,6 @@
 //! Code review functions for the workflow orchestrator.
 
-use crate::agents::extract_text_from_stream_json;
+use crate::agents::claude::provider::extract_text_from_stream_json;
 
 /// Parse code review output for issue count.
 ///

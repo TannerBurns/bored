@@ -62,6 +62,7 @@ pub async fn validate_plan_for_clarification(
         api_token: config.api_token.clone(),
         model: config.model.clone(),
         claude_api_config: config.claude_api_config.clone(),
+        agent_config: std::collections::HashMap::new(),
     };
 
     let db = config.db.clone();
@@ -192,6 +193,7 @@ pub async fn generate_clarification_message(
         api_token: config.api_token.clone(),
         model: config.model.clone(),
         claude_api_config: config.claude_api_config.clone(),
+        agent_config: std::collections::HashMap::new(),
     };
 
     let db = config.db.clone();

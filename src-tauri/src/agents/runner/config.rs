@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
+use crate::agents::provider::AgentProvider;
 use crate::agents::spawner::CancelHandle;
 use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::commands::workflow_settings::WorkflowSettings;
@@ -23,6 +24,8 @@ pub struct RunnerConfig {
     pub run_id: String,
     pub repo_path: PathBuf,
     pub agent_kind: AgentKind,
+    /// Agent provider for agent-agnostic dispatch. Passed through to the orchestrator.
+    pub provider: Option<Arc<dyn AgentProvider>>,
     pub api_url: String,
     pub api_token: String,
     pub hook_script_path: Option<String>,

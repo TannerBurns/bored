@@ -3,6 +3,9 @@
 use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use agent_kanban::agents::claude::provider::ClaudeProvider;
+use agent_kanban::agents::cursor::provider::CursorProvider;
+use agent_kanban::agents::registry::AgentRegistry;
 use agent_kanban::agents::validation_agent::AppProcessManager;
 use agent_kanban::commands::claude::ClaudeApiSettingsState;
 use agent_kanban::commands::runs::RunningAgents;
@@ -195,6 +198,12 @@ fn main() {
                 }
             });
 
+            // Build the agent registry with all known providers
+            let mut agent_registry = AgentRegistry::new();
+            agent_registry.register(Arc::new(ClaudeProvider::new()));
+            agent_registry.register(Arc::new(CursorProvider::new()));
+            app.manage(agent_registry);
+
             app.manage(database.clone());
             app.manage(RunningAgents::new());
             app.manage(AppProcessManager::new());
@@ -374,6 +383,8 @@ fn main() {
             commands::workers::check_user_commands_installed,
             // API configuration
             commands::get_api_config,
+            // Agent registry
+            commands::get_available_agents,
             // Task queue management
             commands::tasks::get_tasks,
             commands::tasks::get_task,

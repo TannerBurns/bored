@@ -100,7 +100,16 @@ export interface Comment {
   metadata?: Record<string, unknown>;
 }
 
-export type AgentType = 'cursor' | 'claude';
+/** Known agent IDs. Extensible — new agents can be added without changing this type. */
+export type AgentType = 'cursor' | 'claude' | (string & {});
+
+/** Agent metadata returned by the backend `get_available_agents` command. */
+export interface AgentInfo {
+  id: string;
+  displayName: string;
+  isAvailable: boolean;
+  version: string | null;
+}
 export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted' | 'paused';
 
 export interface AgentRun {

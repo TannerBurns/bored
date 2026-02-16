@@ -5,6 +5,7 @@ import type {
   Ticket,
   AgentRun,
   AgentRunWithContext,
+  AgentInfo,
   Project,
   CreateProjectInput,
   UpdateProjectInput,
@@ -21,6 +22,11 @@ export interface ApiConfig {
 
 export async function getApiConfig(): Promise<ApiConfig> {
   return invoke('get_api_config');
+}
+
+// Agent registry
+export async function getAvailableAgents(): Promise<AgentInfo[]> {
+  return invoke('get_available_agents');
 }
 
 export async function getProjects(): Promise<Project[]> {
@@ -136,7 +142,7 @@ export async function deleteTicket(ticketId: string): Promise<void> {
 
 export async function startAgentRun(
   ticketId: string,
-  agentType: 'cursor' | 'claude',
+  agentType: string,
   repoPath: string,
   options?: {
     codeReviewMaxIterations?: number;
@@ -430,7 +436,7 @@ import type {
 export async function createValidationSession(input: {
   ticketId: string;
   projectId?: string;
-  agentType?: 'cursor' | 'claude';
+  agentType?: string;
 }): Promise<ValidationSession> {
   return invoke('create_validation_session', { input });
 }

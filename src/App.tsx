@@ -30,7 +30,7 @@ function App() {
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
   const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
   const [validationTicketId, setValidationTicketId] = useState<string | null>(null);
-  const [validationAgentType, setValidationAgentType] = useState<'cursor' | 'claude' | null>(null);
+  const [validationAgentType, setValidationAgentType] = useState<string | null>(null);
 
   const { theme } = useSettingsStore();
   const {
@@ -131,7 +131,7 @@ function App() {
     setRenameBoardModalOpen(true);
   };
 
-  const handleValidateFromTicket = (ticketId: string, agentType: 'cursor' | 'claude') => {
+  const handleValidateFromTicket = (ticketId: string, agentType: string) => {
     closeTicketModal();
     setValidationTicketId(ticketId);
     setValidationAgentType(agentType);

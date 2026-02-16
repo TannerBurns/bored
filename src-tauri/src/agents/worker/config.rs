@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
 use super::super::{AgentKind, ClaudeApiConfig};
+use crate::agents::provider::AgentProvider;
 use crate::commands::claude::SharedClaudeApiSettings;
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::WorkflowSettings;
@@ -14,6 +15,8 @@ use crate::commands::workflow_settings::WorkflowSettings;
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub agent_type: AgentKind,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Option<Arc<dyn AgentProvider>>,
     pub project_id: Option<String>,
     pub api_url: String,
     pub api_token: String,
@@ -43,6 +46,7 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             agent_type: AgentKind::Cursor,
+            provider: None,
             project_id: None,
             api_url: "http://127.0.0.1:7432".to_string(),
             api_token: "default-token".to_string(),
@@ -199,6 +203,7 @@ mod tests {
     fn worker_config_with_custom_values() {
         let config = WorkerConfig {
             agent_type: AgentKind::Claude,
+            provider: None,
             project_id: Some("my-project".to_string()),
             api_url: "http://localhost:8080".to_string(),
             api_token: "secret".to_string(),

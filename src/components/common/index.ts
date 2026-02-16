@@ -1,4 +1,4 @@
-export { ClaudeIcon, CursorIcon, CLAUDE_BRAND_COLOR } from './AgentIcons';
+export { ClaudeIcon, CursorIcon, AgentFallbackIcon, getAgentIcon, CLAUDE_BRAND_COLOR } from './AgentIcons';
 export { BoredLogo } from './BoredLogo';
 export { Button } from './Button';
 export { ConfirmModal } from './ConfirmModal';

@@ -63,6 +63,7 @@ mod tests {
             api_token: "test-token".to_string(),
             model: None,
             claude_api_config: None,
+            agent_config: std::collections::HashMap::new(),
         };
 
         let env_vars = build_env_vars(&config);
@@ -97,6 +98,7 @@ mod tests {
             api_token: "tok".to_string(),
             model: None,
             claude_api_config: None,
+            agent_config: std::collections::HashMap::new(),
         };
         let env_vars = build_env_vars(&config);
         assert_eq!(env_vars.len(), 5);
@@ -123,6 +125,7 @@ mod tests {
                 model_override: Some("claude-opus-4-6".to_string()),
                 ..Default::default()
             }),
+            agent_config: std::collections::HashMap::new(),
         };
         let env_vars = build_env_vars(&config);
 
@@ -162,6 +165,7 @@ mod tests {
                 model_override: None,
                 ..Default::default()
             }),
+            agent_config: std::collections::HashMap::new(),
         };
         let env_vars = build_env_vars(&config);
 
@@ -194,6 +198,7 @@ mod tests {
                 model_override: Some("model".to_string()),
                 ..Default::default()
             }),
+            agent_config: std::collections::HashMap::new(),
         };
         let env_vars = build_env_vars(&config);
 

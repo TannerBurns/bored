@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter, Window};
 
 use super::claude as claude_hooks;
 use super::cursor as cursor_hooks;
+use super::provider::AgentProvider;
 use super::spawner::CancelHandle;
 use super::{AgentKind, ClaudeApiConfig};
 use crate::commands::runs::StageConfig;
@@ -52,6 +53,9 @@ pub struct WorkflowOrchestrator {
     task: Option<Task>,
     repo_path: PathBuf,
     agent_kind: AgentKind,
+    /// Agent provider for agent-agnostic dispatch (text extraction, cost, hooks).
+    /// When set, provider methods are used instead of hardcoded agent checks.
+    provider: Option<Arc<dyn AgentProvider>>,
     api_url: String,
     api_token: String,
     hook_script_path: Option<String>,
@@ -170,6 +174,7 @@ impl WorkflowOrchestrator {
             task: config.task,
             repo_path: config.repo_path,
             agent_kind: config.agent_kind,
+            provider: config.provider,
             api_url: config.api_url,
             api_token: config.api_token,
             hook_script_path: config.hook_script_path,
@@ -334,6 +339,18 @@ impl WorkflowOrchestrator {
             &self.api_token.chars().take(8).collect::<String>()
         );
 
+        // Use the provider if available (agent-agnostic path)
+        if let Some(ref provider) = self.provider {
+            return provider.install_hooks_for_run(
+                &self.repo_path,
+                hook_script_path,
+                Some(&self.api_url),
+                Some(&self.api_token),
+                Some(&self.parent_run_id),
+            );
+        }
+
+        // Legacy fallback
         match self.agent_kind {
             AgentKind::Cursor => cursor_hooks::install_hooks_with_run_id(
                 &self.repo_path,
@@ -352,5 +369,31 @@ impl WorkflowOrchestrator {
             )
             .map_err(|e| format!("Failed to update Claude hooks: {}", e)),
         }
+    }
+
+    /// Extract text from agent output using the provider (agent-agnostic).
+    /// Falls back to the legacy `extract_text_from_stream_json` approach.
+    pub(super) fn extract_text(&self, output: &str) -> String {
+        if let Some(ref provider) = self.provider {
+            return provider.extract_text(output);
+        }
+        // Legacy fallback: try stream-json, else return raw
+        crate::agents::extract_text_from_stream_json(output)
+            .unwrap_or_else(|| output.to_string())
+    }
+
+    /// Extract cost from agent output using the provider (agent-agnostic).
+    /// Falls back to the legacy `extract_or_estimate_cost` approach.
+    pub(super) fn extract_cost(
+        &self,
+        stdout: &str,
+        model: &str,
+        duration_secs: f64,
+    ) -> Option<crate::agents::cost::RunCostData> {
+        if let Some(ref provider) = self.provider {
+            return provider.extract_cost(stdout, model, duration_secs);
+        }
+        let is_claude = matches!(self.agent_kind, AgentKind::Claude);
+        crate::agents::cost::extract_or_estimate_cost(stdout, model, duration_secs, is_claude)
     }
 }

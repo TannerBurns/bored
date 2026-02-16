@@ -1,0 +1,148 @@
+//! Cursor `AgentProvider` implementation.
+
+use std::path::Path;
+
+use crate::agents::cost::{self, RunCostData};
+use crate::agents::provider::{AgentProvider, AgentRunConfig};
+
+use super::availability;
+use super::command;
+use super::hooks;
+
+#[derive(Debug)]
+pub struct CursorProvider;
+
+impl CursorProvider {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for CursorProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentProvider for CursorProvider {
+    fn id(&self) -> &str {
+        "cursor"
+    }
+
+    fn display_name(&self) -> &str {
+        "Cursor"
+    }
+
+    fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
+        command::build_command_from_provider_config(config)
+    }
+
+    fn build_env_vars(&self, _config: &AgentRunConfig) -> Vec<(String, String)> {
+        // Cursor doesn't need any extra environment variables
+        Vec::new()
+    }
+
+    fn extract_text(&self, output: &str) -> String {
+        // Cursor returns plain text — no parsing needed
+        output.to_string()
+    }
+
+    fn extract_cost(
+        &self,
+        stdout: &str,
+        model: &str,
+        duration_secs: f64,
+    ) -> Option<RunCostData> {
+        let output_chars = stdout.len();
+        if output_chars > 0 || duration_secs > 0.0 {
+            Some(cost::estimate_cost(model, output_chars, duration_secs))
+        } else {
+            None
+        }
+    }
+
+    fn is_available(&self) -> bool {
+        availability::is_cursor_available()
+    }
+
+    fn get_version(&self) -> Option<String> {
+        availability::get_cursor_version()
+    }
+
+    fn install_hooks_for_run(
+        &self,
+        repo_path: &Path,
+        hook_script_path: &str,
+        api_url: Option<&str>,
+        api_token: Option<&str>,
+        run_id: Option<&str>,
+    ) -> Result<(), String> {
+        hooks::install_hooks_with_run_id(repo_path, hook_script_path, api_url, api_token, run_id)
+            .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn make_config() -> AgentRunConfig {
+        AgentRunConfig {
+            agent_id: "cursor".to_string(),
+            ticket_id: "t".to_string(),
+            run_id: "r".to_string(),
+            repo_path: PathBuf::from("/tmp/test"),
+            prompt: "Test".to_string(),
+            timeout_secs: None,
+            api_url: "http://localhost:7432".to_string(),
+            api_token: "tok".to_string(),
+            model: None,
+            agent_config: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn provider_id_and_display_name() {
+        let p = CursorProvider::new();
+        assert_eq!(p.id(), "cursor");
+        assert_eq!(p.display_name(), "Cursor");
+    }
+
+    #[test]
+    fn build_command_returns_cursor() {
+        let p = CursorProvider::new();
+        let (cmd, args) = p.build_command(&make_config());
+        assert_eq!(cmd, "cursor");
+        assert!(args.contains(&"agent".to_string()));
+    }
+
+    #[test]
+    fn build_env_vars_empty() {
+        let p = CursorProvider::new();
+        let env = p.build_env_vars(&make_config());
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn extract_text_passthrough() {
+        let p = CursorProvider::new();
+        assert_eq!(p.extract_text("hello world"), "hello world");
+    }
+
+    #[test]
+    fn extract_cost_estimates() {
+        let p = CursorProvider::new();
+        let cost = p.extract_cost("some output", "opus-4.6", 10.0);
+        assert!(cost.is_some());
+        assert!(cost.unwrap().is_estimated);
+    }
+
+    #[test]
+    fn extract_cost_empty_returns_none() {
+        let p = CursorProvider::new();
+        let cost = p.extract_cost("", "opus-4.6", 0.0);
+        assert!(cost.is_none());
+    }
+}

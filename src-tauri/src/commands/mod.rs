@@ -61,6 +61,33 @@ pub struct ApiConfigResponse {
     pub token: String,
 }
 
+/// Information about a registered agent, returned to the frontend.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentInfo {
+    pub id: String,
+    pub display_name: String,
+    pub is_available: bool,
+    pub version: Option<String>,
+}
+
+/// Return the list of all registered agents with their availability status.
+#[tauri::command]
+pub fn get_available_agents(
+    registry: tauri::State<'_, crate::agents::registry::AgentRegistry>,
+) -> Vec<AgentInfo> {
+    registry
+        .providers()
+        .iter()
+        .map(|p| AgentInfo {
+            id: p.id().to_string(),
+            display_name: p.display_name().to_string(),
+            is_available: p.is_available(),
+            version: p.get_version(),
+        })
+        .collect()
+}
+
 /// Get the current API configuration (port, URL, token)
 #[tauri::command]
 pub fn get_api_config() -> Result<ApiConfigResponse, String> {

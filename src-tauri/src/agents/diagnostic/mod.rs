@@ -70,6 +70,7 @@ pub async fn run_diagnostic_agent(
         api_token: api_token.to_string(),
         model,
         claude_api_config,
+        agent_config: std::collections::HashMap::new(),
     };
 
     let result = tokio::task::spawn_blocking(move || spawner::run_agent(agent_config, None)).await;

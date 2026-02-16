@@ -3,6 +3,8 @@ pub mod claude;
 pub mod cost;
 pub mod cursor;
 pub mod log_utils;
+pub mod provider;
+pub mod registry;
 pub mod validation_agent;
 pub mod diagnostic;
 pub mod eta;
@@ -21,7 +23,8 @@ pub use planner::{
 };
 pub use worker::{Worker, WorkerConfig, WorkerManager, WorkerState, WorkerStatus};
 pub use spawner::{
-    run_agent, run_agent_with_cancel_callback, run_agent_with_capture, CancelHandle,
+    run_agent, run_agent_via_provider, run_agent_via_provider_with_cancel,
+    run_agent_with_cancel_callback, run_agent_with_capture, CancelHandle,
     OnSpawnCallback, SpawnError,
 };
 pub use claude::{
@@ -89,6 +92,8 @@ pub use plan_validation::{
     PlanValidationConfig, PlanValidationError, PlanValidationResult,
 };
 pub use cost::{AggregatedCost, RunCostData};
+pub use provider::{AgentProvider, AgentRunConfig as ProviderAgentRunConfig};
+pub use registry::AgentRegistry;
 pub use validation::{
     is_environment_valid, is_environment_valid_with_options, validate_worker_environment,
     validate_worker_environment_with_options, ValidationCheck, ValidationResult,
@@ -155,8 +160,62 @@ pub struct AgentRunConfig {
     pub api_url: String,
     pub api_token: String,
     pub model: Option<String>,
-    /// Claude-specific API configuration (auth token, api key, base url, model override)
+    /// Claude-specific API configuration (auth token, api key, base url, model override).
+    /// Deprecated: prefer populating `agent_config` for agent-agnostic usage.
     pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Agent-agnostic configuration map.
+    /// Each provider knows its own keys. Populated automatically from
+    /// `claude_api_config` when using the legacy construction path.
+    #[allow(clippy::type_complexity)]
+    pub agent_config: std::collections::HashMap<String, serde_json::Value>,
+}
+
+impl AgentRunConfig {
+    /// Convert this legacy config to the provider-based `AgentRunConfig`.
+    pub fn to_provider_config(&self) -> provider::AgentRunConfig {
+        let mut agent_config = self.agent_config.clone();
+
+        // If the legacy claude_api_config is set but agent_config is empty,
+        // populate agent_config from it for backward compatibility.
+        if agent_config.is_empty() {
+            if let Some(ref c) = self.claude_api_config {
+                if let Some(ref v) = c.auth_token {
+                    agent_config.insert("auth_token".to_string(), serde_json::json!(v));
+                }
+                if let Some(ref v) = c.api_key {
+                    agent_config.insert("api_key".to_string(), serde_json::json!(v));
+                }
+                if let Some(ref v) = c.base_url {
+                    agent_config.insert("base_url".to_string(), serde_json::json!(v));
+                }
+                if let Some(ref v) = c.model_override {
+                    agent_config.insert("model_override".to_string(), serde_json::json!(v));
+                }
+                if let Some(v) = c.thinking_enabled {
+                    agent_config.insert("thinking_enabled".to_string(), serde_json::json!(v));
+                }
+                if let Some(v) = c.extended_context_enabled {
+                    agent_config.insert("extended_context_enabled".to_string(), serde_json::json!(v));
+                }
+                if let Some(v) = c.chrome_enabled {
+                    agent_config.insert("chrome_enabled".to_string(), serde_json::json!(v));
+                }
+            }
+        }
+
+        provider::AgentRunConfig {
+            agent_id: self.kind.as_str().to_string(),
+            ticket_id: self.ticket_id.clone(),
+            run_id: self.run_id.clone(),
+            repo_path: self.repo_path.clone(),
+            prompt: self.prompt.clone(),
+            timeout_secs: self.timeout_secs,
+            api_url: self.api_url.clone(),
+            api_token: self.api_token.clone(),
+            model: self.model.clone(),
+            agent_config,
+        }
+    }
 }
 
 /// Result of an agent run

@@ -71,7 +71,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     await updateComment(commentId, body);
   };
 
-  const handleRunWithAgent = async (ticketId: string, agentType: 'cursor' | 'claude') => {
+  const handleRunWithAgent = async (ticketId: string, agentType: string) => {
     logger.debug('handleRunWithAgent called', { ticketId, agentType });
     
     const ticket = tickets.find(t => t.id === ticketId);

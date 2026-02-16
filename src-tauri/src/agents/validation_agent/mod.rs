@@ -84,6 +84,7 @@ impl ValidationAgent {
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
             claude_api_config: self.config.claude_api_config.clone(),
+            agent_config: std::collections::HashMap::new(),
         };
 
         let tx = self.event_tx.clone();

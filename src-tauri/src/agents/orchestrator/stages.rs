@@ -7,10 +7,9 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::cost::extract_or_estimate_cost;
 use crate::agents::prompt::generate_command_prompt;
 use crate::agents::spawner::run_agent_with_capture;
-use crate::agents::{extract_text_from_stream_json, AgentKind, AgentRunConfig, AgentRunResult};
+use crate::agents::{AgentKind, AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, AgentType, CreateRun, EventType, NormalizedEvent, RunStatus};
 
@@ -138,6 +137,7 @@ impl WorkflowOrchestrator {
             api_token: self.api_token.clone(),
             model: Some(stage_model.clone()),
             claude_api_config: self.claude_api_config.clone(),
+            agent_config: std::collections::HashMap::new(),
         };
 
         // Create log callback
@@ -223,8 +223,7 @@ impl WorkflowOrchestrator {
 
         {
             let stdout = result.captured_stdout.as_deref().unwrap_or("");
-            let is_claude = matches!(self.agent_kind, AgentKind::Claude);
-            let cost_data = extract_or_estimate_cost(stdout, &stage_model, duration_secs, is_claude);
+            let cost_data = self.extract_cost(stdout, &stage_model, duration_secs);
 
             let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
 
@@ -233,8 +232,7 @@ impl WorkflowOrchestrator {
             }
 
             if result.status == RunOutcome::Success && !stdout.is_empty() {
-                let extracted_output =
-                    extract_text_from_stream_json(stdout).unwrap_or_else(|| stdout.to_string());
+                let extracted_output = self.extract_text(stdout);
 
                 // Limit output size to avoid huge metadata (keep first 50KB)
                 let truncated_output = if extracted_output.len() > 50_000 {

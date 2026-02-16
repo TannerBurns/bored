@@ -1,7 +1,6 @@
 //! Main workflow execution logic for the orchestrator.
 
 use super::WorkflowOrchestrator;
-use crate::agents::extract_text_from_stream_json;
 use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
 };
@@ -126,8 +125,7 @@ impl WorkflowOrchestrator {
         // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
         // which can be 100K+ tokens. We only need the final plan text.
         let raw_output = plan_result.captured_stdout.unwrap_or_default();
-        let plan =
-            extract_text_from_stream_json(&raw_output).unwrap_or_else(|| raw_output.clone());
+        let plan = self.extract_text(&raw_output);
 
         tracing::info!(
             "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
