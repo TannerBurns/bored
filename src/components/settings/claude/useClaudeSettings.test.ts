@@ -38,6 +38,9 @@ const mockApiSettings = {
   apiKey: 'test-api-key',
   baseUrl: 'https://api.example.com',
   modelOverride: 'claude-opus-4',
+  thinkingEnabled: true,
+  extendedContextEnabled: false,
+  chromeEnabled: false,
 };
 
 describe('useClaudeSettings', () => {
@@ -48,6 +51,9 @@ describe('useClaudeSettings', () => {
       claudeApiKey: '',
       claudeBaseUrl: '',
       claudeModelOverride: '',
+      claudeThinkingEnabled: true,
+      claudeExtendedContext: false,
+      claudeChromeEnabled: false,
     });
     vi.mocked(tauri.getClaudeStatus).mockResolvedValue(mockClaudeStatus);
     vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue(mockApiSettings);
@@ -98,6 +104,9 @@ describe('useClaudeSettings', () => {
         apiKey: null,
         baseUrl: null,
         modelOverride: null,
+        thinkingEnabled: null,
+        extendedContextEnabled: null,
+        chromeEnabled: null,
       });
 
       const { result } = renderHook(() => useClaudeSettings());
@@ -129,6 +138,9 @@ describe('useClaudeSettings', () => {
         apiKey: 'new-api-key',
         baseUrl: 'https://api.example.com',
         modelOverride: 'claude-opus-4',
+        thinkingEnabled: true,
+        extendedContextEnabled: false,
+        chromeEnabled: false,
       });
       expect(result.current.success).toBe('Claude API settings saved successfully!');
     });
@@ -139,6 +151,9 @@ describe('useClaudeSettings', () => {
         apiKey: null,
         baseUrl: null,
         modelOverride: null,
+        thinkingEnabled: null,
+        extendedContextEnabled: null,
+        chromeEnabled: null,
       });
 
       const { result } = renderHook(() => useClaudeSettings());
@@ -154,6 +169,9 @@ describe('useClaudeSettings', () => {
         apiKey: null,
         baseUrl: null,
         modelOverride: null,
+        thinkingEnabled: true,
+        extendedContextEnabled: false,
+        chromeEnabled: false,
       });
     });
 
@@ -235,6 +253,54 @@ describe('useClaudeSettings', () => {
       expect(result.current.apiSettings.apiKey).toBe('new-key');
       expect(result.current.apiSettings.baseUrl).toBe('https://new.com');
       expect(result.current.apiSettings.modelOverride).toBe('new-model');
+    });
+  });
+
+  describe('CLI options', () => {
+    it('loads CLI options from backend on mount', async () => {
+      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
+        ...mockApiSettings,
+        thinkingEnabled: false,
+        extendedContextEnabled: true,
+        chromeEnabled: true,
+      });
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.cliOptions.thinkingEnabled).toBe(false);
+      expect(result.current.cliOptions.extendedContext).toBe(true);
+      expect(result.current.cliOptions.chromeEnabled).toBe(true);
+    });
+
+    it('defaults CLI options when null from backend', async () => {
+      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
+        ...mockApiSettings,
+        thinkingEnabled: null,
+        extendedContextEnabled: null,
+        chromeEnabled: null,
+      });
+
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      expect(result.current.cliOptions.thinkingEnabled).toBe(true);
+      expect(result.current.cliOptions.extendedContext).toBe(false);
+      expect(result.current.cliOptions.chromeEnabled).toBe(false);
+    });
+
+    it('auto-saves when toggling a CLI option', async () => {
+      const { result } = renderHook(() => useClaudeSettings());
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      await act(async () => {
+        result.current.cliOptions.setChromeEnabled(true);
+      });
+
+      expect(tauri.setClaudeApiSettings).toHaveBeenCalled();
     });
   });
 

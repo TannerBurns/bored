@@ -16,6 +16,39 @@ fn map_model_for_claude(model: &str) -> String {
     }
 }
 
+/// Push conditional CLI flags based on ClaudeApiConfig settings.
+fn push_cli_option_flags(args: &mut Vec<String>, config: &AgentRunConfig) {
+    let thinking = config
+        .claude_api_config
+        .as_ref()
+        .and_then(|c| c.thinking_enabled)
+        .unwrap_or(true);
+    let extended_context = config
+        .claude_api_config
+        .as_ref()
+        .and_then(|c| c.extended_context_enabled)
+        .unwrap_or(false);
+    let chrome = config
+        .claude_api_config
+        .as_ref()
+        .and_then(|c| c.chrome_enabled)
+        .unwrap_or(false);
+
+    if thinking {
+        args.push("--settings".to_string());
+        args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
+    }
+
+    if extended_context {
+        args.push("--betas".to_string());
+        args.push("context-1m-2025-08-07".to_string());
+    }
+
+    if chrome {
+        args.push("--chrome".to_string());
+    }
+}
+
 pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "claude".to_string();
     let mut args = vec![
@@ -29,11 +62,7 @@ pub fn build_command(config: &AgentRunConfig) -> (String, Vec<String>) {
     args.push("--model".to_string());
     args.push(map_model_for_claude(model));
 
-    args.push("--settings".to_string());
-    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
-
-    args.push("--betas".to_string());
-    args.push("context-1m-2025-08-07".to_string());
+    push_cli_option_flags(&mut args, config);
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -75,11 +104,7 @@ pub fn build_command_with_settings(
         args.push(mode.clone());
     }
 
-    args.push("--settings".to_string());
-    args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
-
-    args.push("--betas".to_string());
-    args.push("context-1m-2025-08-07".to_string());
+    push_cli_option_flags(&mut args, config);
 
     args.push("-p".to_string());
     args.push(config.prompt.clone());
@@ -209,17 +234,113 @@ mod tests {
     }
 
     #[test]
-    fn build_command_includes_beta_context_flag() {
+    fn build_command_excludes_betas_by_default() {
         let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(
+            !args.contains(&"--betas".to_string()),
+            "Extended context should be off by default"
+        );
+    }
+
+    #[test]
+    fn build_command_includes_betas_when_enabled() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            extended_context_enabled: Some(true),
+            ..Default::default()
+        });
         let (_, args) = build_command(&config);
         let beta_index = args
             .iter()
             .position(|a| a == "--betas")
-            .expect("--beta flag must be present");
+            .expect("--betas flag must be present when enabled");
         assert_eq!(
             args[beta_index + 1], "context-1m-2025-08-07",
-            "--beta must be followed by context-1m-2025-08-07"
+            "--betas must be followed by context-1m-2025-08-07"
         );
+    }
+
+    #[test]
+    fn build_command_includes_thinking_by_default() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(
+            args.contains(&"--settings".to_string()),
+            "Thinking should be enabled by default"
+        );
+        assert!(
+            args.contains(&r#"{"alwaysThinkingEnabled": true}"#.to_string()),
+            "Thinking settings value should be present"
+        );
+    }
+
+    #[test]
+    fn build_command_excludes_thinking_when_disabled() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(false),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(
+            !args.contains(&"--settings".to_string()),
+            "Thinking flag should not be present when disabled"
+        );
+    }
+
+    #[test]
+    fn build_command_excludes_chrome_by_default() {
+        let config = create_test_config();
+        let (_, args) = build_command(&config);
+        assert!(
+            !args.contains(&"--chrome".to_string()),
+            "Chrome should be off by default"
+        );
+    }
+
+    #[test]
+    fn build_command_includes_chrome_when_enabled() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            chrome_enabled: Some(true),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(
+            args.contains(&"--chrome".to_string()),
+            "Chrome flag should be present when enabled"
+        );
+    }
+
+    #[test]
+    fn build_command_all_cli_options_enabled() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(true),
+            extended_context_enabled: Some(true),
+            chrome_enabled: Some(true),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(args.contains(&"--settings".to_string()));
+        assert!(args.contains(&"--betas".to_string()));
+        assert!(args.contains(&"--chrome".to_string()));
+    }
+
+    #[test]
+    fn build_command_all_cli_options_disabled() {
+        let mut config = create_test_config();
+        config.claude_api_config = Some(super::super::super::ClaudeApiConfig {
+            thinking_enabled: Some(false),
+            extended_context_enabled: Some(false),
+            chrome_enabled: Some(false),
+            ..Default::default()
+        });
+        let (_, args) = build_command(&config);
+        assert!(!args.contains(&"--settings".to_string()));
+        assert!(!args.contains(&"--betas".to_string()));
+        assert!(!args.contains(&"--chrome".to_string()));
     }
 
     #[test]

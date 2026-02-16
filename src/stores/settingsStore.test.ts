@@ -573,7 +573,7 @@ describe('useSettingsStore', () => {
     it('uses version 7', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(7);
+      expect(options.version).toBe(8);
     });
   });
 });

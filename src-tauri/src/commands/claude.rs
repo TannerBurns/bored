@@ -17,6 +17,13 @@ pub struct ClaudeApiSettings {
     pub base_url: Option<String>,
     /// Model override - bypasses normal model mapping, uses value directly for --model
     pub model_override: Option<String>,
+    /// Enable extended thinking (--settings). Defaults to true when None.
+    pub thinking_enabled: Option<bool>,
+    /// Enable 1M token extended context (--betas). Defaults to false when None.
+    /// Only works with API key users.
+    pub extended_context_enabled: Option<bool>,
+    /// Enable browser automation via Chrome (--chrome). Defaults to false when None.
+    pub chrome_enabled: Option<bool>,
 }
 
 /// Internal state containing both the settings and optional persistence path
@@ -278,6 +285,7 @@ mod tests {
             api_key: Some("key456".to_string()),
             base_url: Some("https://api.example.com".to_string()),
             model_override: Some("claude-opus-4-6".to_string()),
+            ..Default::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("authToken"));
@@ -311,6 +319,7 @@ mod tests {
             api_key: None,
             base_url: Some("https://custom.api".to_string()),
             model_override: None,
+            ..Default::default()
         });
 
         // Verify update
@@ -338,6 +347,7 @@ mod tests {
             api_key: Some("persisted-key".to_string()),
             base_url: None,
             model_override: Some("custom-model".to_string()),
+            ..Default::default()
         };
         std::fs::write(&path, serde_json::to_string(&settings).unwrap()).unwrap();
 
@@ -373,6 +383,7 @@ mod tests {
             api_key: None,
             base_url: Some("https://api.test.com".to_string()),
             model_override: None,
+            ..Default::default()
         });
 
         assert!(result.is_ok());
@@ -409,6 +420,7 @@ mod tests {
             api_key: None,
             base_url: None,
             model_override: None,
+            ..Default::default()
         });
 
         // Settings should be in memory
@@ -430,6 +442,7 @@ mod tests {
             api_key: None,
             base_url: None,
             model_override: None,
+            ..Default::default()
         });
 
         // Should return an error
