@@ -251,84 +251,10 @@ pub fn extract_agent_text(output: &str) -> String {
 }
 
 /// Extract text content from Claude's stream-json format.
-/// The stream-json format has one JSON object per line with structure:
-/// {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}
+///
+/// Delegates to the canonical implementation in `claude::provider`.
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
-    let mut text_parts = Vec::new();
-    // Only the last assistant message matters; earlier ones are intermediate tool-use narration.
-    let mut last_assistant_text: Option<String> = None;
-
-    for line in stream_output.lines() {
-        let line = line.trim();
-        if line.is_empty() || !line.starts_with('{') {
-            continue;
-        }
-
-        // Try to parse as JSON
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(msg_type) = json.get("type").and_then(|t| t.as_str()) {
-                match msg_type {
-                    "stream_event" => {
-                        // Claude stream-json format wraps events in stream_event
-                        // Text deltas are at: .event.delta.text
-                        if let Some(event) = json.get("event") {
-                            if let Some(event_type) = event.get("type").and_then(|t| t.as_str()) {
-                                if event_type == "content_block_delta" {
-                                    if let Some(text) = event
-                                        .get("delta")
-                                        .and_then(|d| d.get("text"))
-                                        .and_then(|t| t.as_str())
-                                    {
-                                        text_parts.push(text.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    "result" => {
-                        // Final result message contains the complete text
-                        if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
-                            text_parts.push(result.to_string());
-                        }
-                    }
-                    "assistant" => {
-                        if let Some(text) = json
-                            .get("message")
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_array())
-                            .and_then(|arr| {
-                                arr.iter().find(|v| {
-                                    v.get("type").and_then(|t| t.as_str()) == Some("text")
-                                })
-                            })
-                            .and_then(|v| v.get("text"))
-                            .and_then(|t| t.as_str())
-                        {
-                            last_assistant_text = Some(text.to_string());
-                        }
-                    }
-                    "content_block_delta" => {
-                        // Legacy/direct content_block_delta (without stream_event wrapper)
-                        if let Some(delta) = json
-                            .get("delta")
-                            .and_then(|d| d.get("text"))
-                            .and_then(|t| t.as_str())
-                        {
-                            text_parts.push(delta.to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // Prefer stream deltas / result text if present, otherwise use last assistant message
-    if !text_parts.is_empty() {
-        Some(text_parts.join(""))
-    } else {
-        last_assistant_text
-    }
+    claude::provider::extract_text_from_stream_json(stream_output)
 }
 
 /// A line of log output

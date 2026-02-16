@@ -397,19 +397,6 @@ pub fn extract_or_estimate_cost(
     }
 }
 
-/// Agent-agnostic cost extraction that accepts an agent_type string.
-///
-/// This is the preferred entry point for new code.  Callers that already
-/// have an `AgentProvider` should use `provider.extract_cost()` instead.
-pub fn extract_or_estimate_cost_by_agent(
-    stdout: &str,
-    model: &str,
-    duration_secs: f64,
-    agent_type: &str,
-) -> Option<RunCostData> {
-    extract_or_estimate_cost(stdout, model, duration_secs, agent_type == "claude")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
