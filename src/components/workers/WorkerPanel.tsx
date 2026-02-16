@@ -9,7 +9,7 @@ import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/set
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 
 export function WorkerPanel() {
-  const { codeReviewMaxIterations, stageTimeoutMinutes, stageMaxRetries } = useSettingsStore();
+  const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries } = useSettingsStore();
   const { cursorAvailable, claudeAvailable } = useCliAvailability();
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
@@ -59,7 +59,7 @@ export function WorkerPanel() {
             agentType: 'cursor',
             projectId: null,
             codeReviewMaxIterations,
-            stageTimeoutMinutes,
+            stageTimeoutHours,
             stageMaxRetries,
           },
         });
@@ -72,7 +72,7 @@ export function WorkerPanel() {
             agentType: 'claude',
             projectId: null,
             codeReviewMaxIterations,
-            stageTimeoutMinutes,
+            stageTimeoutHours,
             stageMaxRetries,
           },
         });

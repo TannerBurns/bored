@@ -235,7 +235,7 @@ pub struct StartRunInput {
     pub agent_type: String,
     pub repo_path: String,
     pub code_review_max_iterations: Option<usize>,
-    pub stage_timeout_minutes: Option<u32>,
+    pub stage_timeout_hours: Option<u32>,
     pub stage_max_retries: Option<u32>,
     pub stage_configs: Option<HashMap<String, StageConfig>>,
 }
@@ -279,7 +279,7 @@ pub async fn start_agent_run(
         agent_type,
         repo_path,
         code_review_max_iterations,
-        stage_timeout_minutes,
+        stage_timeout_hours,
         stage_max_retries,
         stage_configs,
     } = input;
@@ -721,7 +721,7 @@ pub async fn start_agent_run(
                 // Legacy fallback fields (only if shared state has empty stage_configs)
                 stage_configs: stage_configs.unwrap_or_default(),
                 code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
-                stage_timeout_secs: stage_timeout_minutes.map(|m| m as u64 * 60).unwrap_or(1800),
+                stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
                 stage_max_retries: stage_max_retries.unwrap_or(2),
             });
 

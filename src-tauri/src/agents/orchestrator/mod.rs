@@ -146,7 +146,7 @@ impl WorkflowOrchestrator {
                 (
                     ws.stage_configs.clone(),
                     ws.code_review_max_iterations,
-                    ws.stage_timeout_minutes as u64 * 60,
+                    ws.stage_timeout_hours as u64 * 3600,
                     ws.stage_max_retries,
                 )
             } else {

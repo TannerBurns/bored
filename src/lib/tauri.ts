@@ -140,7 +140,7 @@ export async function startAgentRun(
   repoPath: string,
   options?: {
     codeReviewMaxIterations?: number;
-    stageTimeoutMinutes?: number;
+    stageTimeoutHours?: number;
     stageMaxRetries?: number;
     stageConfigs?: Record<string, { enabled: boolean; model: string }>;
   }
@@ -151,7 +151,7 @@ export async function startAgentRun(
       agentType, 
       repoPath, 
       codeReviewMaxIterations: options?.codeReviewMaxIterations,
-      stageTimeoutMinutes: options?.stageTimeoutMinutes,
+      stageTimeoutHours: options?.stageTimeoutHours,
       stageMaxRetries: options?.stageMaxRetries,
       stageConfigs: options?.stageConfigs,
     },
@@ -526,7 +526,7 @@ export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> 
 export async function syncWorkflowSettings(settings: {
   stageConfigs: Record<string, { enabled: boolean; model: string }>;
   codeReviewMaxIterations: number;
-  stageTimeoutMinutes: number;
+  stageTimeoutHours: number;
   stageMaxRetries: number;
 }): Promise<void> {
   return invoke('sync_workflow_settings', { settings });

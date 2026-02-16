@@ -23,8 +23,8 @@ export function AgentWorkflowSettings() {
     setWorkflowStageConfig,
     codeReviewMaxIterations,
     setCodeReviewMaxIterations,
-    stageTimeoutMinutes,
-    setStageTimeoutMinutes,
+    stageTimeoutHours,
+    setStageTimeoutHours,
     stageMaxRetries,
     setStageMaxRetries,
   } = useSettingsStore();
@@ -184,15 +184,15 @@ export function AgentWorkflowSettings() {
         <div className="grid grid-cols-2 gap-2">
           <div className="glass-subtle rounded-lg px-3 py-2">
             <label className="block text-sm font-medium text-board-text mb-1">
-              Stage Timeout (min)
+              Stage Timeout (hours)
             </label>
             <input
               type="number"
               min={1}
-              max={60}
-              value={stageTimeoutMinutes}
-              onChange={(e) => setStageTimeoutMinutes(parseInt(e.target.value) || 30)}
-              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+              step={1}
+              value={stageTimeoutHours}
+              onChange={(e) => setStageTimeoutHours(parseInt(e.target.value) || 1)}
+              className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
           <div className="glass-subtle rounded-lg px-3 py-2">

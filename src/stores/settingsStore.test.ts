@@ -42,7 +42,7 @@ describe('useSettingsStore', () => {
         plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
         codeReviewMaxIterations: 3,
-        stageTimeoutMinutes: 30,
+        stageTimeoutHours: 1,
         stageMaxRetries: 2,
       });
     });
@@ -55,7 +55,7 @@ describe('useSettingsStore', () => {
       expect(state.plannerTimeoutMinutes).toBe(10);
       expect(state.plannerMaxRetries).toBe(2);
       expect(state.codeReviewMaxIterations).toBe(3);
-      expect(state.stageTimeoutMinutes).toBe(30);
+      expect(state.stageTimeoutHours).toBe(1);
       expect(state.stageMaxRetries).toBe(2);
     });
 
@@ -99,9 +99,9 @@ describe('useSettingsStore', () => {
       expect(useSettingsStore.getState().plannerMaxRetries).toBe(5);
     });
 
-    it('sets stage timeout minutes', () => {
-      useSettingsStore.getState().setStageTimeoutMinutes(60);
-      expect(useSettingsStore.getState().stageTimeoutMinutes).toBe(60);
+    it('sets stage timeout hours', () => {
+      useSettingsStore.getState().setStageTimeoutHours(2);
+      expect(useSettingsStore.getState().stageTimeoutHours).toBe(2);
     });
 
     it('sets stage max retries', () => {
@@ -454,7 +454,126 @@ describe('useSettingsStore', () => {
         4
       ) as unknown as Record<string, unknown>;
       expect(migrated.plannerModel).toBe('opus-4.6');
-      expect(migrated.stageTimeoutMinutes).toBe(45);
+      // v6->v7 migration converts stageTimeoutMinutes (45) to stageTimeoutHours (ceil(45/60) = 1)
+      expect(migrated.stageTimeoutHours).toBe(1);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+  });
+
+  describe('workflow migration v6->v7 (timeout minutes to hours)', () => {
+    it('converts 30 minutes to 1 hour', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 30 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(1);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+
+    it('converts 60 minutes to 1 hour', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 60 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(1);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+
+    it('converts 90 minutes to 2 hours (rounds up)', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 90 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(2);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+
+    it('defaults to 1 hour when stageTimeoutMinutes is absent', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {} as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(1);
+    });
+
+    it('converts 1 minute to 1 hour (minimum clamped)', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 1 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(1);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+
+    it('converts 59 minutes to 1 hour (ceil)', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 59 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(1);
+    });
+
+    it('converts 61 minutes to 2 hours (ceil)', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 61 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(2);
+    });
+
+    it('converts 120 minutes to exactly 2 hours', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 120 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(2);
+    });
+
+    it('converts 121 minutes to 3 hours (ceil)', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { stageTimeoutMinutes: 121 } as unknown,
+        6
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.stageTimeoutHours).toBe(3);
+    });
+
+    it('full chain from v0 converts timeout minutes to hours', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default', plannerTimeoutMinutes: 5, stageTimeoutMinutes: 45 } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.plannerModel).toBe('opus-4.5');
+      expect(migrated.plannerTimeoutMinutes).toBe(10);
+      expect(migrated.stageTimeoutHours).toBe(1);
+      expect(migrated.stageTimeoutMinutes).toBeUndefined();
+    });
+  });
+
+  describe('persist config', () => {
+    it('uses version 7', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      expect(options.version).toBe(7);
     });
   });
 });

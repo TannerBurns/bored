@@ -26,8 +26,8 @@ pub struct WorkflowSettings {
     pub stage_configs: HashMap<String, StageConfig>,
     /// Maximum iterations for the code review loop.
     pub code_review_max_iterations: usize,
-    /// Timeout per workflow stage in minutes.
-    pub stage_timeout_minutes: u32,
+    /// Timeout per workflow stage in hours.
+    pub stage_timeout_hours: u32,
     /// Maximum retries per stage.
     pub stage_max_retries: u32,
     /// Whether the frontend has synced settings at least once.
@@ -43,7 +43,7 @@ impl Default for WorkflowSettings {
         Self {
             stage_configs: HashMap::new(),
             code_review_max_iterations: 3,
-            stage_timeout_minutes: 30,
+            stage_timeout_hours: 1,
             stage_max_retries: 2,
             synced: false,
         }
@@ -93,10 +93,10 @@ pub async fn sync_workflow_settings(
     state: State<'_, WorkflowSettingsState>,
 ) -> Result<(), String> {
     tracing::debug!(
-        "Syncing workflow settings from frontend: {} stage configs, code_review_max_iterations={}, stage_timeout_minutes={}, stage_max_retries={}",
+        "Syncing workflow settings from frontend: {} stage configs, code_review_max_iterations={}, stage_timeout_hours={}, stage_max_retries={}",
         settings.stage_configs.len(),
         settings.code_review_max_iterations,
-        settings.stage_timeout_minutes,
+        settings.stage_timeout_hours,
         settings.stage_max_retries,
     );
     // Mark as synced so the orchestrator trusts shared state even when
@@ -123,7 +123,7 @@ mod tests {
         let settings = WorkflowSettings::default();
         assert!(settings.stage_configs.is_empty());
         assert_eq!(settings.code_review_max_iterations, 3);
-        assert_eq!(settings.stage_timeout_minutes, 30);
+        assert_eq!(settings.stage_timeout_hours, 1);
         assert_eq!(settings.stage_max_retries, 2);
         assert!(!settings.synced, "default settings should not be marked as synced");
     }
@@ -141,14 +141,14 @@ mod tests {
         let settings = WorkflowSettings {
             stage_configs: configs,
             code_review_max_iterations: 5,
-            stage_timeout_minutes: 15,
+            stage_timeout_hours: 2,
             stage_max_retries: 1,
             synced: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("stageConfigs"));
         assert!(json.contains("codeReviewMaxIterations"));
-        assert!(json.contains("stageTimeoutMinutes"));
+        assert!(json.contains("stageTimeoutHours"));
         assert!(json.contains("stageMaxRetries"));
     }
 
@@ -157,7 +157,7 @@ mod tests {
         let json = r#"{
             "stageConfigs":{"plan":{"enabled":true,"model":"opus-4.6"}},
             "codeReviewMaxIterations":5,
-            "stageTimeoutMinutes":15,
+            "stageTimeoutHours":2,
             "stageMaxRetries":1
         }"#;
         let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
@@ -165,7 +165,7 @@ mod tests {
         assert!(settings.stage_configs["plan"].enabled);
         assert_eq!(settings.stage_configs["plan"].model, "opus-4.6");
         assert_eq!(settings.code_review_max_iterations, 5);
-        assert_eq!(settings.stage_timeout_minutes, 15);
+        assert_eq!(settings.stage_timeout_hours, 2);
         assert_eq!(settings.stage_max_retries, 1);
         // `synced` is not in the JSON, so it should default to false
         assert!(!settings.synced, "synced should default to false when absent from JSON");
@@ -176,7 +176,7 @@ mod tests {
         let json = r#"{
             "stageConfigs":{},
             "codeReviewMaxIterations":10,
-            "stageTimeoutMinutes":60,
+            "stageTimeoutHours":2,
             "stageMaxRetries":5,
             "synced":true
         }"#;
@@ -207,7 +207,7 @@ mod tests {
         state.set(WorkflowSettings {
             stage_configs: configs,
             code_review_max_iterations: 7,
-            stage_timeout_minutes: 20,
+            stage_timeout_hours: 2,
             stage_max_retries: 4,
             synced: true,
         });
@@ -216,7 +216,7 @@ mod tests {
         let updated = state.get();
         assert_eq!(updated.stage_configs.len(), 1);
         assert_eq!(updated.code_review_max_iterations, 7);
-        assert_eq!(updated.stage_timeout_minutes, 20);
+        assert_eq!(updated.stage_timeout_hours, 2);
         assert_eq!(updated.stage_max_retries, 4);
     }
 
@@ -255,7 +255,7 @@ mod tests {
         let mut settings = WorkflowSettings {
             stage_configs: HashMap::new(),
             code_review_max_iterations: 10,
-            stage_timeout_minutes: 60,
+            stage_timeout_hours: 2,
             stage_max_retries: 5,
             synced: false, // frontend doesn't send this
         };
@@ -267,7 +267,7 @@ mod tests {
         assert!(stored.synced, "settings should be marked as synced");
         assert!(stored.stage_configs.is_empty(), "stage_configs should still be empty");
         assert_eq!(stored.code_review_max_iterations, 10);
-        assert_eq!(stored.stage_timeout_minutes, 60);
+        assert_eq!(stored.stage_timeout_hours, 2);
         assert_eq!(stored.stage_max_retries, 5);
     }
 }

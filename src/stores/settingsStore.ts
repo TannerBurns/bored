@@ -152,7 +152,7 @@ interface SettingsState {
   
   // Workflow stage settings
   codeReviewMaxIterations: number;
-  stageTimeoutMinutes: number;
+  stageTimeoutHours: number;
   stageMaxRetries: number;
   
   // Workflow per-stage configuration
@@ -178,7 +178,7 @@ interface SettingsState {
   setPlannerTimeoutMinutes: (min: number) => void;
   setPlannerMaxRetries: (max: number) => void;
   setCodeReviewMaxIterations: (max: number) => void;
-  setStageTimeoutMinutes: (min: number) => void;
+  setStageTimeoutHours: (hours: number) => void;
   setStageMaxRetries: (max: number) => void;
   setWorkflowPreset: (preset: WorkflowPreset) => void;
   setWorkflowStages: (stages: WorkflowStages) => void;
@@ -209,7 +209,7 @@ export const useSettingsStore = create<SettingsState>()(
       
       // Workflow stage defaults
       codeReviewMaxIterations: 3,
-      stageTimeoutMinutes: 30,
+      stageTimeoutHours: 1,
       stageMaxRetries: 2,
       
       // Workflow per-stage configuration defaults
@@ -233,7 +233,7 @@ export const useSettingsStore = create<SettingsState>()(
       setPlannerTimeoutMinutes: (plannerTimeoutMinutes) => set({ plannerTimeoutMinutes }),
       setPlannerMaxRetries: (plannerMaxRetries) => set({ plannerMaxRetries }),
       setCodeReviewMaxIterations: (codeReviewMaxIterations) => set({ codeReviewMaxIterations }),
-      setStageTimeoutMinutes: (stageTimeoutMinutes) => set({ stageTimeoutMinutes }),
+      setStageTimeoutHours: (stageTimeoutHours) => set({ stageTimeoutHours }),
       setStageMaxRetries: (stageMaxRetries) => set({ stageMaxRetries }),
       setWorkflowPreset: (preset) => {
         if (preset === 'custom') {
@@ -269,9 +269,19 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 6,
+      version: 7,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+        if (version < 7) {
+          // v6 -> v7: convert stageTimeoutMinutes to stageTimeoutHours
+          const oldMinutes = state.stageTimeoutMinutes as number | undefined;
+          if (oldMinutes !== undefined) {
+            state.stageTimeoutHours = Math.max(1, Math.ceil(oldMinutes / 60));
+            delete state.stageTimeoutMinutes;
+          } else {
+            state.stageTimeoutHours = 1;
+          }
+        }
         if (version < 6) {
           state.validationModel = 'sonnet-4.5';
           state.validationTimeoutMinutes = 10;
@@ -324,7 +334,7 @@ function syncCurrentWorkflowSettings(state: SettingsState) {
   syncWorkflowSettings({
     stageConfigs: state.workflowStages,
     codeReviewMaxIterations: state.codeReviewMaxIterations,
-    stageTimeoutMinutes: state.stageTimeoutMinutes,
+    stageTimeoutHours: state.stageTimeoutHours,
     stageMaxRetries: state.stageMaxRetries,
   }).then(() => {
     console.debug('[settings] Workflow settings synced to backend');
@@ -345,7 +355,7 @@ export async function ensureWorkflowSettingsSynced(): Promise<void> {
     await syncWorkflowSettings({
       stageConfigs: state.workflowStages,
       codeReviewMaxIterations: state.codeReviewMaxIterations,
-      stageTimeoutMinutes: state.stageTimeoutMinutes,
+      stageTimeoutHours: state.stageTimeoutHours,
       stageMaxRetries: state.stageMaxRetries,
     });
   } catch (err) {
@@ -360,7 +370,7 @@ useSettingsStore.subscribe(
     if (
       state.workflowStages !== prevState.workflowStages ||
       state.codeReviewMaxIterations !== prevState.codeReviewMaxIterations ||
-      state.stageTimeoutMinutes !== prevState.stageTimeoutMinutes ||
+      state.stageTimeoutHours !== prevState.stageTimeoutHours ||
       state.stageMaxRetries !== prevState.stageMaxRetries
     ) {
       syncCurrentWorkflowSettings(state);
@@ -380,7 +390,7 @@ const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
     syncWorkflowSettings({
       stageConfigs: state.workflowStages,
       codeReviewMaxIterations: state.codeReviewMaxIterations,
-      stageTimeoutMinutes: state.stageTimeoutMinutes,
+      stageTimeoutHours: state.stageTimeoutHours,
       stageMaxRetries: state.stageMaxRetries,
     }).then(() => {
       console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`);
