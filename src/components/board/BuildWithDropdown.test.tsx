@@ -15,8 +15,7 @@ describe('BuildWithDropdown', () => {
     vi.clearAllMocks();
     // Default: both CLIs available
     mockUseCliAvailability.mockReturnValue({
-      cursorAvailable: true,
-      claudeAvailable: true,
+      availability: { cursor: true, claude: true },
       loading: false,
     });
   });
@@ -131,8 +130,7 @@ describe('BuildWithDropdown', () => {
   describe('CLI availability', () => {
     it('does not call onSelect when Cursor CLI is unavailable', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 
@@ -148,8 +146,7 @@ describe('BuildWithDropdown', () => {
 
     it('does not call onSelect when Claude CLI is unavailable', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
@@ -165,8 +162,7 @@ describe('BuildWithDropdown', () => {
 
     it('shows "(not installed)" text when Cursor CLI is unavailable', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 
@@ -178,8 +174,7 @@ describe('BuildWithDropdown', () => {
 
     it('shows "(not installed)" text when Claude CLI is unavailable', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
@@ -191,8 +186,7 @@ describe('BuildWithDropdown', () => {
 
     it('shows both as unavailable when both CLIs are not installed', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: false,
+        availability: { cursor: false, claude: false },
         loading: false,
       });
 
@@ -210,8 +204,7 @@ describe('BuildWithDropdown', () => {
 
     it('allows Cursor selection when available but Claude is not', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
@@ -227,8 +220,7 @@ describe('BuildWithDropdown', () => {
 
     it('allows Claude selection when available but Cursor is not', () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 

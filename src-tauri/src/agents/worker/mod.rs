@@ -50,7 +50,7 @@ impl Worker {
     ) -> Self {
         let status = WorkerStatus {
             id: id.clone(),
-            agent_type: config.agent_type.as_str().to_string(),
+            agent_type: config.agent_id.clone(),
             project_id: config.project_id.clone(),
             status: WorkerState::Idle,
             current_ticket_id: None,
@@ -105,7 +105,7 @@ impl Worker {
         tracing::info!(
             "Worker {} started: {:?} agent, project filter: {:?}",
             self.id,
-            self.config.agent_type,
+            self.config.agent_id,
             self.config.project_id
         );
 
@@ -136,7 +136,7 @@ impl Worker {
         // Try to reserve the next available ticket
         let Some(ticket) = self.db.reserve_next_ticket(
             self.config.project_id.as_deref(),
-            self.config.agent_type,
+            &self.config.agent_id,
             &run_id,
             lock_expires,
         )?
@@ -144,7 +144,7 @@ impl Worker {
             // Log diagnostics to help debug why no tickets are being picked up
             if let Ok(diag) = self.db.get_ready_ticket_diagnostics(
                 self.config.project_id.as_deref(),
-                self.config.agent_type,
+                &self.config.agent_id,
             ) {
                 if diag.total_ready > 0 {
                     tracing::debug!(
@@ -218,8 +218,8 @@ impl Worker {
                 app_handle: self.config.app_handle.clone(),
                 api_url: &self.config.api_url,
                 api_token: &self.config.api_token,
-                agent_kind: self.config.agent_type,
-                claude_api_config: self.config.resolve_claude_api_config(),
+                provider: self.config.provider.clone(),
+                agent_config: self.config.agent_config.clone(),
             },
         )
         .await
@@ -412,7 +412,7 @@ impl Worker {
             task: task.clone(),
             run_id: run.id.clone(),
             repo_path: working_path.clone(),
-            agent_kind: self.config.agent_type,
+            agent_id: self.config.agent_id.clone(),
             provider: self.config.provider.clone(),
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
@@ -422,8 +422,7 @@ impl Worker {
             branch_already_created,
             is_temp_branch,
             timeout_secs: self.config.agent_timeout_secs,
-            claude_api_config: self.config.resolve_claude_api_config(),
-            // Legacy fallback values (orchestrator prefers shared state)
+            agent_config: self.config.agent_config.clone(),
             code_review_max_iterations: resolved.code_review_max_iterations,
             stage_timeout_secs: resolved.stage_timeout_secs,
             stage_max_retries: resolved.stage_max_retries,
@@ -507,17 +506,36 @@ impl Worker {
 
 #[cfg(test)]
 mod tests {
-    use super::super::AgentKind;
     use super::*;
+    use crate::agents::claude::provider::ClaudeProvider;
+    use std::collections::HashMap;
+
+    fn create_test_worker_config() -> WorkerConfig {
+        WorkerConfig {
+            agent_id: "claude".to_string(),
+            provider: Arc::new(ClaudeProvider::new()),
+            project_id: None,
+            api_url: "http://localhost:7432".to_string(),
+            api_token: "test-token".to_string(),
+            poll_interval_secs: 10,
+            heartbeat_interval_secs: 30,
+            lock_duration_mins: 30,
+            agent_timeout_secs: 300,
+            hook_script_path: None,
+            app_handle: None,
+            agent_config: HashMap::new(),
+            code_review_max_iterations: 3,
+            stage_timeout_secs: 1800,
+            stage_max_retries: 2,
+            workflow_settings: None,
+        }
+    }
 
     #[test]
     fn worker_new_initializes_correctly() {
         let db = Arc::new(Database::open_in_memory().unwrap());
-        let config = WorkerConfig {
-            agent_type: AgentKind::Claude,
-            project_id: Some("proj-1".to_string()),
-            ..Default::default()
-        };
+        let mut config = create_test_worker_config();
+        config.project_id = Some("proj-1".to_string());
 
         let worker = Worker::new("test-worker".to_string(), config, db, None);
 
@@ -537,7 +555,8 @@ mod tests {
     #[test]
     fn worker_stop_sets_state() {
         let db = Arc::new(Database::open_in_memory().unwrap());
-        let worker = Worker::new("w1".to_string(), WorkerConfig::default(), db, None);
+        let config = create_test_worker_config();
+        let worker = Worker::new("w1".to_string(), config, db, None);
 
         worker.stop();
 

@@ -450,12 +450,12 @@ export function ProjectsList() {
               </div>
               <div className="flex flex-wrap gap-1 mt-1">
                 {project.cursorHooksInstalled && (
-                  <span className="text-xs bg-board-accent/20 text-board-accent px-1.5 py-0.5 rounded">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-board-accent/20 text-board-accent">
                     Cursor
                   </span>
                 )}
                 {project.claudeHooksInstalled && (
-                  <span className="text-xs bg-status-success/20 text-status-success px-1.5 py-0.5 rounded">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-status-success/20 text-status-success">
                     Claude
                   </span>
                 )}

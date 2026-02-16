@@ -7,7 +7,7 @@ use tauri::State;
 
 use crate::agents::validation::{validate_worker_environment, ValidationResult};
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
-use crate::agents::{claude, cursor, AgentKind, ClaudeApiConfig};
+use crate::agents::{claude, cursor, AgentRegistry};
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::commands::runs::RunningAgents;
 use crate::commands::workflow_settings::WorkflowSettingsState;
@@ -57,6 +57,7 @@ pub async fn start_worker(
     claude_api_state: State<'_, ClaudeApiSettingsState>,
     running_agents: State<'_, RunningAgents>,
     workflow_settings_state: State<'_, WorkflowSettingsState>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<StartWorkerResponse, String> {
     let StartWorkerRequest {
         agent_type,
@@ -72,11 +73,10 @@ pub async fn start_worker(
         project_id
     );
 
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        "claude" => AgentKind::Claude,
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
+    let agent_id = agent_type.clone();
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL").unwrap_or_else(|_| {
         format!(
@@ -91,28 +91,28 @@ pub async fn start_worker(
     let hook_script_path = get_hook_script_path(&app);
     tracing::info!("Worker hook script path: {:?}", hook_script_path);
 
-    let claude_api_config =
-        (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
-    let claude_api_settings =
-        (agent_kind == AgentKind::Claude).then(|| claude_api_state.shared());
+    let agent_config = claude_api_state.agent_config_for(&agent_id);
 
     // Pass the shared workflow settings so workers read the latest values at task time
     let workflow_settings = Some(workflow_settings_state.shared());
 
     let config = WorkerConfig {
-        agent_type: agent_kind,
+        agent_id,
+        provider,
         project_id,
         api_url,
         api_token,
+        poll_interval_secs: 10,
+        heartbeat_interval_secs: 60,
+        lock_duration_mins: 30,
+        agent_timeout_secs: 3600,
         hook_script_path,
         app_handle: Some(app.clone()),
-        claude_api_config,
-        claude_api_settings,
+        agent_config,
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
         stage_max_retries: stage_max_retries.unwrap_or(2),
         workflow_settings,
-        ..Default::default()
     };
 
     // Pass the shared cancel handles so worker runs can be cancelled via the API
@@ -196,16 +196,15 @@ pub async fn get_worker_queue_status(
 pub async fn validate_worker(
     agent_type: String,
     repo_path: String,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ValidationResult, String> {
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        "claude" => AgentKind::Claude,
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL").ok();
     let result =
-        validate_worker_environment(agent_kind, &PathBuf::from(&repo_path), api_url.as_deref());
+        validate_worker_environment(&*provider, &PathBuf::from(&repo_path), api_url.as_deref());
 
     Ok(result)
 }

@@ -12,11 +12,10 @@ pub use cancel::CancelHandle;
 pub use config::{INITIAL_BACKOFF_MS, MAX_TRANSIENT_RETRIES, TRANSIENT_ERROR_PATTERNS};
 pub use error::SpawnError;
 pub use executor::{
-    run_agent, run_agent_via_provider, run_agent_via_provider_with_cancel,
-    run_agent_with_cancel_callback, run_agent_with_capture, OnSpawnCallback,
+    run_agent_via_provider, run_agent_via_provider_with_cancel, OnSpawnCallback,
 };
 pub use process::AgentProcess;
-pub use utils::{build_env_vars, is_transient_error};
+pub use utils::is_transient_error;
 
 #[cfg(test)]
 mod tests {

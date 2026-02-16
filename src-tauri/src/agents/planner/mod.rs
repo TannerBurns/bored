@@ -280,7 +280,7 @@ impl PlannerAgent {
         max_attempts: u32,
     ) -> Result<String, PlannerError> {
         let config = AgentRunConfig {
-            kind: self.config.agent_kind,
+            agent_id: self.config.agent_id.clone(),
             ticket_id: spec.id.clone(),
             run_id: format!("planner-{}", uuid::Uuid::new_v4()),
             repo_path: self.config.repo_path.clone(),
@@ -289,13 +289,12 @@ impl PlannerAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
-            claude_api_config: self.config.claude_api_config.clone(),
-            agent_config: std::collections::HashMap::new(),
+            agent_config: self.config.agent_config.clone(),
         };
 
         tracing::info!(
             "Running {} agent for spec {} (phase: {}, attempt {}/{})",
-            self.config.agent_kind.as_str(),
+            self.config.agent_id,
             spec.id,
             phase,
             attempt,
@@ -328,8 +327,9 @@ impl PlannerAgent {
 
         // Run the agent in a blocking task to avoid blocking the async runtime
         // This allows SSE events to be processed while the agent is running
+        let provider = self.config.provider.clone();
         let result = tokio::task::spawn_blocking(move || {
-            spawner::run_agent_with_cancel_callback(config, log_callback, None)
+            spawner::run_agent_via_provider_with_cancel(&*provider, &config, log_callback, None)
         })
         .await
         .map_err(|e| PlannerError::ExplorationFailed(format!("Task join error: {}", e)))?

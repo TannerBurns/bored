@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { ClaudeIcon, CursorIcon, AgentFallbackIcon, getAgentIcon, CLAUDE_BRAND_COLOR } from './AgentIcons';
+import { ClaudeIcon, CursorIcon, AgentFallbackIcon, getAgentIcon, getAgentDisplayName, CLAUDE_BRAND_COLOR } from './AgentIcons';
 
 describe('ClaudeIcon', () => {
   it('renders with default size', () => {
@@ -116,6 +116,28 @@ describe('getAgentIcon', () => {
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute('width', '24');
+  });
+});
+
+describe('getAgentDisplayName', () => {
+  it('returns Cursor for cursor', () => {
+    expect(getAgentDisplayName('cursor')).toBe('Cursor');
+  });
+
+  it('returns Claude for claude', () => {
+    expect(getAgentDisplayName('claude')).toBe('Claude');
+  });
+
+  it('capitalizes unknown agent ID', () => {
+    expect(getAgentDisplayName('openai')).toBe('Openai');
+  });
+
+  it('capitalizes single letter', () => {
+    expect(getAgentDisplayName('x')).toBe('X');
+  });
+
+  it('handles empty string', () => {
+    expect(getAgentDisplayName('')).toBe('');
   });
 });
 

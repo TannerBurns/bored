@@ -16,6 +16,14 @@ impl AgentType {
             AgentType::Claude => "claude",
         }
     }
+
+    /// Parse an agent type string. Unknown values default to Cursor.
+    pub fn parse_agent(s: &str) -> Self {
+        match s {
+            "claude" => AgentType::Claude,
+            _ => AgentType::Cursor,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -150,6 +158,58 @@ mod tests {
         #[test]
         fn parse_invalid_returns_none() {
             assert_eq!(RunStatus::parse("unknown"), None);
+        }
+    }
+
+    mod agent_type_tests {
+        use super::*;
+
+        #[test]
+        fn as_str_returns_lowercase() {
+            assert_eq!(AgentType::Cursor.as_str(), "cursor");
+            assert_eq!(AgentType::Claude.as_str(), "claude");
+        }
+
+        #[test]
+        fn parse_agent_known_types() {
+            assert_eq!(AgentType::parse_agent("cursor"), AgentType::Cursor);
+            assert_eq!(AgentType::parse_agent("claude"), AgentType::Claude);
+        }
+
+        #[test]
+        fn parse_agent_unknown_defaults_to_cursor() {
+            assert_eq!(AgentType::parse_agent("unknown"), AgentType::Cursor);
+            assert_eq!(AgentType::parse_agent(""), AgentType::Cursor);
+            assert_eq!(AgentType::parse_agent("Claude"), AgentType::Cursor); // case-sensitive
+        }
+
+        #[test]
+        fn default_is_cursor() {
+            assert_eq!(AgentType::default(), AgentType::Cursor);
+        }
+
+        #[test]
+        fn serializes_lowercase() {
+            assert_eq!(
+                serde_json::to_string(&AgentType::Cursor).unwrap(),
+                "\"cursor\""
+            );
+            assert_eq!(
+                serde_json::to_string(&AgentType::Claude).unwrap(),
+                "\"claude\""
+            );
+        }
+
+        #[test]
+        fn deserializes_lowercase() {
+            assert_eq!(
+                serde_json::from_str::<AgentType>("\"cursor\"").unwrap(),
+                AgentType::Cursor
+            );
+            assert_eq!(
+                serde_json::from_str::<AgentType>("\"claude\"").unwrap(),
+                AgentType::Claude
+            );
         }
     }
 }

@@ -1,7 +1,6 @@
 //! Tests for ticket state transitions (pause, resume, etc.).
 
 use super::{create_test_db, setup_board_with_ready_ticket, temp_dir_path};
-use crate::agents::AgentKind;
 use crate::db::models::{CreateProject, CreateSpec, CreateTicket, Priority, WorkflowType};
 use crate::db::DbError;
 use chrono::{Duration, Utc};
@@ -240,7 +239,7 @@ fn reserve_next_ticket_skips_paused_tickets() {
 
     let expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "new-run", expires)
+        .reserve_next_ticket(None, "cursor", "new-run", expires)
         .unwrap();
 
     // Should skip paused t1 and reserve t2
@@ -258,7 +257,7 @@ fn reserve_next_ticket_returns_none_when_all_paused() {
 
     let expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
 
     assert!(reserved.is_none());

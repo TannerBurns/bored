@@ -68,3 +68,12 @@ export function getAgentIcon(agentType: string): React.ComponentType<IconProps> 
 
 // Claude brand color constant
 export const CLAUDE_BRAND_COLOR = '#da7756';
+
+/** Get a human-readable display name for any agent type. */
+export function getAgentDisplayName(agentType: string): string {
+  const names: Record<string, string> = {
+    cursor: 'Cursor',
+    claude: 'Claude',
+  };
+  return names[agentType] || agentType.charAt(0).toUpperCase() + agentType.slice(1);
+}

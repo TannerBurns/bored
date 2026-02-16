@@ -3,8 +3,9 @@
 use std::sync::Arc;
 use tauri::AppHandle;
 
+use crate::agents::provider::AgentProvider;
 use crate::agents::spawner;
-use crate::agents::{extract_agent_text, AgentKind, AgentRunConfig, ClaudeApiConfig};
+use crate::agents::AgentRunConfig;
 use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
 
 mod context;
@@ -25,11 +26,12 @@ pub async fn run_diagnostic_agent(
     api_url: &str,
     api_token: &str,
     model: Option<String>,
-    agent_kind: AgentKind,
-    claude_api_config: Option<ClaudeApiConfig>,
+    provider: Arc<dyn AgentProvider>,
+    agent_config: std::collections::HashMap<String, serde_json::Value>,
 ) -> Result<(), DiagnosticError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let ticket_id_owned = ticket_id.to_string();
+    let agent_id = provider.id().to_string();
 
     tracing::info!(
         "Starting diagnostic agent for ticket {}: error_type={:?}, operation={}",
@@ -38,10 +40,7 @@ pub async fn run_diagnostic_agent(
         context.operation
     );
 
-    let db_agent_type = match agent_kind {
-        AgentKind::Cursor => AgentType::Cursor,
-        AgentKind::Claude => AgentType::Claude,
-    };
+    let db_agent_type = AgentType::parse_agent(&agent_id);
 
     let run = db
         .create_run(&CreateRun {
@@ -59,8 +58,8 @@ pub async fn run_diagnostic_agent(
     }
 
     let prompt = build_diagnostic_prompt(&context);
-    let agent_config = AgentRunConfig {
-        kind: agent_kind,
+    let config = AgentRunConfig {
+        agent_id,
         ticket_id: ticket_id.to_string(),
         run_id: run_id.clone(),
         repo_path: context.repo_path.clone(),
@@ -69,11 +68,12 @@ pub async fn run_diagnostic_agent(
         api_url: api_url.to_string(),
         api_token: api_token.to_string(),
         model,
-        claude_api_config,
-        agent_config: std::collections::HashMap::new(),
+        agent_config,
     };
 
-    let result = tokio::task::spawn_blocking(move || spawner::run_agent(agent_config, None)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        spawner::run_agent_via_provider(&*provider, &config, None)
+    }).await;
 
     match result {
         Ok(Ok(agent_result)) => {
@@ -87,7 +87,7 @@ pub async fn run_diagnostic_agent(
             let extracted_text = agent_result
                 .captured_stdout
                 .as_ref()
-                .map(|output| extract_agent_text(output))
+                .map(|output| crate::agents::extract_agent_text(output))
                 .filter(|s| !s.is_empty());
 
             if let Err(e) = db.update_run_status(

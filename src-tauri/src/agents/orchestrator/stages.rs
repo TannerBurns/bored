@@ -8,8 +8,8 @@ use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::generate_command_prompt;
-use crate::agents::spawner::run_agent_with_capture;
-use crate::agents::{AgentKind, AgentRunConfig, AgentRunResult};
+use crate::agents::spawner::run_agent_via_provider_with_cancel;
+use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, AgentType, CreateRun, EventType, NormalizedEvent, RunStatus};
 
@@ -38,8 +38,6 @@ impl WorkflowOrchestrator {
                     backoff_secs
                 );
 
-                // Cancellation-aware sleep: check cancellation every second during backoff
-                // This ensures cancellation is responsive even during long retry delays
                 for _ in 0..backoff_secs {
                     if self.is_cancelled() {
                         tracing::info!("Stage '{}' backoff interrupted by cancellation", stage);
@@ -96,15 +94,15 @@ impl WorkflowOrchestrator {
             self.emit_stage_event(stage, "running", None, None);
         }
 
+        // Use agent_id string for DB storage
+        let db_agent_type = AgentType::parse_agent(&self.agent_id);
+
         // Create sub-run in database
         let sub_run = self
             .db
             .create_run(&CreateRun {
                 ticket_id: self.ticket.id.clone(),
-                agent_type: match self.agent_kind {
-                    AgentKind::Cursor => AgentType::Cursor,
-                    AgentKind::Claude => AgentType::Claude,
-                },
+                agent_type: db_agent_type,
                 repo_path: self.repo_path.to_string_lossy().to_string(),
                 parent_run_id: Some(self.parent_run_id.clone()),
                 stage: Some(stage.to_string()),
@@ -113,11 +111,8 @@ impl WorkflowOrchestrator {
             .map_err(|e| format!("Failed to create sub-run: {}", e))?;
 
         // Update project hooks with parent run configuration
-        // This ensures the hook script has the correct run_id for API calls
-        // We use the PARENT run_id so events are grouped under the main workflow run
         if let Err(e) = self.update_hooks_for_run() {
             tracing::warn!("Failed to update hooks for stage '{}': {}", stage, e);
-            // Continue anyway - hooks might work with existing configuration
         }
 
         // Update sub-run status to running
@@ -127,7 +122,7 @@ impl WorkflowOrchestrator {
 
         let stage_model = self.get_stage_model(stage);
         let config = AgentRunConfig {
-            kind: self.agent_kind,
+            agent_id: self.agent_id.clone(),
             ticket_id: self.ticket.id.clone(),
             run_id: sub_run.id.clone(),
             repo_path: self.repo_path.clone(),
@@ -136,8 +131,7 @@ impl WorkflowOrchestrator {
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
             model: Some(stage_model.clone()),
-            claude_api_config: self.claude_api_config.clone(),
-            agent_config: std::collections::HashMap::new(),
+            agent_config: self.agent_config.clone(),
         };
 
         // Create log callback
@@ -147,7 +141,6 @@ impl WorkflowOrchestrator {
         let cancel_handles = self.cancel_handles.clone();
         let sub_run_id_for_spawn = sub_run.id.clone();
         let sub_run_id_for_cleanup = sub_run.id.clone();
-        // Also register the parent run ID so cancelling the parent works
         let parent_run_id = self.parent_run_id.clone();
         let cancelled = self.cancelled.clone();
 
@@ -161,8 +154,6 @@ impl WorkflowOrchestrator {
                 .lock()
                 .expect("cancel handles mutex poisoned");
 
-            // Check if the previous handle for parent run was cancelled (cancellation between stages)
-            // If so, immediately cancel the new handle too to propagate the cancellation
             if let Some(prev_handle) = handles.get(&parent_run_id) {
                 if prev_handle.is_cancelled() {
                     tracing::info!(
@@ -173,15 +164,15 @@ impl WorkflowOrchestrator {
                 }
             }
 
-            // Register under both the sub-run ID and the parent run ID
             handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
             handles.insert(parent_run_id.clone(), cancel_handle);
         });
 
-        // Run the agent with capture
+        // Run the agent via provider
+        let provider = self.provider.clone();
         let start_time = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
-            run_agent_with_capture(config, Some(on_log), Some(on_spawn))
+            run_agent_via_provider_with_cancel(&*provider, &config, Some(on_log), Some(on_spawn))
         })
         .await
         .map_err(|e| format!("Stage task failed: {}", e))?
@@ -194,17 +185,14 @@ impl WorkflowOrchestrator {
                 .lock()
                 .expect("cancel handles mutex poisoned");
             handles.remove(&sub_run_id_for_cleanup);
-            // Don't remove the parent run ID handle yet - it will be updated with the next sub-run's handle
         }
 
-        // Check if we were cancelled during execution
         if result.status == RunOutcome::Cancelled {
             cancelled.store(true, Ordering::Relaxed);
         }
 
         let duration_secs = start_time.elapsed().as_secs_f64();
 
-        // Update sub-run status
         let status = match result.status {
             RunOutcome::Success => RunStatus::Finished,
             RunOutcome::Error => RunStatus::Error,
@@ -234,7 +222,6 @@ impl WorkflowOrchestrator {
             if result.status == RunOutcome::Success && !stdout.is_empty() {
                 let extracted_output = self.extract_text(stdout);
 
-                // Limit output size to avoid huge metadata (keep first 50KB)
                 let truncated_output = if extracted_output.len() > 50_000 {
                     let safe_boundary = extracted_output
                         .char_indices()
@@ -275,17 +262,12 @@ impl WorkflowOrchestrator {
 
     /// Create the log callback for a stage
     fn create_log_callback(&self, stage: &str) -> Arc<LogCallback> {
-        // Use PARENT run ID for both database storage and frontend events
-        // This ensures events can be retrieved using ticket.lockedByRunId
         let db_for_logs = self.db.clone();
         let window_for_logs = self.window.clone();
         let app_handle_for_logs = self.app_handle.clone();
         let parent_run_id_for_logs = self.parent_run_id.clone();
         let ticket_id_for_logs = self.ticket.id.clone();
-        let db_agent_type = match self.agent_kind {
-            AgentKind::Cursor => AgentType::Cursor,
-            AgentKind::Claude => AgentType::Claude,
-        };
+        let db_agent_type = AgentType::parse_agent(&self.agent_id);
         let stage_for_logs = stage.to_string();
 
         Arc::new(Box::new(move |log: LogLine| {
@@ -301,8 +283,6 @@ impl WorkflowOrchestrator {
                 log.content.len()
             );
 
-            // Store log to database with PARENT run ID
-            // This allows frontend to retrieve events using ticket.lockedByRunId
             let normalized_event = NormalizedEvent {
                 run_id: parent_run_id_for_logs.clone(),
                 ticket_id: ticket_id_for_logs.clone(),
@@ -318,8 +298,6 @@ impl WorkflowOrchestrator {
                 tracing::error!("Failed to persist log event: {}", e);
             }
 
-            // Emit to frontend for real-time display
-            // Use window if available (direct agent runs), otherwise use app_handle (worker runs)
             #[derive(serde::Serialize, Clone)]
             #[serde(rename_all = "camelCase")]
             struct AgentLogEvent {
@@ -426,8 +404,6 @@ impl WorkflowOrchestrator {
             }
         }
 
-        // We've completed max_iterations without finding 0 issues.
-        // Don't run an extra verification - respect the max_iterations setting.
         tracing::warn!(
             "Code review reached max iterations ({}) for ticket {} without resolving all issues",
             max_iterations,

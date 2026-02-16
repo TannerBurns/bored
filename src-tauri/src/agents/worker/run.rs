@@ -6,7 +6,6 @@ use crate::db::{AgentRun, AgentType, CreateRun, Database, RunStatus, Ticket};
 
 use super::super::runner::{self, CancelHandlesMap};
 use super::super::worktree::{self, WorktreeInfo};
-use super::super::AgentKind;
 use super::WorkerConfig;
 
 /// Create a new run or resume a paused one.
@@ -36,8 +35,6 @@ pub fn create_or_resume_run(
                     return Err(e.into());
                 }
 
-                // Remove the old cancelled handle so the orchestrator doesn't
-                // immediately detect cancellation
                 {
                     let mut handles = cancel_handles.lock().expect("cancel handles mutex poisoned");
                     if handles.remove(paused_run_id).is_some() {
@@ -76,10 +73,7 @@ fn create_new_run(
 ) -> Result<AgentRun, Box<dyn std::error::Error + Send + Sync>> {
     match db.create_run(&CreateRun {
         ticket_id: ticket.id.clone(),
-        agent_type: match config.agent_type {
-            AgentKind::Cursor => AgentType::Cursor,
-            AgentKind::Claude => AgentType::Claude,
-        },
+        agent_type: AgentType::parse_agent(&config.agent_id),
         repo_path: working_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: None,

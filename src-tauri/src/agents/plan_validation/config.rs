@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use std::collections::HashMap;
+
+use crate::agents::provider::AgentProvider;
 use crate::db::Database;
 
 /// Result of plan clarification validation
@@ -36,10 +38,12 @@ pub struct PlanValidationConfig {
     pub api_url: String,
     pub api_token: String,
     pub model: Option<String>,
-    /// The agent type to use for validation (Claude or Cursor)
-    pub agent_kind: AgentKind,
-    /// Claude API configuration (auth token, api key, base url, model override)
-    pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Agent ID string (e.g. "cursor", "claude").
+    pub agent_id: String,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Arc<dyn AgentProvider>,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    pub agent_config: HashMap<String, serde_json::Value>,
     /// Timeout for validation agent in seconds (uses stage timeout from settings)
     pub timeout_secs: u64,
 }

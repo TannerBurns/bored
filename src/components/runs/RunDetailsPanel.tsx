@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { EventTimeline } from '../timeline/EventTimeline';
 import { cn } from '../../lib/utils';
+import { getAgentDisplayName } from '../common/AgentIcons';
 import type { AgentRun, RunStatus } from '../../types';
 
 interface AgentLogEvent {
@@ -200,7 +201,7 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
     );
   }
 
-  const agentLabel = run.agentType === 'cursor' ? 'Cursor' : 'Claude';
+  const agentLabel = getAgentDisplayName(run.agentType);
   const statusColor = STATUS_COLORS[run.status] || 'bg-board-text-muted';
   const statusGlow = STATUS_GLOWS[run.status] || '';
 

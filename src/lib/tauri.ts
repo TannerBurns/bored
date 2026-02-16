@@ -377,25 +377,29 @@ export async function sendConversationMessage(
   specId: string,
   content: string,
   timeoutMinutes?: number,
-  agentType?: 'cursor' | 'claude'
+  agentType?: string
 ): Promise<ConversationMessage> {
   return invoke('send_conversation_message', {
-    specId,
-    content,
-    timeoutMinutes,
-    agentType: agentType ?? null,
+    input: {
+      specId,
+      content,
+      timeoutMinutes,
+      agentType: agentType ?? null,
+    },
   });
 }
 
 export async function startConversation(
   specId: string,
   timeoutMinutes?: number,
-  agentType?: 'cursor' | 'claude'
+  agentType?: string
 ): Promise<ConversationMessage> {
   return invoke('start_conversation', {
-    specId,
-    timeoutMinutes,
-    agentType: agentType ?? null,
+    input: {
+      specId,
+      timeoutMinutes,
+      agentType: agentType ?? null,
+    },
   });
 }
 

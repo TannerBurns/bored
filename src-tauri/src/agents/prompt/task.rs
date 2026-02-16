@@ -76,7 +76,7 @@ Focus on completing this specific task. Additional QA stages will follow.
 
 /// Generate a prompt for a preset task type by reading the command file
 fn generate_preset_task_prompt(preset_name: &str, repo_path: &Path) -> String {
-    // Try to read from various locations
+    // Search all known agent command directories for the preset file.
     let locations = [
         repo_path
             .join(".cursor/rules")

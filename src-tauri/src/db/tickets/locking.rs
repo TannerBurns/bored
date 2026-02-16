@@ -1,4 +1,4 @@
-use crate::agents::AgentKind;
+// Agent type parameter kept for API compatibility but unused in SQL query
 use crate::db::models::Ticket;
 use crate::db::{Database, DbError};
 use chrono::{DateTime, Utc};
@@ -158,7 +158,7 @@ impl Database {
     pub fn reserve_next_ticket(
         &self,
         project_filter: Option<&str>,
-        _agent_type: AgentKind,
+        _agent_id: &str,
         run_id: &str,
         lock_expires_at: DateTime<Utc>,
     ) -> Result<Option<Ticket>, DbError> {
@@ -221,7 +221,7 @@ impl Database {
     pub fn get_ready_ticket_diagnostics(
         &self,
         project_filter: Option<&str>,
-        _agent_type: AgentKind,
+        _agent_id: &str,
     ) -> Result<ReadyTicketDiagnostics, DbError> {
         self.with_conn(|conn| {
             let now_str = Utc::now().to_rfc3339();

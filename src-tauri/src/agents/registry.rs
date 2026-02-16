@@ -86,6 +86,15 @@ mod tests {
         fn get_version(&self) -> Option<String> {
             None
         }
+        fn config_dir_name(&self) -> &str {
+            ".stub"
+        }
+        fn command_instructions_subdir(&self) -> &str {
+            "commands"
+        }
+        fn format_command_reference(&self, command: &str) -> String {
+            format!("/{}", command)
+        }
         fn install_hooks_for_run(
             &self,
             _repo_path: &Path,

@@ -1,33 +1,30 @@
 import { useState, useEffect } from 'react';
-import { getCursorStatus, getClaudeStatus } from '../lib/tauri';
+import { getAvailableAgents } from '../lib/tauri';
 
 interface CliAvailability {
-  cursorAvailable: boolean;
-  claudeAvailable: boolean;
+  availability: Record<string, boolean>;
   loading: boolean;
 }
 
 /**
- * Hook to check CLI availability for Cursor and Claude agents.
- * Returns availability status for both CLIs, defaulting to unavailable on error.
+ * Hook to check CLI availability for all registered agents.
+ * Returns a record keyed by agent ID mapping to availability status.
  */
 export function useCliAvailability(): CliAvailability {
-  const [cursorAvailable, setCursorAvailable] = useState<boolean>(false);
-  const [claudeAvailable, setClaudeAvailable] = useState<boolean>(false);
+  const [availability, setAvailability] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkAvailability = async () => {
       try {
-        const [cursorStatus, claudeStatus] = await Promise.all([
-          getCursorStatus(),
-          getClaudeStatus(),
-        ]);
-        setCursorAvailable(cursorStatus.isAvailable);
-        setClaudeAvailable(claudeStatus.isAvailable);
+        const agents = await getAvailableAgents();
+        const map: Record<string, boolean> = {};
+        for (const agent of agents) {
+          map[agent.id] = agent.isAvailable;
+        }
+        setAvailability(map);
       } catch {
-        setCursorAvailable(false);
-        setClaudeAvailable(false);
+        setAvailability({});
       } finally {
         setLoading(false);
       }
@@ -35,5 +32,5 @@ export function useCliAvailability(): CliAvailability {
     checkAvailability();
   }, []);
 
-  return { cursorAvailable, claudeAvailable, loading };
+  return { availability, loading };
 }

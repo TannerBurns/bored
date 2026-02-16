@@ -64,7 +64,7 @@ impl BrainstormAgent {
 
     async fn run_agent(&self, prompt: &str) -> Result<String, BrainstormError> {
         let run_config = AgentRunConfig {
-            kind: self.config.agent_kind,
+            agent_id: self.config.agent_id.clone(),
             ticket_id: format!("brainstorm-{}", self.config.spec_id),
             run_id: format!(
                 "brainstorm-{}-{}",
@@ -77,11 +77,9 @@ impl BrainstormAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
-            claude_api_config: self.config.claude_api_config.clone(),
-            agent_config: std::collections::HashMap::new(),
+            agent_config: self.config.agent_config.clone(),
         };
 
-        // Create a log callback that broadcasts log entries in real-time
         let tx_clone = self.event_tx.clone();
         let spec_id = self.config.spec_id.clone();
 
@@ -101,8 +99,10 @@ impl BrainstormAgent {
             }
         })));
 
-        // run_agent is synchronous, so we need to run it in a blocking task
-        let result = tokio::task::spawn_blocking(move || spawner::run_agent(run_config, log_callback))
+        let provider = self.config.provider.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            spawner::run_agent_via_provider(&*provider, &run_config, log_callback)
+        })
             .await
             .map_err(|e| BrainstormError::AgentFailed(format!("Task join error: {}", e)))?
             .map_err(|e| BrainstormError::AgentFailed(e.to_string()))?;
@@ -145,7 +145,7 @@ impl BrainstormAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::AgentKind;
+    use crate::agents::claude::provider::ClaudeProvider;
     use std::path::PathBuf;
 
     fn create_test_agent() -> BrainstormAgent {
@@ -159,8 +159,9 @@ mod tests {
                 repo_path: PathBuf::from("/tmp"),
                 api_url: "http://localhost".to_string(),
                 api_token: "token".to_string(),
-                claude_api_config: None,
-                agent_kind: AgentKind::Claude,
+                agent_config: std::collections::HashMap::new(),
+                agent_id: "claude".to_string(),
+                provider: Arc::new(ClaudeProvider::new()),
                 model: None,
                 timeout_secs: 60,
             },

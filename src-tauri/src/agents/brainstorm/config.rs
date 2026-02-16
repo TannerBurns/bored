@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use crate::db::StructuredSpec;
 
-use super::super::{AgentKind, ClaudeApiConfig};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::agents::provider::AgentProvider;
 
 #[derive(Debug, Clone)]
 pub struct BrainstormConfig {
@@ -13,8 +16,12 @@ pub struct BrainstormConfig {
     pub repo_path: PathBuf,
     pub api_url: String,
     pub api_token: String,
-    pub claude_api_config: Option<ClaudeApiConfig>,
-    pub agent_kind: AgentKind,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    pub agent_config: HashMap<String, serde_json::Value>,
+    /// Agent ID string (e.g. "cursor", "claude").
+    pub agent_id: String,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Arc<dyn AgentProvider>,
     pub model: Option<String>,
     pub timeout_secs: u64,
 }

@@ -9,9 +9,10 @@ use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::prompt::{
     generate_branch_name_generation_prompt, parse_branch_name_from_output,
 };
-use crate::agents::spawner::{run_agent_with_capture, CancelHandle};
+use crate::agents::spawner::CancelHandle;
 use crate::agents::{
-    self, cursor, extract_text_from_stream_json, AgentKind, AgentRunConfig, ClaudeApiConfig,
+    self, extract_text_from_stream_json, run_agent_via_provider, AgentProvider, AgentRegistry,
+    AgentRunConfig,
 };
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::db::models::{AgentRun, AgentRunWithContext, AgentType, CreateRun, RunStatus};
@@ -53,7 +54,7 @@ fn update_project_hooks_for_run(
     api_url: &str,
     api_token: &str,
     run_id: &str,
-    agent_kind: AgentKind,
+    provider: &dyn AgentProvider,
 ) -> Result<(), String> {
     tracing::debug!(
         "Updating project hooks: run_id={}, api_url={}, token_prefix={}...",
@@ -62,24 +63,15 @@ fn update_project_hooks_for_run(
         &api_token.chars().take(8).collect::<String>()
     );
 
-    match agent_kind {
-        AgentKind::Cursor => cursor::install_hooks_with_run_id(
+    provider
+        .install_hooks_for_run(
             repo_path,
             hook_script_path,
             Some(api_url),
             Some(api_token),
             Some(run_id),
         )
-        .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e)),
-        AgentKind::Claude => agents::claude::install_local_hooks_with_run_id(
-            repo_path,
-            hook_script_path,
-            Some(api_url),
-            Some(api_token),
-            Some(run_id),
-        )
-        .map_err(|e| format!("Failed to update Claude settings.local.json: {}", e)),
-    }
+        .map_err(|e| format!("Failed to update project hooks: {}", e))
 }
 
 /// Generate a branch name using AI via a quick agent call
@@ -89,7 +81,8 @@ fn update_project_hooks_for_run(
 async fn generate_ai_branch_name(
     ticket: &crate::db::Ticket,
     repo_path: &std::path::Path,
-    agent_kind: AgentKind,
+    agent_id: &str,
+    provider: Arc<dyn AgentProvider>,
     db: Arc<Database>,
     _window: Option<&Window>,
 ) -> Option<String> {
@@ -104,10 +97,7 @@ async fn generate_ai_branch_name(
     // Create a temporary sub-run for the branch generation stage
     let sub_run = db.create_run(&CreateRun {
         ticket_id: ticket.id.clone(),
-        agent_type: match agent_kind {
-            AgentKind::Cursor => AgentType::Cursor,
-            AgentKind::Claude => AgentType::Claude,
-        },
+        agent_type: AgentType::parse_agent(agent_id),
         repo_path: repo_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: Some("branch-gen".to_string()),
@@ -122,7 +112,7 @@ async fn generate_ai_branch_name(
     let model: Option<String> = None; // build_command defaults to opus-4.6
 
     let config = AgentRunConfig {
-        kind: agent_kind,
+        agent_id: agent_id.to_string(),
         ticket_id: ticket.id.clone(),
         run_id: run_id.clone(),
         repo_path: repo_path.to_path_buf(),
@@ -131,13 +121,14 @@ async fn generate_ai_branch_name(
         api_url: String::new(),
         api_token: String::new(),
         model,
-        claude_api_config: None,
         agent_config: std::collections::HashMap::new(),
     };
 
     // Run synchronously in a blocking task
-    let result =
-        tokio::task::spawn_blocking(move || run_agent_with_capture(config, None, None)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        run_agent_via_provider(&*provider, &config, None)
+    })
+    .await;
 
     match result {
         Ok(Ok(agent_result)) => {
@@ -274,6 +265,7 @@ pub async fn start_agent_run(
     running_agents: State<'_, RunningAgents>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
     workflow_settings_state: State<'_, crate::commands::workflow_settings::WorkflowSettingsState>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
     let StartRunInput {
         ticket_id,
@@ -293,18 +285,13 @@ pub async fn start_agent_run(
         repo_path
     );
 
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        "claude" => AgentKind::Claude,
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
-    let db_agent_type = match agent_kind {
-        AgentKind::Cursor => AgentType::Cursor,
-        AgentKind::Claude => AgentType::Claude,
-    };
+    let agent_id = agent_type.clone();
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
+    let db_agent_type = AgentType::parse_agent(&agent_id);
 
-    let claude_api_config =
-        (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
+    let agent_config = claude_api_state.agent_config_for(&agent_id);
 
     let ticket = db
         .get_ticket(&ticket_id)
@@ -408,7 +395,8 @@ pub async fn start_agent_run(
             let ai_branch = generate_ai_branch_name(
                 &ticket,
                 &repo_path_buf,
-                agent_kind,
+                &agent_id,
+                provider.clone(),
                 db.inner().clone(),
                 Some(&window),
             )
@@ -539,7 +527,7 @@ pub async fn start_agent_run(
             &api_url,
             &api_token,
             &run_id,
-            agent_kind,
+            &*provider,
         ) {
             tracing::warn!("Failed to update project hooks: {}", e);
             // Continue anyway - hooks might already be configured or not needed
@@ -586,7 +574,9 @@ pub async fn start_agent_run(
         let db_for_heartbeat = db.inner().clone();
         let ticket_id_for_heartbeat = ticket_id.clone();
         let run_id_for_heartbeat = run_id.clone();
-        let claude_api_config_for_orchestrator = claude_api_config.clone();
+        let agent_config_for_orchestrator = agent_config.clone();
+        let provider_for_orchestrator = provider.clone();
+        let agent_id_for_orchestrator = agent_id.clone();
 
         tauri::async_runtime::spawn(async move {
             if let Err(e) =
@@ -706,8 +696,8 @@ pub async fn start_agent_run(
                 ticket: ticket_for_orchestrator.clone(),
                 task: task.clone(),
                 repo_path: orchestrator_working_path,
-                agent_kind,
-                provider: None, // TODO: resolve from registry once commands are fully wired
+                agent_id: agent_id_for_orchestrator,
+                provider: provider_for_orchestrator,
                 api_url: api_url_for_orchestrator,
                 api_token: api_token_for_orchestrator,
                 hook_script_path: hook_script_path_for_orchestrator,
@@ -715,7 +705,7 @@ pub async fn start_agent_run(
                 worktree_branch,
                 branch_already_created,
                 is_temp_branch: false,
-                claude_api_config: claude_api_config_for_orchestrator,
+                agent_config: agent_config_for_orchestrator,
                 resume_from_stage,
                 previous_run_id,
                 // Source of truth — orchestrator reads directly from this

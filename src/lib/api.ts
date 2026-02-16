@@ -100,7 +100,7 @@ class ApiClient {
     return this.request<Ticket>('POST', `/v1/tickets/${ticketId}/move`, { columnId });
   }
 
-  async reserveTicket(ticketId: string, agentType: 'cursor' | 'claude', repoPath?: string) {
+  async reserveTicket(ticketId: string, agentType: string, repoPath?: string) {
     return this.request<ReservationResponse>('POST', `/v1/tickets/${ticketId}/reserve`, {
       agentType,
       repoPath,
@@ -150,7 +150,7 @@ class ApiClient {
   }
 
   // Queue
-  async getNextTicket(agentType: 'cursor' | 'claude', repoPath?: string, boardId?: string) {
+  async getNextTicket(agentType: string, repoPath?: string, boardId?: string) {
     return this.request<QueueNextResponse>('POST', '/v1/queue/next', {
       agentType,
       repoPath,
@@ -231,7 +231,7 @@ interface UpdateTicketRequest {
 interface AgentRun {
   id: string;
   ticketId: string;
-  agentType: 'cursor' | 'claude';
+  agentType: string;
   repoPath: string;
   status: 'queued' | 'running' | 'finished' | 'error' | 'aborted';
   startedAt: string;

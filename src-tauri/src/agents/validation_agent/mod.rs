@@ -13,9 +13,9 @@ mod prompts;
 pub use app_process::{AppProcessManager, StartResult};
 use prompts::{build_conversation_prompt, build_initial_prompt};
 use crate::agents::log_utils::extract_log_display_message;
+use crate::agents::provider::AgentProvider;
 use crate::agents::spawner;
 use crate::agents::{extract_agent_text, AgentRunConfig, LogCallback, LogLine};
-use crate::agents::{AgentKind, ClaudeApiConfig};
 
 /// Configuration for the validation agent
 #[derive(Debug, Clone)]
@@ -25,8 +25,9 @@ pub struct ValidationAgentConfig {
     pub api_url: String,
     pub api_token: String,
     pub model: Option<String>,
-    pub claude_api_config: Option<ClaudeApiConfig>,
-    pub agent_kind: AgentKind,
+    pub agent_id: String,
+    pub provider: Arc<dyn AgentProvider>,
+    pub agent_config: std::collections::HashMap<String, serde_json::Value>,
     pub ticket_title: String,
     pub ticket_description: String,
     pub branch_diff: String,
@@ -70,7 +71,7 @@ impl ValidationAgent {
 
     async fn run_agent(&self, prompt: &str) -> Result<String, String> {
         let run_config = AgentRunConfig {
-            kind: self.config.agent_kind,
+            agent_id: self.config.agent_id.clone(),
             ticket_id: format!("validation-{}", self.config.session_id),
             run_id: format!(
                 "validation-{}-{}",
@@ -83,8 +84,7 @@ impl ValidationAgent {
             api_url: self.config.api_url.clone(),
             api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
-            claude_api_config: self.config.claude_api_config.clone(),
-            agent_config: std::collections::HashMap::new(),
+            agent_config: self.config.agent_config.clone(),
         };
 
         let tx = self.event_tx.clone();
@@ -104,8 +104,9 @@ impl ValidationAgent {
             }
         })));
 
+        let provider = self.config.provider.clone();
         let result = tokio::task::spawn_blocking(move || {
-            spawner::run_agent(run_config, log_callback)
+            spawner::run_agent_via_provider(&*provider, &run_config, log_callback)
         })
         .await
         .map_err(|e| format!("Validation agent task join error: {}", e))?

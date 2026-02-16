@@ -72,6 +72,19 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     /// Get the agent CLI version string, if available.
     fn get_version(&self) -> Option<String>;
 
+    // ── Directory configuration ─────────────────────────────────────
+
+    /// The dot-directory name this agent uses (e.g. ".cursor", ".claude").
+    fn config_dir_name(&self) -> &str;
+
+    /// Subdirectory under `config_dir_name()` where command instruction files
+    /// live in a repo. For Cursor this is "rules", for Claude this is "commands".
+    fn command_instructions_subdir(&self) -> &str;
+
+    /// Format a command reference as this agent expects it in a prompt.
+    /// e.g. Cursor returns "/deslop", Claude returns ".claude/commands/deslop.md".
+    fn format_command_reference(&self, command: &str) -> String;
+
     // ── Hooks ───────────────────────────────────────────────────────
 
     /// Install project-level hooks for a specific run.
@@ -86,4 +99,55 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         api_token: Option<&str>,
         run_id: Option<&str>,
     ) -> Result<(), String>;
+
+    /// Check whether hooks are installed at the global/user level.
+    fn check_hooks_installed_global(&self) -> bool {
+        false
+    }
+
+    /// Check whether hooks are installed for a specific project.
+    fn check_hooks_installed_project(&self, _repo_path: &Path) -> bool {
+        false
+    }
+
+    // ── Commands checking and installation ───────────────────────────
+
+    /// Check whether command templates are installed in a project.
+    fn check_commands_installed_project(&self, _repo_path: &Path) -> bool {
+        false
+    }
+
+    /// Check whether command templates are installed at the user level.
+    fn check_commands_installed_user(&self) -> bool {
+        false
+    }
+
+    /// Install command templates into a project directory.
+    fn install_commands_to_project(
+        &self,
+        _repo_path: &Path,
+        _commands_source: &Path,
+    ) -> Result<Vec<String>, String> {
+        Ok(vec![])
+    }
+
+    /// Install command templates to the user-level directory.
+    fn install_commands_to_user(
+        &self,
+        _commands_source: &Path,
+    ) -> Result<Vec<String>, String> {
+        Ok(vec![])
+    }
+
+    /// Get the path to bundled command templates (dev builds).
+    fn get_bundled_commands_path(&self) -> Option<PathBuf> {
+        let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("scripts")
+            .join("commands");
+        if dev_path.exists() {
+            Some(dev_path)
+        } else {
+            None
+        }
+    }
 }

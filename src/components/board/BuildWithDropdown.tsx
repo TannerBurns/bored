@@ -24,7 +24,7 @@ export function BuildWithDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
-  const { cursorAvailable, claudeAvailable } = useCliAvailability();
+  const { availability } = useCliAvailability();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -93,8 +93,8 @@ export function BuildWithDropdown({
   const agentList: { id: AgentType; name: string; available: boolean }[] = agents
     ? agents.map((a) => ({ id: a.id as AgentType, name: a.displayName, available: a.isAvailable }))
     : [
-        { id: 'cursor', name: 'Cursor', available: cursorAvailable },
-        { id: 'claude', name: 'Claude', available: claudeAvailable },
+        { id: 'cursor', name: 'Cursor', available: availability['cursor'] ?? false },
+        { id: 'claude', name: 'Claude', available: availability['claude'] ?? false },
       ];
 
   return (

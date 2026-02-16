@@ -94,6 +94,17 @@ impl ClaudeApiSettingsState {
             .clone()
     }
 
+    /// Build an agent_config map from the current Claude API settings.
+    /// Returns an empty map if the agent is not "claude".
+    pub fn agent_config_for(&self, agent_id: &str) -> std::collections::HashMap<String, serde_json::Value> {
+        if agent_id == "claude" {
+            crate::agents::claude::provider::ClaudeApiConfig::from(self.get())
+                .to_agent_config()
+        } else {
+            std::collections::HashMap::new()
+        }
+    }
+
     /// Set settings in memory. Does not persist to disk.
     /// Use `set_and_persist` if disk persistence is required.
     pub fn set(&self, settings: ClaudeApiSettings) {
@@ -679,5 +690,44 @@ mod tests {
         std::env::remove_var("AGENT_KANBAN_API_URL");
         let result = get_api_url(None);
         assert_eq!(result, DEFAULT_API_URL);
+    }
+
+    // ── agent_config_for tests ──────────────────────────────────────
+
+    #[test]
+    fn agent_config_for_claude_returns_populated_map() {
+        let state = ClaudeApiSettingsState::new();
+        state.set(ClaudeApiSettings {
+            auth_token: Some("tok".to_string()),
+            thinking_enabled: Some(true),
+            ..Default::default()
+        });
+        let config = state.agent_config_for("claude");
+        assert_eq!(
+            config.get("auth_token").and_then(|v| v.as_str()),
+            Some("tok")
+        );
+        assert_eq!(
+            config.get("thinking_enabled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn agent_config_for_non_claude_returns_empty() {
+        let state = ClaudeApiSettingsState::new();
+        state.set(ClaudeApiSettings {
+            auth_token: Some("tok".to_string()),
+            ..Default::default()
+        });
+        let config = state.agent_config_for("cursor");
+        assert!(config.is_empty());
+    }
+
+    #[test]
+    fn agent_config_for_unknown_agent_returns_empty() {
+        let state = ClaudeApiSettingsState::new();
+        let config = state.agent_config_for("some-new-agent");
+        assert!(config.is_empty());
     }
 }

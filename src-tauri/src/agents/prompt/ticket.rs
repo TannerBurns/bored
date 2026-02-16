@@ -1,25 +1,25 @@
 //! Ticket prompt generation functions.
 
 use super::utils::slugify;
-use crate::agents::AgentKind;
+use crate::agents::provider::AgentProvider;
 use crate::db::models::{Priority, Ticket};
 
 pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
     generate_ticket_prompt_with_workflow(ticket, None)
 }
 
-/// Generate a ticket prompt with optional workflow instructions for the given agent type
+/// Generate a ticket prompt with optional workflow instructions for the given agent provider
 pub fn generate_ticket_prompt_with_workflow(
     ticket: &Ticket,
-    agent_kind: Option<AgentKind>,
+    provider: Option<&dyn AgentProvider>,
 ) -> String {
-    generate_ticket_prompt_full(ticket, agent_kind, true)
+    generate_ticket_prompt_full(ticket, provider, true)
 }
 
 /// Generate a ticket prompt with full control over workflow options
 pub fn generate_ticket_prompt_full(
     ticket: &Ticket,
-    agent_kind: Option<AgentKind>,
+    provider: Option<&dyn AgentProvider>,
     requires_git: bool,
 ) -> String {
     let mut prompt = String::new();
@@ -53,7 +53,7 @@ pub fn generate_ticket_prompt_full(
         prompt.push('\n');
     }
 
-    if let Some(kind) = agent_kind {
+    if let Some(p) = provider {
         prompt.push_str("## Workflow\n\n");
 
         let mut step = 1;
@@ -74,39 +74,29 @@ pub fn generate_ticket_prompt_full(
             step
         ));
 
-        match kind {
-            AgentKind::Cursor => {
-                prompt.push_str("   - `/deslop` - Remove AI-generated code patterns\n");
-                prompt.push_str("   - `/cleanup` - Fix lint/type errors\n");
-                prompt.push_str("   - `/unit-tests` - Add test coverage for your changes\n");
-                prompt.push_str("   - `/cleanup` - Fix any test-related issues\n");
-                prompt.push_str("   - `/review-changes` - Apply best practices\n");
-                prompt.push_str("   - `/cleanup` - Final lint pass\n");
-                prompt.push_str("   - `/review-changes` - Second review pass\n");
-                if requires_git {
-                    prompt.push_str(
-                        "   - `/add-and-commit` - Stage and commit with detailed message\n",
-                    );
-                }
-            }
-            AgentKind::Claude => {
-                prompt.push_str("   Read and follow each command file in order:\n");
-                prompt.push_str(
-                    "   - `.claude/commands/deslop.md` - Remove AI-generated code patterns\n",
-                );
-                prompt.push_str("   - `.claude/commands/cleanup.md` - Fix lint/type errors\n");
-                prompt.push_str("   - `.claude/commands/unit-tests.md` - Add test coverage\n");
-                prompt.push_str("   - `.claude/commands/cleanup.md` - Fix test-related issues\n");
-                prompt
-                    .push_str("   - `.claude/commands/review-changes.md` - Apply best practices\n");
-                prompt.push_str("   - `.claude/commands/cleanup.md` - Final lint pass\n");
-                prompt.push_str("   - `.claude/commands/review-changes.md` - Second review pass\n");
-                if requires_git {
-                    prompt
-                        .push_str("   - `.claude/commands/add-and-commit.md` - Stage and commit\n");
-                }
-            }
+        let descriptions = [
+            ("deslop", "Remove AI-generated code patterns"),
+            ("cleanup", "Fix lint/type errors"),
+            ("unit-tests", "Add test coverage for your changes"),
+            ("cleanup", "Fix any test-related issues"),
+            ("review-changes", "Apply best practices"),
+            ("cleanup", "Final lint pass"),
+            ("review-changes", "Second review pass"),
+        ];
+
+        for (command, description) in &descriptions {
+            let reference = p.format_command_reference(command);
+            prompt.push_str(&format!("   - `{}` - {}\n", reference, description));
         }
+
+        if requires_git {
+            let commit_ref = p.format_command_reference("add-and-commit");
+            prompt.push_str(&format!(
+                "   - `{}` - Stage and commit with detailed message\n",
+                commit_ref
+            ));
+        }
+
         prompt.push('\n');
     } else {
         prompt.push_str("## Instructions\n\n");
@@ -253,6 +243,8 @@ Just implement the core functionality as described in the plan.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::claude::provider::ClaudeProvider;
+    use crate::agents::cursor::provider::CursorProvider;
     use crate::db::models::WorkflowType;
     use chrono::Utc;
 
@@ -395,7 +387,8 @@ mod tests {
     #[test]
     fn generate_ticket_prompt_with_workflow_cursor() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
         assert!(prompt.contains("## Workflow"));
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains("/deslop"));
@@ -408,7 +401,8 @@ mod tests {
     #[test]
     fn generate_ticket_prompt_with_workflow_claude() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Claude));
+        let claude = ClaudeProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&claude));
         assert!(prompt.contains("## Workflow"));
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains(".claude/commands/deslop.md"));
@@ -431,19 +425,18 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.id = "abc12345-full-id".to_string();
         ticket.title = "Add User Authentication".to_string();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
         assert!(prompt.contains("ticket/abc12345/add-user-authentication"));
     }
 
     #[test]
     fn generate_ticket_prompt_with_workflow_handles_multibyte_utf8_id() {
-        // Test that multi-byte UTF-8 characters in ticket ID don't cause panic
         let mut ticket = create_test_ticket();
-        // 🎉 is 4 bytes, so this ID has multi-byte chars that could cause issues with byte slicing
         ticket.id = "🎉🚀ab12".to_string();
         ticket.title = "Test Feature".to_string();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
-        // Should contain the full 4 chars (2 emoji + "ab") since we take up to 8 chars
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
         assert!(prompt.contains("ticket/🎉🚀ab12/test-feature"));
     }
 
@@ -452,25 +445,26 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.id = "abc".to_string();
         ticket.title = "Short ID Test".to_string();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
         assert!(prompt.contains("ticket/abc/short-id-test"));
     }
 
     #[test]
     fn generate_ticket_prompt_with_workflow_handles_mixed_utf8_id() {
         let mut ticket = create_test_ticket();
-        // Mix of ASCII and multi-byte chars to test boundary handling
         ticket.id = "a🎉bcdefgh".to_string();
         ticket.title = "Mixed Test".to_string();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(AgentKind::Cursor));
-        // Takes first 8 chars: a, 🎉, b, c, d, e, f, g
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
         assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
     }
 
     #[test]
     fn generate_ticket_prompt_full_without_git_cursor() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), false);
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), false);
 
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
@@ -489,7 +483,8 @@ mod tests {
     #[test]
     fn generate_ticket_prompt_full_without_git_claude() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Claude), false);
+        let claude = ClaudeProvider::new();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&claude), false);
 
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
@@ -507,7 +502,8 @@ mod tests {
     #[test]
     fn generate_ticket_prompt_full_with_git_includes_all_steps() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(AgentKind::Cursor), true);
+        let cursor = CursorProvider::new();
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), true);
 
         // Should have all workflow steps including git
         assert!(prompt.contains("Create a branch:"));

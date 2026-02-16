@@ -1,4 +1,4 @@
-//! Multi-stage workflow orchestrator for chaining Claude CLI calls.
+//! Multi-stage workflow orchestrator for chaining agent CLI calls.
 //!
 //! This module is split into focused submodules:
 //! - `config`: Configuration types and constants
@@ -15,11 +15,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Window};
 
-use super::claude as claude_hooks;
-use super::cursor as cursor_hooks;
 use super::provider::AgentProvider;
 use super::spawner::CancelHandle;
-use super::{AgentKind, ClaudeApiConfig};
 use crate::commands::runs::StageConfig;
 use crate::db::models::Task;
 use crate::db::{Database, Ticket};
@@ -52,10 +49,10 @@ pub struct WorkflowOrchestrator {
     /// The task being executed. If None, falls back to legacy ticket-based workflow.
     task: Option<Task>,
     repo_path: PathBuf,
-    agent_kind: AgentKind,
+    /// Agent ID string (e.g. "cursor", "claude").
+    agent_id: String,
     /// Agent provider for agent-agnostic dispatch (text extraction, cost, hooks).
-    /// When set, provider methods are used instead of hardcoded agent checks.
-    provider: Option<Arc<dyn AgentProvider>>,
+    provider: Arc<dyn AgentProvider>,
     api_url: String,
     api_token: String,
     hook_script_path: Option<String>,
@@ -70,8 +67,8 @@ pub struct WorkflowOrchestrator {
     branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     is_temp_branch: bool,
-    /// Claude API configuration (auth token, api key, base url, model override)
-    claude_api_config: Option<ClaudeApiConfig>,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    agent_config: HashMap<String, serde_json::Value>,
     /// Maximum iterations for the code review loop
     code_review_max_iterations: usize,
     /// Timeout per workflow stage in seconds
@@ -173,7 +170,7 @@ impl WorkflowOrchestrator {
             ticket: config.ticket,
             task: config.task,
             repo_path: config.repo_path,
-            agent_kind: config.agent_kind,
+            agent_id: config.agent_id,
             provider: config.provider,
             api_url: config.api_url,
             api_token: config.api_token,
@@ -183,7 +180,7 @@ impl WorkflowOrchestrator {
             worktree_branch: config.worktree_branch,
             branch_already_created: config.branch_already_created,
             is_temp_branch: config.is_temp_branch,
-            claude_api_config: config.claude_api_config,
+            agent_config: config.agent_config,
             code_review_max_iterations,
             stage_timeout_secs,
             stage_max_retries,
@@ -194,14 +191,10 @@ impl WorkflowOrchestrator {
     }
 
     /// Check if a stage should be skipped due to resumption.
-    /// Returns true if we're resuming and haven't reached the resume stage yet.
     fn should_skip_stage(&self, stage: &str) -> bool {
         match &self.resume_from_stage {
-            None => false, // Not resuming, don't skip anything
+            None => false,
             Some(resume_stage) => {
-                // Define the stage order. Stages before the resume point are skipped.
-                // This includes both the main workflow stages and the code-review stages.
-                // Must match the order in useAgentEvents.ts handlePauseTicket()
                 let stage_order = [
                     "branch-gen",
                     "branch",
@@ -220,15 +213,12 @@ impl WorkflowOrchestrator {
                     "add-and-commit",
                 ];
 
-                // Find the index of the resume stage
                 let resume_idx = stage_order.iter().position(|&s| s == resume_stage);
-                // Find the index of the current stage
                 let current_idx = stage_order.iter().position(|&s| s == stage);
 
                 match (resume_idx, current_idx) {
                     (Some(resume), Some(current)) => current < resume,
                     _ => {
-                        // Unknown stage, don't skip to be safe
                         tracing::warn!(
                             "Unknown stage for resumption check: stage={}, resume_from={}",
                             stage,
@@ -241,7 +231,7 @@ impl WorkflowOrchestrator {
         }
     }
 
-    /// Emit an event to the frontend, using window if available, otherwise app_handle
+    /// Emit an event to the frontend
     fn emit_event<S: serde::Serialize + Clone>(
         &self,
         event_name: &str,
@@ -256,25 +246,17 @@ impl WorkflowOrchestrator {
                 .emit(event_name, payload)
                 .map_err(|e| format!("Failed to emit {} via app_handle: {}", event_name, e))
         } else {
-            // No window or app_handle, just log and continue
             tracing::debug!("No window or app_handle available to emit {}", event_name);
             Ok(())
         }
     }
 
     /// Check if the workflow has been cancelled
-    ///
-    /// This checks both the orchestrator's own cancelled flag AND the cancel handle
-    /// registered in the shared map. The latter is important for detecting cancellations
-    /// that happened between stages (after one stage finished but before the next started).
     fn is_cancelled(&self) -> bool {
-        // Check our own flag first (set when a stage returns Cancelled)
         if self.cancelled.load(Ordering::Relaxed) {
             return true;
         }
 
-        // Also check the cancel handle in the shared map
-        // This catches cancellations that happened between stages
         if let Ok(handles) = self.cancel_handles.lock() {
             if let Some(handle) = handles.get(&self.parent_run_id) {
                 if handle.is_cancelled() {
@@ -286,8 +268,6 @@ impl WorkflowOrchestrator {
         false
     }
 
-    /// Map an internal stage name to its user-facing config key.
-    /// Frontend keys are camelCase (e.g. "codeReview"), backend stages are kebab-case.
     fn stage_config_key(stage: &str) -> &str {
         match stage {
             "plan" | "plan-validation" => "plan",
@@ -298,12 +278,10 @@ impl WorkflowOrchestrator {
             "unit-tests" | "cleanup-post-tests" => "unitTests",
             "review-changes" | "cleanup-post-review" | "review-changes-final" => "finalReview",
             "add-and-commit" => "commit",
-            _ => stage, // Unknown stages pass through
+            _ => stage,
         }
     }
 
-    /// Check if a stage is enabled in the workflow settings.
-    /// Stages not in the config map default to enabled for safety.
     fn is_stage_enabled(&self, stage: &str) -> bool {
         let key = Self::stage_config_key(stage);
         self.stage_configs
@@ -312,8 +290,6 @@ impl WorkflowOrchestrator {
             .unwrap_or(true)
     }
 
-    /// Get the model to use for a given stage.
-    /// Falls back to "opus-4.6" if the stage is not in the config map.
     fn get_stage_model(&self, stage: &str) -> String {
         let key = Self::stage_config_key(stage);
         self.stage_configs
@@ -323,7 +299,6 @@ impl WorkflowOrchestrator {
     }
 
     /// Update project hooks with run configuration
-    /// Uses the PARENT run_id so all events are associated with the main workflow run
     fn update_hooks_for_run(&self) -> Result<(), String> {
         let hook_script_path = match &self.hook_script_path {
             Some(p) => p,
@@ -339,61 +314,27 @@ impl WorkflowOrchestrator {
             &self.api_token.chars().take(8).collect::<String>()
         );
 
-        // Use the provider if available (agent-agnostic path)
-        if let Some(ref provider) = self.provider {
-            return provider.install_hooks_for_run(
-                &self.repo_path,
-                hook_script_path,
-                Some(&self.api_url),
-                Some(&self.api_token),
-                Some(&self.parent_run_id),
-            );
-        }
-
-        // Legacy fallback
-        match self.agent_kind {
-            AgentKind::Cursor => cursor_hooks::install_hooks_with_run_id(
-                &self.repo_path,
-                hook_script_path,
-                Some(&self.api_url),
-                Some(&self.api_token),
-                Some(&self.parent_run_id),
-            )
-            .map_err(|e| format!("Failed to update Cursor hooks: {}", e)),
-            AgentKind::Claude => claude_hooks::install_local_hooks_with_run_id(
-                &self.repo_path,
-                hook_script_path,
-                Some(&self.api_url),
-                Some(&self.api_token),
-                Some(&self.parent_run_id),
-            )
-            .map_err(|e| format!("Failed to update Claude hooks: {}", e)),
-        }
+        self.provider.install_hooks_for_run(
+            &self.repo_path,
+            hook_script_path,
+            Some(&self.api_url),
+            Some(&self.api_token),
+            Some(&self.parent_run_id),
+        )
     }
 
-    /// Extract text from agent output using the provider (agent-agnostic).
-    /// Falls back to the legacy `extract_text_from_stream_json` approach.
+    /// Extract text from agent output using the provider.
     pub(super) fn extract_text(&self, output: &str) -> String {
-        if let Some(ref provider) = self.provider {
-            return provider.extract_text(output);
-        }
-        // Legacy fallback: try stream-json, else return raw
-        crate::agents::extract_text_from_stream_json(output)
-            .unwrap_or_else(|| output.to_string())
+        self.provider.extract_text(output)
     }
 
-    /// Extract cost from agent output using the provider (agent-agnostic).
-    /// Falls back to the legacy `extract_or_estimate_cost` approach.
+    /// Extract cost from agent output using the provider.
     pub(super) fn extract_cost(
         &self,
         stdout: &str,
         model: &str,
         duration_secs: f64,
     ) -> Option<crate::agents::cost::RunCostData> {
-        if let Some(ref provider) = self.provider {
-            return provider.extract_cost(stdout, model, duration_secs);
-        }
-        let is_claude = matches!(self.agent_kind, AgentKind::Claude);
-        crate::agents::cost::extract_or_estimate_cost(stdout, model, duration_secs, is_claude)
+        self.provider.extract_cost(stdout, model, duration_secs)
     }
 }

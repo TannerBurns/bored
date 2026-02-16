@@ -9,73 +9,10 @@ use super::cancel::CancelHandle;
 use super::config::{INITIAL_BACKOFF_MS, MAX_TRANSIENT_RETRIES};
 use super::error::SpawnError;
 use super::process::AgentProcess;
-use super::utils::{build_env_vars, is_transient_error};
+use super::utils::is_transient_error;
 use crate::agents::provider::AgentProvider;
 
 pub type OnSpawnCallback = Box<dyn FnOnce(CancelHandle) + Send>;
-
-// ── Legacy entry points (dispatch via AgentKind match) ──────────────
-
-pub fn run_agent(
-    config: AgentRunConfig,
-    on_log: Option<Arc<LogCallback>>,
-) -> Result<AgentRunResult, SpawnError> {
-    run_agent_with_cancel_callback(config, on_log, None)
-}
-
-/// Retries on transient network errors with exponential backoff.
-pub fn run_agent_with_cancel_callback(
-    config: AgentRunConfig,
-    on_log: Option<Arc<LogCallback>>,
-    on_spawn: Option<OnSpawnCallback>,
-) -> Result<AgentRunResult, SpawnError> {
-    tracing::debug!("run_agent: {:?} run_id={}", config.kind, config.run_id);
-
-    let (command, args) = match config.kind {
-        super::super::AgentKind::Cursor => super::super::cursor::build_command(&config),
-        super::super::AgentKind::Claude => super::super::claude::build_command(&config),
-    };
-    let env_vars = build_env_vars(&config);
-
-    run_agent_inner(
-        command,
-        args,
-        env_vars,
-        &config.repo_path,
-        config.run_id,
-        config.timeout_secs,
-        on_log,
-        on_spawn,
-    )
-}
-
-/// Captures stdout for multi-stage workflows. Retries on transient errors.
-pub fn run_agent_with_capture(
-    config: AgentRunConfig,
-    on_log: Option<Arc<LogCallback>>,
-    on_spawn: Option<OnSpawnCallback>,
-) -> Result<AgentRunResult, SpawnError> {
-    tracing::debug!("run_agent_with_capture: {:?} run_id={}", config.kind, config.run_id);
-
-    let (command, args) = match config.kind {
-        super::super::AgentKind::Cursor => super::super::cursor::build_command(&config),
-        super::super::AgentKind::Claude => super::super::claude::build_command(&config),
-    };
-    let env_vars = build_env_vars(&config);
-
-    run_agent_inner(
-        command,
-        args,
-        env_vars,
-        &config.repo_path,
-        config.run_id,
-        config.timeout_secs,
-        on_log,
-        on_spawn,
-    )
-}
-
-// ── Provider-based entry points (dispatch via AgentProvider trait) ───
 
 /// Run an agent using a provider. No hardcoded agent dispatch.
 pub fn run_agent_via_provider(
@@ -99,12 +36,11 @@ pub fn run_agent_via_provider_with_cancel(
         config.run_id
     );
 
-    let provider_config = config.to_provider_config();
-    let (command, args) = provider.build_command(&provider_config);
+    let (command, args) = provider.build_command(config);
 
     // Merge base env vars with provider-specific ones
     let mut env_vars = build_base_env_vars(config);
-    env_vars.extend(provider.build_env_vars(&provider_config));
+    env_vars.extend(provider.build_env_vars(config));
 
     run_agent_inner(
         command,

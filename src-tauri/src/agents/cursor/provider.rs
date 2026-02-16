@@ -7,7 +7,9 @@ use crate::agents::provider::{AgentProvider, AgentRunConfig};
 
 use super::availability;
 use super::command;
+use super::commands;
 use super::hooks;
+use super::settings;
 
 #[derive(Debug)]
 pub struct CursorProvider;
@@ -69,6 +71,18 @@ impl AgentProvider for CursorProvider {
         availability::get_cursor_version()
     }
 
+    fn config_dir_name(&self) -> &str {
+        ".cursor"
+    }
+
+    fn command_instructions_subdir(&self) -> &str {
+        "rules"
+    }
+
+    fn format_command_reference(&self, command: &str) -> String {
+        format!("/{}", command)
+    }
+
     fn install_hooks_for_run(
         &self,
         repo_path: &Path,
@@ -79,6 +93,39 @@ impl AgentProvider for CursorProvider {
     ) -> Result<(), String> {
         hooks::install_hooks_with_run_id(repo_path, hook_script_path, api_url, api_token, run_id)
             .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e))
+    }
+
+    fn check_hooks_installed_global(&self) -> bool {
+        settings::check_global_hooks_installed()
+    }
+
+    fn check_hooks_installed_project(&self, repo_path: &Path) -> bool {
+        settings::check_project_hooks_installed(repo_path)
+    }
+
+    fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
+        commands::check_project_commands_installed(repo_path)
+    }
+
+    fn check_commands_installed_user(&self) -> bool {
+        commands::check_user_commands_installed()
+    }
+
+    fn install_commands_to_project(
+        &self,
+        repo_path: &Path,
+        commands_source: &Path,
+    ) -> Result<Vec<String>, String> {
+        commands::install_commands(repo_path, commands_source)
+            .map_err(|e| format!("Failed to install Cursor commands: {}", e))
+    }
+
+    fn install_commands_to_user(
+        &self,
+        commands_source: &Path,
+    ) -> Result<Vec<String>, String> {
+        commands::install_user_commands(commands_source)
+            .map_err(|e| format!("Failed to install Cursor user commands: {}", e))
     }
 }
 
@@ -144,5 +191,44 @@ mod tests {
         let p = CursorProvider::new();
         let cost = p.extract_cost("", "opus-4.6", 0.0);
         assert!(cost.is_none());
+    }
+
+    // ── New trait methods coverage ───────────────────────────────────
+
+    #[test]
+    fn config_dir_name_returns_cursor() {
+        let p = CursorProvider::new();
+        assert_eq!(p.config_dir_name(), ".cursor");
+    }
+
+    #[test]
+    fn command_instructions_subdir_returns_rules() {
+        let p = CursorProvider::new();
+        assert_eq!(p.command_instructions_subdir(), "rules");
+    }
+
+    #[test]
+    fn format_command_reference_returns_slash_command() {
+        let p = CursorProvider::new();
+        assert_eq!(p.format_command_reference("deslop"), "/deslop");
+        assert_eq!(p.format_command_reference("add-and-commit"), "/add-and-commit");
+    }
+
+    #[test]
+    fn check_commands_installed_project_returns_false_for_missing_dir() {
+        let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let p = CursorProvider::new();
+        assert!(!p.check_commands_installed_project(&temp));
+        std::fs::remove_dir_all(&temp).ok();
+    }
+
+    #[test]
+    fn check_hooks_installed_project_returns_false_for_missing_hooks() {
+        let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let p = CursorProvider::new();
+        assert!(!p.check_hooks_installed_project(&temp));
+        std::fs::remove_dir_all(&temp).ok();
     }
 }

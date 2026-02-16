@@ -19,19 +19,22 @@ pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
     // Map contextual stage names to base command names for file lookup
     let base_command = get_base_command(command);
 
-    // Try to read the command file content from various locations
-    let locations = [
+    // Try to read the command file content from all known agent command directories.
+    // Each agent stores commands in its own subdirectory (e.g. .cursor/rules, .claude/commands).
+    let mut locations = vec![
         repo_path
             .join(".cursor/rules")
             .join(format!("{}.md", base_command)),
         repo_path
             .join(".claude/commands")
             .join(format!("{}.md", base_command)),
-        // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
+    ];
+    // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
+    locations.push(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
             .join(format!("{}.md", base_command)),
-    ];
+    );
 
     let cmd_content = locations
         .iter()

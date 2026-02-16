@@ -3,74 +3,6 @@
 use super::*;
 
 #[test]
-fn claude_api_config_default() {
-    let config = ClaudeApiConfig::default();
-    assert!(config.auth_token.is_none());
-    assert!(config.api_key.is_none());
-    assert!(config.base_url.is_none());
-    assert!(config.model_override.is_none());
-    assert!(config.thinking_enabled.is_none());
-    assert!(config.extended_context_enabled.is_none());
-    assert!(config.chrome_enabled.is_none());
-}
-
-#[test]
-fn claude_api_config_from_settings_maps_cli_options() {
-    let settings = crate::commands::claude::ClaudeApiSettings {
-        thinking_enabled: Some(false),
-        extended_context_enabled: Some(true),
-        chrome_enabled: Some(true),
-        ..Default::default()
-    };
-    let config = ClaudeApiConfig::from(settings);
-    assert_eq!(config.thinking_enabled, Some(false));
-    assert_eq!(config.extended_context_enabled, Some(true));
-    assert_eq!(config.chrome_enabled, Some(true));
-}
-
-#[test]
-fn claude_api_config_from_settings_maps_none_cli_options() {
-    let settings = crate::commands::claude::ClaudeApiSettings::default();
-    let config = ClaudeApiConfig::from(settings);
-    assert!(config.thinking_enabled.is_none());
-    assert!(config.extended_context_enabled.is_none());
-    assert!(config.chrome_enabled.is_none());
-}
-
-#[test]
-fn claude_api_config_with_values() {
-    let config = ClaudeApiConfig {
-        auth_token: Some("auth123".to_string()),
-        api_key: Some("key456".to_string()),
-        base_url: Some("https://custom.api.com".to_string()),
-        model_override: Some("claude-opus-4-6".to_string()),
-        ..Default::default()
-    };
-    assert_eq!(config.auth_token.as_deref(), Some("auth123"));
-    assert_eq!(config.api_key.as_deref(), Some("key456"));
-    assert_eq!(config.base_url.as_deref(), Some("https://custom.api.com"));
-    assert_eq!(config.model_override.as_deref(), Some("claude-opus-4-6"));
-}
-
-#[test]
-fn agent_kind_as_str() {
-    assert_eq!(AgentKind::Cursor.as_str(), "cursor");
-    assert_eq!(AgentKind::Claude.as_str(), "claude");
-}
-
-#[test]
-fn agent_kind_serializes_lowercase() {
-    assert_eq!(
-        serde_json::to_string(&AgentKind::Cursor).unwrap(),
-        "\"cursor\""
-    );
-    assert_eq!(
-        serde_json::to_string(&AgentKind::Claude).unwrap(),
-        "\"claude\""
-    );
-}
-
-#[test]
 fn run_outcome_serializes_lowercase() {
     assert_eq!(
         serde_json::to_string(&RunOutcome::Success).unwrap(),
@@ -216,12 +148,12 @@ fn extract_text_stream_events_preferred_over_assistant() {
     assert_eq!(result, Some("Streamed response".to_string()));
 }
 
-// ── to_provider_config tests ────────────────────────────────────
+// ── AgentRunConfig tests ────────────────────────────────────
 
 #[test]
-fn to_provider_config_maps_basic_fields() {
+fn agent_run_config_basic_fields() {
     let config = AgentRunConfig {
-        kind: AgentKind::Claude,
+        agent_id: "claude".to_string(),
         ticket_id: "ticket-1".to_string(),
         run_id: "run-1".to_string(),
         repo_path: std::path::PathBuf::from("/repo"),
@@ -230,22 +162,24 @@ fn to_provider_config_maps_basic_fields() {
         api_url: "http://localhost:7432".to_string(),
         api_token: "tok".to_string(),
         model: Some("sonnet-4.5".to_string()),
-        claude_api_config: None,
         agent_config: std::collections::HashMap::new(),
     };
-    let p = config.to_provider_config();
-    assert_eq!(p.agent_id, "claude");
-    assert_eq!(p.ticket_id, "ticket-1");
-    assert_eq!(p.run_id, "run-1");
-    assert_eq!(p.prompt, "do stuff");
-    assert_eq!(p.timeout_secs, Some(300));
-    assert_eq!(p.model.as_deref(), Some("sonnet-4.5"));
+    assert_eq!(config.agent_id, "claude");
+    assert_eq!(config.ticket_id, "ticket-1");
+    assert_eq!(config.run_id, "run-1");
+    assert_eq!(config.prompt, "do stuff");
+    assert_eq!(config.timeout_secs, Some(300));
+    assert_eq!(config.model.as_deref(), Some("sonnet-4.5"));
 }
 
 #[test]
-fn to_provider_config_populates_agent_config_from_legacy_claude() {
+fn agent_run_config_with_agent_config() {
+    let mut agent_config = std::collections::HashMap::new();
+    agent_config.insert("auth_token".to_string(), serde_json::json!("my-token"));
+    agent_config.insert("thinking_enabled".to_string(), serde_json::json!(false));
+
     let config = AgentRunConfig {
-        kind: AgentKind::Claude,
+        agent_id: "claude".to_string(),
         ticket_id: "t".to_string(),
         run_id: "r".to_string(),
         repo_path: std::path::PathBuf::from("/"),
@@ -254,41 +188,25 @@ fn to_provider_config_populates_agent_config_from_legacy_claude() {
         api_url: "http://x".to_string(),
         api_token: "tok".to_string(),
         model: None,
-        claude_api_config: Some(ClaudeApiConfig {
-            auth_token: Some("my-token".to_string()),
-            thinking_enabled: Some(false),
-            chrome_enabled: Some(true),
-            ..Default::default()
-        }),
-        agent_config: std::collections::HashMap::new(),
+        agent_config,
     };
-    let p = config.to_provider_config();
     assert_eq!(
-        p.agent_config.get("auth_token").and_then(|v| v.as_str()),
+        config.agent_config.get("auth_token").and_then(|v| v.as_str()),
         Some("my-token")
     );
     assert_eq!(
-        p.agent_config
+        config
+            .agent_config
             .get("thinking_enabled")
             .and_then(|v| v.as_bool()),
         Some(false)
     );
-    assert_eq!(
-        p.agent_config
-            .get("chrome_enabled")
-            .and_then(|v| v.as_bool()),
-        Some(true)
-    );
-    assert!(p.agent_config.get("api_key").is_none());
 }
 
 #[test]
-fn to_provider_config_preserves_existing_agent_config() {
-    let mut agent_config = std::collections::HashMap::new();
-    agent_config.insert("custom_key".to_string(), serde_json::json!("custom_val"));
-
+fn agent_run_config_empty_agent_config() {
     let config = AgentRunConfig {
-        kind: AgentKind::Cursor,
+        agent_id: "cursor".to_string(),
         ticket_id: "t".to_string(),
         run_id: "r".to_string(),
         repo_path: std::path::PathBuf::from("/"),
@@ -297,36 +215,8 @@ fn to_provider_config_preserves_existing_agent_config() {
         api_url: "http://x".to_string(),
         api_token: "tok".to_string(),
         model: None,
-        claude_api_config: Some(ClaudeApiConfig {
-            auth_token: Some("should-be-ignored".to_string()),
-            ..Default::default()
-        }),
-        agent_config,
-    };
-    let p = config.to_provider_config();
-    assert_eq!(
-        p.agent_config.get("custom_key").and_then(|v| v.as_str()),
-        Some("custom_val")
-    );
-    assert!(p.agent_config.get("auth_token").is_none());
-}
-
-#[test]
-fn to_provider_config_empty_both_yields_empty_agent_config() {
-    let config = AgentRunConfig {
-        kind: AgentKind::Cursor,
-        ticket_id: "t".to_string(),
-        run_id: "r".to_string(),
-        repo_path: std::path::PathBuf::from("/"),
-        prompt: "p".to_string(),
-        timeout_secs: None,
-        api_url: "http://x".to_string(),
-        api_token: "tok".to_string(),
-        model: None,
-        claude_api_config: None,
         agent_config: std::collections::HashMap::new(),
     };
-    let p = config.to_provider_config();
-    assert!(p.agent_config.is_empty());
-    assert_eq!(p.agent_id, "cursor");
+    assert!(config.agent_config.is_empty());
+    assert_eq!(config.agent_id, "cursor");
 }

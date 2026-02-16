@@ -28,13 +28,20 @@ vi.mock('../../hooks/useCliAvailability', () => ({
   useCliAvailability: () => mockUseCliAvailability(),
 }));
 
+// Mock getAvailableAgents
+vi.mock('../../lib/tauri', () => ({
+  getAvailableAgents: vi.fn().mockResolvedValue([
+    { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0' },
+    { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0' },
+  ]),
+}));
+
 describe('WorkerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: both CLIs available
     mockUseCliAvailability.mockReturnValue({
-      cursorAvailable: true,
-      claudeAvailable: true,
+      availability: { cursor: true, claude: true },
       loading: false,
     });
   });
@@ -57,97 +64,104 @@ describe('WorkerPanel', () => {
   });
 
   describe('CLI availability', () => {
-    it('disables Cursor input when Cursor CLI is unavailable', () => {
+    it('disables Cursor input when Cursor CLI is unavailable', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).toBeDisabled();
+      });
     });
 
-    it('disables Claude input when Claude CLI is unavailable', () => {
+    it('disables Claude input when Claude CLI is unavailable', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(claudeInput).toBeDisabled();
+      await waitFor(() => {
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(claudeInput).toBeDisabled();
+      });
     });
 
-    it('shows "(not installed)" text when Cursor CLI is unavailable', () => {
+    it('shows "(not installed)" text when Cursor CLI is unavailable', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const cursorSection = screen.getByText('Cursor Workers').closest('span');
-      expect(cursorSection).toHaveTextContent('(not installed)');
+      await waitFor(() => {
+        const cursorSection = screen.getByText('Cursor Workers').closest('span');
+        expect(cursorSection).toHaveTextContent('(not installed)');
+      });
     });
 
-    it('shows "(not installed)" text when Claude CLI is unavailable', () => {
+    it('shows "(not installed)" text when Claude CLI is unavailable', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const claudeSection = screen.getByText('Claude Workers').closest('span');
-      expect(claudeSection).toHaveTextContent('(not installed)');
+      await waitFor(() => {
+        const claudeSection = screen.getByText('Claude Workers').closest('span');
+        expect(claudeSection).toHaveTextContent('(not installed)');
+      });
     });
 
-    it('disables both inputs when both CLIs are unavailable', () => {
+    it('disables both inputs when both CLIs are unavailable', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: false,
+        availability: { cursor: false, claude: false },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).toBeDisabled();
-      expect(claudeInput).toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).toBeDisabled();
+        expect(claudeInput).toBeDisabled();
+      });
     });
 
-    it('enables Cursor input when Cursor CLI is available', () => {
+    it('enables Cursor input when Cursor CLI is available', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
+        availability: { cursor: true, claude: false },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).not.toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).not.toBeDisabled();
+      });
     });
 
-    it('enables Claude input when Claude CLI is available', () => {
+    it('enables Claude input when Claude CLI is available', async () => {
       mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
+        availability: { cursor: false, claude: true },
         loading: false,
       });
 
       render(<WorkerPanel />);
 
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(claudeInput).not.toBeDisabled();
+      await waitFor(() => {
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(claudeInput).not.toBeDisabled();
+      });
     });
   });
 

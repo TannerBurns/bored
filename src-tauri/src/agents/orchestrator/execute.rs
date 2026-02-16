@@ -165,8 +165,9 @@ impl WorkflowOrchestrator {
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
             model: Some(self.get_stage_model("plan")),
-            agent_kind: self.agent_kind,
-            claude_api_config: self.claude_api_config.clone(),
+            agent_id: self.agent_id.clone(),
+            provider: self.provider.clone(),
+            agent_config: self.agent_config.clone(),
             timeout_secs: self.stage_timeout_secs,
         };
 

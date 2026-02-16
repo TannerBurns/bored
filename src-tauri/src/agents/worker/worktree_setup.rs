@@ -1,12 +1,13 @@
 //! Worktree setup logic for worker operations.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::agents::provider::AgentProvider;
 use crate::db::{Database, Ticket};
 
 use super::super::worktree::{self, WorktreeConfig, WorktreeInfo};
-use super::super::{AgentKind, ClaudeApiConfig};
 use super::branching;
 use super::error_handling::{self, WorktreeFailureContext};
 
@@ -20,8 +21,8 @@ pub struct WorktreeSetupContext<'a> {
     pub app_handle: Option<tauri::AppHandle>,
     pub api_url: &'a str,
     pub api_token: &'a str,
-    pub agent_kind: AgentKind,
-    pub claude_api_config: Option<ClaudeApiConfig>,
+    pub provider: Arc<dyn AgentProvider>,
+    pub agent_config: HashMap<String, serde_json::Value>,
 }
 
 /// Result of worktree setup
@@ -81,8 +82,8 @@ async fn create_worktree_with_existing_branch(
                 error: &e,
                 api_url: ctx.api_url,
                 api_token: ctx.api_token,
-                agent_kind: ctx.agent_kind,
-                claude_api_config: ctx.claude_api_config.clone(),
+                provider: ctx.provider.clone(),
+                agent_config: ctx.agent_config.clone(),
                 worker_id: ctx.worker_id,
             })
             .await;
@@ -144,8 +145,8 @@ async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> Work
                 error: &e,
                 api_url: ctx.api_url,
                 api_token: ctx.api_token,
-                agent_kind: ctx.agent_kind,
-                claude_api_config: ctx.claude_api_config.clone(),
+                provider: ctx.provider.clone(),
+                agent_config: ctx.agent_config.clone(),
                 worker_id: ctx.worker_id,
             })
             .await;

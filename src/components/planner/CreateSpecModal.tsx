@@ -35,7 +35,7 @@ export function CreateSpecModal({
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<'cursor' | 'claude'>('claude');
-  const { cursorAvailable, claudeAvailable } = useCliAvailability();
+  const { availability } = useCliAvailability();
   
   // Markdown editor state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -111,7 +111,7 @@ export function CreateSpecModal({
       return;
     }
 
-    const agentAvailable = selectedAgent === 'cursor' ? cursorAvailable : claudeAvailable;
+    const agentAvailable = availability[selectedAgent] ?? false;
     if (!agentAvailable) {
       setError(`Selected agent (${selectedAgent}) is not available. Install the CLI or choose the other agent.`);
       return;
@@ -315,36 +315,36 @@ You can use:
             <button
               type="button"
               onClick={() => setSelectedAgent('cursor')}
-              disabled={!cursorAvailable}
-              title={!cursorAvailable ? 'Cursor CLI not available' : undefined}
+              disabled={!(availability['cursor'] ?? false)}
+              title={!(availability['cursor'] ?? false) ? 'Cursor CLI not available' : undefined}
               className={cn(
                 'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
                 selectedAgent === 'cursor'
                   ? 'border-board-accent bg-board-accent/10 text-board-accent'
                   : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80',
-                !cursorAvailable && 'opacity-50 cursor-not-allowed'
+                !(availability['cursor'] ?? false) && 'opacity-50 cursor-not-allowed'
               )}
             >
-              <CursorIcon className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
+              <CursorIcon className={(availability['cursor'] ?? false) ? 'text-board-text-secondary' : 'text-board-text-muted'} />
               Cursor
-              {!cursorAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
+              {!(availability['cursor'] ?? false) && <span className="text-xs text-board-text-muted">(not installed)</span>}
             </button>
             <button
               type="button"
               onClick={() => setSelectedAgent('claude')}
-              disabled={!claudeAvailable}
-              title={!claudeAvailable ? 'Claude CLI not available' : undefined}
+              disabled={!(availability['claude'] ?? false)}
+              title={!(availability['claude'] ?? false) ? 'Claude CLI not available' : undefined}
               className={cn(
                 'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
                 selectedAgent === 'claude'
                   ? 'border-board-accent bg-board-accent/10 text-board-accent'
                   : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80',
-                !claudeAvailable && 'opacity-50 cursor-not-allowed'
+                !(availability['claude'] ?? false) && 'opacity-50 cursor-not-allowed'
               )}
             >
-              <ClaudeIcon className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
+              <ClaudeIcon className={(availability['claude'] ?? false) ? 'text-[#da7756]' : 'text-board-text-muted'} />
               Claude
-              {!claudeAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
+              {!(availability['claude'] ?? false) && <span className="text-xs text-board-text-muted">(not installed)</span>}
             </button>
           </div>
           <p className="text-xs text-board-text-muted mt-1">

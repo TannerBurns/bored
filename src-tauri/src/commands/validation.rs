@@ -10,7 +10,7 @@ use super::validation_parsing::{
     parse_start_app_from_response,
 };
 use crate::agents::validation_agent::{AppProcessManager, StartResult};
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::agents::AgentRegistry;
 use crate::api::state::LiveEvent;
 use crate::commands::claude::ClaudeApiSettingsState;
 use crate::commands::next_steps::{get_branch_diff_sync, get_ticket_working_dir};
@@ -268,11 +268,10 @@ pub async fn get_validation_app_status(
     })
 }
 
-fn resolve_validation_agent_kind(agent_type: Option<&str>) -> AgentKind {
-    if agent_type == Some("cursor") {
-        AgentKind::Cursor
-    } else {
-        AgentKind::Claude
+fn resolve_validation_agent_id(agent_type: Option<&str>) -> String {
+    match agent_type {
+        Some("cursor") => "cursor".to_string(),
+        _ => "claude".to_string(),
     }
 }
 
@@ -299,6 +298,7 @@ pub async fn send_validation_message(
     api_conn: State<'_, ApiConnState>,
     claude_api_state: State<'_, ClaudeApiSettingsState>,
     app_process_manager: State<'_, AppProcessManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ValidationMessage, String> {
     let session_id = request.session_id;
     let content = request.content;
@@ -347,8 +347,12 @@ pub async fn send_validation_message(
         .map_err(|e| e.to_string())?
         .diff;
 
-    let agent_kind = resolve_validation_agent_kind(session.agent_type.as_deref());
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+    let agent_id = resolve_validation_agent_id(session.agent_type.as_deref());
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+
+    let agent_config = claude_api_state.agent_config_for(&agent_id);
 
     let model = options.as_ref().and_then(|o| o.model.clone());
     let timeout_minutes = options.and_then(|o| o.timeout_minutes);
@@ -360,8 +364,9 @@ pub async fn send_validation_message(
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
         model: model.clone(),
-        claude_api_config,
-        agent_kind,
+        agent_config,
+        agent_id,
+        provider,
         ticket_title: ticket.title.clone(),
         ticket_description: ticket.description_md.clone(),
         branch_diff,
