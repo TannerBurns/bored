@@ -35,14 +35,18 @@ export function BlockedTicketBanner({
     return null;
   }
 
-  const clarificationComment = comments
-    .filter((c) => c.ticketId === ticket.id)
-    .reverse()
-    .find((c) => c.metadata?.type === 'clarification');
+  // Only show banner when the most recent non-user comment is a clarification;
+  // newer diagnostic/error comments indicate a different blocking reason.
+  const nonUserComments = comments
+    .filter((c) => c.ticketId === ticket.id && c.authorType !== 'user')
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  if (!clarificationComment) {
+  const mostRecentNonUserComment = nonUserComments[0];
+  if (!mostRecentNonUserComment || mostRecentNonUserComment.metadata?.type !== 'clarification') {
     return null;
   }
+
+  const clarificationComment = mostRecentNonUserComment;
 
   const blockedTaskId = clarificationComment.metadata?.task_id as string | undefined;
   const blockedTaskOrderIndex = clarificationComment.metadata?.task_order_index as number | undefined;

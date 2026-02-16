@@ -54,6 +54,17 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
         ticket.title
     ));
 
+    // Post error comment before the move to prevent stale clarification banner.
+    let _ = db.create_comment(&CreateComment {
+        ticket_id: ticket.id.clone(),
+        author_type: AuthorType::System,
+        body_md: format!(
+            "## Blocked: {:?}\n\nDiagnosing issue...",
+            error.diagnostic_type()
+        ),
+        metadata: Some(serde_json::json!({ "type": "diagnostic" })),
+    });
+
     move_ticket_to_blocked(&db, &app_handle, ticket, worker_id);
 
     let db_clone = db.clone();

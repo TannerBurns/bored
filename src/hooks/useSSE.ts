@@ -111,7 +111,7 @@ export function useSSE(apiUrl: string, token: string, options: UseSSEOptions = {
   }, [connect, disconnect]);
 
   const handleEvent = (event: LiveEvent) => {
-    const { currentBoard, loadBoardData } = useBoardStore.getState();
+    const { currentBoard, loadBoardData, selectedTicket, isTicketModalOpen, loadTasks } = useBoardStore.getState();
 
     switch (event.type) {
       case 'ticket_created':
@@ -125,14 +125,12 @@ export function useSSE(apiUrl: string, token: string, options: UseSSEOptions = {
       case 'ticket_moved':
       case 'ticket_locked':
       case 'ticket_unlocked':
-        if (currentBoard) {
-          loadBoardData(currentBoard.id);
-        }
-        break;
-
       case 'run_completed':
         if (currentBoard) {
           loadBoardData(currentBoard.id);
+        }
+        if (isTicketModalOpen && selectedTicket && event.ticket_id === selectedTicket.id) {
+          loadTasks(selectedTicket.id);
         }
         break;
 
