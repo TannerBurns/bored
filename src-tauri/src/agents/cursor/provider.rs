@@ -62,7 +62,8 @@ impl AgentProvider for CursorProvider {
     }
 
     fn extract_text(&self, output: &str) -> String {
-        output.to_string()
+        crate::agents::claude::provider::extract_text_from_stream_json(output)
+            .unwrap_or_else(|| output.to_string())
     }
 
     fn extract_cost(

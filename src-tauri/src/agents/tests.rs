@@ -89,7 +89,7 @@ fn claude_provider_extract_text_from_stream_json() {
 }
 
 #[test]
-fn cursor_provider_extract_text_passthrough() {
+fn cursor_provider_extract_text_plain_fallback() {
     use crate::agents::cursor::provider::CursorProvider;
     let provider = CursorProvider::new();
     let plain_output = "This is plain text output from the agent.";
@@ -103,6 +103,29 @@ fn cursor_provider_extract_text_empty() {
     let provider = CursorProvider::new();
     let result = provider.extract_text("");
     assert_eq!(result, "");
+}
+
+#[test]
+fn cursor_provider_extract_text_from_stream_json() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let stream_output = concat!(
+        r#"{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/Users/tanner","session_id":"abc123","model":"Claude 4.5 Opus","permissionMode":"default"}"#, "\n",
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Say exactly: hello world"}]},"session_id":"abc123"}"#, "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello world"}]},"session_id":"abc123"}"#, "\n",
+        r#"{"type":"result","subtype":"success","duration_ms":2218,"duration_api_ms":2218,"is_error":false,"result":"hello world","session_id":"abc123"}"#, "\n",
+    );
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "hello world");
+}
+
+#[test]
+fn cursor_provider_extract_text_result_only() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let stream_output = r#"{"type":"result","subtype":"success","result":"done"}"#;
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "done");
 }
 
 #[test]

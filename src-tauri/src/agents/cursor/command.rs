@@ -10,7 +10,7 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         "--force".to_string(),
         "--approve-mcps".to_string(),
         "--output-format".to_string(),
-        "text".to_string(),
+        "stream-json".to_string(),
         "--workspace".to_string(),
         config.repo_path.to_string_lossy().to_string(),
     ];
@@ -89,7 +89,7 @@ mod tests {
         let config = create_test_config();
         let (_, args) = build_command_from_provider_config(&config);
         assert!(args.contains(&"--output-format".to_string()));
-        assert!(args.contains(&"text".to_string()));
+        assert!(args.contains(&"stream-json".to_string()));
     }
 
     #[test]
