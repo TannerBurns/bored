@@ -1,4 +1,4 @@
-//! Claude Code stream-json cost extraction.
+//! Stream-json cost extraction (used by Claude Code provider).
 
 use std::collections::HashMap;
 

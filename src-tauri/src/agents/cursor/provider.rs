@@ -36,7 +36,9 @@ impl AgentProvider for CursorProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
-        command::build_command_from_provider_config(config)
+        let mut config = config.clone();
+        config.model = config.model.map(|m| self.map_model_name(&m));
+        command::build_command_from_provider_config(&config)
     }
 
     fn build_env_vars(&self, _config: &AgentRunConfig) -> Vec<(String, String)> {
@@ -131,6 +133,15 @@ impl AgentProvider for CursorProvider {
         "cursor-hook.js"
     }
 
+    fn map_model_name(&self, model: &str) -> String {
+        match model {
+            "opus-4.6" => "claude-opus-4-6".to_string(),
+            "opus-4.5" => "claude-opus-4-5".to_string(),
+            "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+            other => other.to_string(),
+        }
+    }
+
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
         commands::check_project_commands_installed(repo_path)
     }
@@ -219,6 +230,43 @@ mod tests {
         let p = CursorProvider::new();
         let cost = p.extract_cost("", "opus-4.6", 0.0);
         assert!(cost.is_none());
+    }
+
+    // ── map_model_name ─────────────────────────────────────────────
+
+    #[test]
+    fn map_model_name_maps_known_models() {
+        let p = CursorProvider::new();
+        assert_eq!(p.map_model_name("opus-4.6"), "claude-opus-4-6");
+        assert_eq!(p.map_model_name("opus-4.5"), "claude-opus-4-5");
+        assert_eq!(p.map_model_name("sonnet-4.5"), "claude-sonnet-4-5");
+    }
+
+    #[test]
+    fn map_model_name_passes_through_unknown() {
+        let p = CursorProvider::new();
+        assert_eq!(p.map_model_name("custom-model"), "custom-model");
+        assert_eq!(p.map_model_name("claude-opus-4-6"), "claude-opus-4-6");
+    }
+
+    #[test]
+    fn build_command_maps_model_name_end_to_end() {
+        let p = CursorProvider::new();
+        let mut config = make_config();
+        config.model = Some("opus-4.6".to_string());
+        let (_, args) = p.build_command(&config);
+        assert!(
+            args.contains(&"claude-opus-4-6".to_string()),
+            "Provider build_command should map opus-4.6 -> claude-opus-4-6"
+        );
+    }
+
+    #[test]
+    fn build_command_no_model_omits_model_flag() {
+        let p = CursorProvider::new();
+        let config = make_config();
+        let (_, args) = p.build_command(&config);
+        assert!(!args.contains(&"--model".to_string()));
     }
 
     // ── New trait methods coverage ───────────────────────────────────

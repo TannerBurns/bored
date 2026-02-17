@@ -1,8 +1,8 @@
 //! Agent provider trait — the core abstraction for agent-agnostic execution.
 //!
-//! Every agent backend (Claude, Cursor, future agents) implements `AgentProvider`
-//! so that the orchestrator, spawner, and runner can work with any agent without
-//! hard-coding agent-specific logic.
+//! Every agent backend implements `AgentProvider` so that the orchestrator,
+//! spawner, and runner can work with any agent without hard-coding
+//! agent-specific logic.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -52,8 +52,6 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     // ── Output parsing ──────────────────────────────────────────────
 
     /// Extract the meaningful text from raw agent output.
-    ///
-    /// Claude uses stream-json and needs parsing; Cursor returns plain text.
     fn extract_text(&self, output: &str) -> String;
 
     /// Extract cost/token data from agent output, or estimate it.
@@ -145,6 +143,12 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     /// Brand color hex for UI display (e.g. "#da7756").
     fn brand_color(&self) -> Option<&str> {
         None
+    }
+
+    /// Map a friendly model name to the CLI format this agent expects.
+    /// E.g. Claude maps "opus-4.6" -> "claude-opus-4-6".
+    fn map_model_name(&self, model: &str) -> String {
+        model.to_string()
     }
 
     // ── Commands checking and installation ───────────────────────────

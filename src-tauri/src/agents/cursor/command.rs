@@ -1,6 +1,5 @@
 //! Cursor CLI command building.
 
-use crate::agents::models::map_model_name;
 use crate::agents::provider::AgentRunConfig;
 
 pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, Vec<String>) {
@@ -18,17 +17,11 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
 
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
-        args.push(map_model_name(model));
+        args.push(model.clone());
     }
 
     args.push(config.prompt.clone());
     (command, args)
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CursorSettings {
-    pub executable_path: Option<String>,
-    pub extra_flags: Vec<String>,
 }
 
 #[cfg(test)]
@@ -102,7 +95,7 @@ mod tests {
     #[test]
     fn build_command_includes_model_when_specified() {
         let mut config = create_test_config();
-        config.model = Some("sonnet-4.5".to_string());
+        config.model = Some("claude-sonnet-4-5".to_string());
         let (_, args) = build_command_from_provider_config(&config);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-sonnet-4-5".to_string()));

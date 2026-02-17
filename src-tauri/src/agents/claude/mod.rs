@@ -14,7 +14,6 @@ mod settings;
 
 // Public re-exports
 pub use availability::{get_claude_version, is_claude_available};
-pub use command::ClaudeSettings;
 pub use commands::{
     check_project_commands_installed, check_user_commands_installed, get_available_commands,
     get_bundled_commands_path, get_bundled_commands_path_with_app, install_commands,

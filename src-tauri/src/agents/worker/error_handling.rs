@@ -72,7 +72,7 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
 
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();
-    let model = Some(diagnostic_model.unwrap_or_else(|| "sonnet-4.5".to_string()));
+    let model = Some(diagnostic_model.unwrap_or_else(|| crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string()));
     let api_url = api_url.to_string();
     let api_token = api_token.to_string();
     let context_clone = context.clone();

@@ -23,45 +23,25 @@ pub struct ClaudeApiConfig {
     pub chrome_enabled: Option<bool>,
 }
 
-impl From<crate::commands::agent_settings::ClaudeApiSettings> for ClaudeApiConfig {
-    fn from(s: crate::commands::agent_settings::ClaudeApiSettings) -> Self {
-        Self {
-            auth_token: s.auth_token,
-            api_key: s.api_key,
-            base_url: s.base_url,
-            model_override: s.model_override,
-            thinking_enabled: s.thinking_enabled,
-            extended_context_enabled: s.extended_context_enabled,
-            chrome_enabled: s.chrome_enabled,
-        }
-    }
-}
-
 impl ClaudeApiConfig {
-    /// Extract Claude-specific config from the generic agent_config map.
+    fn get_str(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<String> {
+        map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_str()).map(|s| s.to_string())
+    }
+
+    fn get_bool(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<bool> {
+        map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_bool())
+    }
+
+    /// Accepts both snake_case and camelCase keys for backward compatibility.
     pub fn from_agent_config(map: &std::collections::HashMap<String, serde_json::Value>) -> Self {
         Self {
-            auth_token: map
-                .get("auth_token")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            api_key: map
-                .get("api_key")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            base_url: map
-                .get("base_url")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            model_override: map
-                .get("model_override")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            thinking_enabled: map.get("thinking_enabled").and_then(|v| v.as_bool()),
-            extended_context_enabled: map
-                .get("extended_context_enabled")
-                .and_then(|v| v.as_bool()),
-            chrome_enabled: map.get("chrome_enabled").and_then(|v| v.as_bool()),
+            auth_token: Self::get_str(map, "auth_token", "authToken"),
+            api_key: Self::get_str(map, "api_key", "apiKey"),
+            base_url: Self::get_str(map, "base_url", "baseUrl"),
+            model_override: Self::get_str(map, "model_override", "modelOverride"),
+            thinking_enabled: Self::get_bool(map, "thinking_enabled", "thinkingEnabled"),
+            extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled"),
+            chrome_enabled: Self::get_bool(map, "chrome_enabled", "chromeEnabled"),
         }
     }
 
@@ -121,7 +101,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
-        command::build_command_from_provider_config(config)
+        let mut config = config.clone();
+        config.model = config.model.map(|m| self.map_model_name(&m));
+        command::build_command_from_provider_config(&config)
     }
 
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)> {
@@ -255,6 +237,15 @@ impl AgentProvider for ClaudeProvider {
 
     fn brand_color(&self) -> Option<&str> {
         Some("#da7756")
+    }
+
+    fn map_model_name(&self, model: &str) -> String {
+        match model {
+            "opus-4.6" => "claude-opus-4-6".to_string(),
+            "opus-4.5" => "claude-opus-4-5".to_string(),
+            "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+            other => other.to_string(),
+        }
     }
 
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {

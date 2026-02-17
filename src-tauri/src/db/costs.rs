@@ -151,7 +151,7 @@ impl Database {
                     continue;
                 }
 
-                let model = ticket_model.as_deref().unwrap_or("opus-4.6");
+                let model = ticket_model.as_deref().unwrap_or(crate::agents::models::DEFAULT_STAGE_MODEL);
                 let cost_data = crate::agents::cost::extract_or_estimate_cost_by_agent(
                     registry,
                     &agent_type,

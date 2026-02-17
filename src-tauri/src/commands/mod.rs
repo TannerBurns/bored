@@ -23,7 +23,7 @@ pub use agents::{
     install_agent_hooks_project, AgentStatus,
 };
 pub use boards::*;
-pub use agent_settings::{AgentSettingsManager, ClaudeApiSettings, SharedAgentSettings};
+pub use agent_settings::{AgentSettingsManager, SharedAgentSettings};
 pub use conversations::{
     get_conversation_messages, send_conversation_message, start_conversation,
 };

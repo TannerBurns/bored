@@ -287,3 +287,37 @@ fn cursor_provider_generate_hooks_config_returns_json() {
     let json = result.unwrap();
     let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
 }
+
+// ── map_model_name trait default ───────────────────────────────
+
+#[derive(Debug)]
+struct StubProvider;
+
+impl AgentProvider for StubProvider {
+    fn id(&self) -> &str { "stub" }
+    fn display_name(&self) -> &str { "Stub" }
+    fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { ("stub".into(), vec![]) }
+    fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+    fn extract_text(&self, output: &str) -> String { output.to_string() }
+    fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<crate::agents::cost::RunCostData> { None }
+    fn is_available(&self) -> bool { false }
+    fn get_version(&self) -> Option<String> { None }
+    fn config_dir_name(&self) -> &str { ".stub" }
+    fn command_instructions_subdir(&self) -> &str { "commands" }
+    fn format_command_reference(&self, cmd: &str) -> String { format!("/{}", cmd) }
+    fn install_hooks_for_run(&self, _: &std::path::Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
+}
+
+#[test]
+fn default_map_model_name_is_passthrough() {
+    let p = StubProvider;
+    assert_eq!(p.map_model_name("opus-4.6"), "opus-4.6");
+    assert_eq!(p.map_model_name("custom-model"), "custom-model");
+    assert_eq!(p.map_model_name(""), "");
+}
+
+#[test]
+fn default_brand_color_is_none() {
+    let p = StubProvider;
+    assert!(p.brand_color().is_none());
+}

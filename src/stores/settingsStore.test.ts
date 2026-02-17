@@ -195,96 +195,53 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('claude API settings', () => {
-    beforeEach(() => {
-      useSettingsStore.setState({
-        claudeAuthToken: '',
-        claudeApiKey: '',
-        claudeBaseUrl: '',
-        claudeModelOverride: '',
-      });
-    });
-
-    it('has empty Claude API settings by default', () => {
+  describe('generic agent settings', () => {
+    it('has claude defaults in agentSettings', () => {
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('');
-      expect(state.claudeApiKey).toBe('');
-      expect(state.claudeBaseUrl).toBe('');
-      expect(state.claudeModelOverride).toBe('');
+      const claude = state.agentSettings.claude;
+      expect(claude).toBeDefined();
+      expect(claude.authToken).toBe('');
     });
 
-    it('sets auth token', () => {
-      useSettingsStore.getState().setClaudeAuthToken('my-token');
-      expect(useSettingsStore.getState().claudeAuthToken).toBe('my-token');
-    });
-
-    it('sets api key', () => {
-      useSettingsStore.getState().setClaudeApiKey('sk-ant-xxx');
-      expect(useSettingsStore.getState().claudeApiKey).toBe('sk-ant-xxx');
-    });
-
-    it('sets base url', () => {
-      useSettingsStore.getState().setClaudeBaseUrl('https://custom.api.com');
-      expect(useSettingsStore.getState().claudeBaseUrl).toBe('https://custom.api.com');
-    });
-
-    it('sets model override', () => {
-      useSettingsStore.getState().setClaudeModelOverride('claude-opus-4-6');
-      expect(useSettingsStore.getState().claudeModelOverride).toBe('claude-opus-4-6');
-    });
-
-    it('sets all API settings at once', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets agent settings for a specific agent', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'token123',
         apiKey: 'key456',
-        baseUrl: 'https://api.example.com',
-        modelOverride: 'custom-model',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('token123');
-      expect(state.claudeApiKey).toBe('key456');
-      expect(state.claudeBaseUrl).toBe('https://api.example.com');
-      expect(state.claudeModelOverride).toBe('custom-model');
+      expect(state.agentSettings.claude.authToken).toBe('token123');
+      expect(state.agentSettings.claude.apiKey).toBe('key456');
     });
 
-    it('sets partial API settings without affecting others', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets individual agent setting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'authToken', 'my-token');
+      expect(useSettingsStore.getState().agentSettings.claude.authToken).toBe('my-token');
+    });
+
+    it('preserves existing values when setting partial', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'initial-token',
         apiKey: 'initial-key',
       });
-      useSettingsStore.getState().setClaudeApiSettings({
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'updated-token',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('updated-token');
-      expect(state.claudeApiKey).toBe('initial-key');
+      expect(state.agentSettings.claude.authToken).toBe('updated-token');
+      expect(state.agentSettings.claude.apiKey).toBe('initial-key');
     });
 
-    it('preserves existing values when undefined is passed', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'existing-token',
-        apiKey: 'existing-key',
-      });
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'new-token',
-        apiKey: undefined,
+    it('supports arbitrary agent IDs', () => {
+      useSettingsStore.getState().setAgentSettings('windsurf', {
+        apiKey: 'ws-key',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('new-token');
-      expect(state.claudeApiKey).toBe('existing-key');
+      expect(state.agentSettings.windsurf.apiKey).toBe('ws-key');
     });
 
-    it('can explicitly set a field to empty string', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'token',
-        apiKey: 'key',
-      });
-      useSettingsStore.getState().setClaudeApiSettings({
-        apiKey: '',
-      });
-      const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('token');
-      expect(state.claudeApiKey).toBe('');
+    it('getAgentSettings returns empty for unknown agent', () => {
+      const settings = useSettingsStore.getState().getAgentSettings('unknown');
+      expect(settings).toEqual({});
     });
   });
 
@@ -573,60 +530,68 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('claude CLI option settings', () => {
+  describe('claude CLI option settings via generic API', () => {
     beforeEach(() => {
       useSettingsStore.setState({
-        claudeThinkingEnabled: true,
-        claudeExtendedContext: false,
-        claudeChromeEnabled: false,
+        agentSettings: {
+          claude: {
+            authToken: '',
+            apiKey: '',
+            baseUrl: '',
+            modelOverride: '',
+            thinkingEnabled: true,
+            extendedContext: false,
+            chromeEnabled: false,
+          },
+        },
       });
     });
 
-    it('has correct CLI option defaults', () => {
+    it('has correct CLI option defaults in agentSettings', () => {
       const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(true);
-      expect(state.claudeExtendedContext).toBe(false);
-      expect(state.claudeChromeEnabled).toBe(false);
+      const claude = state.agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(true);
+      expect(claude.extendedContext).toBe(false);
+      expect(claude.chromeEnabled).toBe(false);
     });
 
-    it('sets thinking enabled', () => {
-      useSettingsStore.getState().setClaudeThinkingEnabled(false);
-      expect(useSettingsStore.getState().claudeThinkingEnabled).toBe(false);
+    it('sets thinking enabled via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'thinkingEnabled', false);
+      expect(useSettingsStore.getState().agentSettings.claude.thinkingEnabled).toBe(false);
     });
 
-    it('sets extended context', () => {
-      useSettingsStore.getState().setClaudeExtendedContext(true);
-      expect(useSettingsStore.getState().claudeExtendedContext).toBe(true);
+    it('sets extended context via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'extendedContext', true);
+      expect(useSettingsStore.getState().agentSettings.claude.extendedContext).toBe(true);
     });
 
-    it('sets chrome enabled', () => {
-      useSettingsStore.getState().setClaudeChromeEnabled(true);
-      expect(useSettingsStore.getState().claudeChromeEnabled).toBe(true);
+    it('sets chrome enabled via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'chromeEnabled', true);
+      expect(useSettingsStore.getState().agentSettings.claude.chromeEnabled).toBe(true);
     });
 
-    it('sets CLI options via setClaudeApiSettings', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets multiple CLI options via setAgentSettings', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         thinkingEnabled: false,
         extendedContext: true,
         chromeEnabled: true,
       });
-      const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(false);
-      expect(state.claudeExtendedContext).toBe(true);
-      expect(state.claudeChromeEnabled).toBe(true);
+      const claude = useSettingsStore.getState().agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(false);
+      expect(claude.extendedContext).toBe(true);
+      expect(claude.chromeEnabled).toBe(true);
     });
 
-    it('preserves CLI options when setClaudeApiSettings omits them', () => {
-      useSettingsStore.getState().setClaudeThinkingEnabled(false);
-      useSettingsStore.getState().setClaudeExtendedContext(true);
-      // Update only authToken, CLI options should be preserved
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('preserves existing settings when setting partial', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'thinkingEnabled', false);
+      useSettingsStore.getState().setAgentSetting('claude', 'extendedContext', true);
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'new-token',
       });
-      const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(false);
-      expect(state.claudeExtendedContext).toBe(true);
-      expect(state.claudeChromeEnabled).toBe(false);
+      const claude = useSettingsStore.getState().agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(false);
+      expect(claude.extendedContext).toBe(true);
+      expect(claude.chromeEnabled).toBe(false);
     });
   });
 
@@ -852,78 +817,31 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('legacy Claude setters sync agentSettings', () => {
-    beforeEach(() => {
-      useSettingsStore.setState({
-        agentSettings: {
-          claude: {
-            authToken: '',
-            apiKey: '',
-            baseUrl: '',
-            modelOverride: '',
-            thinkingEnabled: true,
-            extendedContext: false,
-            chromeEnabled: false,
-          },
-        },
-        claudeAuthToken: '',
-        claudeApiKey: '',
-        claudeBaseUrl: '',
-        claudeModelOverride: '',
-        claudeThinkingEnabled: true,
-        claudeExtendedContext: false,
-        claudeChromeEnabled: false,
-      });
-    });
-
-    it('setClaudeAuthToken updates both top-level and agentSettings', () => {
-      useSettingsStore.getState().setClaudeAuthToken('tok');
+  describe('generic agent settings API', () => {
+    it('setAgentSetting updates agentSettings map', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'authToken', 'tok');
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('tok');
       expect(state.agentSettings.claude.authToken).toBe('tok');
     });
 
-    it('setClaudeThinkingEnabled updates both top-level and agentSettings', () => {
-      useSettingsStore.getState().setClaudeThinkingEnabled(false);
-      const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(false);
-      expect(state.agentSettings.claude.thinkingEnabled).toBe(false);
-    });
-
-    it('setClaudeApiSettings updates both top-level and agentSettings', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('setAgentSettings merges with existing settings', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'new-tok',
         thinkingEnabled: false,
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('new-tok');
-      expect(state.claudeThinkingEnabled).toBe(false);
       expect(state.agentSettings.claude.authToken).toBe('new-tok');
       expect(state.agentSettings.claude.thinkingEnabled).toBe(false);
+      // Existing defaults should be preserved
+      expect(state.agentSettings.claude.chromeEnabled).toBe(false);
     });
-  });
 
-  describe('partialize excludes legacy fields', () => {
-    it('does not include Claude derived fields in partialize output', () => {
+    it('persists agentSettings', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const full = useSettingsStore.getState();
-      const partialized = options.partialize!(full);
-      expect(partialized).not.toHaveProperty('claudeAuthToken');
-      expect(partialized).not.toHaveProperty('claudeApiKey');
-      expect(partialized).not.toHaveProperty('claudeBaseUrl');
-      expect(partialized).not.toHaveProperty('claudeModelOverride');
-      expect(partialized).not.toHaveProperty('claudeThinkingEnabled');
-      expect(partialized).not.toHaveProperty('claudeExtendedContext');
-      expect(partialized).not.toHaveProperty('claudeChromeEnabled');
-    });
-
-    it('preserves agentSettings in partialize output', () => {
-      const { persist } = useSettingsStore;
-      const options = persist.getOptions();
-      const full = useSettingsStore.getState();
-      const partialized = options.partialize!(full) as Record<string, unknown>;
-      expect(partialized).toHaveProperty('agentSettings');
+      const persisted = options.partialize ? options.partialize(full) as unknown as Record<string, unknown> : full as unknown as Record<string, unknown>;
+      expect(persisted).toHaveProperty('agentSettings');
     });
   });
 

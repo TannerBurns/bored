@@ -42,7 +42,7 @@ pub struct WorkflowSettings {
 }
 
 fn default_diagnostic_model() -> String {
-    "sonnet-4.5".to_string()
+    crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string()
 }
 
 impl Default for WorkflowSettings {

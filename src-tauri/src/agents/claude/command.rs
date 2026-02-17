@@ -1,6 +1,5 @@
 //! Claude CLI command building.
 
-use crate::agents::models::map_model_name;
 use crate::agents::provider::AgentRunConfig;
 
 /// Push conditional CLI flags from raw booleans.
@@ -39,7 +38,7 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
 
     if let Some(ref model) = config.model {
         args.push("--model".to_string());
-        args.push(map_model_name(model));
+        args.push(model.clone());
     }
 
     let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
@@ -52,13 +51,4 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     args.push(config.prompt.clone());
 
     (command, args)
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ClaudeSettings {
-    pub executable_path: Option<String>,
-    pub system_prompt: Option<String>,
-    pub system_prompt_file: Option<String>,
-    pub extra_flags: Vec<String>,
-    pub permission_mode: Option<String>,
 }

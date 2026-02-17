@@ -68,23 +68,12 @@ export function getAgentIcon(agentType: string): React.ComponentType<IconProps> 
   return ICON_REGISTRY[agentType] || AgentFallbackIcon;
 }
 
-const DEFAULT_BRAND_COLORS: Record<string, string> = {
-  claude: '#da7756',
-};
-
-/** Get the brand color for an agent. Returns undefined if no color is known. */
-export function getAgentBrandColor(agentType: string, agentBrandColor?: string | null): string | undefined {
+export function getAgentBrandColor(_agentType: string, agentBrandColor?: string | null): string | undefined {
   if (agentBrandColor && agentBrandColor.length > 0) return agentBrandColor;
-  return DEFAULT_BRAND_COLORS[agentType];
+  return undefined;
 }
 
-/** Get a human-readable display name for any agent type.
- * Prefers the display name from AgentInfo if available. */
 export function getAgentDisplayName(agentType: string, displayName?: string): string {
   if (displayName && displayName.length > 0) return displayName;
-  const names: Record<string, string> = {
-    cursor: 'Cursor',
-    claude: 'Claude',
-  };
-  return names[agentType] || agentType.charAt(0).toUpperCase() + agentType.slice(1);
+  return agentType.charAt(0).toUpperCase() + agentType.slice(1);
 }

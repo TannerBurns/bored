@@ -201,31 +201,6 @@ interface SettingsState {
   getAgentSettings: (agentId: string) => Record<string, unknown>;
   setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
   setAgentSetting: (agentId: string, key: string, value: unknown) => void;
-
-  // Legacy Claude convenience accessors (delegate to agentSettings["claude"])
-  claudeAuthToken: string;
-  claudeApiKey: string;
-  claudeBaseUrl: string;
-  claudeModelOverride: string;
-  claudeThinkingEnabled: boolean;
-  claudeExtendedContext: boolean;
-  claudeChromeEnabled: boolean;
-  setClaudeAuthToken: (token: string) => void;
-  setClaudeApiKey: (key: string) => void;
-  setClaudeBaseUrl: (url: string) => void;
-  setClaudeModelOverride: (model: string) => void;
-  setClaudeThinkingEnabled: (enabled: boolean) => void;
-  setClaudeExtendedContext: (enabled: boolean) => void;
-  setClaudeChromeEnabled: (enabled: boolean) => void;
-  setClaudeApiSettings: (settings: {
-    authToken?: string;
-    apiKey?: string;
-    baseUrl?: string;
-    modelOverride?: string;
-    thinkingEnabled?: boolean;
-    extendedContext?: boolean;
-    chromeEnabled?: boolean;
-  }) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -267,16 +242,6 @@ export const useSettingsStore = create<SettingsState>()(
           chromeEnabled: false,
         },
       },
-
-      // Legacy Claude accessors (excluded from persistence via partialize;
-      // source of truth is agentSettings).
-      claudeAuthToken: '',
-      claudeApiKey: '',
-      claudeBaseUrl: '',
-      claudeModelOverride: '',
-      claudeThinkingEnabled: true,
-      claudeExtendedContext: false,
-      claudeChromeEnabled: false,
 
       setTheme: (theme) => set({ theme }),
       setPlannerAutoApprove: (plannerAutoApprove) => set({ plannerAutoApprove }),
@@ -330,52 +295,10 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
-      setClaudeAuthToken: (v) => { get().setAgentSetting('claude', 'authToken', v); set({ claudeAuthToken: v }); },
-      setClaudeApiKey: (v) => { get().setAgentSetting('claude', 'apiKey', v); set({ claudeApiKey: v }); },
-      setClaudeBaseUrl: (v) => { get().setAgentSetting('claude', 'baseUrl', v); set({ claudeBaseUrl: v }); },
-      setClaudeModelOverride: (v) => { get().setAgentSetting('claude', 'modelOverride', v); set({ claudeModelOverride: v }); },
-      setClaudeThinkingEnabled: (v) => { get().setAgentSetting('claude', 'thinkingEnabled', v); set({ claudeThinkingEnabled: v }); },
-      setClaudeExtendedContext: (v) => { get().setAgentSetting('claude', 'extendedContext', v); set({ claudeExtendedContext: v }); },
-      setClaudeChromeEnabled: (v) => { get().setAgentSetting('claude', 'chromeEnabled', v); set({ claudeChromeEnabled: v }); },
-      setClaudeApiSettings: (settings) => {
-        const updates: Record<string, unknown> = {};
-        const derived: Partial<SettingsState> = {};
-        if (settings.authToken !== undefined) { updates.authToken = settings.authToken; derived.claudeAuthToken = settings.authToken; }
-        if (settings.apiKey !== undefined) { updates.apiKey = settings.apiKey; derived.claudeApiKey = settings.apiKey; }
-        if (settings.baseUrl !== undefined) { updates.baseUrl = settings.baseUrl; derived.claudeBaseUrl = settings.baseUrl; }
-        if (settings.modelOverride !== undefined) { updates.modelOverride = settings.modelOverride; derived.claudeModelOverride = settings.modelOverride; }
-        if (settings.thinkingEnabled !== undefined) { updates.thinkingEnabled = settings.thinkingEnabled; derived.claudeThinkingEnabled = settings.thinkingEnabled; }
-        if (settings.extendedContext !== undefined) { updates.extendedContext = settings.extendedContext; derived.claudeExtendedContext = settings.extendedContext; }
-        if (settings.chromeEnabled !== undefined) { updates.chromeEnabled = settings.chromeEnabled; derived.claudeChromeEnabled = settings.chromeEnabled; }
-        get().setAgentSettings('claude', updates);
-        set(derived);
-      },
     }),
     {
       name: 'agent-kanban-settings',
       version: 10,
-      partialize: (state) => {
-        const {
-          claudeAuthToken: _1, claudeApiKey: _2, claudeBaseUrl: _3,
-          claudeModelOverride: _4, claudeThinkingEnabled: _5,
-          claudeExtendedContext: _6, claudeChromeEnabled: _7,
-          ...persisted
-        } = state;
-        return persisted;
-      },
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        const claude = state.agentSettings?.claude;
-        if (claude) {
-          state.claudeAuthToken = (claude.authToken ?? '') as string;
-          state.claudeApiKey = (claude.apiKey ?? '') as string;
-          state.claudeBaseUrl = (claude.baseUrl ?? '') as string;
-          state.claudeModelOverride = (claude.modelOverride ?? '') as string;
-          state.claudeThinkingEnabled = (claude.thinkingEnabled ?? true) as boolean;
-          state.claudeExtendedContext = (claude.extendedContext ?? false) as boolean;
-          state.claudeChromeEnabled = (claude.chromeEnabled ?? false) as boolean;
-        }
-      },
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
         if (version < 10) {

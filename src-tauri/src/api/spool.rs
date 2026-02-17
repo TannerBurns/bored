@@ -97,7 +97,7 @@ fn process_spool_file(
 
     let agent_type = event["agentType"]
         .as_str()
-        .unwrap_or("cursor")
+        .unwrap_or("unknown")
         .to_string();
 
     let event_type_str = event["eventType"].as_str().ok_or("Missing eventType")?;

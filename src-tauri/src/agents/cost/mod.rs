@@ -1,7 +1,4 @@
 //! Cost extraction and estimation for agent runs.
-//!
-//! - Claude Code CLI: parses token usage and cost from stream-json `result` messages.
-//! - Cursor CLI: estimates cost based on model pricing tables (no native cost data available).
 
 mod estimation;
 mod extraction;
@@ -49,7 +46,6 @@ pub struct RunCostData {
     /// Per-model breakdown (model name -> cost data)
     #[serde(default)]
     pub model_usage: HashMap<String, ModelCostData>,
-    /// Whether the cost is an estimate (true for Cursor) or authoritative (false for Claude)
     pub is_estimated: bool,
 }
 

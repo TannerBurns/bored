@@ -296,7 +296,7 @@ impl WorkflowOrchestrator {
         self.stage_configs
             .get(key)
             .map(|c| c.model.clone())
-            .unwrap_or_else(|| "opus-4.6".to_string())
+            .unwrap_or_else(|| crate::agents::models::DEFAULT_STAGE_MODEL.to_string())
     }
 
     /// Update project hooks with run configuration

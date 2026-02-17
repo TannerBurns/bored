@@ -99,8 +99,7 @@ export interface Comment {
   metadata?: Record<string, unknown>;
 }
 
-/** Known agent IDs. Extensible — new agents can be added without changing this type. */
-export type AgentType = 'cursor' | 'claude' | (string & {});
+export type AgentType = string;
 
 /** Agent metadata returned by the backend `get_available_agents` command. */
 export interface AgentInfo {

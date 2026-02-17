@@ -1,5 +1,5 @@
-//! Cost estimation for agents without native cost reporting (e.g. Cursor).
-//! Pricing tables are Anthropic-specific.
+//! Cost estimation for agents without native cost reporting.
+//! Pricing tables use Anthropic rates.
 
 use std::collections::HashMap;
 
@@ -79,10 +79,7 @@ pub fn compute_cost_from_tokens(
     input_cost + output_cost + cache_read_cost + cache_write_cost
 }
 
-/// Estimate cost for a Cursor run based on model and output size.
-///
-/// This is a rough estimate since Cursor does not expose token usage data.
-/// Uses ~4 characters per token as an approximation.
+/// Estimate cost based on model and output size (~4 chars/token heuristic).
 pub fn estimate_cost(model: &str, output_chars: usize, duration_secs: f64) -> RunCostData {
     let pricing = get_model_pricing(model);
 

@@ -10,7 +10,6 @@ mod settings;
 
 // Public re-exports
 pub use availability::{get_cursor_version, is_cursor_available};
-pub use command::CursorSettings;
 pub use commands::{
     check_project_commands_installed, check_user_commands_installed, get_available_commands,
     get_bundled_commands_path, get_bundled_commands_path_with_app, install_commands,

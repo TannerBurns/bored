@@ -214,8 +214,10 @@ fn main() {
             app.manage(RunningAgents::new());
             app.manage(AppProcessManager::new());
 
+            let agent_settings = AgentSettingsManager::new();
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
-            app.manage(AgentSettingsManager::new_with_claude_settings(claude_settings_path));
+            agent_settings.register_agent_settings_path("claude", claude_settings_path);
+            app.manage(agent_settings);
 
             // Workflow settings (synced from frontend, read by workers at task time)
             app.manage(WorkflowSettingsState::new());
@@ -359,11 +361,9 @@ fn main() {
             commands::agents::check_agent_available,
             commands::agents::check_agent_project_hooks_installed,
             commands::agents::get_agent_hook_script_path,
-            // Agent settings (generic + Claude-specific)
+            // Agent settings (generic API)
             commands::agent_settings::get_agent_settings,
             commands::agent_settings::set_agent_settings,
-            commands::agent_settings::get_claude_api_settings,
-            commands::agent_settings::set_claude_api_settings,
             // Workflow settings sync
             commands::workflow_settings::sync_workflow_settings,
             commands::workflow_settings::get_workflow_settings,

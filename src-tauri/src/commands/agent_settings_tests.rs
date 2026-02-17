@@ -3,103 +3,25 @@
 use super::agent_settings::*;
 use std::collections::HashMap;
 
-// ── ClaudeApiSettings serde tests ───────────────────────────────────
+use crate::agents::claude::provider::ClaudeApiConfig;
+
+// ── ClaudeApiConfig from_agent_config tests ─────────────────────────
 
 #[test]
-fn claude_api_settings_default() {
-    let settings = ClaudeApiSettings::default();
-    assert!(settings.auth_token.is_none());
-    assert!(settings.api_key.is_none());
-    assert!(settings.base_url.is_none());
-    assert!(settings.model_override.is_none());
-}
-
-#[test]
-fn claude_api_settings_serializes_camel_case() {
-    let settings = ClaudeApiSettings {
-        auth_token: Some("token123".to_string()),
-        api_key: Some("key456".to_string()),
-        base_url: Some("https://api.example.com".to_string()),
-        model_override: Some("claude-opus-4-6".to_string()),
-        ..Default::default()
-    };
-    let json = serde_json::to_string(&settings).unwrap();
-    assert!(json.contains("authToken"));
-    assert!(json.contains("apiKey"));
-    assert!(json.contains("baseUrl"));
-    assert!(json.contains("modelOverride"));
-}
-
-#[test]
-fn claude_api_settings_serializes_cli_option_fields() {
-    let settings = ClaudeApiSettings {
-        thinking_enabled: Some(true),
-        extended_context_enabled: Some(false),
-        chrome_enabled: Some(true),
-        ..Default::default()
-    };
-    let json = serde_json::to_string(&settings).unwrap();
-    assert!(json.contains("thinkingEnabled"));
-    assert!(json.contains("extendedContextEnabled"));
-    assert!(json.contains("chromeEnabled"));
-}
-
-#[test]
-fn claude_api_settings_deserializes_cli_option_fields() {
-    let json = r#"{"thinkingEnabled":false,"extendedContextEnabled":true,"chromeEnabled":true}"#;
-    let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
-    assert_eq!(settings.thinking_enabled, Some(false));
-    assert_eq!(settings.extended_context_enabled, Some(true));
-    assert_eq!(settings.chrome_enabled, Some(true));
-}
-
-#[test]
-fn claude_api_settings_backward_compat_old_json_without_cli_options() {
-    let json =
-        r#"{"authToken":"tok","apiKey":"key","baseUrl":"https://x","modelOverride":"model"}"#;
-    let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
-    assert!(settings.thinking_enabled.is_none());
-    assert!(settings.extended_context_enabled.is_none());
-    assert!(settings.chrome_enabled.is_none());
-    assert_eq!(settings.auth_token, Some("tok".to_string()));
-}
-
-#[test]
-fn claude_api_settings_cli_options_default_to_none() {
-    let settings = ClaudeApiSettings::default();
-    assert!(settings.thinking_enabled.is_none());
-    assert!(settings.extended_context_enabled.is_none());
-    assert!(settings.chrome_enabled.is_none());
-}
-
-#[test]
-fn claude_api_settings_deserializes_from_camel_case() {
-    let json =
-        r#"{"authToken":"tok","apiKey":"key","baseUrl":"https://x","modelOverride":"model"}"#;
-    let settings: ClaudeApiSettings = serde_json::from_str(json).unwrap();
-    assert_eq!(settings.auth_token, Some("tok".to_string()));
-    assert_eq!(settings.api_key, Some("key".to_string()));
-    assert_eq!(settings.base_url, Some("https://x".to_string()));
-    assert_eq!(settings.model_override, Some("model".to_string()));
-}
-
-// ── claude_settings_from_config helper ──────────────────────────────
-
-#[test]
-fn config_helper_empty_map_returns_all_none() {
+fn claude_config_empty_map_returns_all_none() {
     let config = HashMap::new();
-    let settings = claude_settings_from_config(&config);
-    assert!(settings.auth_token.is_none());
-    assert!(settings.api_key.is_none());
-    assert!(settings.base_url.is_none());
-    assert!(settings.model_override.is_none());
-    assert!(settings.thinking_enabled.is_none());
-    assert!(settings.extended_context_enabled.is_none());
-    assert!(settings.chrome_enabled.is_none());
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.auth_token.is_none());
+    assert!(api.api_key.is_none());
+    assert!(api.base_url.is_none());
+    assert!(api.model_override.is_none());
+    assert!(api.thinking_enabled.is_none());
+    assert!(api.extended_context_enabled.is_none());
+    assert!(api.chrome_enabled.is_none());
 }
 
 #[test]
-fn config_helper_reconstructs_all_fields() {
+fn claude_config_reads_snake_case_keys() {
     let mut config = HashMap::new();
     config.insert("auth_token".to_string(), serde_json::json!("tok"));
     config.insert("api_key".to_string(), serde_json::json!("key"));
@@ -109,25 +31,91 @@ fn config_helper_reconstructs_all_fields() {
     config.insert("extended_context_enabled".to_string(), serde_json::json!(false));
     config.insert("chrome_enabled".to_string(), serde_json::json!(true));
 
-    let settings = claude_settings_from_config(&config);
-    assert_eq!(settings.auth_token, Some("tok".to_string()));
-    assert_eq!(settings.api_key, Some("key".to_string()));
-    assert_eq!(settings.base_url, Some("https://x".to_string()));
-    assert_eq!(settings.model_override, Some("model".to_string()));
-    assert_eq!(settings.thinking_enabled, Some(true));
-    assert_eq!(settings.extended_context_enabled, Some(false));
-    assert_eq!(settings.chrome_enabled, Some(true));
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.auth_token.as_deref(), Some("tok"));
+    assert_eq!(api.api_key.as_deref(), Some("key"));
+    assert_eq!(api.base_url.as_deref(), Some("https://x"));
+    assert_eq!(api.model_override.as_deref(), Some("model"));
+    assert_eq!(api.thinking_enabled, Some(true));
+    assert_eq!(api.extended_context_enabled, Some(false));
+    assert_eq!(api.chrome_enabled, Some(true));
 }
 
 #[test]
-fn config_helper_ignores_wrong_types() {
+fn claude_config_reads_camel_case_keys() {
+    let mut config = HashMap::new();
+    config.insert("authToken".to_string(), serde_json::json!("tok"));
+    config.insert("apiKey".to_string(), serde_json::json!("key"));
+    config.insert("baseUrl".to_string(), serde_json::json!("https://x"));
+    config.insert("modelOverride".to_string(), serde_json::json!("model"));
+    config.insert("thinkingEnabled".to_string(), serde_json::json!(false));
+    config.insert("extendedContextEnabled".to_string(), serde_json::json!(true));
+    config.insert("chromeEnabled".to_string(), serde_json::json!(true));
+
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.auth_token.as_deref(), Some("tok"));
+    assert_eq!(api.api_key.as_deref(), Some("key"));
+    assert_eq!(api.base_url.as_deref(), Some("https://x"));
+    assert_eq!(api.model_override.as_deref(), Some("model"));
+    assert_eq!(api.thinking_enabled, Some(false));
+    assert_eq!(api.extended_context_enabled, Some(true));
+    assert_eq!(api.chrome_enabled, Some(true));
+}
+
+#[test]
+fn claude_config_snake_case_takes_precedence_over_camel_case() {
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("snake-wins"));
+    config.insert("authToken".to_string(), serde_json::json!("camel-loses"));
+    config.insert("thinking_enabled".to_string(), serde_json::json!(false));
+    config.insert("thinkingEnabled".to_string(), serde_json::json!(true));
+
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.auth_token.as_deref(), Some("snake-wins"));
+    assert_eq!(api.thinking_enabled, Some(false));
+}
+
+#[test]
+fn claude_config_falls_back_to_camel_when_snake_missing() {
+    let mut config = HashMap::new();
+    config.insert("authToken".to_string(), serde_json::json!("camel-ok"));
+
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.auth_token.as_deref(), Some("camel-ok"));
+    assert!(api.api_key.is_none());
+}
+
+#[test]
+fn claude_config_ignores_wrong_types() {
     let mut config = HashMap::new();
     config.insert("auth_token".to_string(), serde_json::json!(42));
     config.insert("thinking_enabled".to_string(), serde_json::json!("yes"));
 
-    let settings = claude_settings_from_config(&config);
-    assert!(settings.auth_token.is_none());
-    assert!(settings.thinking_enabled.is_none());
+    let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.auth_token.is_none());
+    assert!(api.thinking_enabled.is_none());
+}
+
+#[test]
+fn claude_config_to_agent_config_roundtrips() {
+    let original = ClaudeApiConfig {
+        auth_token: Some("tok".to_string()),
+        api_key: Some("key".to_string()),
+        base_url: None,
+        model_override: Some("model".to_string()),
+        thinking_enabled: Some(true),
+        extended_context_enabled: Some(false),
+        chrome_enabled: None,
+    };
+    let map = original.to_agent_config();
+    let recovered = ClaudeApiConfig::from_agent_config(&map);
+    assert_eq!(recovered.auth_token, original.auth_token);
+    assert_eq!(recovered.api_key, original.api_key);
+    assert_eq!(recovered.base_url, original.base_url);
+    assert_eq!(recovered.model_override, original.model_override);
+    assert_eq!(recovered.thinking_enabled, original.thinking_enabled);
+    assert_eq!(recovered.extended_context_enabled, original.extended_context_enabled);
+    assert_eq!(recovered.chrome_enabled, original.chrome_enabled);
 }
 
 // ── AgentSettingsManager tests ──────────────────────────────────────
@@ -140,39 +128,35 @@ fn manager_default_returns_empty_config() {
 }
 
 #[test]
-fn manager_set_and_get_claude_settings() {
+fn manager_set_and_get_agent_settings() {
     let manager = AgentSettingsManager::new();
-    manager.set_claude_settings_memory_only(ClaudeApiSettings {
+    let config = ClaudeApiConfig {
         auth_token: Some("test-token".to_string()),
-        api_key: None,
         base_url: Some("https://custom.api".to_string()),
-        model_override: None,
         ..Default::default()
-    });
+    }.to_agent_config();
+    manager.set_agent_config("claude", config);
 
-    let loaded = manager.get_claude_settings();
-    assert_eq!(loaded.auth_token, Some("test-token".to_string()));
-    assert!(loaded.api_key.is_none());
-    assert_eq!(loaded.base_url, Some("https://custom.api".to_string()));
+    let loaded = manager.agent_config_for("claude");
+    let api = ClaudeApiConfig::from_agent_config(&loaded);
+    assert_eq!(api.auth_token.as_deref(), Some("test-token"));
+    assert!(api.api_key.is_none());
+    assert_eq!(api.base_url.as_deref(), Some("https://custom.api"));
 }
 
 #[test]
-fn manager_agent_config_for_claude_returns_populated_map() {
+fn manager_agent_config_populated_map() {
     let manager = AgentSettingsManager::new();
-    manager.set_claude_settings_memory_only(ClaudeApiSettings {
+    let config = ClaudeApiConfig {
         auth_token: Some("tok".to_string()),
         thinking_enabled: Some(true),
         ..Default::default()
-    });
-    let config = manager.agent_config_for("claude");
-    assert_eq!(
-        config.get("auth_token").and_then(|v| v.as_str()),
-        Some("tok")
-    );
-    assert_eq!(
-        config.get("thinking_enabled").and_then(|v| v.as_bool()),
-        Some(true)
-    );
+    }.to_agent_config();
+    manager.set_agent_config("claude", config);
+
+    let loaded = manager.agent_config_for("claude");
+    assert_eq!(loaded.get("auth_token").and_then(|v| v.as_str()), Some("tok"));
+    assert_eq!(loaded.get("thinking_enabled").and_then(|v| v.as_bool()), Some(true));
 }
 
 #[test]
@@ -203,14 +187,16 @@ fn manager_persist_to_bad_path_returns_error() {
 }
 
 #[test]
-fn manager_agent_config_for_non_claude_returns_empty() {
+fn manager_agent_config_for_different_agent_returns_empty() {
     let manager = AgentSettingsManager::new();
-    manager.set_claude_settings_memory_only(ClaudeApiSettings {
+    let config = ClaudeApiConfig {
         auth_token: Some("tok".to_string()),
         ..Default::default()
-    });
-    let config = manager.agent_config_for("cursor");
-    assert!(config.is_empty());
+    }.to_agent_config();
+    manager.set_agent_config("claude", config);
+
+    let cursor_config = manager.agent_config_for("cursor");
+    assert!(cursor_config.is_empty());
 }
 
 #[test]
@@ -266,30 +252,31 @@ fn manager_persist_and_load() {
 }
 
 #[test]
-fn manager_claude_persist_and_load() {
+fn manager_loads_legacy_camel_case_file() {
     let temp_dir = std::env::temp_dir();
     let path = temp_dir.join(format!(
         "test_claude_settings_{}.json",
         std::process::id()
     ));
 
-    // Write settings in the old ClaudeApiSettings format
-    let settings = ClaudeApiSettings {
-        auth_token: Some("persisted-token".to_string()),
-        api_key: Some("persisted-key".to_string()),
-        base_url: None,
-        model_override: Some("custom-model".to_string()),
-        ..Default::default()
-    };
-    std::fs::write(&path, serde_json::to_string(&settings).unwrap()).unwrap();
+    // Write settings in legacy camelCase format
+    let legacy_json = serde_json::json!({
+        "authToken": "persisted-token",
+        "apiKey": "persisted-key",
+        "modelOverride": "custom-model"
+    });
+    std::fs::write(&path, serde_json::to_string(&legacy_json).unwrap()).unwrap();
 
-    let manager = AgentSettingsManager::new_with_claude_settings(path.clone());
-    let loaded = manager.get_claude_settings();
+    let manager = AgentSettingsManager::new();
+    manager.register_agent_settings_path("claude", path.clone());
 
-    assert_eq!(loaded.auth_token, Some("persisted-token".to_string()));
-    assert_eq!(loaded.api_key, Some("persisted-key".to_string()));
-    assert!(loaded.base_url.is_none());
-    assert_eq!(loaded.model_override, Some("custom-model".to_string()));
+    // ClaudeApiConfig handles both key formats
+    let loaded = manager.agent_config_for("claude");
+    let api = ClaudeApiConfig::from_agent_config(&loaded);
+    assert_eq!(api.auth_token.as_deref(), Some("persisted-token"));
+    assert_eq!(api.api_key.as_deref(), Some("persisted-key"));
+    assert!(api.base_url.is_none());
+    assert_eq!(api.model_override.as_deref(), Some("custom-model"));
 
     let _ = std::fs::remove_file(&path);
 }
@@ -299,13 +286,15 @@ fn manager_shared_reads_fresh_settings() {
     let manager = AgentSettingsManager::new();
     let shared = manager.shared();
 
-    manager.set_claude_settings_memory_only(ClaudeApiSettings {
+    let config = ClaudeApiConfig {
         auth_token: Some("fresh".to_string()),
         ..Default::default()
-    });
+    }.to_agent_config();
+    manager.set_agent_config("claude", config);
 
-    let loaded = shared.get_claude_settings();
-    assert_eq!(loaded.auth_token, Some("fresh".to_string()));
+    let loaded = shared.agent_config_for("claude");
+    let api = ClaudeApiConfig::from_agent_config(&loaded);
+    assert_eq!(api.auth_token.as_deref(), Some("fresh"));
 }
 
 #[test]
@@ -316,45 +305,80 @@ fn manager_handles_missing_file() {
     ));
     let _ = std::fs::remove_file(&path);
 
-    let manager = AgentSettingsManager::new_with_claude_settings(path);
-    let settings = manager.get_claude_settings();
-    assert!(settings.auth_token.is_none());
+    let manager = AgentSettingsManager::new();
+    manager.register_agent_settings_path("claude", path);
+    let loaded = manager.agent_config_for("claude");
+    assert!(loaded.is_empty());
 }
 
 #[test]
-fn manager_claude_save_load_roundtrip() {
+fn manager_save_load_roundtrip() {
     let temp_dir = std::env::temp_dir();
     let path = temp_dir.join(format!(
-        "test_claude_roundtrip_{}.json",
+        "test_roundtrip_{}.json",
         std::process::id()
     ));
     let _ = std::fs::remove_file(&path);
 
-    // Write initial file in the old camelCase format (simulating existing install)
-    let original = ClaudeApiSettings {
+    let manager = AgentSettingsManager::new();
+    manager.register_agent_settings_path("test-agent", path.clone());
+
+    let config = ClaudeApiConfig {
         auth_token: Some("tok-original".to_string()),
         api_key: Some("key-original".to_string()),
         thinking_enabled: Some(true),
         ..Default::default()
-    };
-    std::fs::write(&path, serde_json::to_string(&original).unwrap()).unwrap();
+    }.to_agent_config();
+    manager.set_agent_config_and_persist("test-agent", config).unwrap();
 
-    // Load, modify, save
-    let manager = AgentSettingsManager::new_with_claude_settings(path.clone());
-    let mut updated = manager.get_claude_settings();
-    assert_eq!(updated.auth_token, Some("tok-original".to_string()));
-
-    updated.auth_token = Some("tok-updated".to_string());
-    manager.set_claude_settings(updated).unwrap();
-
-    // Reload from disk in a fresh manager -- must survive the roundtrip
-    let manager2 = AgentSettingsManager::new_with_claude_settings(path.clone());
-    let reloaded = manager2.get_claude_settings();
-    assert_eq!(reloaded.auth_token, Some("tok-updated".to_string()));
-    assert_eq!(reloaded.api_key, Some("key-original".to_string()));
-    assert_eq!(reloaded.thinking_enabled, Some(true));
+    // Reload from disk in a fresh manager
+    let manager2 = AgentSettingsManager::new();
+    manager2.register_agent_settings_path("test-agent", path.clone());
+    let reloaded = manager2.agent_config_for("test-agent");
+    let api = ClaudeApiConfig::from_agent_config(&reloaded);
+    assert_eq!(api.auth_token.as_deref(), Some("tok-original"));
+    assert_eq!(api.api_key.as_deref(), Some("key-original"));
+    assert_eq!(api.thinking_enabled, Some(true));
 
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn manager_multiple_agents_independent() {
+    let manager = AgentSettingsManager::new();
+
+    let mut claude_config = HashMap::new();
+    claude_config.insert("auth_token".to_string(), serde_json::json!("claude-tok"));
+    manager.set_agent_config("claude", claude_config);
+
+    let mut cursor_config = HashMap::new();
+    cursor_config.insert("custom_key".to_string(), serde_json::json!("cursor-val"));
+    manager.set_agent_config("cursor", cursor_config);
+
+    let claude = manager.agent_config_for("claude");
+    let cursor = manager.agent_config_for("cursor");
+    assert_eq!(claude.get("auth_token").and_then(|v| v.as_str()), Some("claude-tok"));
+    assert!(claude.get("custom_key").is_none());
+    assert_eq!(cursor.get("custom_key").and_then(|v| v.as_str()), Some("cursor-val"));
+    assert!(cursor.get("auth_token").is_none());
+}
+
+#[test]
+fn manager_set_agent_config_replaces_entire_map() {
+    let manager = AgentSettingsManager::new();
+
+    let mut config1 = HashMap::new();
+    config1.insert("key_a".to_string(), serde_json::json!("val_a"));
+    config1.insert("key_b".to_string(), serde_json::json!("val_b"));
+    manager.set_agent_config("agent", config1);
+
+    let mut config2 = HashMap::new();
+    config2.insert("key_c".to_string(), serde_json::json!("val_c"));
+    manager.set_agent_config("agent", config2);
+
+    let loaded = manager.agent_config_for("agent");
+    assert!(loaded.get("key_a").is_none(), "old keys should be replaced");
+    assert_eq!(loaded.get("key_c").and_then(|v| v.as_str()), Some("val_c"));
 }
 
 #[test]
@@ -365,9 +389,10 @@ fn manager_handles_invalid_json() {
     ));
     std::fs::write(&path, "not valid json").unwrap();
 
-    let manager = AgentSettingsManager::new_with_claude_settings(path.clone());
-    let settings = manager.get_claude_settings();
-    assert!(settings.auth_token.is_none());
+    let manager = AgentSettingsManager::new();
+    manager.register_agent_settings_path("claude", path.clone());
+    let loaded = manager.agent_config_for("claude");
+    assert!(loaded.is_empty());
 
     let _ = std::fs::remove_file(&path);
 }

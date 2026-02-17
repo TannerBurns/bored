@@ -44,9 +44,9 @@ fn provider_build_omits_model_when_none() {
 }
 
 #[test]
-fn provider_build_maps_model_name() {
+fn provider_build_passes_model_through() {
     let mut config = create_provider_config();
-    config.model = Some("sonnet-4.5".to_string());
+    config.model = Some("claude-sonnet-4-5".to_string());
     let (_, args) = build_command_from_provider_config(&config);
     assert!(args.contains(&"claude-sonnet-4-5".to_string()));
 }
@@ -158,23 +158,21 @@ fn provider_build_all_cli_options_disabled() {
 }
 
 #[test]
-fn provider_build_maps_model_names_correctly() {
+fn provider_build_uses_model_as_is() {
     let test_cases = [
-        ("opus-4.6", "claude-opus-4-6"),
-        ("opus-4.5", "claude-opus-4-5"),
-        ("sonnet-4.5", "claude-sonnet-4-5"),
-        ("unknown-model", "unknown-model"),
+        "claude-opus-4-6",
+        "claude-sonnet-4-5",
+        "unknown-model",
     ];
 
-    for (input, expected) in test_cases {
+    for model in test_cases {
         let mut config = create_provider_config();
-        config.model = Some(input.to_string());
+        config.model = Some(model.to_string());
         let (_, args) = build_command_from_provider_config(&config);
         assert!(
-            args.contains(&expected.to_string()),
-            "Expected {} to be mapped to {}",
-            input,
-            expected
+            args.contains(&model.to_string()),
+            "Builder should pass model '{}' through unchanged",
+            model
         );
     }
 }
@@ -218,12 +216,4 @@ fn provider_build_prompt_is_last_with_cli_options() {
         Some(&"Test prompt".to_string()),
         "Prompt must be the last argument even with all CLI options enabled"
     );
-}
-
-#[test]
-fn default_settings() {
-    let settings = ClaudeSettings::default();
-    assert!(settings.executable_path.is_none());
-    assert!(settings.system_prompt.is_none());
-    assert!(settings.permission_mode.is_none());
 }

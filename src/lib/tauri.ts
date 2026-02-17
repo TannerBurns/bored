@@ -257,31 +257,12 @@ export async function getAgentHookScriptPath(agentId: string): Promise<string | 
   return invoke('get_agent_hook_script_path', { agentId });
 }
 
-// Claude API Settings
-export interface ClaudeApiSettings {
-  authToken: string | null;
-  apiKey: string | null;
-  baseUrl: string | null;
-  modelOverride: string | null;
-  thinkingEnabled: boolean | null;
-  extendedContextEnabled: boolean | null;
-  chromeEnabled: boolean | null;
-}
-
 export async function getAgentSettings(agentId: string): Promise<Record<string, unknown>> {
   return invoke('get_agent_settings', { agentId });
 }
 
 export async function setAgentSettings(agentId: string, settings: Record<string, unknown>): Promise<void> {
   return invoke('set_agent_settings', { agentId, settings });
-}
-
-export async function getClaudeApiSettings(): Promise<ClaudeApiSettings> {
-  return invoke('get_claude_api_settings');
-}
-
-export async function setClaudeApiSettings(settings: ClaudeApiSettings): Promise<void> {
-  return invoke('set_claude_api_settings', { settings });
 }
 
 export async function getCommandsPath(): Promise<string | null> {

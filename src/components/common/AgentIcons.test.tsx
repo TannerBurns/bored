@@ -120,15 +120,9 @@ describe('getAgentIcon', () => {
 });
 
 describe('getAgentDisplayName', () => {
-  it('returns Cursor for cursor', () => {
+  it('capitalizes agent ID when no display name provided', () => {
     expect(getAgentDisplayName('cursor')).toBe('Cursor');
-  });
-
-  it('returns Claude for claude', () => {
     expect(getAgentDisplayName('claude')).toBe('Claude');
-  });
-
-  it('capitalizes unknown agent ID', () => {
     expect(getAgentDisplayName('openai')).toBe('Openai');
   });
 
@@ -142,28 +136,28 @@ describe('getAgentDisplayName', () => {
 });
 
 describe('getAgentBrandColor', () => {
-  it('returns Claude brand color', () => {
-    expect(getAgentBrandColor('claude')).toBe('#da7756');
+  it('returns undefined when no brand color provided', () => {
+    expect(getAgentBrandColor('claude')).toBeUndefined();
   });
 
   it('returns undefined for unknown agent', () => {
     expect(getAgentBrandColor('unknown')).toBeUndefined();
   });
 
-  it('uses provided brandColor over default', () => {
-    expect(getAgentBrandColor('claude', '#ffffff')).toBe('#ffffff');
+  it('uses provided brandColor from backend', () => {
+    expect(getAgentBrandColor('claude', '#da7756')).toBe('#da7756');
   });
 
-  it('ignores empty string brandColor and falls back to default', () => {
-    expect(getAgentBrandColor('claude', '')).toBe('#da7756');
+  it('returns provided brandColor for any agent', () => {
+    expect(getAgentBrandColor('windsurf', '#00ff00')).toBe('#00ff00');
   });
 
-  it('ignores null brandColor and falls back to default', () => {
-    expect(getAgentBrandColor('claude', null)).toBe('#da7756');
+  it('ignores empty string brandColor', () => {
+    expect(getAgentBrandColor('claude', '')).toBeUndefined();
   });
 
-  it('returns undefined for unknown agent with null brandColor', () => {
-    expect(getAgentBrandColor('windsurf', null)).toBeUndefined();
+  it('ignores null brandColor', () => {
+    expect(getAgentBrandColor('claude', null)).toBeUndefined();
   });
 });
 
@@ -172,7 +166,7 @@ describe('getAgentDisplayName with override', () => {
     expect(getAgentDisplayName('claude', 'Claude Code')).toBe('Claude Code');
   });
 
-  it('ignores empty displayName and falls back', () => {
+  it('ignores empty displayName and falls back to capitalized ID', () => {
     expect(getAgentDisplayName('claude', '')).toBe('Claude');
   });
 
