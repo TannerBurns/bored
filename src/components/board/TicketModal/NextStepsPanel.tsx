@@ -100,7 +100,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         {onValidate && (
           <BuildWithDropdown
             label="Validate with"
-            title="Open validation chat — choose Cursor or Claude to verify this ticket's changes in a dedicated chat view"
+            title="Open validation chat — choose an agent to verify this ticket's changes in a dedicated chat view"
             onSelect={(agent) => onValidate(ticket.id, agent)}
             disabled={false}
           />

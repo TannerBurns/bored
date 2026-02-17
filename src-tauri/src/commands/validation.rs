@@ -815,14 +815,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_none_falls_back_to_claude_when_none_available() {
+    fn resolve_none_falls_back_to_first_registered_when_none_available() {
         let reg = make_registry(vec![("offline", false)]);
-        assert_eq!(resolve_validation_agent_id(None, &reg), "claude");
+        assert_eq!(resolve_validation_agent_id(None, &reg), "offline");
     }
 
     #[test]
-    fn resolve_none_falls_back_to_claude_when_registry_empty() {
+    fn resolve_none_returns_empty_when_registry_empty() {
         let reg = AgentRegistry::new();
-        assert_eq!(resolve_validation_agent_id(None, &reg), "claude");
+        assert_eq!(resolve_validation_agent_id(None, &reg), "");
     }
 }

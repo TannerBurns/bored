@@ -246,7 +246,7 @@ fn reconstruct_stdout_from_events(conn: &rusqlite::Connection, run_id: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{AgentType, CreateRun, CreateTicket, Priority, WorkflowType};
+    use crate::db::models::{CreateRun, CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -277,7 +277,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -420,7 +420,7 @@ mod tests {
         let run2 = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 ..Default::default()
             })
@@ -443,7 +443,7 @@ mod tests {
         db.set_run_metadata(&run1_id, &cost_metadata(100, 0.01, false)).unwrap();
         db.create_run(&CreateRun {
             ticket_id: ticket_id.clone(),
-            agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
             repo_path: "/tmp".to_string(),
             ..Default::default()
         })
@@ -464,7 +464,7 @@ mod tests {
         let sub1 = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: Some(parent_id.clone()),
                 stage: Some("plan".to_string()),
@@ -474,7 +474,7 @@ mod tests {
         let sub2 = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: Some(parent_id.clone()),
                 stage: Some("implement".to_string()),
@@ -527,7 +527,7 @@ mod tests {
         let parent = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 ..Default::default()
             })
@@ -539,7 +539,7 @@ mod tests {
         let sub1 = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: Some(parent.id.clone()),
                 stage: Some("plan".to_string()),
@@ -590,8 +590,8 @@ mod tests {
         let t1 = make_ticket("T1");
         let t2 = make_ticket("T2");
 
-        let r1 = db.create_run(&CreateRun { ticket_id: t1.id, agent_type: AgentType::Claude, repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
-        let r2 = db.create_run(&CreateRun { ticket_id: t2.id, agent_type: AgentType::Claude, repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
+        let r1 = db.create_run(&CreateRun { ticket_id: t1.id, agent_type: "claude".to_string(), repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
+        let r2 = db.create_run(&CreateRun { ticket_id: t2.id, agent_type: "claude".to_string(), repo_path: "/tmp".to_string(), ..Default::default() }).unwrap();
 
         db.set_run_metadata(&r1.id, &cost_metadata(100, 0.01, false)).unwrap();
         db.set_run_metadata(&r2.id, &cost_metadata(200, 0.02, false)).unwrap();
@@ -609,13 +609,13 @@ mod tests {
         use crate::agents::provider::{AgentProvider, AgentRunConfig};
         use crate::agents::registry::AgentRegistry;
         use crate::db::models::{
-            AgentEventPayload, AgentType, EventType, NormalizedEvent, RunStatus,
+            AgentEventPayload, EventType, NormalizedEvent, RunStatus,
         };
         use std::path::Path;
         use std::sync::Arc;
 
         /// Stub provider that returns fixed cost data from `extract_cost`.
-        /// Its `id()` matches the DB-serialized `AgentType` string so the
+        /// Its `id()` matches the DB agent_type string so the
         /// registry dispatch in `backfill_run_costs` can find it.
         #[derive(Debug)]
         struct CostStubProvider {
@@ -713,7 +713,7 @@ mod tests {
             let run = db
                 .create_run(&CreateRun {
                     ticket_id: ticket.id.clone(),
-                    agent_type: AgentType::Claude,
+                    agent_type: "claude".to_string(),
                     repo_path: "/tmp".to_string(),
                     parent_run_id: None,
                     stage: None,
@@ -738,7 +738,7 @@ mod tests {
             db.create_event(&NormalizedEvent {
                 run_id: run_id.clone(),
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 event_type: EventType::Custom("log_stdout".to_string()),
                 payload: AgentEventPayload {
                     raw: Some("some agent output".to_string()),
@@ -806,7 +806,7 @@ mod tests {
             let parent_run = db
                 .create_run(&CreateRun {
                     ticket_id: ticket.id.clone(),
-                    agent_type: AgentType::Claude,
+                    agent_type: "claude".to_string(),
                     repo_path: "/tmp".to_string(),
                     ..Default::default()
                 })
@@ -818,7 +818,7 @@ mod tests {
             let sub_run = db
                 .create_run(&CreateRun {
                     ticket_id: ticket.id.clone(),
-                    agent_type: AgentType::Claude,
+                    agent_type: "claude".to_string(),
                     repo_path: "/tmp".to_string(),
                     parent_run_id: Some(parent_run.id.clone()),
                     stage: Some("plan".to_string()),
@@ -833,7 +833,7 @@ mod tests {
                 db.create_event(&NormalizedEvent {
                     run_id: rid.to_string(),
                     ticket_id: ticket.id.clone(),
-                    agent_type: AgentType::Claude,
+                    agent_type: "claude".to_string(),
                     event_type: EventType::Custom("log_stdout".to_string()),
                     payload: AgentEventPayload {
                         raw: Some("output".to_string()),

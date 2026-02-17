@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use crate::agents::provider::AgentProvider;
 use crate::agents::spawner;
 use crate::agents::AgentRunConfig;
-use crate::db::{AgentType, AuthorType, CreateComment, CreateRun, Database, RunStatus};
+use crate::db::{AuthorType, CreateComment, CreateRun, Database, RunStatus};
 
 mod context;
 mod fallback;
@@ -40,7 +40,7 @@ pub async fn run_diagnostic_agent(
         context.operation
     );
 
-    let db_agent_type = AgentType::parse_agent(&agent_id);
+    let db_agent_type = agent_id.clone();
 
     let run = db
         .create_run(&CreateRun {

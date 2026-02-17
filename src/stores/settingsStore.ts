@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { syncWorkflowSettings } from '../lib/tauri';
 
-export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5';
+export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5' | (string & {});
 
 export interface WorkflowStageConfig {
   enabled: boolean;
@@ -163,16 +163,8 @@ interface SettingsState {
   validationModel: AIModel;
   validationTimeoutMinutes: number;
 
-  // Claude API settings (stored locally, synced to backend on change)
-  claudeAuthToken: string;
-  claudeApiKey: string;
-  claudeBaseUrl: string;
-  claudeModelOverride: string;
-
-  // Claude CLI option settings
-  claudeThinkingEnabled: boolean;
-  claudeExtendedContext: boolean;
-  claudeChromeEnabled: boolean;
+  // Per-agent settings (keyed by agent ID, e.g. "claude", "cursor")
+  agentSettings: Record<string, Record<string, unknown>>;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setValidationModel: (model: AIModel) => void;
@@ -188,6 +180,18 @@ interface SettingsState {
   setWorkflowPreset: (preset: WorkflowPreset) => void;
   setWorkflowStages: (stages: WorkflowStages) => void;
   setWorkflowStageConfig: (key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
+  getAgentSettings: (agentId: string) => Record<string, unknown>;
+  setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
+  setAgentSetting: (agentId: string, key: string, value: unknown) => void;
+
+  // Legacy Claude convenience accessors (delegate to agentSettings["claude"])
+  claudeAuthToken: string;
+  claudeApiKey: string;
+  claudeBaseUrl: string;
+  claudeModelOverride: string;
+  claudeThinkingEnabled: boolean;
+  claudeExtendedContext: boolean;
+  claudeChromeEnabled: boolean;
   setClaudeAuthToken: (token: string) => void;
   setClaudeApiKey: (key: string) => void;
   setClaudeBaseUrl: (url: string) => void;
@@ -231,13 +235,24 @@ export const useSettingsStore = create<SettingsState>()(
       validationModel: 'sonnet-4.5',
       validationTimeoutMinutes: 10,
 
-      // Claude API defaults (empty = use environment/system defaults)
+      agentSettings: {
+        claude: {
+          authToken: '',
+          apiKey: '',
+          baseUrl: '',
+          modelOverride: '',
+          thinkingEnabled: true,
+          extendedContext: false,
+          chromeEnabled: false,
+        },
+      },
+
+      // Legacy Claude accessors (excluded from persistence via partialize;
+      // source of truth is agentSettings).
       claudeAuthToken: '',
       claudeApiKey: '',
       claudeBaseUrl: '',
       claudeModelOverride: '',
-
-      // Claude CLI option defaults
       claudeThinkingEnabled: true,
       claudeExtendedContext: false,
       claudeChromeEnabled: false,
@@ -272,26 +287,73 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setValidationModel: (validationModel) => set({ validationModel }),
       setValidationTimeoutMinutes: (validationTimeoutMinutes) => set({ validationTimeoutMinutes }),
-      setClaudeAuthToken: (claudeAuthToken) => set({ claudeAuthToken }),
-      setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
-      setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
-      setClaudeModelOverride: (claudeModelOverride) => set({ claudeModelOverride }),
-      setClaudeThinkingEnabled: (claudeThinkingEnabled) => set({ claudeThinkingEnabled }),
-      setClaudeExtendedContext: (claudeExtendedContext) => set({ claudeExtendedContext }),
-      setClaudeChromeEnabled: (claudeChromeEnabled) => set({ claudeChromeEnabled }),
-      setClaudeApiSettings: (settings) => set(() => ({
-        ...(settings.authToken !== undefined && { claudeAuthToken: settings.authToken }),
-        ...(settings.apiKey !== undefined && { claudeApiKey: settings.apiKey }),
-        ...(settings.baseUrl !== undefined && { claudeBaseUrl: settings.baseUrl }),
-        ...(settings.modelOverride !== undefined && { claudeModelOverride: settings.modelOverride }),
-        ...(settings.thinkingEnabled !== undefined && { claudeThinkingEnabled: settings.thinkingEnabled }),
-        ...(settings.extendedContext !== undefined && { claudeExtendedContext: settings.extendedContext }),
-        ...(settings.chromeEnabled !== undefined && { claudeChromeEnabled: settings.chromeEnabled }),
-      })),
+
+      getAgentSettings: (agentId) => get().agentSettings[agentId] ?? {},
+      setAgentSettings: (agentId, settings) => {
+        const current = get().agentSettings;
+        set({
+          agentSettings: {
+            ...current,
+            [agentId]: { ...(current[agentId] ?? {}), ...settings },
+          },
+        });
+      },
+      setAgentSetting: (agentId, key, value) => {
+        const current = get().agentSettings;
+        set({
+          agentSettings: {
+            ...current,
+            [agentId]: { ...(current[agentId] ?? {}), [key]: value },
+          },
+        });
+      },
+
+      setClaudeAuthToken: (v) => { get().setAgentSetting('claude', 'authToken', v); set({ claudeAuthToken: v }); },
+      setClaudeApiKey: (v) => { get().setAgentSetting('claude', 'apiKey', v); set({ claudeApiKey: v }); },
+      setClaudeBaseUrl: (v) => { get().setAgentSetting('claude', 'baseUrl', v); set({ claudeBaseUrl: v }); },
+      setClaudeModelOverride: (v) => { get().setAgentSetting('claude', 'modelOverride', v); set({ claudeModelOverride: v }); },
+      setClaudeThinkingEnabled: (v) => { get().setAgentSetting('claude', 'thinkingEnabled', v); set({ claudeThinkingEnabled: v }); },
+      setClaudeExtendedContext: (v) => { get().setAgentSetting('claude', 'extendedContext', v); set({ claudeExtendedContext: v }); },
+      setClaudeChromeEnabled: (v) => { get().setAgentSetting('claude', 'chromeEnabled', v); set({ claudeChromeEnabled: v }); },
+      setClaudeApiSettings: (settings) => {
+        const updates: Record<string, unknown> = {};
+        const derived: Partial<SettingsState> = {};
+        if (settings.authToken !== undefined) { updates.authToken = settings.authToken; derived.claudeAuthToken = settings.authToken; }
+        if (settings.apiKey !== undefined) { updates.apiKey = settings.apiKey; derived.claudeApiKey = settings.apiKey; }
+        if (settings.baseUrl !== undefined) { updates.baseUrl = settings.baseUrl; derived.claudeBaseUrl = settings.baseUrl; }
+        if (settings.modelOverride !== undefined) { updates.modelOverride = settings.modelOverride; derived.claudeModelOverride = settings.modelOverride; }
+        if (settings.thinkingEnabled !== undefined) { updates.thinkingEnabled = settings.thinkingEnabled; derived.claudeThinkingEnabled = settings.thinkingEnabled; }
+        if (settings.extendedContext !== undefined) { updates.extendedContext = settings.extendedContext; derived.claudeExtendedContext = settings.extendedContext; }
+        if (settings.chromeEnabled !== undefined) { updates.chromeEnabled = settings.chromeEnabled; derived.claudeChromeEnabled = settings.chromeEnabled; }
+        get().setAgentSettings('claude', updates);
+        set(derived);
+      },
     }),
     {
       name: 'agent-kanban-settings',
-      version: 8,
+      version: 9,
+      partialize: (state) => {
+        const {
+          claudeAuthToken: _1, claudeApiKey: _2, claudeBaseUrl: _3,
+          claudeModelOverride: _4, claudeThinkingEnabled: _5,
+          claudeExtendedContext: _6, claudeChromeEnabled: _7,
+          ...persisted
+        } = state;
+        return persisted;
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const claude = state.agentSettings?.claude;
+        if (claude) {
+          state.claudeAuthToken = (claude.authToken ?? '') as string;
+          state.claudeApiKey = (claude.apiKey ?? '') as string;
+          state.claudeBaseUrl = (claude.baseUrl ?? '') as string;
+          state.claudeModelOverride = (claude.modelOverride ?? '') as string;
+          state.claudeThinkingEnabled = (claude.thinkingEnabled ?? true) as boolean;
+          state.claudeExtendedContext = (claude.extendedContext ?? false) as boolean;
+          state.claudeChromeEnabled = (claude.chromeEnabled ?? false) as boolean;
+        }
+      },
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
         if (version < 8) {
@@ -299,6 +361,32 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.claudeThinkingEnabled === undefined) state.claudeThinkingEnabled = true;
           if (state.claudeExtendedContext === undefined) state.claudeExtendedContext = false;
           if (state.claudeChromeEnabled === undefined) state.claudeChromeEnabled = false;
+        }
+        if (version < 9) {
+          // v8 -> v9: migrate Claude-specific fields into generic agentSettings map
+          const claude: Record<string, unknown> = {};
+          const legacyKeys: Record<string, string> = {
+            claudeAuthToken: 'authToken',
+            claudeApiKey: 'apiKey',
+            claudeBaseUrl: 'baseUrl',
+            claudeModelOverride: 'modelOverride',
+            claudeThinkingEnabled: 'thinkingEnabled',
+            claudeExtendedContext: 'extendedContext',
+            claudeChromeEnabled: 'chromeEnabled',
+          };
+          for (const [oldKey, newKey] of Object.entries(legacyKeys)) {
+            if (state[oldKey] !== undefined) {
+              claude[newKey] = state[oldKey];
+              delete state[oldKey];
+            }
+          }
+          // Ensure defaults for any missing Claude settings
+          if (claude.thinkingEnabled === undefined) claude.thinkingEnabled = true;
+          if (claude.extendedContext === undefined) claude.extendedContext = false;
+          if (claude.chromeEnabled === undefined) claude.chromeEnabled = false;
+
+          const existing = (state.agentSettings as Record<string, Record<string, unknown>> | undefined) ?? {};
+          state.agentSettings = { ...existing, claude: { ...(existing.claude ?? {}), ...claude } };
         }
         if (version < 7) {
           // v6 -> v7: convert stageTimeoutMinutes to stageTimeoutHours

@@ -11,7 +11,7 @@ use crate::agents::prompt::generate_command_prompt_with_providers;
 use crate::agents::spawner::run_agent_via_provider_with_cancel;
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
-use crate::db::{AgentEventPayload, AgentType, CreateRun, EventType, NormalizedEvent, RunStatus};
+use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
 
 impl WorkflowOrchestrator {
     /// Run a single stage of the workflow with retry support
@@ -94,7 +94,7 @@ impl WorkflowOrchestrator {
             self.emit_stage_event(stage, "running", None, None);
         }
 
-        let db_agent_type = AgentType::parse_agent(&self.agent_id);
+        let db_agent_type = self.agent_id.clone();
 
         // Create sub-run in database
         let sub_run = self
@@ -265,7 +265,7 @@ impl WorkflowOrchestrator {
         let app_handle_for_logs = self.app_handle.clone();
         let parent_run_id_for_logs = self.parent_run_id.clone();
         let ticket_id_for_logs = self.ticket.id.clone();
-        let db_agent_type = AgentType::parse_agent(&self.agent_id);
+        let db_agent_type = self.agent_id.clone();
         let stage_for_logs = stage.to_string();
 
         Arc::new(Box::new(move |log: LogLine| {
@@ -284,7 +284,7 @@ impl WorkflowOrchestrator {
             let normalized_event = NormalizedEvent {
                 run_id: parent_run_id_for_logs.clone(),
                 ticket_id: ticket_id_for_logs.clone(),
-                agent_type: db_agent_type,
+                agent_type: db_agent_type.clone(),
                 event_type: EventType::Custom(format!("log_{}", stream_name)),
                 payload: AgentEventPayload {
                     raw: Some(log.content.clone()),

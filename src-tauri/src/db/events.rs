@@ -69,7 +69,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{AgentType, CreateRun, CreateTicket, Priority, WorkflowType};
+    use crate::db::models::{CreateRun, CreateTicket, Priority, WorkflowType};
 
     fn create_test_db() -> Database {
         Database::open_in_memory().unwrap()
@@ -104,7 +104,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -116,7 +116,7 @@ mod tests {
             .create_event(&NormalizedEvent {
                 run_id: run.id.clone(),
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 event_type: EventType::FileEdited,
                 payload: AgentEventPayload {
                     raw: Some("edited file.txt".to_string()),

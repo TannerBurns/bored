@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::db::{AgentRun, AgentType, CreateRun, Database, RunStatus, Ticket};
+use crate::db::{AgentRun, CreateRun, Database, RunStatus, Ticket};
 
 use super::super::runner::{self, CancelHandlesMap};
 use super::super::worktree::{self, WorktreeInfo};
@@ -73,7 +73,7 @@ fn create_new_run(
 ) -> Result<AgentRun, Box<dyn std::error::Error + Send + Sync>> {
     match db.create_run(&CreateRun {
         ticket_id: ticket.id.clone(),
-        agent_type: AgentType::parse_agent(&config.agent_id),
+        agent_type: config.agent_id.clone(),
         repo_path: working_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: None,

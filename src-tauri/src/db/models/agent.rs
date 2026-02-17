@@ -1,30 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentType {
-    #[default]
-    Cursor,
-    Claude,
-}
-
-impl AgentType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AgentType::Cursor => "cursor",
-            AgentType::Claude => "claude",
-        }
-    }
-
-    /// Parse an agent type string. Unknown values default to Cursor.
-    pub fn parse_agent(s: &str) -> Self {
-        match s {
-            "claude" => AgentType::Claude,
-            _ => AgentType::Cursor,
-        }
-    }
-}
+/// Free-form agent identifier (e.g. "cursor", "claude").
+pub type AgentType = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -165,51 +143,27 @@ mod tests {
         use super::*;
 
         #[test]
-        fn as_str_returns_lowercase() {
-            assert_eq!(AgentType::Cursor.as_str(), "cursor");
-            assert_eq!(AgentType::Claude.as_str(), "claude");
+        fn agent_type_is_string() {
+            let agent: AgentType = "cursor".to_string();
+            assert_eq!(agent, "cursor");
         }
 
         #[test]
-        fn parse_agent_known_types() {
-            assert_eq!(AgentType::parse_agent("cursor"), AgentType::Cursor);
-            assert_eq!(AgentType::parse_agent("claude"), AgentType::Claude);
+        fn serializes_as_string() {
+            let agent: AgentType = "claude".to_string();
+            assert_eq!(serde_json::to_string(&agent).unwrap(), "\"claude\"");
         }
 
         #[test]
-        fn parse_agent_unknown_defaults_to_cursor() {
-            assert_eq!(AgentType::parse_agent("unknown"), AgentType::Cursor);
-            assert_eq!(AgentType::parse_agent(""), AgentType::Cursor);
-            assert_eq!(AgentType::parse_agent("Claude"), AgentType::Cursor); // case-sensitive
+        fn deserializes_from_string() {
+            let agent: AgentType = serde_json::from_str("\"cursor\"").unwrap();
+            assert_eq!(agent, "cursor");
         }
 
         #[test]
-        fn default_is_cursor() {
-            assert_eq!(AgentType::default(), AgentType::Cursor);
-        }
-
-        #[test]
-        fn serializes_lowercase() {
-            assert_eq!(
-                serde_json::to_string(&AgentType::Cursor).unwrap(),
-                "\"cursor\""
-            );
-            assert_eq!(
-                serde_json::to_string(&AgentType::Claude).unwrap(),
-                "\"claude\""
-            );
-        }
-
-        #[test]
-        fn deserializes_lowercase() {
-            assert_eq!(
-                serde_json::from_str::<AgentType>("\"cursor\"").unwrap(),
-                AgentType::Cursor
-            );
-            assert_eq!(
-                serde_json::from_str::<AgentType>("\"claude\"").unwrap(),
-                AgentType::Claude
-            );
+        fn accepts_arbitrary_agent_ids() {
+            let agent: AgentType = "new-agent".to_string();
+            assert_eq!(agent, "new-agent");
         }
     }
 }

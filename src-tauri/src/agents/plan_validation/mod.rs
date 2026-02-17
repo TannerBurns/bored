@@ -2,7 +2,7 @@
 
 use crate::agents::spawner;
 use crate::agents::AgentRunConfig;
-use crate::db::{AgentType, CreateRun, RunStatus};
+use crate::db::{CreateRun, RunStatus};
 
 mod config;
 mod parsing;
@@ -25,7 +25,7 @@ pub async fn validate_plan_for_clarification(
         plan.len()
     );
 
-    let agent_type = AgentType::parse_agent(&config.agent_id);
+    let agent_type = config.agent_id.clone();
 
     let run = config
         .db
@@ -141,7 +141,7 @@ pub async fn generate_clarification_message(
         plan.len()
     );
 
-    let agent_type = AgentType::parse_agent(&config.agent_id);
+    let agent_type = config.agent_id.clone();
 
     let run = config
         .db

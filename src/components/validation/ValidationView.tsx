@@ -174,7 +174,7 @@ export function ValidationView({
               </svg>
               <p className="text-sm">No validation sessions yet</p>
               <p className="text-xs mt-1">
-                Move a ticket to Done or Review and use &quot;Build with&quot; (Cursor or Claude) to validate from the Work Complete panel.
+                Move a ticket to Done or Review and use &quot;Build with&quot; to validate from the Work Complete panel.
               </p>
             </div>
           ) : (

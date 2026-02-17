@@ -724,6 +724,186 @@ impl Database {
                 tracing::info!("Migration to version 10 complete: project association repair");
             }
 
+            // Migration from version 10 to 11: Improved project association repair
+            // Uses agent_runs.repo_path (which survived the FK cascade since it
+            // references tickets, not projects) to match tickets back to projects.
+            if current_version > 0 && current_version < 11 {
+                tracing::info!("Running migration to version 11: repo_path-based project repair");
+
+                let orphaned_before: i32 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+
+                if orphaned_before > 0 {
+                    // Step 1: Match via agent_runs.repo_path = projects.path
+                    let from_runs: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT p.id FROM projects p
+                            INNER JOIN agent_runs r ON r.ticket_id = tickets.id
+                            WHERE r.repo_path = p.path
+                            LIMIT 1
+                        )
+                        WHERE project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM agent_runs r
+                            INNER JOIN projects p ON p.path = r.repo_path
+                            WHERE r.ticket_id = tickets.id
+                        )"#,
+                        [],
+                    )?;
+
+                    if from_runs > 0 {
+                        tracing::info!("Repaired {} tickets from agent run repo_path", from_runs);
+                    }
+
+                    // Step 2: Board-level inference — if other tickets on the same
+                    // board already have a project (from step 1), assign orphans
+                    // on that board to the most common project.
+                    let from_board_inference: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT t2.project_id FROM tickets t2
+                            WHERE t2.board_id = tickets.board_id
+                              AND t2.project_id IS NOT NULL
+                            GROUP BY t2.project_id
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1
+                        )
+                        WHERE project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM tickets t2
+                            WHERE t2.board_id = tickets.board_id
+                              AND t2.project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    if from_board_inference > 0 {
+                        tracing::info!(
+                            "Repaired {} tickets from board-level inference",
+                            from_board_inference
+                        );
+                    }
+
+                    // Step 3: Single-project fallback for anything still orphaned
+                    let still_orphaned: i32 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+
+                    if still_orphaned > 0 {
+                        let project_count: i32 = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM projects",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .unwrap_or(0);
+
+                        if project_count == 1 {
+                            let project_id: String = conn.query_row(
+                                "SELECT id FROM projects LIMIT 1",
+                                [],
+                                |row| row.get(0),
+                            )?;
+                            let assigned: usize = conn.execute(
+                                "UPDATE tickets SET project_id = ?1 WHERE project_id IS NULL",
+                                [&project_id],
+                            )?;
+                            if assigned > 0 {
+                                tracing::info!(
+                                    "Assigned {} remaining tickets to sole project",
+                                    assigned
+                                );
+                            }
+                        } else if still_orphaned > 0 {
+                            tracing::warn!(
+                                "{} tickets still orphaned across {} projects",
+                                still_orphaned,
+                                project_count
+                            );
+                        }
+                    }
+
+                    // Step 4: Recover board defaults from repaired ticket data
+                    let boards_fixed: usize = conn.execute(
+                        r#"UPDATE boards SET default_project_id = (
+                            SELECT project_id FROM tickets
+                            WHERE tickets.board_id = boards.id
+                              AND project_id IS NOT NULL
+                            GROUP BY project_id
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1
+                        )
+                        WHERE default_project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM tickets
+                            WHERE tickets.board_id = boards.id
+                              AND project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    if boards_fixed > 0 {
+                        tracing::info!(
+                            "Recovered {} board default_project_ids from ticket data",
+                            boards_fixed
+                        );
+                    }
+                }
+
+                tracing::info!("Migration to version 11 complete");
+            }
+
+            // Migration from version 11 to 12: Remove agent_type CHECK constraint
+            if current_version > 0 && current_version < 12 {
+                tracing::info!("Running migration to version 12: remove agent_type CHECK constraint");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE agent_runs_v12 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        agent_type TEXT NOT NULL,
+                        repo_path TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'finished', 'error', 'aborted', 'paused')),
+                        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        ended_at TEXT,
+                        exit_code INTEGER,
+                        summary_md TEXT,
+                        metadata_json TEXT,
+                        parent_run_id TEXT REFERENCES agent_runs_v12(id) ON DELETE CASCADE,
+                        stage TEXT,
+                        resumed_from_run_id TEXT REFERENCES agent_runs_v12(id) ON DELETE SET NULL
+                    );
+
+                    INSERT INTO agent_runs_v12 (id, ticket_id, agent_type, repo_path, status,
+                        started_at, ended_at, exit_code, summary_md, metadata_json,
+                        parent_run_id, stage, resumed_from_run_id)
+                    SELECT id, ticket_id, agent_type, repo_path, status,
+                        started_at, ended_at, exit_code, summary_md, metadata_json,
+                        parent_run_id, stage, resumed_from_run_id
+                    FROM agent_runs;
+
+                    DROP TABLE agent_runs;
+                    ALTER TABLE agent_runs_v12 RENAME TO agent_runs;
+
+                    CREATE INDEX IF NOT EXISTS idx_runs_ticket ON agent_runs(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
+                    CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_runs_resumed_from ON agent_runs(resumed_from_run_id) WHERE resumed_from_run_id IS NOT NULL;
+                    "#
+                )?;
+
+                tracing::info!("Migration to version 12 complete: agent_type CHECK constraint removed");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

@@ -10,7 +10,7 @@ use crate::agents::worktree::{
     self, create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeInfo,
 };
 use crate::agents::{run_agent_via_provider, AgentProvider, AgentRunConfig};
-use crate::db::models::{AgentType, CreateRun, RunStatus};
+use crate::db::models::{CreateRun, RunStatus};
 use crate::db::{Database, Ticket};
 
 pub(super) fn get_hook_script_path(app: &AppHandle, hook_script_name: &str) -> Option<String> {
@@ -75,7 +75,7 @@ pub(super) async fn generate_ai_branch_name(
     // Create a temporary sub-run for the branch generation stage
     let sub_run = db.create_run(&CreateRun {
         ticket_id: ticket.id.clone(),
-        agent_type: AgentType::parse_agent(agent_id),
+        agent_type: agent_id.to_string(),
         repo_path: repo_path.to_string_lossy().to_string(),
         parent_run_id: None,
         stage: Some("branch-gen".to_string()),

@@ -18,7 +18,7 @@ use tauri::{Manager, State, Window};
 use crate::agents::spawner::CancelHandle;
 use crate::agents::AgentRegistry;
 use crate::commands::agent_settings::AgentSettingsManager;
-use crate::db::models::{AgentType, CreateRun, RunStatus};
+use crate::db::models::{CreateRun, RunStatus};
 use crate::db::Database;
 
 use branch::{get_hook_script_path, setup_worktree_and_branch, update_project_hooks_for_run};
@@ -118,7 +118,7 @@ pub async fn start_agent_run(
     let provider = registry
         .get(&agent_id)
         .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
-    let db_agent_type = AgentType::parse_agent(&agent_id);
+    let db_agent_type = agent_id.clone();
 
     let agent_config = agent_settings.agent_config_for(&agent_id);
 

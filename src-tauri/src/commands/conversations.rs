@@ -1016,17 +1016,18 @@ mod tests {
         }
 
         #[test]
-        fn falls_back_to_claude_when_none_available() {
+        fn falls_back_to_first_registered_when_none_available() {
             let reg = make_registry(vec![("offline1", false), ("offline2", false)]);
             let result = resolve_agent_id(None, None, &reg);
-            assert_eq!(result, "claude");
+            // Falls back to first registered agent when none are available
+            assert!(!result.is_empty());
         }
 
         #[test]
-        fn falls_back_to_claude_when_registry_empty() {
+        fn falls_back_to_empty_when_registry_empty() {
             let reg = AgentRegistry::new();
             let result = resolve_agent_id(None, None, &reg);
-            assert_eq!(result, "claude");
+            assert_eq!(result, "");
         }
 
         #[test]

@@ -142,7 +142,7 @@ pub fn start_cleanup_service(db: Arc<Database>, config: CleanupConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{AgentType, CreateRun, CreateTicket, Priority, WorkflowType};
+    use crate::db::{CreateRun, CreateTicket, Priority, WorkflowType};
     use chrono::{Duration as ChronoDuration, Utc};
 
     fn setup_test_db() -> Database {
@@ -187,7 +187,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -241,7 +241,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -293,7 +293,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -404,7 +404,7 @@ mod tests {
         let run1 = db
             .create_run(&CreateRun {
                 ticket_id: ticket1.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -415,7 +415,7 @@ mod tests {
         let run2 = db
             .create_run(&CreateRun {
                 ticket_id: ticket2.id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,

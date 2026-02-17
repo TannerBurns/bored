@@ -1,4 +1,5 @@
 //! Cost estimation for agents without native cost reporting (e.g. Cursor).
+//! Pricing tables are Anthropic-specific.
 
 use std::collections::HashMap;
 

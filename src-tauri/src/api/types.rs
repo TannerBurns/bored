@@ -1,4 +1,4 @@
-use crate::db::{AgentType, Column, Priority, Ticket, WorkflowType};
+use crate::db::{Column, Priority, Ticket, WorkflowType};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -60,7 +60,7 @@ pub struct ReservationResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReserveTicketRequest {
-    pub agent_type: AgentType,
+    pub agent_type: String,
     #[serde(default)]
     pub repo_path: Option<String>,
 }
@@ -69,7 +69,7 @@ pub struct ReserveTicketRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateRunRequest {
     pub ticket_id: String,
-    pub agent_type: AgentType,
+    pub agent_type: String,
     pub repo_path: String,
 }
 
@@ -114,7 +114,7 @@ fn default_author_type() -> String {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueNextRequest {
-    pub agent_type: AgentType,
+    pub agent_type: String,
     #[serde(default)]
     pub repo_path: Option<String>,
     #[serde(default)]

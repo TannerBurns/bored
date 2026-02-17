@@ -265,9 +265,10 @@ pub async fn reserve_ticket(
         .repo_path
         .ok_or_else(|| AppError::validation("repo_path is required"))?;
 
+    let agent_type = req.agent_type;
     let run = state.db.create_run(&CreateRun {
         ticket_id: ticket_id.clone(),
-        agent_type: req.agent_type,
+        agent_type: agent_type.clone(),
         repo_path,
         parent_run_id: None,
         stage: None,
@@ -290,7 +291,7 @@ pub async fn reserve_ticket(
     state.broadcast(LiveEvent::RunStarted {
         run_id: run.id.clone(),
         ticket_id: ticket_id.clone(),
-        agent_type: req.agent_type.as_str().to_string(),
+        agent_type,
     });
 
     Ok(Json(ReservationResponse {
@@ -313,9 +314,10 @@ pub async fn create_run(
         }
     }
 
+    let agent_type = req.agent_type;
     let run = state.db.create_run(&CreateRun {
         ticket_id: req.ticket_id.clone(),
-        agent_type: req.agent_type,
+        agent_type: agent_type.clone(),
         repo_path: req.repo_path,
         parent_run_id: None,
         stage: None,
@@ -342,7 +344,7 @@ pub async fn create_run(
     state.broadcast(LiveEvent::RunStarted {
         run_id: run.id.clone(),
         ticket_id: req.ticket_id,
-        agent_type: req.agent_type.as_str().to_string(),
+        agent_type,
     });
 
     Ok((StatusCode::CREATED, Json(run)))
@@ -615,9 +617,10 @@ pub async fn queue_next(
                     )
                 })?;
 
+            let agent_type = req.agent_type;
             let run = state.db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: req.agent_type,
+                agent_type: agent_type.clone(),
                 repo_path,
                 parent_run_id: None,
                 stage: None,
@@ -639,7 +642,7 @@ pub async fn queue_next(
             state.broadcast(LiveEvent::RunStarted {
                 run_id: run.id.clone(),
                 ticket_id: ticket.id.clone(),
-                agent_type: req.agent_type.as_str().to_string(),
+                agent_type,
             });
 
             return Ok(Json(QueueNextResponse {

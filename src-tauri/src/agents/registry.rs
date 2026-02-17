@@ -41,13 +41,16 @@ impl AgentRegistry {
         self.providers.values().cloned().collect()
     }
 
-    /// Return the ID of the first available agent, or `"claude"` as a last resort.
+    /// Return the ID of the first available agent, or the first registered
+    /// agent if none are available. Returns an empty string only when the
+    /// registry is completely empty.
     pub fn default_agent_id(&self) -> String {
         self.providers
             .values()
             .find(|p| p.is_available())
+            .or_else(|| self.providers.values().next())
             .map(|p| p.id().to_string())
-            .unwrap_or_else(|| "claude".to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -68,6 +71,16 @@ mod tests {
     #[derive(Debug)]
     struct StubProvider {
         name: String,
+        available: bool,
+    }
+
+    impl StubProvider {
+        fn unavailable(name: &str) -> Self {
+            Self { name: name.to_string(), available: false }
+        }
+        fn available(name: &str) -> Self {
+            Self { name: name.to_string(), available: true }
+        }
     }
 
     impl AgentProvider for StubProvider {
@@ -90,7 +103,7 @@ mod tests {
             None
         }
         fn is_available(&self) -> bool {
-            false
+            self.available
         }
         fn get_version(&self) -> Option<String> {
             None
@@ -119,9 +132,7 @@ mod tests {
     #[test]
     fn register_and_get() {
         let mut registry = AgentRegistry::new();
-        registry.register(Arc::new(StubProvider {
-            name: "test-agent".to_string(),
-        }));
+        registry.register(Arc::new(StubProvider::unavailable("test-agent")));
 
         assert!(registry.get("test-agent").is_some());
         assert!(registry.get("nonexistent").is_none());
@@ -130,12 +141,8 @@ mod tests {
     #[test]
     fn list_ids_returns_all_registered() {
         let mut registry = AgentRegistry::new();
-        registry.register(Arc::new(StubProvider {
-            name: "a".to_string(),
-        }));
-        registry.register(Arc::new(StubProvider {
-            name: "b".to_string(),
-        }));
+        registry.register(Arc::new(StubProvider::unavailable("a")));
+        registry.register(Arc::new(StubProvider::unavailable("b")));
 
         let mut ids = registry.list_ids();
         ids.sort();
@@ -145,12 +152,8 @@ mod tests {
     #[test]
     fn register_overwrites_existing() {
         let mut registry = AgentRegistry::new();
-        registry.register(Arc::new(StubProvider {
-            name: "same".to_string(),
-        }));
-        registry.register(Arc::new(StubProvider {
-            name: "same".to_string(),
-        }));
+        registry.register(Arc::new(StubProvider::unavailable("same")));
+        registry.register(Arc::new(StubProvider::unavailable("same")));
 
         assert_eq!(registry.list_ids().len(), 1);
     }
@@ -159,5 +162,48 @@ mod tests {
     fn default_is_empty() {
         let registry = AgentRegistry::default();
         assert!(registry.list_ids().is_empty());
+    }
+
+    mod default_agent_id_tests {
+        use super::*;
+
+        #[test]
+        fn empty_registry_returns_empty_string() {
+            let registry = AgentRegistry::new();
+            assert_eq!(registry.default_agent_id(), "");
+        }
+
+        #[test]
+        fn returns_available_agent() {
+            let mut registry = AgentRegistry::new();
+            registry.register(Arc::new(StubProvider::available("online")));
+            assert_eq!(registry.default_agent_id(), "online");
+        }
+
+        #[test]
+        fn prefers_available_over_unavailable() {
+            let mut registry = AgentRegistry::new();
+            registry.register(Arc::new(StubProvider::unavailable("offline")));
+            registry.register(Arc::new(StubProvider::available("online")));
+            assert_eq!(registry.default_agent_id(), "online");
+        }
+
+        #[test]
+        fn falls_back_to_first_registered_when_none_available() {
+            let mut registry = AgentRegistry::new();
+            registry.register(Arc::new(StubProvider::unavailable("offline-a")));
+            registry.register(Arc::new(StubProvider::unavailable("offline-b")));
+            let id = registry.default_agent_id();
+            assert!(!id.is_empty(), "should return a registered agent, not empty");
+        }
+
+        #[test]
+        fn does_not_hardcode_claude_fallback() {
+            let mut registry = AgentRegistry::new();
+            registry.register(Arc::new(StubProvider::unavailable("some-new-agent")));
+            let id = registry.default_agent_id();
+            assert_ne!(id, "claude", "should not hardcode claude as fallback");
+            assert_eq!(id, "some-new-agent");
+        }
     }
 }
