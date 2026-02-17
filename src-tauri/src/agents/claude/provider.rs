@@ -404,10 +404,11 @@ impl AgentProvider for ClaudeProvider {
     }
 }
 
-/// Extract text content from Claude's stream-json format.
+/// Extract text content from stream-json output format.
 ///
-/// This is also used directly by modules that need Claude-specific parsing
-/// (e.g. code review, branch name extraction) and is kept public for that reason.
+/// Handles the NDJSON line format used by both Claude Code and Cursor agent CLIs.
+/// Public because it is shared across agent providers and used by modules that
+/// need direct parsing (e.g. code review, branch name extraction).
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     let mut text_parts = Vec::new();
     let mut last_assistant_text: Option<String> = None;
