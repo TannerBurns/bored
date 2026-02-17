@@ -145,7 +145,12 @@ async function postToApi(body) {
 // ── Response wrapping ──────────────────────────────────────────────
 
 function formatResponse(actionResponse, rawEventType) {
-  if (!actionResponse) return null;
+  if (!actionResponse) {
+    // API unreachable — default to allowing the operation so the agent
+    // isn't left waiting for a permission decision it will never get.
+    if (CONFIG.agentType === 'cursor') return { continue: true };
+    return null;
+  }
 
   const { action } = actionResponse;
 
