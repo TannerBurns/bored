@@ -282,6 +282,25 @@ impl std::fmt::Debug for SharedAgentSettings {
 }
 
 #[tauri::command]
+pub async fn get_agent_settings(
+    agent_id: String,
+    state: State<'_, AgentSettingsManager>,
+) -> Result<HashMap<String, serde_json::Value>, String> {
+    Ok(state.agent_config_for(&agent_id))
+}
+
+#[tauri::command]
+pub async fn set_agent_settings(
+    agent_id: String,
+    settings: HashMap<String, serde_json::Value>,
+    state: State<'_, AgentSettingsManager>,
+) -> Result<(), String> {
+    state.set_agent_config_and_persist(&agent_id, settings)?;
+    tracing::info!("Updated {} agent settings", agent_id);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_claude_api_settings(
     state: State<'_, AgentSettingsManager>,
 ) -> Result<ClaudeApiSettings, String> {

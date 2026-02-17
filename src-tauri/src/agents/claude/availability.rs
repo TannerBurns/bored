@@ -1,28 +1,13 @@
 //! Claude CLI availability checking.
 
-use std::process::Command;
+use crate::agents::cli_utils;
 
 pub fn is_claude_available() -> bool {
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    cli_utils::is_cli_available("claude")
 }
 
 pub fn get_claude_version() -> Option<String> {
-    Command::new("claude")
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout).ok()
-            } else {
-                None
-            }
-        })
-        .map(|s| s.trim().to_string())
+    cli_utils::get_cli_version("claude")
 }
 
 #[cfg(test)]

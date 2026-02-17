@@ -13,6 +13,18 @@ use crate::agents::{run_agent_via_provider, AgentProvider, AgentRunConfig};
 use crate::db::models::{CreateRun, RunStatus};
 use crate::db::{Database, Ticket};
 
+/// Context for setting up a worktree and branch for an agent run.
+pub(super) struct WorktreeBranchSetup<'a> {
+    pub ticket: &'a Ticket,
+    pub run_id: &'a str,
+    pub repo_path: &'a str,
+    pub agent_id: &'a str,
+    pub provider: Arc<dyn AgentProvider>,
+    pub db: &'a Arc<Database>,
+    pub window: &'a Window,
+    pub branch_gen_model: Option<String>,
+}
+
 pub(super) fn get_hook_script_path(app: &AppHandle, hook_script_name: &str) -> Option<String> {
     if hook_script_name.is_empty() {
         return None;
@@ -63,6 +75,7 @@ pub(super) async fn generate_ai_branch_name(
     provider: Arc<dyn AgentProvider>,
     db: Arc<Database>,
     _window: Option<&Window>,
+    model: Option<String>,
 ) -> Option<String> {
     let prompt = generate_branch_name_generation_prompt(ticket);
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -85,8 +98,6 @@ pub(super) async fn generate_ai_branch_name(
     if let Err(e) = &sub_run {
         tracing::warn!("Failed to create branch-gen sub-run: {}", e);
     }
-
-    let model: Option<String> = None;
 
     let config = AgentRunConfig {
         agent_id: agent_id.to_string(),
@@ -156,14 +167,13 @@ pub(super) async fn generate_ai_branch_name(
 ///
 /// Returns `(Option<WorktreeInfo>, branch_name)`.
 pub(super) async fn setup_worktree_and_branch(
-    ticket: &Ticket,
-    run_id: &str,
-    repo_path: &str,
-    agent_id: &str,
-    provider: Arc<dyn AgentProvider>,
-    db: &Arc<Database>,
-    window: &Window,
+    ctx: WorktreeBranchSetup<'_>,
 ) -> Result<(Option<WorktreeInfo>, String), String> {
+    let WorktreeBranchSetup {
+        ticket, run_id, repo_path, agent_id,
+        provider, db, window, branch_gen_model,
+    } = ctx;
+
     let ticket_id = &ticket.id;
     let repo_path_buf = std::path::PathBuf::from(repo_path);
 
@@ -176,6 +186,7 @@ pub(super) async fn setup_worktree_and_branch(
         let ai_branch = generate_ai_branch_name(
             ticket, &repo_path_buf, agent_id,
             provider.clone(), db.clone(), Some(window),
+            branch_gen_model,
         ).await;
 
         let branch = if let Some(name) = ai_branch {

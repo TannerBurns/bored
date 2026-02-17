@@ -1,19 +1,7 @@
 //! Claude CLI command building.
 
+use crate::agents::models::map_model_name;
 use crate::agents::provider::AgentRunConfig;
-
-/// Default model used when none is explicitly specified
-const DEFAULT_MODEL: &str = "opus-4.6";
-
-/// Map normalized model name to Claude Code format
-fn map_model_for_claude(model: &str) -> String {
-    match model {
-        "opus-4.6" => "claude-opus-4-6".to_string(),
-        "opus-4.5" => "claude-opus-4-5".to_string(),
-        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-        other => other.to_string(),
-    }
-}
 
 /// Push conditional CLI flags from raw booleans.
 fn push_cli_option_flags_raw(
@@ -49,9 +37,10 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         "--dangerously-skip-permissions".to_string(),
     ];
 
-    let model = config.model.as_deref().unwrap_or(DEFAULT_MODEL);
-    args.push("--model".to_string());
-    args.push(map_model_for_claude(model));
+    if let Some(ref model) = config.model {
+        args.push("--model".to_string());
+        args.push(map_model_name(model));
+    }
 
     let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
     let thinking = api_config.thinking_enabled.unwrap_or(true);

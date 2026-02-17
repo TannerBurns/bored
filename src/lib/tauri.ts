@@ -268,6 +268,14 @@ export interface ClaudeApiSettings {
   chromeEnabled: boolean | null;
 }
 
+export async function getAgentSettings(agentId: string): Promise<Record<string, unknown>> {
+  return invoke('get_agent_settings', { agentId });
+}
+
+export async function setAgentSettings(agentId: string, settings: Record<string, unknown>): Promise<void> {
+  return invoke('set_agent_settings', { agentId, settings });
+}
+
 export async function getClaudeApiSettings(): Promise<ClaudeApiSettings> {
   return invoke('get_claude_api_settings');
 }
@@ -491,6 +499,7 @@ export async function syncWorkflowSettings(settings: {
   codeReviewMaxIterations: number;
   stageTimeoutHours: number;
   stageMaxRetries: number;
+  diagnosticModel: string;
 }): Promise<void> {
   return invoke('sync_workflow_settings', { settings });
 }

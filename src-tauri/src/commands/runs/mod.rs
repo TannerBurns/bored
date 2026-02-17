@@ -21,7 +21,7 @@ use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::models::{CreateRun, RunStatus};
 use crate::db::Database;
 
-use branch::{get_hook_script_path, setup_worktree_and_branch, update_project_hooks_for_run};
+use branch::{get_hook_script_path, setup_worktree_and_branch, update_project_hooks_for_run, WorktreeBranchSetup};
 
 /// Shared state for tracking running agents
 pub struct RunningAgents {
@@ -194,11 +194,24 @@ pub async fn start_agent_run(
     let api_token =
         std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
+    let branch_gen_model = {
+        let ws = workflow_settings_state.get();
+        ws.stage_configs
+            .get("branchGen")
+            .map(|c| c.model.clone())
+    };
+
     // Resolve branch name (AI-generated or existing) and create a git worktree
-    let (worktree_info, branch_name) = setup_worktree_and_branch(
-        &ticket, &run_id, &repo_path,
-        &agent_id, provider.clone(), db.inner(), &window,
-    ).await?;
+    let (worktree_info, branch_name) = setup_worktree_and_branch(WorktreeBranchSetup {
+        ticket: &ticket,
+        run_id: &run_id,
+        repo_path: &repo_path,
+        agent_id: &agent_id,
+        provider: provider.clone(),
+        db: db.inner(),
+        window: &window,
+        branch_gen_model,
+    }).await?;
 
     // Use worktree path if available, otherwise fall back to main repo
     let working_path = worktree_info

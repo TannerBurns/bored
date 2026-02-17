@@ -24,6 +24,7 @@ pub struct WorktreeFailureContext<'a> {
     pub provider: Arc<dyn AgentProvider>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub worker_id: &'a str,
+    pub diagnostic_model: Option<String>,
 }
 
 /// Spawns a diagnostic agent and moves ticket to Blocked.
@@ -39,6 +40,7 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
         provider,
         agent_config,
         worker_id,
+        diagnostic_model,
     } = ctx;
     tracing::info!(
         "Worker {} handling worktree failure for ticket {}: {:?}",
@@ -70,7 +72,7 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
 
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();
-    let ticket_model = ticket.model.clone();
+    let model = Some(diagnostic_model.unwrap_or_else(|| "sonnet-4.5".to_string()));
     let api_url = api_url.to_string();
     let api_token = api_token.to_string();
     let context_clone = context.clone();
@@ -90,7 +92,7 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
             context_clone.clone(),
             &api_url,
             &api_token,
-            ticket_model,
+            model,
             provider,
             agent_config,
         )

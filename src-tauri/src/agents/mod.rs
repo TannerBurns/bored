@@ -1,8 +1,11 @@
 pub mod brainstorm;
 pub mod claude;
+pub mod cli_utils;
+pub mod command_templates;
 pub mod cost;
 pub mod cursor;
 pub mod log_utils;
+pub mod models;
 pub mod provider;
 pub mod registry;
 pub mod validation_agent;

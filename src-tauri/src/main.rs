@@ -359,7 +359,9 @@ fn main() {
             commands::agents::check_agent_available,
             commands::agents::check_agent_project_hooks_installed,
             commands::agents::get_agent_hook_script_path,
-            // Claude-specific API settings
+            // Agent settings (generic + Claude-specific)
+            commands::agent_settings::get_agent_settings,
+            commands::agent_settings::set_agent_settings,
             commands::agent_settings::get_claude_api_settings,
             commands::agent_settings::set_claude_api_settings,
             // Workflow settings sync

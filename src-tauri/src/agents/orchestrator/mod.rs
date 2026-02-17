@@ -270,6 +270,7 @@ impl WorkflowOrchestrator {
 
     fn stage_config_key(stage: &str) -> &str {
         match stage {
+            "branch-gen" => "branchGen",
             "plan" | "plan-validation" => "plan",
             "implement" => "implement",
             "code-review" | "code-review-fix" => "codeReview",

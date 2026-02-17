@@ -23,6 +23,7 @@ pub struct WorktreeSetupContext<'a> {
     pub api_token: &'a str,
     pub provider: Arc<dyn AgentProvider>,
     pub agent_config: HashMap<String, serde_json::Value>,
+    pub diagnostic_model: Option<String>,
 }
 
 /// Result of worktree setup
@@ -85,6 +86,7 @@ async fn create_worktree_with_existing_branch(
                 provider: ctx.provider.clone(),
                 agent_config: ctx.agent_config.clone(),
                 worker_id: ctx.worker_id,
+                diagnostic_model: ctx.diagnostic_model.clone(),
             })
             .await;
             WorktreeSetupResult::Failed(format!("Failed to create worktree: {}", e))
@@ -148,6 +150,7 @@ async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> Work
                 provider: ctx.provider.clone(),
                 agent_config: ctx.agent_config.clone(),
                 worker_id: ctx.worker_id,
+                diagnostic_model: ctx.diagnostic_model.clone(),
             })
             .await;
             WorktreeSetupResult::Failed(format!("Failed to create worktree: {}", e))

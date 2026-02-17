@@ -7,4 +7,6 @@ export { GeneralSettings } from './GeneralSettings';
 export { AgentWorkflowSettings } from './AgentWorkflowSettings';
 export { SpecAgentSettings } from './SpecAgentSettings';
 export { ValidationAgentSettings } from './ValidationAgentSettings';
+export { DiagnosticAgentSettings } from './DiagnosticAgentSettings';
+export { AgentsSettings } from './AgentsSettings';
 export { DataSettings } from './DataSettings';

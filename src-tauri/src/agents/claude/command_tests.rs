@@ -37,10 +37,10 @@ fn provider_build_includes_stream_json_and_verbose() {
 }
 
 #[test]
-fn provider_build_defaults_to_opus_model() {
+fn provider_build_omits_model_when_none() {
     let config = create_provider_config();
     let (_, args) = build_command_from_provider_config(&config);
-    assert!(args.contains(&"claude-opus-4-6".to_string()));
+    assert!(!args.contains(&"--model".to_string()));
 }
 
 #[test]

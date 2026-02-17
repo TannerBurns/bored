@@ -206,6 +206,11 @@ impl Worker {
             }
         };
 
+        let diagnostic_model = self.config.workflow_settings.as_ref().map(|ws| {
+            let settings = ws.lock().expect("workflow settings mutex poisoned");
+            settings.diagnostic_model.clone()
+        });
+
         // Create a worktree for isolated execution
         let repo_path_buf = std::path::PathBuf::from(&repo_path);
         let worktree = match worktree_setup::create_worktree_for_ticket(
@@ -220,6 +225,7 @@ impl Worker {
                 api_token: &self.config.api_token,
                 provider: self.config.provider.clone(),
                 agent_config: self.config.agent_config.clone(),
+                diagnostic_model,
             },
         )
         .await

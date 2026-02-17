@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, SpecAgentSettings, ValidationAgentSettings, DataSettings } from '../settings';
+import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, AgentsSettings, DataSettings } from '../settings';
 import { getAvailableAgents } from '../../lib/tauri';
 import type { AgentInfo } from '../../types';
 
@@ -11,8 +11,7 @@ const AGENT_SETTINGS_COMPONENTS: Record<string, React.ComponentType> = {
 const CORE_TABS = [
   { id: 'general', label: 'General' },
   { id: 'workflow', label: 'Agent Workflow' },
-  { id: 'spec-agent', label: 'Spec Agent' },
-  { id: 'validation-agent', label: 'Validation Agent' },
+  { id: 'agents', label: 'Agents' },
 ] as const;
 
 const TRAILING_TABS = [
@@ -67,8 +66,7 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
         {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
         {settingsTab === 'workflow' && <AgentWorkflowSettings />}
-        {settingsTab === 'spec-agent' && <SpecAgentSettings />}
-        {settingsTab === 'validation-agent' && <ValidationAgentSettings />}
+        {settingsTab === 'agents' && <AgentsSettings />}
         {AgentSettingsComponent && <AgentSettingsComponent />}
         {settingsTab === 'data' && <DataSettings />}
       </div>
