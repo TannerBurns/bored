@@ -208,6 +208,9 @@ fn main() {
                 }
             });
 
+            // Create a clone of the registry for the API server (providers are Arc-shared)
+            let api_registry = agent_registry.clone_shared();
+
             app.manage(agent_registry);
 
             app.manage(database.clone());
@@ -271,15 +274,16 @@ fn main() {
             app.manage(event_tx.clone());
             app.manage(ApiConnState { url: api_url, token: api_token });
 
-            // Start API server with shared event channel
+            // Start API server with shared event channel and agent registry
             let db_for_api = database.clone();
             let event_tx_for_api = event_tx;
             let api_config_clone = api_config.clone();
             tauri::async_runtime::spawn(async move {
-                match api::start_server_with_event_tx(
+                match api::start_server_with_registry(
                     db_for_api,
                     api_config_clone,
                     event_tx_for_api,
+                    Arc::new(api_registry),
                 )
                 .await
                 {

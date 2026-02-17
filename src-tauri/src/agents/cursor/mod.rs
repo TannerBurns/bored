@@ -6,6 +6,8 @@ mod command;
 mod commands;
 mod hooks;
 pub mod provider;
+#[cfg(test)]
+mod provider_tests;
 mod settings;
 
 // Public re-exports

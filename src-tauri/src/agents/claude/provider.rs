@@ -3,7 +3,11 @@
 use std::path::Path;
 
 use crate::agents::cost::{self, RunCostData};
-use crate::agents::provider::{AgentProvider, AgentRunConfig};
+use crate::agents::provider::{
+    AgentProvider, AgentRunConfig, HookAction, NormalizedHookEvent, StopEventResult,
+};
+
+use crate::agents::cli_utils::is_dangerous_command;
 
 use super::availability;
 use super::command;
@@ -233,6 +237,139 @@ impl AgentProvider for ClaudeProvider {
 
     fn hook_script_name(&self) -> &str {
         "claude-hook.js"
+    }
+
+    fn normalize_hook_event(
+        &self,
+        raw_event_type: &str,
+        raw_payload: &serde_json::Value,
+    ) -> NormalizedHookEvent {
+        let event_type = match raw_event_type {
+            "UserPromptSubmit" => "prompt_submitted",
+            "PreToolUse" => "command_requested",
+            "PostToolUse" => "command_executed",
+            "PostToolUseFailure" => "error",
+            "Stop" | "SessionEnd" => "run_stopped",
+            "SessionStart" => "run_started",
+            other => other,
+        };
+
+        let structured = match raw_event_type {
+            "PreToolUse" | "PostToolUse" | "PostToolUseFailure" => {
+                let tool = raw_payload
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let input = raw_payload
+                    .get("tool_input")
+                    .cloned()
+                    .unwrap_or(serde_json::json!({}));
+
+                match tool {
+                    "Bash" => serde_json::json!({
+                        "tool": "bash",
+                        "command": input.get("command").and_then(|v| v.as_str()).unwrap_or(""),
+                        "timeout": input.get("timeout"),
+                    }),
+                    "Read" => serde_json::json!({
+                        "tool": "read",
+                        "filePath": input.get("file_path").and_then(|v| v.as_str()).unwrap_or(""),
+                    }),
+                    "Edit" | "Write" => serde_json::json!({
+                        "tool": tool.to_lowercase(),
+                        "filePath": input.get("file_path").and_then(|v| v.as_str()).unwrap_or(""),
+                    }),
+                    _ => serde_json::json!({ "tool": tool, "input": input }),
+                }
+            }
+            "Stop" | "SessionEnd" => serde_json::json!({
+                "reason": raw_payload.get("stop_reason").and_then(|v| v.as_str()).unwrap_or(""),
+                "transcriptPath": raw_payload.get("transcript_path").and_then(|v| v.as_str()),
+            }),
+            _ => raw_payload.clone(),
+        };
+
+        NormalizedHookEvent {
+            event_type: event_type.to_string(),
+            structured,
+        }
+    }
+
+    fn hook_action(
+        &self,
+        raw_event_type: &str,
+        raw_payload: &serde_json::Value,
+        ticket_id: Option<&str>,
+        run_id: Option<&str>,
+    ) -> HookAction {
+        match raw_event_type {
+            "UserPromptSubmit" => {
+                if let Some(tid) = ticket_id {
+                    let context = format!(
+                        "\n## Agent Kanban Context\n\n\
+                         Working on ticket: {}\n\
+                         Run ID: {}\n\n\
+                         Your actions are being tracked. Please:\n\
+                         1. Focus on completing the task\n\
+                         2. Make incremental changes\n\
+                         3. Commit with descriptive messages\n",
+                        tid,
+                        run_id.unwrap_or("unknown"),
+                    );
+                    HookAction::InjectContext { context }
+                } else {
+                    HookAction::NoAction
+                }
+            }
+            "PreToolUse" => {
+                let tool = raw_payload
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if tool == "Bash" {
+                    let command = raw_payload
+                        .get("tool_input")
+                        .and_then(|i| i.get("command"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    if is_dangerous_command(command) {
+                        return HookAction::Deny {
+                            reason: format!("Blocked dangerous command: {}", command),
+                        };
+                    }
+                }
+                HookAction::Allow
+            }
+            _ => HookAction::Allow,
+        }
+    }
+
+    fn normalize_stop_event(
+        &self,
+        raw_payload: &serde_json::Value,
+    ) -> StopEventResult {
+        let reason = raw_payload
+            .get("stop_reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        match reason {
+            "error" | "tool_error" => StopEventResult {
+                status: "error".to_string(),
+                exit_code: 1,
+                summary: format!("Error: {}", reason),
+            },
+            "user_cancelled" => StopEventResult {
+                status: "aborted".to_string(),
+                exit_code: 130,
+                summary: "Cancelled by user.".to_string(),
+            },
+            _ => StopEventResult {
+                status: "finished".to_string(),
+                exit_code: 0,
+                summary: "Completed successfully.".to_string(),
+            },
+        }
     }
 
     fn brand_color(&self) -> Option<&str> {

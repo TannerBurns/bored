@@ -241,6 +241,9 @@ export const useSettingsStore = create<SettingsState>()(
           extendedContext: false,
           chromeEnabled: false,
         },
+        cursor: {
+          thinkingEnabled: true,
+        },
       },
 
       setTheme: (theme) => set({ theme }),

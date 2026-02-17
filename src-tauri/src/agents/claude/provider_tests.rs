@@ -1,7 +1,7 @@
 //! Tests for the Claude AgentProvider implementation.
 
 use super::provider::*;
-use crate::agents::provider::{AgentProvider, AgentRunConfig};
+use crate::agents::provider::{AgentProvider, AgentRunConfig, HookAction};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -277,3 +277,259 @@ fn check_commands_installed_user_returns_bool() {
     let p = ClaudeProvider::new();
     let _ = p.check_commands_installed_user();
 }
+
+// ── Hook normalization tests ───────────────────────────────────────
+
+#[test]
+fn normalize_hook_event_pretooluse_bash() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls -la", "timeout": 30 }
+    });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.event_type, "command_requested");
+    assert_eq!(result.structured["tool"], "bash");
+    assert_eq!(result.structured["command"], "ls -la");
+}
+
+#[test]
+fn normalize_hook_event_pretooluse_read() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Read",
+        "tool_input": { "file_path": "/src/main.rs" }
+    });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.event_type, "command_requested");
+    assert_eq!(result.structured["tool"], "read");
+    assert_eq!(result.structured["filePath"], "/src/main.rs");
+}
+
+#[test]
+fn normalize_hook_event_pretooluse_edit() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": { "file_path": "/src/lib.rs" }
+    });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.structured["tool"], "edit");
+    assert_eq!(result.structured["filePath"], "/src/lib.rs");
+}
+
+#[test]
+fn normalize_hook_event_pretooluse_unknown_tool() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "WebSearch",
+        "tool_input": { "query": "rust async" }
+    });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.event_type, "command_requested");
+    assert_eq!(result.structured["tool"], "WebSearch");
+}
+
+#[test]
+fn normalize_hook_event_stop() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "stop_reason": "end_turn",
+        "transcript_path": "/tmp/transcript.json"
+    });
+    let result = p.normalize_hook_event("Stop", &payload);
+    assert_eq!(result.event_type, "run_stopped");
+    assert_eq!(result.structured["reason"], "end_turn");
+}
+
+#[test]
+fn normalize_hook_event_user_prompt() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "prompt": "Fix the bug" });
+    let result = p.normalize_hook_event("UserPromptSubmit", &payload);
+    assert_eq!(result.event_type, "prompt_submitted");
+}
+
+#[test]
+fn normalize_hook_event_session_start() {
+    let p = ClaudeProvider::new();
+    let result = p.normalize_hook_event("SessionStart", &serde_json::json!({}));
+    assert_eq!(result.event_type, "run_started");
+}
+
+#[test]
+fn normalize_hook_event_unknown_passes_through() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "foo": "bar" });
+    let result = p.normalize_hook_event("CustomEvent", &payload);
+    assert_eq!(result.event_type, "CustomEvent");
+    assert_eq!(result.structured, payload);
+}
+
+// ── Hook action tests ──────────────────────────────────────────────
+
+#[test]
+fn hook_action_pretooluse_allows_safe_command() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "cargo test" }
+    });
+    let action = p.hook_action("PreToolUse", &payload, Some("t1"), Some("r1"));
+    assert_eq!(action, HookAction::Allow);
+}
+
+#[test]
+fn hook_action_pretooluse_denies_dangerous_command() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "rm -rf /" }
+    });
+    let action = p.hook_action("PreToolUse", &payload, Some("t1"), Some("r1"));
+    assert!(matches!(action, HookAction::Deny { .. }));
+}
+
+#[test]
+fn hook_action_pretooluse_denies_force_push() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "git push origin main --force" }
+    });
+    let action = p.hook_action("PreToolUse", &payload, Some("t1"), Some("r1"));
+    assert!(matches!(action, HookAction::Deny { .. }));
+}
+
+#[test]
+fn hook_action_pretooluse_allows_non_bash_tool() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Read",
+        "tool_input": { "file_path": "/etc/passwd" }
+    });
+    let action = p.hook_action("PreToolUse", &payload, Some("t1"), Some("r1"));
+    assert_eq!(action, HookAction::Allow);
+}
+
+#[test]
+fn hook_action_user_prompt_injects_context() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({});
+    let action = p.hook_action("UserPromptSubmit", &payload, Some("ticket-42"), Some("run-1"));
+    match action {
+        HookAction::InjectContext { context } => {
+            assert!(context.contains("ticket-42"));
+            assert!(context.contains("run-1"));
+        }
+        _ => panic!("Expected InjectContext, got {:?}", action),
+    }
+}
+
+#[test]
+fn hook_action_user_prompt_no_ticket_returns_no_action() {
+    let p = ClaudeProvider::new();
+    let action = p.hook_action("UserPromptSubmit", &serde_json::json!({}), None, None);
+    assert_eq!(action, HookAction::NoAction);
+}
+
+#[test]
+fn hook_action_posttooluse_allows() {
+    let p = ClaudeProvider::new();
+    let action = p.hook_action("PostToolUse", &serde_json::json!({}), Some("t"), Some("r"));
+    assert_eq!(action, HookAction::Allow);
+}
+
+// ── Stop event normalization tests ─────────────────────────────────
+
+#[test]
+fn normalize_stop_event_error() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "stop_reason": "error" });
+    let result = p.normalize_stop_event(&payload);
+    assert_eq!(result.status, "error");
+    assert_eq!(result.exit_code, 1);
+}
+
+#[test]
+fn normalize_stop_event_tool_error() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "stop_reason": "tool_error" });
+    let result = p.normalize_stop_event(&payload);
+    assert_eq!(result.status, "error");
+}
+
+#[test]
+fn normalize_stop_event_user_cancelled() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "stop_reason": "user_cancelled" });
+    let result = p.normalize_stop_event(&payload);
+    assert_eq!(result.status, "aborted");
+    assert_eq!(result.exit_code, 130);
+}
+
+#[test]
+fn normalize_stop_event_normal_end() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "stop_reason": "end_turn" });
+    let result = p.normalize_stop_event(&payload);
+    assert_eq!(result.status, "finished");
+    assert_eq!(result.exit_code, 0);
+}
+
+// ── Additional normalization coverage ───────────────────────────────
+
+#[test]
+fn normalize_hook_event_post_tool_use_failure_maps_to_error() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "false" }
+    });
+    let result = p.normalize_hook_event("PostToolUseFailure", &payload);
+    assert_eq!(result.event_type, "error");
+    assert_eq!(result.structured["tool"], "bash");
+}
+
+#[test]
+fn normalize_hook_event_session_end_maps_to_run_stopped() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "stop_reason": "end_turn",
+        "transcript_path": "/tmp/t.json"
+    });
+    let result = p.normalize_hook_event("SessionEnd", &payload);
+    assert_eq!(result.event_type, "run_stopped");
+    assert_eq!(result.structured["reason"], "end_turn");
+}
+
+#[test]
+fn normalize_hook_event_pretooluse_write() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": "/tmp/out.txt" }
+    });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.structured["tool"], "write");
+    assert_eq!(result.structured["filePath"], "/tmp/out.txt");
+}
+
+#[test]
+fn normalize_hook_event_pretooluse_missing_tool_input() {
+    let p = ClaudeProvider::new();
+    let payload = serde_json::json!({ "tool_name": "Bash" });
+    let result = p.normalize_hook_event("PreToolUse", &payload);
+    assert_eq!(result.structured["tool"], "bash");
+    assert_eq!(result.structured["command"], "");
+}
+
+#[test]
+fn normalize_stop_event_empty_reason_is_finished() {
+    let p = ClaudeProvider::new();
+    let result = p.normalize_stop_event(&serde_json::json!({}));
+    assert_eq!(result.status, "finished");
+    assert_eq!(result.exit_code, 0);
+}
+
+// is_dangerous_command tests live in agents::cli_utils::tests

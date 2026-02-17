@@ -7,7 +7,41 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use super::cost::RunCostData;
+
+// ── Hook event types ────────────────────────────────────────────────
+
+/// Normalized hook event with a common event type and structured payload.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NormalizedHookEvent {
+    /// Common event type (e.g. "command_requested", "file_edited", "run_stopped").
+    pub event_type: String,
+    /// Structured payload with agent-specific details extracted into common fields.
+    pub structured: serde_json::Value,
+}
+
+/// Action the hook script should take after posting an event.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum HookAction {
+    Allow,
+    Deny { reason: String },
+    InjectContext { context: String },
+    NoAction,
+}
+
+/// Result of normalizing a stop/session-end event into common run status fields.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopEventResult {
+    /// Common status: "finished", "error", or "aborted".
+    pub status: String,
+    pub exit_code: i32,
+    pub summary: String,
+}
 
 /// Configuration for running an agent — agent-agnostic.
 #[derive(Debug, Clone)]
@@ -140,6 +174,43 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         ""
     }
 
+    // ── Hook event normalization ─────────────────────────────────────
+
+    /// Normalize a raw hook event into the common event schema.
+    fn normalize_hook_event(
+        &self,
+        raw_event_type: &str,
+        raw_payload: &serde_json::Value,
+    ) -> NormalizedHookEvent {
+        NormalizedHookEvent {
+            event_type: raw_event_type.to_lowercase(),
+            structured: raw_payload.clone(),
+        }
+    }
+
+    /// Decide what action to take for a hook event.
+    fn hook_action(
+        &self,
+        _raw_event_type: &str,
+        _raw_payload: &serde_json::Value,
+        _ticket_id: Option<&str>,
+        _run_id: Option<&str>,
+    ) -> HookAction {
+        HookAction::Allow
+    }
+
+    /// Normalize a stop/session-end event into common run status fields.
+    fn normalize_stop_event(
+        &self,
+        _raw_payload: &serde_json::Value,
+    ) -> StopEventResult {
+        StopEventResult {
+            status: "finished".to_string(),
+            exit_code: 0,
+            summary: "Completed successfully.".to_string(),
+        }
+    }
+
     /// Brand color hex for UI display (e.g. "#da7756").
     fn brand_color(&self) -> Option<&str> {
         None
@@ -190,5 +261,125 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── HookAction serialization ──────────────────────────────────
+    // The JS hook script parses these JSON shapes directly. These tests
+    // act as a contract: if serde attributes change, the tests break
+    // before the JS does.
+
+    #[test]
+    fn hook_action_allow_serializes_correctly() {
+        let json = serde_json::to_value(&HookAction::Allow).unwrap();
+        assert_eq!(json["action"], "allow");
+    }
+
+    #[test]
+    fn hook_action_deny_serializes_with_reason() {
+        let action = HookAction::Deny {
+            reason: "too dangerous".to_string(),
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["action"], "deny");
+        assert_eq!(json["reason"], "too dangerous");
+    }
+
+    #[test]
+    fn hook_action_inject_context_serializes_with_context() {
+        let action = HookAction::InjectContext {
+            context: "ticket info".to_string(),
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["action"], "inject_context");
+        assert_eq!(json["context"], "ticket info");
+    }
+
+    #[test]
+    fn hook_action_no_action_serializes_correctly() {
+        let json = serde_json::to_value(&HookAction::NoAction).unwrap();
+        assert_eq!(json["action"], "no_action");
+    }
+
+    #[test]
+    fn hook_action_roundtrips_through_serde() {
+        let cases = vec![
+            HookAction::Allow,
+            HookAction::Deny { reason: "bad".to_string() },
+            HookAction::InjectContext { context: "ctx".to_string() },
+            HookAction::NoAction,
+        ];
+        for action in cases {
+            let json = serde_json::to_string(&action).unwrap();
+            let restored: HookAction = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored, action);
+        }
+    }
+
+    // ── StopEventResult serialization ─────────────────────────────
+
+    #[test]
+    fn stop_event_result_serializes_camel_case() {
+        let result = StopEventResult {
+            status: "error".to_string(),
+            exit_code: 1,
+            summary: "Failed".to_string(),
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["status"], "error");
+        assert_eq!(json["exitCode"], 1);
+        assert_eq!(json["summary"], "Failed");
+        // Verify camelCase (not snake_case)
+        assert!(json.get("exit_code").is_none());
+    }
+
+    // ── Default trait impls ───────────────────────────────────────
+
+    #[test]
+    fn default_normalize_hook_event_lowercases_event_type() {
+        let stub = StubProvider;
+        let payload = serde_json::json!({"key": "value"});
+        let result = stub.normalize_hook_event("SomeEvent", &payload);
+        assert_eq!(result.event_type, "someevent");
+        assert_eq!(result.structured, payload);
+    }
+
+    #[test]
+    fn default_hook_action_returns_allow() {
+        let stub = StubProvider;
+        let action = stub.hook_action("any", &serde_json::json!({}), None, None);
+        assert_eq!(action, HookAction::Allow);
+    }
+
+    #[test]
+    fn default_normalize_stop_event_returns_finished() {
+        let stub = StubProvider;
+        let result = stub.normalize_stop_event(&serde_json::json!({}));
+        assert_eq!(result.status, "finished");
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[derive(Debug)]
+    struct StubProvider;
+
+    impl AgentProvider for StubProvider {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+            ("stub".into(), vec![])
+        }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.into() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<crate::agents::cost::RunCostData> { None }
+        fn is_available(&self) -> bool { false }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".stub" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
     }
 }

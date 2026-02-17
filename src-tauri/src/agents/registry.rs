@@ -41,6 +41,16 @@ impl AgentRegistry {
         self.providers.values().cloned().collect()
     }
 
+    /// Create a new registry that shares the same provider `Arc`s.
+    ///
+    /// This is cheaper than a full clone — the providers themselves are not
+    /// duplicated, only the `Arc` pointers are cloned.
+    pub fn clone_shared(&self) -> Self {
+        Self {
+            providers: self.providers.clone(),
+        }
+    }
+
     /// Return the ID of the first available agent, or the first registered
     /// agent if none are available. Returns an empty string only when the
     /// registry is completely empty.
@@ -162,6 +172,36 @@ mod tests {
     fn default_is_empty() {
         let registry = AgentRegistry::default();
         assert!(registry.list_ids().is_empty());
+    }
+
+    #[test]
+    fn clone_shared_preserves_providers() {
+        let mut registry = AgentRegistry::new();
+        registry.register(Arc::new(StubProvider::available("a")));
+        registry.register(Arc::new(StubProvider::unavailable("b")));
+
+        let cloned = registry.clone_shared();
+        let mut ids = cloned.list_ids();
+        ids.sort();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert!(cloned.get("a").is_some());
+        assert!(cloned.get("b").is_some());
+        assert!(cloned.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn clone_shared_is_independent() {
+        let mut registry = AgentRegistry::new();
+        registry.register(Arc::new(StubProvider::available("x")));
+
+        let mut cloned = registry.clone_shared();
+        cloned.register(Arc::new(StubProvider::available("y")));
+
+        // Original shouldn't have "y"
+        assert!(registry.get("y").is_none());
+        // Clone should have both
+        assert!(cloned.get("x").is_some());
+        assert!(cloned.get("y").is_some());
     }
 
     mod default_agent_id_tests {

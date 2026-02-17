@@ -2,8 +2,11 @@
 
 use std::path::Path;
 
+use crate::agents::cli_utils::is_dangerous_command;
 use crate::agents::cost::{self, RunCostData};
-use crate::agents::provider::{AgentProvider, AgentRunConfig};
+use crate::agents::provider::{
+    AgentProvider, AgentRunConfig, HookAction, NormalizedHookEvent, StopEventResult,
+};
 
 use super::availability;
 use super::command;
@@ -36,8 +39,22 @@ impl AgentProvider for CursorProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
+        let thinking = config
+            .agent_config
+            .get("thinking_enabled")
+            .or_else(|| config.agent_config.get("thinkingEnabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         let mut config = config.clone();
-        config.model = config.model.map(|m| self.map_model_name(&m));
+        config.model = config.model.map(|m| {
+            let base = self.map_model_name(&m);
+            if thinking {
+                format!("{}-thinking", base)
+            } else {
+                base
+            }
+        });
         command::build_command_from_provider_config(&config)
     }
 
@@ -129,6 +146,101 @@ impl AgentProvider for CursorProvider {
         serde_json::to_string_pretty(&config).map_err(|e| e.to_string())
     }
 
+    fn normalize_hook_event(
+        &self,
+        raw_event_type: &str,
+        raw_payload: &serde_json::Value,
+    ) -> NormalizedHookEvent {
+        let event_type = match raw_event_type {
+            "beforeShellExecution" => "command_requested",
+            "afterShellExecution" => "command_executed",
+            "beforeReadFile" => "file_read",
+            "afterFileEdit" => "file_edited",
+            "beforeMCPExecution" => "command_requested",
+            "stop" => "run_stopped",
+            "beforeSubmitPrompt" => "prompt_submitted",
+            other => other,
+        };
+
+        let structured = match raw_event_type {
+            "beforeShellExecution" | "afterShellExecution" => serde_json::json!({
+                "command": raw_payload.get("command").and_then(|v| v.as_str()).unwrap_or(""),
+                "workingDirectory": raw_payload.get("cwd").and_then(|v| v.as_str()),
+            }),
+            "afterFileEdit" => serde_json::json!({
+                "filePath": raw_payload.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+                "oldContent": raw_payload.get("oldContent")
+                    .and_then(|v| v.as_str())
+                    .map(|s| &s[..s.len().min(500)]),
+                "newContent": raw_payload.get("newContent")
+                    .and_then(|v| v.as_str())
+                    .map(|s| &s[..s.len().min(500)]),
+            }),
+            "beforeReadFile" => serde_json::json!({
+                "filePath": raw_payload.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+            }),
+            "stop" => serde_json::json!({
+                "status": raw_payload.get("status").and_then(|v| v.as_str()).unwrap_or(""),
+                "reason": raw_payload.get("reason").and_then(|v| v.as_str()),
+            }),
+            _ => raw_payload.clone(),
+        };
+
+        NormalizedHookEvent {
+            event_type: event_type.to_string(),
+            structured,
+        }
+    }
+
+    fn hook_action(
+        &self,
+        raw_event_type: &str,
+        raw_payload: &serde_json::Value,
+        _ticket_id: Option<&str>,
+        _run_id: Option<&str>,
+    ) -> HookAction {
+        if raw_event_type == "beforeShellExecution" {
+            let command = raw_payload
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if is_dangerous_command(command) {
+                return HookAction::Deny {
+                    reason: "Blocked by Agent Kanban for safety".to_string(),
+                };
+            }
+        }
+        HookAction::Allow
+    }
+
+    fn normalize_stop_event(
+        &self,
+        raw_payload: &serde_json::Value,
+    ) -> StopEventResult {
+        let status_str = raw_payload
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        match status_str {
+            "error" => StopEventResult {
+                status: "error".to_string(),
+                exit_code: 1,
+                summary: "Stopped: error".to_string(),
+            },
+            "aborted" => StopEventResult {
+                status: "aborted".to_string(),
+                exit_code: 1,
+                summary: "Stopped: aborted".to_string(),
+            },
+            _ => StopEventResult {
+                status: "finished".to_string(),
+                exit_code: 0,
+                summary: "Completed successfully.".to_string(),
+            },
+        }
+    }
+
     fn hook_script_name(&self) -> &str {
         "cursor-hook.js"
     }
@@ -165,146 +277,5 @@ impl AgentProvider for CursorProvider {
     ) -> Result<Vec<String>, String> {
         commands::install_user_commands(commands_source)
             .map_err(|e| format!("Failed to install Cursor user commands: {}", e))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-    use std::path::PathBuf;
-
-    fn make_config() -> AgentRunConfig {
-        AgentRunConfig {
-            agent_id: "cursor".to_string(),
-            ticket_id: "t".to_string(),
-            run_id: "r".to_string(),
-            repo_path: PathBuf::from("/tmp/test"),
-            prompt: "Test".to_string(),
-            timeout_secs: None,
-            api_url: "http://localhost:7432".to_string(),
-            api_token: "tok".to_string(),
-            model: None,
-            agent_config: HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn provider_id_and_display_name() {
-        let p = CursorProvider::new();
-        assert_eq!(p.id(), "cursor");
-        assert_eq!(p.display_name(), "Cursor");
-    }
-
-    #[test]
-    fn build_command_returns_cursor() {
-        let p = CursorProvider::new();
-        let (cmd, args) = p.build_command(&make_config());
-        assert_eq!(cmd, "cursor");
-        assert!(args.contains(&"agent".to_string()));
-    }
-
-    #[test]
-    fn build_env_vars_empty() {
-        let p = CursorProvider::new();
-        let env = p.build_env_vars(&make_config());
-        assert!(env.is_empty());
-    }
-
-    #[test]
-    fn extract_text_passthrough() {
-        let p = CursorProvider::new();
-        assert_eq!(p.extract_text("hello world"), "hello world");
-    }
-
-    #[test]
-    fn extract_cost_estimates() {
-        let p = CursorProvider::new();
-        let cost = p.extract_cost("some output", "opus-4.6", 10.0);
-        assert!(cost.is_some());
-        assert!(cost.unwrap().is_estimated);
-    }
-
-    #[test]
-    fn extract_cost_empty_returns_none() {
-        let p = CursorProvider::new();
-        let cost = p.extract_cost("", "opus-4.6", 0.0);
-        assert!(cost.is_none());
-    }
-
-    // ── map_model_name ─────────────────────────────────────────────
-
-    #[test]
-    fn map_model_name_maps_known_models() {
-        let p = CursorProvider::new();
-        assert_eq!(p.map_model_name("opus-4.6"), "claude-opus-4-6");
-        assert_eq!(p.map_model_name("opus-4.5"), "claude-opus-4-5");
-        assert_eq!(p.map_model_name("sonnet-4.5"), "claude-sonnet-4-5");
-    }
-
-    #[test]
-    fn map_model_name_passes_through_unknown() {
-        let p = CursorProvider::new();
-        assert_eq!(p.map_model_name("custom-model"), "custom-model");
-        assert_eq!(p.map_model_name("claude-opus-4-6"), "claude-opus-4-6");
-    }
-
-    #[test]
-    fn build_command_maps_model_name_end_to_end() {
-        let p = CursorProvider::new();
-        let mut config = make_config();
-        config.model = Some("opus-4.6".to_string());
-        let (_, args) = p.build_command(&config);
-        assert!(
-            args.contains(&"claude-opus-4-6".to_string()),
-            "Provider build_command should map opus-4.6 -> claude-opus-4-6"
-        );
-    }
-
-    #[test]
-    fn build_command_no_model_omits_model_flag() {
-        let p = CursorProvider::new();
-        let config = make_config();
-        let (_, args) = p.build_command(&config);
-        assert!(!args.contains(&"--model".to_string()));
-    }
-
-    // ── New trait methods coverage ───────────────────────────────────
-
-    #[test]
-    fn config_dir_name_returns_cursor() {
-        let p = CursorProvider::new();
-        assert_eq!(p.config_dir_name(), ".cursor");
-    }
-
-    #[test]
-    fn command_instructions_subdir_returns_rules() {
-        let p = CursorProvider::new();
-        assert_eq!(p.command_instructions_subdir(), "rules");
-    }
-
-    #[test]
-    fn format_command_reference_returns_slash_command() {
-        let p = CursorProvider::new();
-        assert_eq!(p.format_command_reference("deslop"), "/deslop");
-        assert_eq!(p.format_command_reference("add-and-commit"), "/add-and-commit");
-    }
-
-    #[test]
-    fn check_commands_installed_project_returns_false_for_missing_dir() {
-        let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp).unwrap();
-        let p = CursorProvider::new();
-        assert!(!p.check_commands_installed_project(&temp));
-        std::fs::remove_dir_all(&temp).ok();
-    }
-
-    #[test]
-    fn check_hooks_installed_project_returns_false_for_missing_hooks() {
-        let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp).unwrap();
-        let p = CursorProvider::new();
-        assert!(!p.check_hooks_installed_project(&temp));
-        std::fs::remove_dir_all(&temp).ok();
     }
 }

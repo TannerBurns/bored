@@ -1,17 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useCursorSettings } from './useCursorSettings';
-
-const mockGetAgentStatus = vi.fn();
-const mockInstallAgentHooksGlobal = vi.fn();
-const mockInstallAgentHooksProject = vi.fn();
-const mockGetAgentHooksConfig = vi.fn();
+import * as tauri from '../../../lib/tauri';
 
 vi.mock('../../../lib/tauri', () => ({
-  getAgentStatus: (...args: unknown[]) => mockGetAgentStatus(...args),
-  installAgentHooksGlobal: (...args: unknown[]) => mockInstallAgentHooksGlobal(...args),
-  installAgentHooksProject: (...args: unknown[]) => mockInstallAgentHooksProject(...args),
-  getAgentHooksConfig: (...args: unknown[]) => mockGetAgentHooksConfig(...args),
+  getAgentStatus: vi.fn(),
+  getAgentSettings: vi.fn(),
+  setAgentSettings: vi.fn(),
+  installAgentHooksGlobal: vi.fn(),
+  installAgentHooksProject: vi.fn(),
+  getAgentHooksConfig: vi.fn(),
   getProjects: vi.fn().mockResolvedValue([]),
   browseForDirectory: vi.fn(),
   getAvailableCommands: vi.fn().mockResolvedValue([]),
@@ -21,15 +19,19 @@ vi.mock('../../../lib/tauri', () => ({
   checkUserCommandsInstalled: vi.fn().mockResolvedValue(false),
 }));
 
+const mockAgentStatus = {
+  isAvailable: true,
+  version: '0.48.0',
+  globalHooksInstalled: true,
+  hookScriptPath: '/path/to/hook.js',
+};
+
 describe('useCursorSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAgentStatus.mockResolvedValue({
-      isAvailable: true,
-      version: '0.48.0',
-      globalHooksInstalled: true,
-      hookScriptPath: '/path/to/hook.js',
-    });
+    vi.mocked(tauri.getAgentStatus).mockResolvedValue(mockAgentStatus);
+    vi.mocked(tauri.getAgentSettings).mockResolvedValue({ thinking_enabled: true });
+    vi.mocked(tauri.setAgentSettings).mockResolvedValue(undefined);
   });
 
   it('fetches cursor-specific globalHooksInstalled status', async () => {
@@ -39,26 +41,25 @@ describe('useCursorSettings', () => {
       expect(result.current.globalHooksInstalled).toBe(true);
     });
 
-    // Verifies it called getAgentStatus with 'cursor'
-    expect(mockGetAgentStatus).toHaveBeenCalledWith('cursor');
+    expect(tauri.getAgentStatus).toHaveBeenCalledWith('cursor');
   });
 
   it('defaults globalHooksInstalled to false before fetch', () => {
-    mockGetAgentStatus.mockReturnValue(new Promise(() => {})); // never resolves
+    vi.mocked(tauri.getAgentStatus).mockReturnValue(new Promise(() => {}));
+    vi.mocked(tauri.getAgentSettings).mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(() => useCursorSettings());
     expect(result.current.globalHooksInstalled).toBe(false);
   });
 
   it('sets globalHooksInstalled to false when status fetch fails', async () => {
-    mockGetAgentStatus.mockRejectedValue(new Error('not available'));
+    vi.mocked(tauri.getAgentStatus).mockRejectedValue(new Error('not available'));
+    vi.mocked(tauri.getAgentSettings).mockRejectedValue(new Error('not available'));
     const { result } = renderHook(() => useCursorSettings());
 
-    // Wait for the effect to settle
     await waitFor(() => {
-      expect(mockGetAgentStatus).toHaveBeenCalled();
+      expect(tauri.getAgentStatus).toHaveBeenCalled();
     });
 
-    // Should remain false (error path calls catch(() => {}))
     expect(result.current.globalHooksInstalled).toBe(false);
   });
 
@@ -69,10 +70,65 @@ describe('useCursorSettings', () => {
       expect(result.current.globalHooksInstalled).toBe(true);
     });
 
-    // Base properties from useAgentSettings should be present
     expect(result.current).toHaveProperty('loading');
     expect(result.current).toHaveProperty('status');
     expect(result.current).toHaveProperty('hookInstall');
     expect(result.current).toHaveProperty('reload');
+  });
+
+  describe('CLI options (thinking)', () => {
+    it('loads thinkingEnabled from backend on mount', async () => {
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({ thinking_enabled: false });
+
+      const { result } = renderHook(() => useCursorSettings());
+
+      await waitFor(() => {
+        expect(result.current.cliOptions.thinkingEnabled).toBe(false);
+      });
+    });
+
+    it('defaults thinkingEnabled to true when missing from backend', async () => {
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({});
+
+      const { result } = renderHook(() => useCursorSettings());
+
+      await waitFor(() => {
+        expect(result.current.globalHooksInstalled).toBe(true);
+      });
+
+      expect(result.current.cliOptions.thinkingEnabled).toBe(true);
+    });
+
+    it('auto-saves when toggling thinking', async () => {
+      const { result } = renderHook(() => useCursorSettings());
+
+      await waitFor(() => {
+        expect(result.current.globalHooksInstalled).toBe(true);
+      });
+
+      await act(async () => {
+        result.current.cliOptions.setThinkingEnabled(false);
+      });
+
+      expect(tauri.setAgentSettings).toHaveBeenCalledWith('cursor', expect.objectContaining({
+        thinking_enabled: false,
+      }));
+    });
+
+    it('sets error when thinking auto-save fails', async () => {
+      const { result } = renderHook(() => useCursorSettings());
+
+      await waitFor(() => {
+        expect(result.current.globalHooksInstalled).toBe(true);
+      });
+
+      vi.mocked(tauri.setAgentSettings).mockRejectedValueOnce(new Error('Network error'));
+
+      await act(async () => {
+        result.current.cliOptions.setThinkingEnabled(false);
+      });
+
+      expect(result.current.error).toContain('Failed to save CLI option');
+    });
   });
 });

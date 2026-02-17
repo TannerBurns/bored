@@ -1,3 +1,4 @@
+use crate::agents::AgentRegistry;
 use crate::db::Database;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -159,6 +160,7 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub api_token: String,
     pub event_tx: broadcast::Sender<LiveEvent>,
+    pub agent_registry: Option<Arc<AgentRegistry>>,
 }
 
 impl AppState {
@@ -168,6 +170,7 @@ impl AppState {
             db,
             api_token,
             event_tx,
+            agent_registry: None,
         }
     }
 
@@ -181,7 +184,13 @@ impl AppState {
             db,
             api_token,
             event_tx,
+            agent_registry: None,
         }
+    }
+
+    pub fn with_registry(mut self, registry: Arc<AgentRegistry>) -> Self {
+        self.agent_registry = Some(registry);
+        self
     }
 
     pub fn broadcast(&self, event: LiveEvent) {
@@ -244,5 +253,27 @@ mod tests {
 
         assert!(rx1.try_recv().is_ok());
         assert!(rx2.try_recv().is_ok());
+    }
+
+    #[test]
+    fn new_state_has_no_registry() {
+        let state = create_test_state();
+        assert!(state.agent_registry.is_none());
+    }
+
+    #[test]
+    fn with_registry_sets_registry() {
+        let state = create_test_state();
+        let registry = Arc::new(AgentRegistry::new());
+        let state = state.with_registry(registry);
+        assert!(state.agent_registry.is_some());
+    }
+
+    #[test]
+    fn with_event_tx_has_no_registry() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let state = AppState::with_event_tx(db, "tok".to_string(), tx);
+        assert!(state.agent_registry.is_none());
     }
 }

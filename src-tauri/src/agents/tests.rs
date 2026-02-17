@@ -288,7 +288,7 @@ fn cursor_provider_generate_hooks_config_returns_json() {
     let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
 }
 
-// ── map_model_name trait default ───────────────────────────────
+// ── AgentProvider trait default method tests ──────────────────
 
 #[derive(Debug)]
 struct StubProvider;
@@ -320,4 +320,109 @@ fn default_map_model_name_is_passthrough() {
 fn default_brand_color_is_none() {
     let p = StubProvider;
     assert!(p.brand_color().is_none());
+}
+
+#[test]
+fn default_hook_script_name_is_empty() {
+    let p = StubProvider;
+    assert_eq!(p.hook_script_name(), "");
+}
+
+#[test]
+fn default_check_hooks_installed_global_is_false() {
+    let p = StubProvider;
+    assert!(!p.check_hooks_installed_global());
+}
+
+#[test]
+fn default_check_hooks_installed_project_is_false() {
+    let p = StubProvider;
+    assert!(!p.check_hooks_installed_project(std::path::Path::new("/tmp")));
+}
+
+#[test]
+fn default_install_hooks_global_returns_err() {
+    let p = StubProvider;
+    let result = p.install_hooks_global("/path/hook.js", None, None);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not supported"));
+}
+
+#[test]
+fn default_install_hooks_project_returns_err() {
+    let p = StubProvider;
+    let result = p.install_hooks_project(
+        std::path::Path::new("/tmp"),
+        "/path/hook.js",
+        None,
+        None,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not supported"));
+}
+
+#[test]
+fn default_generate_hooks_config_json_returns_empty_object() {
+    let p = StubProvider;
+    let result = p.generate_hooks_config_json("/path/hook.js");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "{}");
+}
+
+#[test]
+fn default_normalize_hook_event_lowercases_type_and_clones_payload() {
+    let p = StubProvider;
+    let payload = serde_json::json!({"key": "value"});
+    let result = p.normalize_hook_event("SomeEvent", &payload);
+    assert_eq!(result.event_type, "someevent");
+    assert_eq!(result.structured, payload);
+}
+
+#[test]
+fn default_hook_action_is_allow() {
+    let p = StubProvider;
+    let payload = serde_json::json!({});
+    let action = p.hook_action("any_event", &payload, None, None);
+    assert_eq!(action, provider::HookAction::Allow);
+}
+
+#[test]
+fn default_normalize_stop_event_returns_finished() {
+    let p = StubProvider;
+    let payload = serde_json::json!({});
+    let result = p.normalize_stop_event(&payload);
+    assert_eq!(result.status, "finished");
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.summary, "Completed successfully.");
+}
+
+#[test]
+fn default_check_commands_installed_project_is_false() {
+    let p = StubProvider;
+    assert!(!p.check_commands_installed_project(std::path::Path::new("/tmp")));
+}
+
+#[test]
+fn default_check_commands_installed_user_is_false() {
+    let p = StubProvider;
+    assert!(!p.check_commands_installed_user());
+}
+
+#[test]
+fn default_install_commands_to_project_returns_empty() {
+    let p = StubProvider;
+    let result = p.install_commands_to_project(
+        std::path::Path::new("/tmp"),
+        std::path::Path::new("/src"),
+    );
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
+}
+
+#[test]
+fn default_install_commands_to_user_returns_empty() {
+    let p = StubProvider;
+    let result = p.install_commands_to_user(std::path::Path::new("/src"));
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_empty());
 }
