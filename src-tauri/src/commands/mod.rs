@@ -1,6 +1,8 @@
 pub mod agents;
+pub mod agent_settings;
+#[cfg(test)]
+mod agent_settings_tests;
 pub mod boards;
-pub mod claude;
 pub mod conversations;
 mod diff_parser;
 pub mod next_steps;
@@ -21,7 +23,7 @@ pub use agents::{
     install_agent_hooks_project, AgentStatus,
 };
 pub use boards::*;
-pub use claude::{ClaudeApiSettings, ClaudeApiSettingsState, SharedClaudeApiSettings};
+pub use agent_settings::{AgentSettingsManager, ClaudeApiSettings, SharedAgentSettings};
 pub use conversations::{
     get_conversation_messages, send_conversation_message, start_conversation,
 };

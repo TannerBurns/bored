@@ -23,8 +23,8 @@ pub struct ClaudeApiConfig {
     pub chrome_enabled: Option<bool>,
 }
 
-impl From<crate::commands::claude::ClaudeApiSettings> for ClaudeApiConfig {
-    fn from(s: crate::commands::claude::ClaudeApiSettings) -> Self {
+impl From<crate::commands::agent_settings::ClaudeApiSettings> for ClaudeApiConfig {
+    fn from(s: crate::commands::agent_settings::ClaudeApiSettings) -> Self {
         Self {
             auth_token: s.auth_token,
             api_key: s.api_key,

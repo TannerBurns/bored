@@ -139,7 +139,6 @@ export function ProjectsList() {
   const autoSetupProject = async (projectId: string, projectPath: string): Promise<string | null> => {
     const warnings: string[] = [];
 
-    // Dynamically iterate over all registered agents
     let agents: Awaited<ReturnType<typeof getAvailableAgents>> = [];
     try {
       agents = await getAvailableAgents();

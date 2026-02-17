@@ -17,7 +17,7 @@ use tauri::{Manager, State, Window};
 
 use crate::agents::spawner::CancelHandle;
 use crate::agents::AgentRegistry;
-use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::models::{AgentType, CreateRun, RunStatus};
 use crate::db::Database;
 
@@ -92,7 +92,7 @@ pub async fn start_agent_run(
     input: StartRunInput,
     db: State<'_, Arc<Database>>,
     running_agents: State<'_, RunningAgents>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
     workflow_settings_state: State<'_, crate::commands::workflow_settings::WorkflowSettingsState>,
     registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
@@ -120,7 +120,7 @@ pub async fn start_agent_run(
         .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
     let db_agent_type = AgentType::parse_agent(&agent_id);
 
-    let agent_config = claude_api_state.agent_config_for(&agent_id);
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let ticket = db
         .get_ticket(&ticket_id)
@@ -215,7 +215,7 @@ pub async fn start_agent_run(
 
     // Get hook script path for updating project hooks
     let app_handle = window.app_handle();
-    let hook_script_path = get_hook_script_path(app_handle);
+    let hook_script_path = get_hook_script_path(app_handle, provider.hook_script_name());
 
     // Update project hooks with run-specific configuration
     // This ensures the hook script receives AGENT_KANBAN_RUN_ID and API credentials

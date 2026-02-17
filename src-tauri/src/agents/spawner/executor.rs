@@ -14,7 +14,6 @@ use crate::agents::provider::AgentProvider;
 
 pub type OnSpawnCallback = Box<dyn FnOnce(CancelHandle) + Send>;
 
-/// Run an agent using a provider. No hardcoded agent dispatch.
 pub fn run_agent_via_provider(
     provider: &dyn AgentProvider,
     config: &AgentRunConfig,
@@ -38,7 +37,6 @@ pub fn run_agent_via_provider_with_cancel(
 
     let (command, args) = provider.build_command(config);
 
-    // Merge base env vars with provider-specific ones
     let mut env_vars = build_base_env_vars(config);
     env_vars.extend(provider.build_env_vars(config));
 
@@ -54,7 +52,6 @@ pub fn run_agent_via_provider_with_cancel(
     )
 }
 
-/// Build the base AGENT_KANBAN_* environment variables (agent-agnostic).
 fn build_base_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
     vec![
         ("AGENT_KANBAN_TICKET_ID".to_string(), config.ticket_id.clone()),

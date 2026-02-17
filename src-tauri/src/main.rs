@@ -7,7 +7,7 @@ use agent_kanban::agents::claude::provider::ClaudeProvider;
 use agent_kanban::agents::cursor::provider::CursorProvider;
 use agent_kanban::agents::registry::AgentRegistry;
 use agent_kanban::agents::validation_agent::AppProcessManager;
-use agent_kanban::commands::ClaudeApiSettingsState;
+use agent_kanban::commands::AgentSettingsManager;
 use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
@@ -214,9 +214,8 @@ fn main() {
             app.manage(RunningAgents::new());
             app.manage(AppProcessManager::new());
 
-            // Load Claude API settings from disk (or create fresh if not present)
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
-            app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
+            app.manage(AgentSettingsManager::new_with_claude_settings(claude_settings_path));
 
             // Workflow settings (synced from frontend, read by workers at task time)
             app.manage(WorkflowSettingsState::new());
@@ -361,8 +360,8 @@ fn main() {
             commands::agents::check_agent_project_hooks_installed,
             commands::agents::get_agent_hook_script_path,
             // Claude-specific API settings
-            commands::claude::get_claude_api_settings,
-            commands::claude::set_claude_api_settings,
+            commands::agent_settings::get_claude_api_settings,
+            commands::agent_settings::set_claude_api_settings,
             // Workflow settings sync
             commands::workflow_settings::sync_workflow_settings,
             commands::workflow_settings::get_workflow_settings,

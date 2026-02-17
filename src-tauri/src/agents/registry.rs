@@ -40,6 +40,15 @@ impl AgentRegistry {
     pub fn providers(&self) -> Vec<Arc<dyn AgentProvider>> {
         self.providers.values().cloned().collect()
     }
+
+    /// Return the ID of the first available agent, or `"claude"` as a last resort.
+    pub fn default_agent_id(&self) -> String {
+        self.providers
+            .values()
+            .find(|p| p.is_available())
+            .map(|p| p.id().to_string())
+            .unwrap_or_else(|| "claude".to_string())
+    }
 }
 
 impl Default for AgentRegistry {

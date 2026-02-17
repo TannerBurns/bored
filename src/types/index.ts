@@ -395,7 +395,7 @@ export interface CreateSpecInput {
   userInput: string;
   /** Preferred model */
   model?: string;
-  /** Optional settings (e.g. agentType: 'cursor' | 'claude' for brainstorm) */
+  /** Optional settings (e.g. agentType for brainstorm agent selection) */
   settings?: Record<string, unknown>;
 }
 

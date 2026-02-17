@@ -266,11 +266,9 @@ mod tests {
 
     #[test]
     fn resolve_api_defaults_when_no_url_or_env() {
-        // Temporarily unset the env var; explicit param = None forces fallback
         let saved = std::env::var("AGENT_KANBAN_API_URL").ok();
         std::env::remove_var("AGENT_KANBAN_API_URL");
         let (url, _) = resolve_api(None, None);
-        // Restore
         if let Some(v) = saved {
             std::env::set_var("AGENT_KANBAN_API_URL", v);
         }

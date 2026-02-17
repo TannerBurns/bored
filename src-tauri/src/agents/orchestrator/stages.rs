@@ -94,7 +94,6 @@ impl WorkflowOrchestrator {
             self.emit_stage_event(stage, "running", None, None);
         }
 
-        // Use agent_id string for DB storage
         let db_agent_type = AgentType::parse_agent(&self.agent_id);
 
         // Create sub-run in database
@@ -168,7 +167,6 @@ impl WorkflowOrchestrator {
             handles.insert(parent_run_id.clone(), cancel_handle);
         });
 
-        // Run the agent via provider
         let provider = self.provider.clone();
         let start_time = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {

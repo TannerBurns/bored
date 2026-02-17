@@ -33,7 +33,6 @@ export function WorkerPanel() {
   const [error, setError] = useState<string | null>(null);
   const [stopConfirm, setStopConfirm] = useState<string | null>(null);
 
-  // Fetch available agents from registry
   useEffect(() => {
     getAvailableAgents()
       .then(setAgents)
@@ -195,14 +194,15 @@ export function WorkerPanel() {
         <div className="space-y-3">
           {agents.map((agent) => {
             const isAvailable = availability[agent.id] ?? agent.isAvailable;
+            const brandColor = isAvailable ? getAgentBrandColor(agent.id, agent.brandColor) : undefined;
             const Icon = getAgentIcon(agent.id);
-            const iconColor = agent.id === 'claude'
-              ? (isAvailable ? 'text-[#da7756]' : 'text-board-text-muted')
-              : (isAvailable ? 'text-board-text-secondary' : 'text-board-text-muted');
             return (
               <div key={agent.id} className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!isAvailable ? 'opacity-50' : ''}`}>
                 <span className="text-sm font-medium text-board-text flex items-center gap-2">
-                  <Icon size={16} className={iconColor} />
+                  {brandColor
+                    ? <Icon size={16} style={{ color: brandColor }} />
+                    : <Icon size={16} className={isAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
+                  }
                   {agent.displayName} Workers
                   {!isAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
                 </span>

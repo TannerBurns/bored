@@ -15,7 +15,6 @@ fn map_model_for_cursor(model: &str) -> String {
     }
 }
 
-/// Build command from the provider-based `AgentRunConfig`.
 pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
     let mut args = vec![

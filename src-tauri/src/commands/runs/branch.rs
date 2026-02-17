@@ -13,12 +13,14 @@ use crate::agents::{run_agent_via_provider, AgentProvider, AgentRunConfig};
 use crate::db::models::{AgentType, CreateRun, RunStatus};
 use crate::db::{Database, Ticket};
 
-/// Get the hook script path from app data directory
-pub(super) fn get_hook_script_path(app: &AppHandle) -> Option<String> {
+pub(super) fn get_hook_script_path(app: &AppHandle, hook_script_name: &str) -> Option<String> {
+    if hook_script_name.is_empty() {
+        return None;
+    }
     app.path()
         .app_data_dir()
         .ok()
-        .map(|dir| dir.join("scripts").join("cursor-hook.js"))
+        .map(|dir| dir.join("scripts").join(hook_script_name))
         .map(|p| p.to_string_lossy().to_string())
 }
 

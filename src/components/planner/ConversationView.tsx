@@ -35,7 +35,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
   const prevStatusRef = useRef(status);
 
   const agentType =
-    spec.settings?.agentType === 'cursor' || spec.settings?.agentType === 'claude'
+    typeof spec.settings?.agentType === 'string' && spec.settings.agentType.length > 0
       ? spec.settings.agentType
       : undefined;
 

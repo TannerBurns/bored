@@ -105,6 +105,13 @@ impl Database {
                 SCHEMA_VERSION
             );
             
+            // CRITICAL: Disable foreign keys before migration transaction.
+            // SQLite's DROP TABLE with foreign_keys=ON performs an implicit
+            // DELETE FROM before dropping, which fires cascading actions
+            // (ON DELETE SET NULL / CASCADE) and corrupts referencing tables.
+            // This pragma must be set outside a transaction to take effect.
+            conn.execute("PRAGMA foreign_keys = OFF", [])?;
+            
             // Start a transaction for atomicity - if any migration step fails,
             // all changes will be rolled back automatically
             conn.execute("BEGIN EXCLUSIVE TRANSACTION", [])?;
@@ -643,6 +650,80 @@ impl Database {
                 tracing::info!("Migration to version 9 complete: hooks_installed_json column added");
             }
 
+            // Migration from version 9 to 10: Repair project associations
+            // Previous migrations used DROP TABLE on the projects table while
+            // PRAGMA foreign_keys was ON, which triggered implicit DELETE FROM
+            // and cascaded ON DELETE SET NULL / CASCADE to referencing tables.
+            // This repair attempts to restore ticket and board project associations.
+            if current_version > 0 && current_version < 10 {
+                tracing::info!("Running migration to version 10: repair project associations");
+
+                let project_count: i32 = conn
+                    .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+                    .unwrap_or(0);
+
+                if project_count == 1 {
+                    // Single project — safe to auto-assign all orphaned items
+                    let project_id: String = conn.query_row(
+                        "SELECT id FROM projects LIMIT 1",
+                        [],
+                        |row| row.get(0),
+                    )?;
+
+                    let repaired_tickets: usize = conn.execute(
+                        "UPDATE tickets SET project_id = ?1 WHERE project_id IS NULL",
+                        [&project_id],
+                    )?;
+
+                    let repaired_boards: usize = conn.execute(
+                        "UPDATE boards SET default_project_id = ?1 WHERE default_project_id IS NULL",
+                        [&project_id],
+                    )?;
+
+                    if repaired_tickets > 0 || repaired_boards > 0 {
+                        tracing::info!(
+                            "Repaired project associations: {} tickets, {} boards assigned to project '{}'",
+                            repaired_tickets, repaired_boards, project_id
+                        );
+                    }
+                } else if project_count > 1 {
+                    // Multiple projects — assign from board defaults where available
+                    let repaired_from_board: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT default_project_id FROM boards WHERE boards.id = tickets.board_id
+                        ) WHERE project_id IS NULL AND board_id IN (
+                            SELECT id FROM boards WHERE default_project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    let still_orphaned: i32 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+
+                    if repaired_from_board > 0 {
+                        tracing::info!(
+                            "Repaired {} tickets from board defaults, {} still without project",
+                            repaired_from_board, still_orphaned
+                        );
+                    }
+
+                    if still_orphaned > 0 {
+                        tracing::warn!(
+                            "{} tickets have no project assigned. Multiple projects exist; \
+                             manual reassignment may be needed via the ticket settings.",
+                            still_orphaned
+                        );
+                    }
+                }
+
+                tracing::info!("Migration to version 10 complete: project association repair");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -663,12 +744,17 @@ impl Database {
                     if let Err(rollback_err) = conn.execute("ROLLBACK", []) {
                         tracing::error!("Rollback also failed: {}", rollback_err);
                     }
+                    // Re-enable foreign keys even on failure
+                    let _ = conn.execute("PRAGMA foreign_keys = ON", []);
                     return Err(DbError::Migration(format!(
                         "Migration from version {} to {} failed: {}. Database has been rolled back to version {}.",
                         current_version, SCHEMA_VERSION, e, current_version
                     )));
                 }
             }
+            
+            // Re-enable foreign key enforcement after migration
+            conn.execute("PRAGMA foreign_keys = ON", [])?;
         }
 
         Ok(())

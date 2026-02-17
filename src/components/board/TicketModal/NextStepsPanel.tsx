@@ -7,7 +7,7 @@ import type { Ticket, Column, FileDiff } from '../../../types';
 interface NextStepsPanelProps {
   ticket: Ticket;
   columns: Column[];
-  onValidate?: (ticketId: string, agentType: 'cursor' | 'claude') => void;
+  onValidate?: (ticketId: string, agentType: string) => void;
 }
 
 export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelProps) {
@@ -101,7 +101,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           <BuildWithDropdown
             label="Validate with"
             title="Open validation chat — choose Cursor or Claude to verify this ticket's changes in a dedicated chat view"
-            onSelect={(agent) => onValidate(ticket.id, agent as 'cursor' | 'claude')}
+            onSelect={(agent) => onValidate(ticket.id, agent)}
             disabled={false}
           />
         )}
