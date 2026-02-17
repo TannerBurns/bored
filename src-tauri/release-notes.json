@@ -1,5 +1,66 @@
 [
   {
+    "version": "0.1.0-beta.18",
+    "published_at": "2026-02-16",
+    "summary": "Agent-agnostic provider architecture, Claude CLI settings UI, and bug fixes for ticket status, PR creation, and webhook event spooling",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Agent provider registry with pluggable architecture — Claude and Cursor are now registered dynamically through a provider trait instead of hardcoded logic",
+          "Claude CLI settings UI with configurable command-line options (CliOptionsSection component in settings)",
+          "Diagnostic agent settings panel for per-agent configuration",
+          "Agent registry store on the frontend for dynamic agent discovery"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Refactored the entire agent system to be agent-agnostic using a provider pattern, replacing hardcoded agent logic with trait-based providers",
+          "Extracted shared CLI utilities into a dedicated cli_utils module reused across agents",
+          "Split monolithic cost module into focused submodules (estimation, extraction, tests)",
+          "Extracted command templates into a shared module used by all agents",
+          "Split monolithic runs command file into submodules (branch, orchestrate, queries, cost_commands)",
+          "Create PR and Push to Remote buttons now automatically commit uncommitted changes before pushing",
+          "Extracted diff parser into dedicated module, reducing next_steps from 868 to 496 lines",
+          "SSE handler and board polling now reload tasks when ticket state changes for live status updates",
+          "Backend creates diagnostic comments synchronously before moving tickets to Blocked"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed stale clarification banner showing when ticket was blocked for a different reason — now checks most recent non-user comment",
+          "Fixed Create PR button failing with 'No commits between main and branch' when changes weren't committed before pushing",
+          "Fixed falsy API response from webhook causing spooled events to accumulate indefinitely (postToApi now returns an explicit ok/data wrapper)",
+          "Fixed task statuses going stale while viewing a ticket modal"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added unit tests for Claude provider, Cursor provider, and CLI utilities",
+          "Added agent registry and settings store tests on the frontend",
+          "Added 9 unit tests for has_uncommitted_changes and commit_all_changes helpers",
+          "Added CLI availability hook tests and ProjectsList component tests"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "0.1.0-beta.17",
+    "published_at": "2026-02-15",
+    "summary": "Stage timeout setting now uses hours instead of minutes for more practical management of long-running workflows",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Changed stage timeout setting from minutes to hours for more practical time management of long-running agent workflows"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.16",
     "published_at": "2026-02-15",
     "summary": "Pre-determined branch names in plans, rich workflow-complete summaries, and a race condition fix for ticket edits",
