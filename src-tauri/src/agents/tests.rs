@@ -129,6 +129,44 @@ fn cursor_provider_extract_text_result_only() {
 }
 
 #[test]
+fn cursor_provider_extract_text_assistant_only() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let stream_output = concat!(
+        r#"{"type":"system","subtype":"init","session_id":"s1","model":"test"}"#, "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"assistant-only response"}]},"session_id":"s1"}"#, "\n",
+    );
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "assistant-only response");
+}
+
+#[test]
+fn cursor_provider_extract_text_skips_malformed_json() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let stream_output = concat!(
+        "not json at all\n",
+        "{broken json\n",
+        r#"{"type":"result","subtype":"success","result":"survived"}"#, "\n",
+    );
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "survived");
+}
+
+#[test]
+fn cursor_provider_extract_text_multi_turn_uses_last_assistant() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let provider = CursorProvider::new();
+    let stream_output = concat!(
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"first turn"}]}}"#, "\n",
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"follow up"}]}}"#, "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"second turn"}]}}"#, "\n",
+    );
+    let result = provider.extract_text(stream_output);
+    assert_eq!(result, "second turn");
+}
+
+#[test]
 fn claude_provider_extract_text_no_text_content() {
     use crate::agents::claude::provider::ClaudeProvider;
     let provider = ClaudeProvider::new();
