@@ -195,96 +195,53 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('claude API settings', () => {
-    beforeEach(() => {
-      useSettingsStore.setState({
-        claudeAuthToken: '',
-        claudeApiKey: '',
-        claudeBaseUrl: '',
-        claudeModelOverride: '',
-      });
-    });
-
-    it('has empty Claude API settings by default', () => {
+  describe('generic agent settings', () => {
+    it('has claude defaults in agentSettings', () => {
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('');
-      expect(state.claudeApiKey).toBe('');
-      expect(state.claudeBaseUrl).toBe('');
-      expect(state.claudeModelOverride).toBe('');
+      const claude = state.agentSettings.claude;
+      expect(claude).toBeDefined();
+      expect(claude.authToken).toBe('');
     });
 
-    it('sets auth token', () => {
-      useSettingsStore.getState().setClaudeAuthToken('my-token');
-      expect(useSettingsStore.getState().claudeAuthToken).toBe('my-token');
-    });
-
-    it('sets api key', () => {
-      useSettingsStore.getState().setClaudeApiKey('sk-ant-xxx');
-      expect(useSettingsStore.getState().claudeApiKey).toBe('sk-ant-xxx');
-    });
-
-    it('sets base url', () => {
-      useSettingsStore.getState().setClaudeBaseUrl('https://custom.api.com');
-      expect(useSettingsStore.getState().claudeBaseUrl).toBe('https://custom.api.com');
-    });
-
-    it('sets model override', () => {
-      useSettingsStore.getState().setClaudeModelOverride('claude-opus-4-6');
-      expect(useSettingsStore.getState().claudeModelOverride).toBe('claude-opus-4-6');
-    });
-
-    it('sets all API settings at once', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets agent settings for a specific agent', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'token123',
         apiKey: 'key456',
-        baseUrl: 'https://api.example.com',
-        modelOverride: 'custom-model',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('token123');
-      expect(state.claudeApiKey).toBe('key456');
-      expect(state.claudeBaseUrl).toBe('https://api.example.com');
-      expect(state.claudeModelOverride).toBe('custom-model');
+      expect(state.agentSettings.claude.authToken).toBe('token123');
+      expect(state.agentSettings.claude.apiKey).toBe('key456');
     });
 
-    it('sets partial API settings without affecting others', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets individual agent setting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'authToken', 'my-token');
+      expect(useSettingsStore.getState().agentSettings.claude.authToken).toBe('my-token');
+    });
+
+    it('preserves existing values when setting partial', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'initial-token',
         apiKey: 'initial-key',
       });
-      useSettingsStore.getState().setClaudeApiSettings({
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'updated-token',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('updated-token');
-      expect(state.claudeApiKey).toBe('initial-key');
+      expect(state.agentSettings.claude.authToken).toBe('updated-token');
+      expect(state.agentSettings.claude.apiKey).toBe('initial-key');
     });
 
-    it('preserves existing values when undefined is passed', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'existing-token',
-        apiKey: 'existing-key',
-      });
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'new-token',
-        apiKey: undefined,
+    it('supports arbitrary agent IDs', () => {
+      useSettingsStore.getState().setAgentSettings('windsurf', {
+        apiKey: 'ws-key',
       });
       const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('new-token');
-      expect(state.claudeApiKey).toBe('existing-key');
+      expect(state.agentSettings.windsurf.apiKey).toBe('ws-key');
     });
 
-    it('can explicitly set a field to empty string', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
-        authToken: 'token',
-        apiKey: 'key',
-      });
-      useSettingsStore.getState().setClaudeApiSettings({
-        apiKey: '',
-      });
-      const state = useSettingsStore.getState();
-      expect(state.claudeAuthToken).toBe('token');
-      expect(state.claudeApiKey).toBe('');
+    it('getAgentSettings returns empty for unknown agent', () => {
+      const settings = useSettingsStore.getState().getAgentSettings('unknown');
+      expect(settings).toEqual({});
     });
   });
 
@@ -362,7 +319,7 @@ describe('useSettingsStore', () => {
 
   describe('workflow preset data', () => {
     const allStageKeys: WorkflowStageKey[] = [
-      'plan', 'implement', 'codeReview', 'deslop',
+      'branchGen', 'plan', 'implement', 'codeReview', 'deslop',
       'cleanup', 'unitTests', 'finalReview', 'commit',
     ];
 
@@ -384,11 +341,15 @@ describe('useSettingsStore', () => {
       }
     });
 
-    it('comprehensive preset enables all stages with opus-4.6', () => {
+    it('comprehensive preset enables all stages with opus-4.6 (except branchGen which uses sonnet-4.5)', () => {
       const stages = WORKFLOW_PRESETS.comprehensive.stages;
       for (const key of allStageKeys) {
         expect(stages[key].enabled).toBe(true);
-        expect(stages[key].model).toBe('opus-4.6');
+        if (key === 'branchGen') {
+          expect(stages[key].model).toBe('sonnet-4.5');
+        } else {
+          expect(stages[key].model).toBe('opus-4.6');
+        }
       }
     });
 
@@ -411,7 +372,7 @@ describe('useSettingsStore', () => {
     it('WORKFLOW_STAGE_INFO has correct required flags', () => {
       const required = WORKFLOW_STAGE_INFO.filter(s => s.required).map(s => s.key);
       const optional = WORKFLOW_STAGE_INFO.filter(s => !s.required).map(s => s.key);
-      expect(required).toEqual(['plan', 'implement', 'commit']);
+      expect(required).toEqual(['branchGen', 'plan', 'implement', 'commit']);
       expect(optional).toEqual(['codeReview', 'deslop', 'cleanup', 'unitTests', 'finalReview']);
     });
 
@@ -569,77 +530,89 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('claude CLI option settings', () => {
+  describe('claude CLI option settings via generic API', () => {
     beforeEach(() => {
       useSettingsStore.setState({
-        claudeThinkingEnabled: true,
-        claudeExtendedContext: false,
-        claudeChromeEnabled: false,
+        agentSettings: {
+          claude: {
+            authToken: '',
+            apiKey: '',
+            baseUrl: '',
+            modelOverride: '',
+            thinkingEnabled: true,
+            extendedContext: false,
+            chromeEnabled: false,
+          },
+        },
       });
     });
 
-    it('has correct CLI option defaults', () => {
+    it('has correct CLI option defaults in agentSettings', () => {
       const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(true);
-      expect(state.claudeExtendedContext).toBe(false);
-      expect(state.claudeChromeEnabled).toBe(false);
+      const claude = state.agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(true);
+      expect(claude.extendedContext).toBe(false);
+      expect(claude.chromeEnabled).toBe(false);
     });
 
-    it('sets thinking enabled', () => {
-      useSettingsStore.getState().setClaudeThinkingEnabled(false);
-      expect(useSettingsStore.getState().claudeThinkingEnabled).toBe(false);
+    it('sets thinking enabled via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'thinkingEnabled', false);
+      expect(useSettingsStore.getState().agentSettings.claude.thinkingEnabled).toBe(false);
     });
 
-    it('sets extended context', () => {
-      useSettingsStore.getState().setClaudeExtendedContext(true);
-      expect(useSettingsStore.getState().claudeExtendedContext).toBe(true);
+    it('sets extended context via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'extendedContext', true);
+      expect(useSettingsStore.getState().agentSettings.claude.extendedContext).toBe(true);
     });
 
-    it('sets chrome enabled', () => {
-      useSettingsStore.getState().setClaudeChromeEnabled(true);
-      expect(useSettingsStore.getState().claudeChromeEnabled).toBe(true);
+    it('sets chrome enabled via generic setAgentSetting', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'chromeEnabled', true);
+      expect(useSettingsStore.getState().agentSettings.claude.chromeEnabled).toBe(true);
     });
 
-    it('sets CLI options via setClaudeApiSettings', () => {
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('sets multiple CLI options via setAgentSettings', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
         thinkingEnabled: false,
         extendedContext: true,
         chromeEnabled: true,
       });
-      const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(false);
-      expect(state.claudeExtendedContext).toBe(true);
-      expect(state.claudeChromeEnabled).toBe(true);
+      const claude = useSettingsStore.getState().agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(false);
+      expect(claude.extendedContext).toBe(true);
+      expect(claude.chromeEnabled).toBe(true);
     });
 
-    it('preserves CLI options when setClaudeApiSettings omits them', () => {
-      useSettingsStore.getState().setClaudeThinkingEnabled(false);
-      useSettingsStore.getState().setClaudeExtendedContext(true);
-      // Update only authToken, CLI options should be preserved
-      useSettingsStore.getState().setClaudeApiSettings({
+    it('preserves existing settings when setting partial', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'thinkingEnabled', false);
+      useSettingsStore.getState().setAgentSetting('claude', 'extendedContext', true);
+      useSettingsStore.getState().setAgentSettings('claude', {
         authToken: 'new-token',
       });
-      const state = useSettingsStore.getState();
-      expect(state.claudeThinkingEnabled).toBe(false);
-      expect(state.claudeExtendedContext).toBe(true);
-      expect(state.claudeChromeEnabled).toBe(false);
+      const claude = useSettingsStore.getState().agentSettings.claude;
+      expect(claude.thinkingEnabled).toBe(false);
+      expect(claude.extendedContext).toBe(true);
+      expect(claude.chromeEnabled).toBe(false);
     });
   });
 
-  describe('workflow migration v7->v8 (CLI option settings)', () => {
-    it('adds CLI option defaults when migrating from v7', () => {
+  describe('workflow migration v7->v8->v9 (CLI option settings)', () => {
+    it('adds CLI option defaults when migrating from v7 (moved to agentSettings by v9)', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const migrated = options.migrate!(
         {} as unknown,
         7
       ) as unknown as Record<string, unknown>;
-      expect(migrated.claudeThinkingEnabled).toBe(true);
-      expect(migrated.claudeExtendedContext).toBe(false);
-      expect(migrated.claudeChromeEnabled).toBe(false);
+      // v8 adds defaults, v9 moves them to agentSettings
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.thinkingEnabled).toBe(true);
+      expect(agentSettings.claude.extendedContext).toBe(false);
+      expect(agentSettings.claude.chromeEnabled).toBe(false);
+      // Legacy top-level fields should be removed by v9
+      expect(migrated.claudeThinkingEnabled).toBeUndefined();
     });
 
-    it('preserves existing CLI option values during migration', () => {
+    it('preserves existing CLI option values during migration (moved to agentSettings)', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const migrated = options.migrate!(
@@ -650,29 +623,319 @@ describe('useSettingsStore', () => {
         } as unknown,
         7
       ) as unknown as Record<string, unknown>;
-      expect(migrated.claudeThinkingEnabled).toBe(false);
-      expect(migrated.claudeExtendedContext).toBe(true);
-      expect(migrated.claudeChromeEnabled).toBe(true);
+      // v8 preserves existing values, v9 moves them to agentSettings
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.thinkingEnabled).toBe(false);
+      expect(agentSettings.claude.extendedContext).toBe(true);
+      expect(agentSettings.claude.chromeEnabled).toBe(true);
     });
 
-    it('full migration from v0 includes CLI option defaults', () => {
+    it('full migration from v0 includes CLI option defaults in agentSettings', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
       const migrated = options.migrate!(
         { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
         0
       ) as unknown as Record<string, unknown>;
-      expect(migrated.claudeThinkingEnabled).toBe(true);
-      expect(migrated.claudeExtendedContext).toBe(false);
-      expect(migrated.claudeChromeEnabled).toBe(false);
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.thinkingEnabled).toBe(true);
+      expect(agentSettings.claude.extendedContext).toBe(false);
+      expect(agentSettings.claude.chromeEnabled).toBe(false);
     });
   });
 
   describe('persist config', () => {
-    it('uses version 8', () => {
+    it('uses version 10', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(8);
+      expect(options.version).toBe(10);
+    });
+  });
+
+  describe('diagnostic agent settings', () => {
+    it('has correct default diagnosticModel', () => {
+      const state = useSettingsStore.getState();
+      expect(state.diagnosticModel).toBe('sonnet-4.5');
+    });
+
+    it('sets diagnosticModel', () => {
+      useSettingsStore.getState().setDiagnosticModel('opus-4.5');
+      expect(useSettingsStore.getState().diagnosticModel).toBe('opus-4.5');
+    });
+  });
+
+  describe('workflow migration v9->v10', () => {
+    it('adds branchGen stage to existing workflowStages', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          workflowStages: {
+            plan: { enabled: true, model: 'opus-4.6' },
+            implement: { enabled: true, model: 'opus-4.6' },
+            codeReview: { enabled: true, model: 'opus-4.6' },
+            deslop: { enabled: true, model: 'opus-4.5' },
+            cleanup: { enabled: true, model: 'sonnet-4.5' },
+            unitTests: { enabled: true, model: 'opus-4.5' },
+            finalReview: { enabled: true, model: 'opus-4.5' },
+            commit: { enabled: true, model: 'sonnet-4.5' },
+          },
+        } as unknown,
+        9
+      ) as unknown as Record<string, unknown>;
+
+      const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
+      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.5' });
+      // Existing stages preserved
+      expect(stages.plan.model).toBe('opus-4.6');
+    });
+
+    it('does not overwrite branchGen if already present', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          workflowStages: {
+            branchGen: { enabled: true, model: 'opus-4.5' },
+            plan: { enabled: true, model: 'opus-4.6' },
+            implement: { enabled: true, model: 'opus-4.6' },
+            codeReview: { enabled: true, model: 'opus-4.6' },
+            deslop: { enabled: true, model: 'opus-4.5' },
+            cleanup: { enabled: true, model: 'sonnet-4.5' },
+            unitTests: { enabled: true, model: 'opus-4.5' },
+            finalReview: { enabled: true, model: 'opus-4.5' },
+            commit: { enabled: true, model: 'sonnet-4.5' },
+          },
+        } as unknown,
+        9
+      ) as unknown as Record<string, unknown>;
+
+      const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
+      expect(stages.branchGen.model).toBe('opus-4.5');
+    });
+
+    it('adds diagnosticModel default', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { workflowStages: {} } as unknown,
+        9
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.diagnosticModel).toBe('sonnet-4.5');
+    });
+
+    it('does not overwrite existing diagnosticModel', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { workflowStages: {}, diagnosticModel: 'opus-4.6' } as unknown,
+        9
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.diagnosticModel).toBe('opus-4.6');
+    });
+
+    it('full migration from v0 includes branchGen and diagnosticModel', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default', plannerTimeoutMinutes: 5 } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.diagnosticModel).toBe('sonnet-4.5');
+      const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
+      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.5' });
+    });
+  });
+
+  describe('generic agentSettings', () => {
+    beforeEach(() => {
+      useSettingsStore.setState({
+        agentSettings: {
+          claude: {
+            authToken: '',
+            apiKey: '',
+            baseUrl: '',
+            modelOverride: '',
+            thinkingEnabled: true,
+            extendedContext: false,
+            chromeEnabled: false,
+          },
+        },
+      });
+    });
+
+    it('has claude defaults in initial agentSettings', () => {
+      const state = useSettingsStore.getState();
+      expect(state.agentSettings.claude).toBeDefined();
+      expect(state.agentSettings.claude.thinkingEnabled).toBe(true);
+      expect(state.agentSettings.claude.extendedContext).toBe(false);
+    });
+
+    it('getAgentSettings returns empty object for unknown agent', () => {
+      const settings = useSettingsStore.getState().getAgentSettings('unknown-agent');
+      expect(settings).toEqual({});
+    });
+
+    it('getAgentSettings returns claude settings', () => {
+      const settings = useSettingsStore.getState().getAgentSettings('claude');
+      expect(settings.thinkingEnabled).toBe(true);
+    });
+
+    it('setAgentSetting updates a single key', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'authToken', 'my-token');
+      const settings = useSettingsStore.getState().getAgentSettings('claude');
+      expect(settings.authToken).toBe('my-token');
+      expect(settings.thinkingEnabled).toBe(true);
+    });
+
+    it('setAgentSettings merges multiple keys', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
+        authToken: 'tok',
+        apiKey: 'key',
+      });
+      const settings = useSettingsStore.getState().getAgentSettings('claude');
+      expect(settings.authToken).toBe('tok');
+      expect(settings.apiKey).toBe('key');
+      expect(settings.thinkingEnabled).toBe(true);
+    });
+
+    it('supports arbitrary new agent IDs', () => {
+      useSettingsStore.getState().setAgentSettings('my-new-agent', {
+        customField: 'value',
+        enabled: true,
+      });
+      const settings = useSettingsStore.getState().getAgentSettings('my-new-agent');
+      expect(settings.customField).toBe('value');
+      expect(settings.enabled).toBe(true);
+    });
+
+    it('does not clobber other agents when updating one', () => {
+      useSettingsStore.getState().setAgentSettings('my-new-agent', { foo: 'bar' });
+      const claude = useSettingsStore.getState().getAgentSettings('claude');
+      expect(claude.thinkingEnabled).toBe(true);
+    });
+  });
+
+  describe('generic agent settings API', () => {
+    it('setAgentSetting updates agentSettings map', () => {
+      useSettingsStore.getState().setAgentSetting('claude', 'authToken', 'tok');
+      const state = useSettingsStore.getState();
+      expect(state.agentSettings.claude.authToken).toBe('tok');
+    });
+
+    it('setAgentSettings merges with existing settings', () => {
+      useSettingsStore.getState().setAgentSettings('claude', {
+        authToken: 'new-tok',
+        thinkingEnabled: false,
+      });
+      const state = useSettingsStore.getState();
+      expect(state.agentSettings.claude.authToken).toBe('new-tok');
+      expect(state.agentSettings.claude.thinkingEnabled).toBe(false);
+      // Existing defaults should be preserved
+      expect(state.agentSettings.claude.chromeEnabled).toBe(false);
+    });
+
+    it('persists agentSettings', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const full = useSettingsStore.getState();
+      const persisted = options.partialize ? options.partialize(full) as unknown as Record<string, unknown> : full as unknown as Record<string, unknown>;
+      expect(persisted).toHaveProperty('agentSettings');
+    });
+  });
+
+  describe('migration v8->v9 (Claude fields to agentSettings)', () => {
+    it('migrates v8 Claude fields into agentSettings map', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          claudeAuthToken: 'tok',
+          claudeApiKey: 'key',
+          claudeBaseUrl: 'https://api.example.com',
+          claudeModelOverride: 'model',
+          claudeThinkingEnabled: false,
+          claudeExtendedContext: true,
+          claudeChromeEnabled: true,
+        } as unknown,
+        8
+      ) as unknown as Record<string, unknown>;
+
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.authToken).toBe('tok');
+      expect(agentSettings.claude.apiKey).toBe('key');
+      expect(agentSettings.claude.baseUrl).toBe('https://api.example.com');
+      expect(agentSettings.claude.modelOverride).toBe('model');
+      expect(agentSettings.claude.thinkingEnabled).toBe(false);
+      expect(agentSettings.claude.extendedContext).toBe(true);
+      expect(agentSettings.claude.chromeEnabled).toBe(true);
+    });
+
+    it('removes legacy fields from top-level state after v9 migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          claudeAuthToken: 'tok',
+          claudeThinkingEnabled: true,
+        } as unknown,
+        8
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.claudeAuthToken).toBeUndefined();
+      expect(migrated.claudeThinkingEnabled).toBeUndefined();
+    });
+
+    it('sets defaults for missing boolean fields', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { claudeAuthToken: 'tok' } as unknown,
+        8
+      ) as unknown as Record<string, unknown>;
+
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.thinkingEnabled).toBe(true);
+      expect(agentSettings.claude.extendedContext).toBe(false);
+      expect(agentSettings.claude.chromeEnabled).toBe(false);
+    });
+
+    it('full migration from v7 runs v8 then v9 in correct order', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { claudeAuthToken: 'tok' } as unknown,
+        7
+      ) as unknown as Record<string, unknown>;
+
+      // v8 adds CLI defaults, then v9 moves everything to agentSettings
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.authToken).toBe('tok');
+      expect(agentSettings.claude.thinkingEnabled).toBe(true);
+      expect(agentSettings.claude.extendedContext).toBe(false);
+      expect(agentSettings.claude.chromeEnabled).toBe(false);
+      // Legacy fields should be cleaned up
+      expect(migrated.claudeAuthToken).toBeUndefined();
+      expect(migrated.claudeThinkingEnabled).toBeUndefined();
+    });
+
+    it('full migration from v0 produces agentSettings', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          plannerModel: 'default',
+          plannerTimeoutMinutes: 5,
+          claudeAuthToken: 'old-tok',
+        } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.plannerModel).toBe('opus-4.5');
+      const agentSettings = migrated.agentSettings as Record<string, Record<string, unknown>>;
+      expect(agentSettings.claude.authToken).toBe('old-tok');
+      expect(agentSettings.claude.thinkingEnabled).toBe(true);
     });
   });
 });

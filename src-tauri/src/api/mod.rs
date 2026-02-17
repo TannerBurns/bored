@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod error;
 pub mod events;
 pub mod handlers;
+pub mod hooks;
 pub mod routes;
 pub mod spool;
 pub mod state;
@@ -71,6 +72,18 @@ pub async fn start_server_with_event_tx(
     event_tx: broadcast::Sender<LiveEvent>,
 ) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
     let state = AppState::with_event_tx(db.clone(), config.token.clone(), event_tx);
+    start_server_with_state(db, config, state).await
+}
+
+/// Start the API server with event channel and agent registry
+pub async fn start_server_with_registry(
+    db: Arc<Database>,
+    config: ApiConfig,
+    event_tx: broadcast::Sender<LiveEvent>,
+    registry: Arc<crate::agents::AgentRegistry>,
+) -> Result<ServerHandle, Box<dyn std::error::Error + Send + Sync>> {
+    let state = AppState::with_event_tx(db.clone(), config.token.clone(), event_tx)
+        .with_registry(registry);
     start_server_with_state(db, config, state).await
 }
 

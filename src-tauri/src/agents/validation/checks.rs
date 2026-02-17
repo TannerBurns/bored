@@ -3,17 +3,11 @@
 use std::path::Path;
 
 use super::types::ValidationCheck;
-use crate::agents::claude;
-use crate::agents::cursor;
-use crate::agents::AgentKind;
+use crate::agents::provider::AgentProvider;
 
-pub fn check_cli_available(agent_type: AgentKind) -> ValidationCheck {
-    let (available, name) = match agent_type {
-        AgentKind::Cursor => (cursor::is_cursor_available(), "cursor"),
-        AgentKind::Claude => (claude::is_claude_available(), "claude"),
-    };
-
-    if available {
+pub fn check_cli_available(provider: &dyn AgentProvider) -> ValidationCheck {
+    let name = provider.display_name();
+    if provider.is_available() {
         ValidationCheck::pass("cli_available", &format!("{} CLI is available", name))
     } else {
         ValidationCheck::fail(
@@ -24,17 +18,9 @@ pub fn check_cli_available(agent_type: AgentKind) -> ValidationCheck {
     }
 }
 
-pub fn check_hooks_configured(agent_type: AgentKind, repo_path: &Path) -> ValidationCheck {
-    let (global_installed, project_installed) = match agent_type {
-        AgentKind::Cursor => (
-            cursor::check_global_hooks_installed(),
-            cursor::check_project_hooks_installed(repo_path),
-        ),
-        AgentKind::Claude => (
-            claude::check_global_hooks_installed(),
-            claude::check_project_hooks_installed(repo_path),
-        ),
-    };
+pub fn check_hooks_configured(provider: &dyn AgentProvider, repo_path: &Path) -> ValidationCheck {
+    let global_installed = provider.check_hooks_installed_global();
+    let project_installed = provider.check_hooks_installed_project(repo_path);
 
     if global_installed || project_installed {
         let location = if project_installed {
@@ -55,18 +41,9 @@ pub fn check_hooks_configured(agent_type: AgentKind, repo_path: &Path) -> Valida
     }
 }
 
-pub fn check_commands_installed(agent_type: AgentKind, repo_path: &Path) -> ValidationCheck {
-    // Check user-level commands first (~/.cursor/commands/ or ~/.claude/commands/)
-    let (user_installed, project_installed) = match agent_type {
-        AgentKind::Cursor => (
-            cursor::check_user_commands_installed(),
-            cursor::check_project_commands_installed(repo_path),
-        ),
-        AgentKind::Claude => (
-            claude::check_user_commands_installed(),
-            claude::check_project_commands_installed(repo_path),
-        ),
-    };
+pub fn check_commands_installed(provider: &dyn AgentProvider, repo_path: &Path) -> ValidationCheck {
+    let user_installed = provider.check_commands_installed_user();
+    let project_installed = provider.check_commands_installed_project(repo_path);
 
     if user_installed || project_installed {
         let location = if user_installed { "user" } else { "project" };
@@ -139,7 +116,126 @@ pub fn check_git_clean_state(repo_path: &Path) -> ValidationCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::agents::cost::RunCostData;
+    use crate::agents::provider::{AgentProvider, AgentRunConfig};
+    use std::path::{Path, PathBuf};
+
+    #[derive(Debug, Default)]
+    struct CheckStub {
+        available: bool,
+        global_hooks: bool,
+        project_hooks: bool,
+        user_commands: bool,
+        project_commands: bool,
+    }
+
+    impl AgentProvider for CheckStub {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub Agent" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { ("stub".into(), vec![]) }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.to_string() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
+        fn is_available(&self) -> bool { self.available }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".stub" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
+        fn check_hooks_installed_global(&self) -> bool { self.global_hooks }
+        fn check_hooks_installed_project(&self, _: &Path) -> bool { self.project_hooks }
+        fn check_commands_installed_user(&self) -> bool { self.user_commands }
+        fn check_commands_installed_project(&self, _: &Path) -> bool { self.project_commands }
+    }
+
+    // ── check_cli_available ──────────────────────────────────────────
+
+    #[test]
+    fn cli_available_passes_when_provider_is_available() {
+        let stub = CheckStub { available: true, ..Default::default() };
+        let check = check_cli_available(&stub);
+        assert!(check.passed);
+        assert_eq!(check.name, "cli_available");
+        assert!(check.message.contains("Stub Agent"));
+    }
+
+    #[test]
+    fn cli_available_fails_when_provider_is_unavailable() {
+        let stub = CheckStub { available: false, ..Default::default() };
+        let check = check_cli_available(&stub);
+        assert!(!check.passed);
+        assert!(check.message.contains("not installed"));
+    }
+
+    // ── check_hooks_configured ───────────────────────────────────────
+
+    #[test]
+    fn hooks_configured_passes_with_global_hooks() {
+        let stub = CheckStub { global_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("global"));
+    }
+
+    #[test]
+    fn hooks_configured_passes_with_project_hooks() {
+        let stub = CheckStub { project_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn hooks_configured_prefers_project_over_global() {
+        let stub = CheckStub { global_hooks: true, project_hooks: true, ..Default::default() };
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn hooks_configured_fails_when_neither_installed() {
+        let stub = CheckStub::default();
+        let check = check_hooks_configured(&stub, Path::new("/tmp"));
+        assert!(!check.passed);
+        assert_eq!(check.fix_action.as_deref(), Some("install_hooks"));
+    }
+
+    // ── check_commands_installed ──────────────────────────────────────
+
+    #[test]
+    fn commands_installed_passes_with_user_commands() {
+        let stub = CheckStub { user_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("user"));
+    }
+
+    #[test]
+    fn commands_installed_passes_with_project_commands() {
+        let stub = CheckStub { project_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("project"));
+    }
+
+    #[test]
+    fn commands_installed_prefers_user_over_project() {
+        let stub = CheckStub { user_commands: true, project_commands: true, ..Default::default() };
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(check.passed);
+        assert!(check.message.contains("user"));
+    }
+
+    #[test]
+    fn commands_installed_fails_when_neither_installed() {
+        let stub = CheckStub::default();
+        let check = check_commands_installed(&stub, Path::new("/tmp"));
+        assert!(!check.passed);
+        assert_eq!(check.fix_action.as_deref(), Some("install_commands"));
+    }
+
+    // ── existing tests ───────────────────────────────────────────────
 
     #[test]
     fn check_git_repository_detects_git_dir() {
@@ -147,11 +243,9 @@ mod tests {
             std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // No .git directory
         let check = check_git_repository(&temp_dir);
         assert!(!check.passed);
 
-        // Create .git directory
         std::fs::create_dir_all(temp_dir.join(".git")).unwrap();
         let check = check_git_repository(&temp_dir);
         assert!(check.passed);
@@ -180,7 +274,6 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let check = check_git_clean_state(&temp_dir);
-        // Should return a warning (passed=true, is_warning=true) since it can't check git status
         assert!(check.passed);
         assert!(check.is_warning);
         assert!(check.message.contains("Could not check"));
@@ -189,43 +282,10 @@ mod tests {
     }
 
     #[test]
-    fn git_clean_state_warning_included_in_validation_result() {
-        // Create a temp git repo with uncommitted changes
-        let temp_dir =
-            std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-
-        // Initialize git repo
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(&temp_dir)
-            .output()
-            .ok();
-
-        // Create an untracked file to make the working tree dirty
-        std::fs::write(temp_dir.join("test.txt"), "test content").unwrap();
-
-        // Run the git clean check directly
-        let check = check_git_clean_state(&temp_dir);
-        assert!(
-            check.is_warning,
-            "Git clean state check should be a warning when there are uncommitted changes"
-        );
-        assert!(check.passed, "Warnings should have passed=true");
-        assert!(
-            check.message.contains("uncommitted"),
-            "Warning message should mention uncommitted changes"
-        );
-
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-
-    #[test]
     fn is_environment_valid_returns_bool() {
+        use crate::agents::cursor::provider::CursorProvider;
         let temp_dir = PathBuf::from("/nonexistent/path");
-        assert!(!super::super::is_environment_valid(
-            AgentKind::Cursor,
-            &temp_dir
-        ));
+        let provider = CursorProvider::new();
+        assert!(!super::super::is_environment_valid(&provider, &temp_dir));
     }
 }

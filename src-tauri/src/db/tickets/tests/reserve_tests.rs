@@ -1,5 +1,4 @@
 use super::{create_test_db, setup_board_with_ready_ticket, temp_dir_path};
-use crate::agents::AgentKind;
 use crate::db::models::{CreateProject, CreateTicket, Priority, WorkflowType};
 use chrono::{Duration, Utc};
 
@@ -10,7 +9,7 @@ fn reserve_next_ticket_returns_ready_ticket() {
 
     let expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
 
     assert!(reserved.is_some());
@@ -48,7 +47,7 @@ fn reserve_next_ticket_returns_none_when_no_ready_tickets() {
 
     let expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
 
     assert!(reserved.is_none());
@@ -65,7 +64,7 @@ fn reserve_next_ticket_skips_locked_ticket() {
 
     // Try to reserve - should return None since the only ticket is locked
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "new-run", expires)
+        .reserve_next_ticket(None, "cursor", "new-run", expires)
         .unwrap();
     assert!(reserved.is_none());
 }
@@ -82,7 +81,7 @@ fn reserve_next_ticket_takes_expired_lock() {
     // Try to reserve - should succeed since the lock is expired
     let new_expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "new-run", new_expires)
+        .reserve_next_ticket(None, "cursor", "new-run", new_expires)
         .unwrap();
 
     assert!(reserved.is_some());
@@ -132,13 +131,13 @@ fn reserve_next_ticket_respects_project_filter() {
 
     // Filter for different project should not find ticket
     let other_result = db
-        .reserve_next_ticket(Some("other-project"), AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(Some("other-project"), "cursor", "run-1", expires)
         .unwrap();
     assert!(other_result.is_none());
 
     // Filter for correct project should find ticket
     let correct_result = db
-        .reserve_next_ticket(Some(&project.id), AgentKind::Cursor, "run-2", expires)
+        .reserve_next_ticket(Some(&project.id), "cursor", "run-2", expires)
         .unwrap();
     assert!(correct_result.is_some());
 }
@@ -194,7 +193,7 @@ fn reserve_next_ticket_prioritizes_by_priority_and_age() {
 
     let expires = Utc::now() + Duration::minutes(30);
     let reserved = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
 
     // Should get the urgent ticket even though low priority was created first
@@ -233,7 +232,7 @@ fn reserve_next_ticket_skips_epic_tickets() {
 
     // Worker should NOT pick up the epic
     let result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
     assert!(
         result.is_none(),
@@ -294,7 +293,7 @@ fn reserve_next_ticket_picks_child_ticket_not_epic() {
 
     // Worker should pick up the child, not the epic
     let result = db
-        .reserve_next_ticket(None, AgentKind::Cursor, "run-1", expires)
+        .reserve_next_ticket(None, "cursor", "run-1", expires)
         .unwrap();
     assert!(result.is_some(), "Child ticket should be picked up");
     assert_eq!(
@@ -420,7 +419,7 @@ fn get_ready_ticket_diagnostics_counts_various_states() {
 
     // Get diagnostics for Cursor agent
     let diag = db
-        .get_ready_ticket_diagnostics(None, AgentKind::Cursor)
+        .get_ready_ticket_diagnostics(None, "cursor")
         .unwrap();
 
     assert_eq!(diag.total_ready, 4); // 4 tickets in Ready column
@@ -501,7 +500,7 @@ fn get_ready_ticket_diagnostics_with_project_filter() {
 
     // Diagnostics with project filter
     let diag = db
-        .get_ready_ticket_diagnostics(Some(&project1.id), AgentKind::Cursor)
+        .get_ready_ticket_diagnostics(Some(&project1.id), "cursor")
         .unwrap();
 
     assert_eq!(diag.total_ready, 2); // 2 total in Ready

@@ -10,9 +10,9 @@ use super::validation_parsing::{
     parse_start_app_from_response,
 };
 use crate::agents::validation_agent::{AppProcessManager, StartResult};
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::agents::AgentRegistry;
 use crate::api::state::LiveEvent;
-use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::commands::next_steps::{get_branch_diff_sync, get_ticket_working_dir};
 use crate::commands::ApiConnState;
 use crate::db::models::{
@@ -268,12 +268,10 @@ pub async fn get_validation_app_status(
     })
 }
 
-fn resolve_validation_agent_kind(agent_type: Option<&str>) -> AgentKind {
-    if agent_type == Some("cursor") {
-        AgentKind::Cursor
-    } else {
-        AgentKind::Claude
-    }
+fn resolve_validation_agent_id(agent_type: Option<&str>, registry: &AgentRegistry) -> String {
+    agent_type
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| registry.default_agent_id())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -297,8 +295,9 @@ pub async fn send_validation_message(
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
     app_process_manager: State<'_, AppProcessManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ValidationMessage, String> {
     let session_id = request.session_id;
     let content = request.content;
@@ -347,8 +346,12 @@ pub async fn send_validation_message(
         .map_err(|e| e.to_string())?
         .diff;
 
-    let agent_kind = resolve_validation_agent_kind(session.agent_type.as_deref());
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+    let agent_id = resolve_validation_agent_id(session.agent_type.as_deref(), &registry);
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let model = options.as_ref().and_then(|o| o.model.clone());
     let timeout_minutes = options.and_then(|o| o.timeout_minutes);
@@ -360,8 +363,9 @@ pub async fn send_validation_message(
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
         model: model.clone(),
-        claude_api_config,
-        agent_kind,
+        agent_config,
+        agent_id,
+        provider,
         ticket_title: ticket.title.clone(),
         ticket_description: ticket.description_md.clone(),
         branch_diff,
@@ -750,4 +754,75 @@ pub async fn create_fix_tasks(
     });
 
     Ok(task_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::cost::RunCostData;
+    use crate::agents::provider::{AgentProvider, AgentRunConfig};
+    use crate::agents::registry::AgentRegistry;
+    use std::path::Path;
+
+    #[derive(Debug)]
+    struct FakeProvider {
+        name: String,
+        available: bool,
+    }
+
+    impl AgentProvider for FakeProvider {
+        fn id(&self) -> &str { &self.name }
+        fn display_name(&self) -> &str { &self.name }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { (self.name.clone(), vec![]) }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.to_string() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
+        fn is_available(&self) -> bool { self.available }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".fake" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{}", c) }
+        fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
+    }
+
+    fn make_registry(providers: Vec<(&str, bool)>) -> AgentRegistry {
+        let mut reg = AgentRegistry::new();
+        for (name, available) in providers {
+            reg.register(std::sync::Arc::new(FakeProvider {
+                name: name.to_string(),
+                available,
+            }));
+        }
+        reg
+    }
+
+    #[test]
+    fn resolve_explicit_agent_type() {
+        let reg = make_registry(vec![("cursor", true), ("claude", true)]);
+        assert_eq!(resolve_validation_agent_id(Some("cursor"), &reg), "cursor");
+    }
+
+    #[test]
+    fn resolve_unknown_explicit_passes_through() {
+        let reg = make_registry(vec![("cursor", true)]);
+        assert_eq!(resolve_validation_agent_id(Some("new-agent"), &reg), "new-agent");
+    }
+
+    #[test]
+    fn resolve_none_returns_first_available() {
+        let reg = make_registry(vec![("offline", false), ("online", true)]);
+        assert_eq!(resolve_validation_agent_id(None, &reg), "online");
+    }
+
+    #[test]
+    fn resolve_none_falls_back_to_first_registered_when_none_available() {
+        let reg = make_registry(vec![("offline", false)]);
+        assert_eq!(resolve_validation_agent_id(None, &reg), "offline");
+    }
+
+    #[test]
+    fn resolve_none_returns_empty_when_registry_empty() {
+        let reg = AgentRegistry::new();
+        assert_eq!(resolve_validation_agent_id(None, &reg), "");
+    }
 }

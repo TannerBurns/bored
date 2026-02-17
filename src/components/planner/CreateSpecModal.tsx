@@ -3,12 +3,12 @@ import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { MarkdownViewer } from '../common/MarkdownViewer';
-import { ClaudeIcon, CursorIcon } from '../common';
+import { getAgentIcon, getAgentBrandColor } from '../common';
 import { useSpecStore } from '../../stores/specStore';
-import { getProjects, getBoards } from '../../lib/tauri';
+import { getProjects, getBoards, getAvailableAgents } from '../../lib/tauri';
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 import { cn } from '../../lib/utils';
-import type { Project, Board } from '../../types';
+import type { Project, Board, AgentInfo } from '../../types';
 
 interface CreateSpecModalProps {
   boardId: string;
@@ -34,8 +34,9 @@ export function CreateSpecModal({
   const [targetBoardId, setTargetBoardId] = useState<string>(''); // Empty means same as boardId
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<'cursor' | 'claude'>('claude');
-  const { cursorAvailable, claudeAvailable } = useCliAvailability();
+  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const { availability } = useCliAvailability();
   
   // Markdown editor state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -75,6 +76,20 @@ export function CreateSpecModal({
         .finally(() => {
           setLoadingBoards(false);
         });
+
+      getAvailableAgents()
+        .then((data) => {
+          setAgents(data);
+          if (!selectedAgent) {
+            const firstAvailable = data.find((a) => a.isAvailable);
+            if (firstAvailable) {
+              setSelectedAgent(firstAvailable.id);
+            }
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load agents:', err);
+        });
     }
   }, [open, defaultProjectId]);
 
@@ -111,7 +126,7 @@ export function CreateSpecModal({
       return;
     }
 
-    const agentAvailable = selectedAgent === 'cursor' ? cursorAvailable : claudeAvailable;
+    const agentAvailable = availability[selectedAgent] ?? false;
     if (!agentAvailable) {
       setError(`Selected agent (${selectedAgent}) is not available. Install the CLI or choose the other agent.`);
       return;
@@ -312,40 +327,34 @@ You can use:
             Brainstorm agent
           </label>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedAgent('cursor')}
-              disabled={!cursorAvailable}
-              title={!cursorAvailable ? 'Cursor CLI not available' : undefined}
-              className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
-                selectedAgent === 'cursor'
-                  ? 'border-board-accent bg-board-accent/10 text-board-accent'
-                  : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80',
-                !cursorAvailable && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <CursorIcon className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
-              Cursor
-              {!cursorAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedAgent('claude')}
-              disabled={!claudeAvailable}
-              title={!claudeAvailable ? 'Claude CLI not available' : undefined}
-              className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
-                selectedAgent === 'claude'
-                  ? 'border-board-accent bg-board-accent/10 text-board-accent'
-                  : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80',
-                !claudeAvailable && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <ClaudeIcon className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
-              Claude
-              {!claudeAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
-            </button>
+            {agents.map((agent) => {
+              const isAvailable = availability[agent.id] ?? agent.isAvailable;
+              const brandColor = getAgentBrandColor(agent.id, agent.brandColor);
+              const Icon = getAgentIcon(agent.id);
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => setSelectedAgent(agent.id)}
+                  disabled={!isAvailable}
+                  title={!isAvailable ? `${agent.displayName} CLI not available` : undefined}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
+                    selectedAgent === agent.id
+                      ? 'border-board-accent bg-board-accent/10 text-board-accent'
+                      : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80',
+                    !isAvailable && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <Icon
+                    className={isAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'}
+                    style={isAvailable && brandColor ? { color: brandColor } : undefined}
+                  />
+                  {agent.displayName}
+                  {!isAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
+                </button>
+              );
+            })}
           </div>
           <p className="text-xs text-board-text-muted mt-1">
             The AI will use this agent to explore the codebase and refine requirements

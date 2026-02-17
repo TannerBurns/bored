@@ -1,22 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentType {
-    #[default]
-    Cursor,
-    Claude,
-}
-
-impl AgentType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AgentType::Cursor => "cursor",
-            AgentType::Claude => "claude",
-        }
-    }
-}
+/// Free-form agent identifier (e.g. "cursor", "claude").
+pub type AgentType = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -150,6 +136,34 @@ mod tests {
         #[test]
         fn parse_invalid_returns_none() {
             assert_eq!(RunStatus::parse("unknown"), None);
+        }
+    }
+
+    mod agent_type_tests {
+        use super::*;
+
+        #[test]
+        fn agent_type_is_string() {
+            let agent: AgentType = "cursor".to_string();
+            assert_eq!(agent, "cursor");
+        }
+
+        #[test]
+        fn serializes_as_string() {
+            let agent: AgentType = "claude".to_string();
+            assert_eq!(serde_json::to_string(&agent).unwrap(), "\"claude\"");
+        }
+
+        #[test]
+        fn deserializes_from_string() {
+            let agent: AgentType = serde_json::from_str("\"cursor\"").unwrap();
+            assert_eq!(agent, "cursor");
+        }
+
+        #[test]
+        fn accepts_arbitrary_agent_ids() {
+            let agent: AgentType = "new-agent".to_string();
+            assert_eq!(agent, "new-agent");
         }
     }
 }

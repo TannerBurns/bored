@@ -7,13 +7,26 @@ use tauri::State;
 
 use crate::agents::validation::{validate_worker_environment, ValidationResult};
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
-use crate::agents::{claude, cursor, AgentKind, ClaudeApiConfig};
-use crate::commands::claude::ClaudeApiSettingsState;
+use crate::agents::AgentRegistry;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::commands::runs::RunningAgents;
 use crate::commands::workflow_settings::WorkflowSettingsState;
 use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
+
+fn resolve_commands_source(
+    provider: &dyn crate::agents::AgentProvider,
+    app: &tauri::AppHandle,
+) -> Option<PathBuf> {
+    provider.get_bundled_commands_path().or_else(|| {
+        use tauri::Manager;
+        app.path()
+            .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
+            .ok()
+            .filter(|p| p.exists())
+    })
+}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,13 +52,15 @@ pub struct WorkerQueueStatus {
     pub worker_count: usize,
 }
 
-/// Get the hook script path from app data directory
-fn get_hook_script_path(app: &tauri::AppHandle) -> Option<String> {
+fn get_hook_script_path(app: &tauri::AppHandle, hook_script_name: &str) -> Option<String> {
     use tauri::Manager;
+    if hook_script_name.is_empty() {
+        return None;
+    }
     app.path()
         .app_data_dir()
         .ok()
-        .map(|dir| dir.join("scripts").join("cursor-hook.js"))
+        .map(|dir| dir.join("scripts").join(hook_script_name))
         .map(|p| p.to_string_lossy().to_string())
 }
 
@@ -54,9 +69,10 @@ pub async fn start_worker(
     app: tauri::AppHandle,
     input: StartWorkerRequest,
     db: State<'_, Arc<Database>>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
     running_agents: State<'_, RunningAgents>,
     workflow_settings_state: State<'_, WorkflowSettingsState>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<StartWorkerResponse, String> {
     let StartWorkerRequest {
         agent_type,
@@ -72,11 +88,10 @@ pub async fn start_worker(
         project_id
     );
 
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        "claude" => AgentKind::Claude,
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
+    let agent_id = agent_type.clone();
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL").unwrap_or_else(|_| {
         format!(
@@ -87,32 +102,31 @@ pub async fn start_worker(
     let api_token =
         std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
-    // Get the hook script path for the worker to use
-    let hook_script_path = get_hook_script_path(&app);
+    let hook_script_path = get_hook_script_path(&app, provider.hook_script_name());
     tracing::info!("Worker hook script path: {:?}", hook_script_path);
 
-    let claude_api_config =
-        (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
-    let claude_api_settings =
-        (agent_kind == AgentKind::Claude).then(|| claude_api_state.shared());
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     // Pass the shared workflow settings so workers read the latest values at task time
     let workflow_settings = Some(workflow_settings_state.shared());
 
     let config = WorkerConfig {
-        agent_type: agent_kind,
+        agent_id,
+        provider,
         project_id,
         api_url,
         api_token,
+        poll_interval_secs: 10,
+        heartbeat_interval_secs: 60,
+        lock_duration_mins: 30,
+        agent_timeout_secs: 3600,
         hook_script_path,
         app_handle: Some(app.clone()),
-        claude_api_config,
-        claude_api_settings,
+        agent_config,
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
         stage_max_retries: stage_max_retries.unwrap_or(2),
         workflow_settings,
-        ..Default::default()
     };
 
     // Pass the shared cancel handles so worker runs can be cancelled via the API
@@ -196,32 +210,47 @@ pub async fn get_worker_queue_status(
 pub async fn validate_worker(
     agent_type: String,
     repo_path: String,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ValidationResult, String> {
-    let agent_kind = match agent_type.as_str() {
-        "cursor" => AgentKind::Cursor,
-        "claude" => AgentKind::Claude,
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
 
     let api_url = std::env::var("AGENT_KANBAN_API_URL").ok();
     let result =
-        validate_worker_environment(agent_kind, &PathBuf::from(&repo_path), api_url.as_deref());
+        validate_worker_environment(&*provider, &PathBuf::from(&repo_path), api_url.as_deref());
 
     Ok(result)
 }
 
 #[tauri::command]
-pub async fn get_commands_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    if let Some(path) = cursor::get_bundled_commands_path_with_app(&app) {
-        return Ok(Some(path.to_string_lossy().to_string()));
-    }
-    Ok(None)
+pub async fn get_commands_path(
+    app: tauri::AppHandle,
+    registry: State<'_, AgentRegistry>,
+) -> Result<Option<String>, String> {
+    let path = registry.providers().iter()
+        .find_map(|p| resolve_commands_source(&**p, &app));
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
-pub async fn get_available_commands(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    if let Some(path) = cursor::get_bundled_commands_path_with_app(&app) {
-        return Ok(cursor::get_available_commands(&path));
+pub async fn get_available_commands(
+    app: tauri::AppHandle,
+    registry: State<'_, AgentRegistry>,
+) -> Result<Vec<String>, String> {
+    let commands_source = registry.providers().iter()
+        .find_map(|p| resolve_commands_source(&**p, &app));
+    if let Some(path) = commands_source {
+        let names: Vec<String> = std::fs::read_dir(&path)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry.path().extension().and_then(|e| e.to_str()) == Some("md")
+            })
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .collect();
+        return Ok(names);
     }
     Ok(vec![])
 }
@@ -231,70 +260,59 @@ pub async fn install_commands_to_project(
     app: tauri::AppHandle,
     agent_type: String,
     repo_path: String,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<Vec<String>, String> {
-    let commands_source = cursor::get_bundled_commands_path_with_app(&app)
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
+
+    let commands_source = resolve_commands_source(&*provider, &app)
         .ok_or_else(|| "Command templates not found".to_string())?;
 
     let repo = PathBuf::from(&repo_path);
-
-    let installed = match agent_type.as_str() {
-        "cursor" => cursor::install_commands(&repo, &commands_source),
-        "claude" => claude::install_commands(&repo, &commands_source),
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
-
-    installed.map_err(|e| e.to_string())
+    provider.install_commands_to_project(&repo, &commands_source)
 }
 
 #[tauri::command]
 pub async fn install_commands_to_user(
     app: tauri::AppHandle,
     agent_type: String,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<Vec<String>, String> {
-    let commands_source = cursor::get_bundled_commands_path_with_app(&app)
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
+
+    let commands_source = resolve_commands_source(&*provider, &app)
         .ok_or_else(|| "Command templates not found".to_string())?;
 
-    let installed = match agent_type.as_str() {
-        "cursor" => cursor::install_user_commands(&commands_source),
-        "claude" => claude::install_user_commands(&commands_source),
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
-
-    installed.map_err(|e| e.to_string())
+    provider.install_commands_to_user(&commands_source)
 }
 
 #[tauri::command]
 pub async fn check_commands_installed(
     agent_type: String,
     repo_path: String,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<bool, String> {
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
+
     let repo = PathBuf::from(&repo_path);
-
-    // Check both user-level and project-level commands
-    let installed = match agent_type.as_str() {
-        "cursor" => {
-            cursor::check_user_commands_installed()
-                || cursor::check_project_commands_installed(&repo)
-        }
-        "claude" => {
-            claude::check_user_commands_installed()
-                || claude::check_project_commands_installed(&repo)
-        }
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
-
-    Ok(installed)
+    Ok(provider.check_commands_installed_user() || provider.check_commands_installed_project(&repo))
 }
 
 #[tauri::command]
-pub async fn check_user_commands_installed(agent_type: String) -> Result<bool, String> {
-    let installed = match agent_type.as_str() {
-        "cursor" => cursor::check_user_commands_installed(),
-        "claude" => claude::check_user_commands_installed(),
-        _ => return Err(format!("Invalid agent type: {}", agent_type)),
-    };
+pub async fn check_user_commands_installed(
+    agent_type: String,
+    registry: State<'_, AgentRegistry>,
+) -> Result<bool, String> {
+    let provider = registry
+        .get(&agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
 
-    Ok(installed)
+    Ok(provider.check_commands_installed_user())
 }
 
 #[cfg(test)]

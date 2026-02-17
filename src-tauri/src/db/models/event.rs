@@ -1,8 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::AgentType;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
@@ -67,7 +65,7 @@ pub struct AgentEventPayload {
 pub struct NormalizedEvent {
     pub run_id: String,
     pub ticket_id: String,
-    pub agent_type: AgentType,
+    pub agent_type: String,
     pub event_type: EventType,
     pub payload: AgentEventPayload,
     pub timestamp: DateTime<Utc>,

@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getClaudeStatus,
-  installClaudeHooksUser,
-  installClaudeHooksProject,
-  getClaudeHooksConfig,
-  getClaudeApiSettings,
-  setClaudeApiSettings,
+  installAgentHooksGlobal,
+  installAgentHooksProject,
+  getAgentHooksConfig,
+  getAgentSettings,
+  setAgentSettings,
+  getAgentStatus,
 } from '../../../lib/tauri';
-import type { ClaudeApiSettings } from '../../../lib/tauri';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useAgentSettings, type AgentSettingsConfig, type AgentSettingsReturn } from '../shared';
 
@@ -44,109 +43,111 @@ export interface ClaudeSettingsReturn extends AgentSettingsReturn {
 const claudeConfig: AgentSettingsConfig = {
   agentType: 'claude',
   getStatus: async () => {
-    const status = await getClaudeStatus();
+    const status = await getAgentStatus('claude');
     return {
       isAvailable: status.isAvailable,
       version: status.version ?? undefined,
       hookScriptPath: status.hookScriptPath ?? undefined,
-      hooksInstalled: status.userHooksInstalled,
+      hooksInstalled: status.globalHooksInstalled,
     };
   },
-  installHooksUser: installClaudeHooksUser,
-  installHooksProject: installClaudeHooksProject,
-  getHooksConfig: getClaudeHooksConfig,
+  installHooksUser: (hookPath: string) => installAgentHooksGlobal('claude', hookPath),
+  installHooksProject: (hookPath: string, projectPath: string) =>
+    installAgentHooksProject('claude', hookPath, projectPath),
+  getHooksConfig: (hookPath: string) => getAgentHooksConfig('claude', hookPath),
   userSuccessMessage: 'Hooks installed in user settings (~/.claude/settings.json)!',
   projectSuccessMessage: (path: string) =>
     `Hooks installed in ${path}/.claude/settings.json!`,
 };
 
+function str(settings: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = settings[key];
+    if (typeof v === 'string') return v;
+  }
+  return '';
+}
+
+function bool(settings: Record<string, unknown>, fallback: boolean, ...keys: string[]): boolean {
+  for (const key of keys) {
+    const v = settings[key];
+    if (typeof v === 'boolean') return v;
+  }
+  return fallback;
+}
+
 export function useClaudeSettings(): ClaudeSettingsReturn {
   const base = useAgentSettings(claudeConfig);
-  const {
-    setClaudeApiSettings: updateStoreSettings,
-    claudeThinkingEnabled,
-    claudeExtendedContext,
-    claudeChromeEnabled,
-    setClaudeThinkingEnabled,
-    setClaudeExtendedContext,
-    setClaudeChromeEnabled,
-  } = useSettingsStore();
+  const storeSetAgentSettings = useSettingsStore((s) => s.setAgentSettings);
 
   const [apiAuthToken, setApiAuthToken] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [apiModelOverride, setApiModelOverride] = useState('');
+  const [thinkingEnabled, setThinkingEnabled] = useState(true);
+  const [extendedContext, setExtendedContext] = useState(false);
+  const [chromeEnabled, setChromeEnabled] = useState(false);
   const [savingApiSettings, setSavingApiSettings] = useState(false);
   const [savingCliOptions, setSavingCliOptions] = useState(false);
-  const [userHooksInstalled, setUserHooksInstalled] = useState(false);
-
   useEffect(() => {
-    const loadApiSettings = async () => {
+    const loadSettings = async () => {
       try {
-        const [apiSettings, claudeStatus] = await Promise.all([
-          getClaudeApiSettings(),
-          getClaudeStatus(),
-        ]);
+        const settings = await getAgentSettings('claude');
 
-        setApiAuthToken(apiSettings.authToken ?? '');
-        setApiKey(apiSettings.apiKey ?? '');
-        setApiBaseUrl(apiSettings.baseUrl ?? '');
-        setApiModelOverride(apiSettings.modelOverride ?? '');
-        setUserHooksInstalled(claudeStatus.userHooksInstalled);
+        const authToken = str(settings, 'auth_token', 'authToken');
+        const key = str(settings, 'api_key', 'apiKey');
+        const baseUrl = str(settings, 'base_url', 'baseUrl');
+        const modelOverride = str(settings, 'model_override', 'modelOverride');
+        const thinking = bool(settings, true, 'thinking_enabled', 'thinkingEnabled');
+        const extended = bool(settings, false, 'extended_context_enabled', 'extendedContextEnabled');
+        const chrome = bool(settings, false, 'chrome_enabled', 'chromeEnabled');
 
-        updateStoreSettings({
-          authToken: apiSettings.authToken ?? '',
-          apiKey: apiSettings.apiKey ?? '',
-          baseUrl: apiSettings.baseUrl ?? '',
-          modelOverride: apiSettings.modelOverride ?? '',
-          thinkingEnabled: apiSettings.thinkingEnabled ?? true,
-          extendedContext: apiSettings.extendedContextEnabled ?? false,
-          chromeEnabled: apiSettings.chromeEnabled ?? false,
+        setApiAuthToken(authToken);
+        setApiKey(key);
+        setApiBaseUrl(baseUrl);
+        setApiModelOverride(modelOverride);
+        setThinkingEnabled(thinking);
+        setExtendedContext(extended);
+        setChromeEnabled(chrome);
+
+        storeSetAgentSettings('claude', {
+          authToken, apiKey: key, baseUrl, modelOverride,
+          thinkingEnabled: thinking, extendedContext: extended, chromeEnabled: chrome,
         });
       } catch {
         // useAgentSettings handles errors
       }
     };
 
-    loadApiSettings();
-  }, [updateStoreSettings]);
+    loadSettings();
+  }, [storeSetAgentSettings]);
 
-  const buildFullSettings = useCallback((): ClaudeApiSettings => ({
-    authToken: apiAuthToken || null,
-    apiKey: apiKey || null,
-    baseUrl: apiBaseUrl || null,
-    modelOverride: apiModelOverride || null,
-    thinkingEnabled: claudeThinkingEnabled,
-    extendedContextEnabled: claudeExtendedContext,
-    chromeEnabled: claudeChromeEnabled,
-  }), [apiAuthToken, apiKey, apiBaseUrl, apiModelOverride, claudeThinkingEnabled, claudeExtendedContext, claudeChromeEnabled]);
+  const buildSettingsPayload = useCallback((): Record<string, unknown> => ({
+    auth_token: apiAuthToken || null,
+    api_key: apiKey || null,
+    base_url: apiBaseUrl || null,
+    model_override: apiModelOverride || null,
+    thinking_enabled: thinkingEnabled,
+    extended_context_enabled: extendedContext,
+    chrome_enabled: chromeEnabled,
+  }), [apiAuthToken, apiKey, apiBaseUrl, apiModelOverride, thinkingEnabled, extendedContext, chromeEnabled]);
 
-  // Reads fresh values from the Zustand store (not buildFullSettings) because
-  // the setter hasn't re-rendered yet when we build the save payload.
   const handleCliOptionChange = useCallback(async (
     setter: (value: boolean) => void,
+    key: string,
     value: boolean,
   ) => {
     setter(value);
     setSavingCliOptions(true);
     try {
-      const store = useSettingsStore.getState();
-      const settings: ClaudeApiSettings = {
-        authToken: apiAuthToken || null,
-        apiKey: apiKey || null,
-        baseUrl: apiBaseUrl || null,
-        modelOverride: apiModelOverride || null,
-        thinkingEnabled: store.claudeThinkingEnabled,
-        extendedContextEnabled: store.claudeExtendedContext,
-        chromeEnabled: store.claudeChromeEnabled,
-      };
-      await setClaudeApiSettings(settings);
+      const payload = { ...buildSettingsPayload(), [key]: value };
+      await setAgentSettings('claude', payload);
     } catch (e) {
       base.setError(`Failed to save CLI option: ${e}`);
     } finally {
       setSavingCliOptions(false);
     }
-  }, [apiAuthToken, apiKey, apiBaseUrl, apiModelOverride, base]);
+  }, [buildSettingsPayload, base]);
 
   const handleSaveApiSettings = useCallback(async () => {
     setSavingApiSettings(true);
@@ -154,25 +155,27 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     base.setSuccess(null);
 
     try {
-      const settings = buildFullSettings();
+      const payload = buildSettingsPayload();
+      await setAgentSettings('claude', payload);
+      const savedSettings = await getAgentSettings('claude');
 
-      await setClaudeApiSettings(settings);
-      const savedSettings = await getClaudeApiSettings();
-
-      const normalizedAuthToken = savedSettings.authToken ?? '';
-      const normalizedApiKey = savedSettings.apiKey ?? '';
-      const normalizedBaseUrl = savedSettings.baseUrl ?? '';
-      const normalizedModelOverride = savedSettings.modelOverride ?? '';
-      const normalizedThinking = savedSettings.thinkingEnabled ?? true;
-      const normalizedExtendedContext = savedSettings.extendedContextEnabled ?? false;
-      const normalizedChrome = savedSettings.chromeEnabled ?? false;
+      const normalizedAuthToken = str(savedSettings, 'auth_token', 'authToken');
+      const normalizedApiKey = str(savedSettings, 'api_key', 'apiKey');
+      const normalizedBaseUrl = str(savedSettings, 'base_url', 'baseUrl');
+      const normalizedModelOverride = str(savedSettings, 'model_override', 'modelOverride');
+      const normalizedThinking = bool(savedSettings, true, 'thinking_enabled', 'thinkingEnabled');
+      const normalizedExtendedContext = bool(savedSettings, false, 'extended_context_enabled', 'extendedContextEnabled');
+      const normalizedChrome = bool(savedSettings, false, 'chrome_enabled', 'chromeEnabled');
 
       setApiAuthToken(normalizedAuthToken);
       setApiKey(normalizedApiKey);
       setApiBaseUrl(normalizedBaseUrl);
       setApiModelOverride(normalizedModelOverride);
+      setThinkingEnabled(normalizedThinking);
+      setExtendedContext(normalizedExtendedContext);
+      setChromeEnabled(normalizedChrome);
 
-      updateStoreSettings({
+      storeSetAgentSettings('claude', {
         authToken: normalizedAuthToken,
         apiKey: normalizedApiKey,
         baseUrl: normalizedBaseUrl,
@@ -188,11 +191,11 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     } finally {
       setSavingApiSettings(false);
     }
-  }, [buildFullSettings, base, updateStoreSettings]);
+  }, [buildSettingsPayload, base, storeSetAgentSettings]);
 
   return {
     ...base,
-    userHooksInstalled,
+    userHooksInstalled: base.status?.hooksInstalled ?? false,
     apiSettings: {
       authToken: apiAuthToken,
       setAuthToken: setApiAuthToken,
@@ -206,12 +209,12 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
       save: handleSaveApiSettings,
     },
     cliOptions: {
-      thinkingEnabled: claudeThinkingEnabled,
-      setThinkingEnabled: (v: boolean) => handleCliOptionChange(setClaudeThinkingEnabled, v),
-      extendedContext: claudeExtendedContext,
-      setExtendedContext: (v: boolean) => handleCliOptionChange(setClaudeExtendedContext, v),
-      chromeEnabled: claudeChromeEnabled,
-      setChromeEnabled: (v: boolean) => handleCliOptionChange(setClaudeChromeEnabled, v),
+      thinkingEnabled,
+      setThinkingEnabled: (v: boolean) => handleCliOptionChange(setThinkingEnabled, 'thinking_enabled', v),
+      extendedContext,
+      setExtendedContext: (v: boolean) => handleCliOptionChange(setExtendedContext, 'extended_context_enabled', v),
+      chromeEnabled,
+      setChromeEnabled: (v: boolean) => handleCliOptionChange(setChromeEnabled, 'chrome_enabled', v),
       saving: savingCliOptions,
     },
   };

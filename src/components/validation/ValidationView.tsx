@@ -8,7 +8,7 @@ import { getTicket } from '../../lib/tauri';
 interface ValidationViewProps {
   /** When both set, auto-create a session and open chat (from ticket Next Steps) */
   initialTicketId?: string;
-  initialAgentType?: 'cursor' | 'claude';
+  initialAgentType?: string;
   /** Called after auto-created session is opened so parent can clear initial state */
   onConsumedInitial?: () => void;
 }
@@ -174,7 +174,7 @@ export function ValidationView({
               </svg>
               <p className="text-sm">No validation sessions yet</p>
               <p className="text-xs mt-1">
-                Move a ticket to Done or Review and use &quot;Build with&quot; (Cursor or Claude) to validate from the Work Complete panel.
+                Move a ticket to Done or Review and use &quot;Build with&quot; to validate from the Work Complete panel.
               </p>
             </div>
           ) : (

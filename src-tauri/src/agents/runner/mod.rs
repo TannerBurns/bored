@@ -14,24 +14,15 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
     let start_time = std::time::Instant::now();
 
     tracing::info!(
-        "execute_agent_run: ticket={}, run_id={}, workflow_type={:?}, agent={:?}",
+        "execute_agent_run: ticket={}, run_id={}, workflow_type={:?}, agent={}",
         config.ticket.id,
         config.run_id,
         config.ticket.workflow_type,
-        config.agent_kind
+        config.agent_id
     );
 
-    if let Some(ref hook_path) = config.hook_script_path {
-        if let Err(e) = workflow::update_project_hooks_for_run(
-            &config.repo_path,
-            hook_path,
-            &config.api_url,
-            &config.api_token,
-            &config.run_id,
-            config.agent_kind,
-        ) {
-            tracing::warn!("Failed to update project hooks: {}", e);
-        }
+    if let Err(e) = workflow::update_project_hooks_for_run(&config) {
+        tracing::warn!("Failed to update project hooks: {}", e);
     }
 
     config

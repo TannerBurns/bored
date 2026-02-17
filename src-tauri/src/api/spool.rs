@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::time::interval;
 
-use crate::db::{AgentEventPayload, AgentType, Database, EventType, NormalizedEvent};
+use crate::db::{AgentEventPayload, Database, EventType, NormalizedEvent};
 
 /// Get the default spool directory path
 pub fn get_default_spool_dir() -> PathBuf {
@@ -95,10 +95,10 @@ fn process_spool_file(
         .ok_or("Missing ticketId")?
         .to_string();
 
-    let agent_type = match event["agentType"].as_str() {
-        Some("claude") => AgentType::Claude,
-        _ => AgentType::Cursor,
-    };
+    let agent_type = event["agentType"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
 
     let event_type_str = event["eventType"].as_str().ok_or("Missing eventType")?;
 
@@ -202,7 +202,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/test".to_string(),
                 parent_run_id: None,
                 stage: None,

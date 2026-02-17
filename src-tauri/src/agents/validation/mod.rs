@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::agents::AgentKind;
+use crate::agents::provider::AgentProvider;
 
 mod checks;
 mod types;
@@ -10,16 +10,16 @@ mod types;
 pub use types::{ValidationCheck, ValidationResult};
 
 pub fn validate_worker_environment(
-    agent_type: AgentKind,
+    provider: &dyn AgentProvider,
     repo_path: &Path,
     api_url: Option<&str>,
 ) -> ValidationResult {
-    validate_worker_environment_with_options(agent_type, repo_path, api_url, true)
+    validate_worker_environment_with_options(provider, repo_path, api_url, true)
 }
 
 /// Validate worker environment with configurable git requirement.
 pub fn validate_worker_environment_with_options(
-    agent_type: AgentKind,
+    provider: &dyn AgentProvider,
     repo_path: &Path,
     api_url: Option<&str>,
     requires_git: bool,
@@ -28,19 +28,19 @@ pub fn validate_worker_environment_with_options(
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
-    let cli_check = checks::check_cli_available(agent_type);
+    let cli_check = checks::check_cli_available(provider);
     if !cli_check.passed {
         errors.push(cli_check.message.clone());
     }
     all_checks.push(cli_check);
 
-    let hooks_check = checks::check_hooks_configured(agent_type, repo_path);
+    let hooks_check = checks::check_hooks_configured(provider, repo_path);
     if !hooks_check.passed {
         errors.push(hooks_check.message.clone());
     }
     all_checks.push(hooks_check);
 
-    let commands_check = checks::check_commands_installed(agent_type, repo_path);
+    let commands_check = checks::check_commands_installed(provider, repo_path);
     if !commands_check.passed {
         errors.push(commands_check.message.clone());
     }
@@ -83,25 +83,26 @@ pub fn validate_worker_environment_with_options(
     }
 }
 
-pub fn is_environment_valid(agent_type: AgentKind, repo_path: &Path) -> bool {
-    let result = validate_worker_environment(agent_type, repo_path, None);
+pub fn is_environment_valid(provider: &dyn AgentProvider, repo_path: &Path) -> bool {
+    let result = validate_worker_environment(provider, repo_path, None);
     result.valid
 }
 
 /// Check if environment is valid with configurable git requirement.
 pub fn is_environment_valid_with_options(
-    agent_type: AgentKind,
+    provider: &dyn AgentProvider,
     repo_path: &Path,
     requires_git: bool,
 ) -> bool {
     let result =
-        validate_worker_environment_with_options(agent_type, repo_path, None, requires_git);
+        validate_worker_environment_with_options(provider, repo_path, None, requires_git);
     result.valid
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::cursor::provider::CursorProvider;
     use std::path::PathBuf;
 
     #[test]
@@ -110,12 +111,10 @@ mod tests {
             std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let result = validate_worker_environment(AgentKind::Cursor, &temp_dir, None);
+        let provider = CursorProvider::new();
+        let result = validate_worker_environment(&provider, &temp_dir, None);
 
-        // Should have multiple checks
         assert!(!result.checks.is_empty());
-
-        // Should fail because not a git repo, no hooks, no commands
         assert!(!result.valid);
         assert!(!result.errors.is_empty());
 
@@ -125,7 +124,8 @@ mod tests {
     #[test]
     fn is_environment_valid_returns_bool() {
         let temp_dir = PathBuf::from("/nonexistent/path");
-        assert!(!is_environment_valid(AgentKind::Cursor, &temp_dir));
+        let provider = CursorProvider::new();
+        assert!(!is_environment_valid(&provider, &temp_dir));
     }
 
     #[test]
@@ -134,15 +134,14 @@ mod tests {
             std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // Validate with requires_git=false - should not fail on missing git
+        let provider = CursorProvider::new();
         let result = validate_worker_environment_with_options(
-            AgentKind::Cursor,
+            &provider,
             &temp_dir,
             None,
-            false, // requires_git = false
+            false,
         );
 
-        // Check that git_repository check shows "not required"
         let git_check = result.checks.iter().find(|c| c.name == "git_repository");
         assert!(git_check.is_some());
         assert!(git_check.unwrap().passed);
@@ -157,15 +156,14 @@ mod tests {
             std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // Validate with requires_git=true - should fail on missing git
+        let provider = CursorProvider::new();
         let result = validate_worker_environment_with_options(
-            AgentKind::Cursor,
+            &provider,
             &temp_dir,
             None,
-            true, // requires_git = true
+            true,
         );
 
-        // Check that git_repository check fails
         let git_check = result.checks.iter().find(|c| c.name == "git_repository");
         assert!(git_check.is_some());
         assert!(!git_check.unwrap().passed);

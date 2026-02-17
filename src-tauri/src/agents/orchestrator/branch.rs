@@ -1,7 +1,6 @@
 //! Branch creation and management for the workflow orchestrator.
 
 use super::WorkflowOrchestrator;
-use crate::agents::extract_text_from_stream_json;
 use crate::agents::prompt::{generate_branch_name_generation_prompt, parse_branch_name_from_output};
 
 impl WorkflowOrchestrator {
@@ -48,8 +47,7 @@ impl WorkflowOrchestrator {
             .captured_stdout
             .as_ref()
             .and_then(|output| {
-                let text_content =
-                    extract_text_from_stream_json(output).unwrap_or_else(|| output.clone());
+                let text_content = self.extract_text(output);
                 tracing::debug!("Branch-gen output (extracted): {}", text_content);
                 parse_branch_name_from_output(&text_content)
             });
@@ -180,9 +178,7 @@ Do NOT start implementing any code changes. Just create the branch.
             .captured_stdout
             .as_ref()
             .and_then(|output| {
-                // Try extracting text from stream-json (Claude format)
-                let text_content =
-                    extract_text_from_stream_json(output).unwrap_or_else(|| output.clone());
+                let text_content = self.extract_text(output);
 
                 tracing::debug!("Branch-gen output (extracted): {}", text_content);
                 parse_branch_name_from_output(&text_content)

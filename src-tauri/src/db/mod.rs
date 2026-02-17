@@ -105,6 +105,13 @@ impl Database {
                 SCHEMA_VERSION
             );
             
+            // CRITICAL: Disable foreign keys before migration transaction.
+            // SQLite's DROP TABLE with foreign_keys=ON performs an implicit
+            // DELETE FROM before dropping, which fires cascading actions
+            // (ON DELETE SET NULL / CASCADE) and corrupts referencing tables.
+            // This pragma must be set outside a transaction to take effect.
+            conn.execute("PRAGMA foreign_keys = OFF", [])?;
+            
             // Start a transaction for atomicity - if any migration step fails,
             // all changes will be rolled back automatically
             conn.execute("BEGIN EXCLUSIVE TRANSACTION", [])?;
@@ -591,6 +598,312 @@ impl Database {
                 tracing::info!("Migration to version 8 complete: app_command and app_port removed");
             }
 
+            // Migration from version 8 to 9: Replace per-agent hooks columns with hooks_installed_json
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has final schema
+            if current_version > 0 && current_version < 9 {
+                tracing::info!("Running migration to version 9: hooks_installed_json column");
+
+                // Check if old columns exist
+                let has_old_hooks: bool = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('projects') WHERE name='cursor_hooks_installed'",
+                        [],
+                        |row| row.get::<_, i32>(0),
+                    )
+                    .unwrap_or(0) > 0;
+
+                if has_old_hooks {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE projects_v9 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            name TEXT NOT NULL,
+                            path TEXT NOT NULL UNIQUE,
+                            hooks_installed_json TEXT NOT NULL DEFAULT '{}',
+                            allow_shell_commands INTEGER NOT NULL DEFAULT 1,
+                            allow_file_writes INTEGER NOT NULL DEFAULT 1,
+                            blocked_patterns_json TEXT NOT NULL DEFAULT '[]',
+                            settings_json TEXT NOT NULL DEFAULT '{}',
+                            requires_git INTEGER NOT NULL DEFAULT 1,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO projects_v9 (id, name, path, hooks_installed_json,
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json,
+                            settings_json, requires_git, created_at, updated_at)
+                        SELECT id, name, path,
+                            json_object('cursor', CASE WHEN cursor_hooks_installed != 0 THEN json('true') ELSE json('false') END,
+                                        'claude', CASE WHEN claude_hooks_installed != 0 THEN json('true') ELSE json('false') END),
+                            allow_shell_commands, allow_file_writes, blocked_patterns_json,
+                            settings_json, requires_git, created_at, updated_at
+                        FROM projects;
+
+                        DROP TABLE projects;
+                        ALTER TABLE projects_v9 RENAME TO projects;
+
+                        CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
+                        "#
+                    )?;
+                }
+
+                tracing::info!("Migration to version 9 complete: hooks_installed_json column added");
+            }
+
+            // Migration from version 9 to 10: Repair project associations
+            // Previous migrations used DROP TABLE on the projects table while
+            // PRAGMA foreign_keys was ON, which triggered implicit DELETE FROM
+            // and cascaded ON DELETE SET NULL / CASCADE to referencing tables.
+            // This repair attempts to restore ticket and board project associations.
+            if current_version > 0 && current_version < 10 {
+                tracing::info!("Running migration to version 10: repair project associations");
+
+                let project_count: i32 = conn
+                    .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+                    .unwrap_or(0);
+
+                if project_count == 1 {
+                    // Single project — safe to auto-assign all orphaned items
+                    let project_id: String = conn.query_row(
+                        "SELECT id FROM projects LIMIT 1",
+                        [],
+                        |row| row.get(0),
+                    )?;
+
+                    let repaired_tickets: usize = conn.execute(
+                        "UPDATE tickets SET project_id = ?1 WHERE project_id IS NULL",
+                        [&project_id],
+                    )?;
+
+                    let repaired_boards: usize = conn.execute(
+                        "UPDATE boards SET default_project_id = ?1 WHERE default_project_id IS NULL",
+                        [&project_id],
+                    )?;
+
+                    if repaired_tickets > 0 || repaired_boards > 0 {
+                        tracing::info!(
+                            "Repaired project associations: {} tickets, {} boards assigned to project '{}'",
+                            repaired_tickets, repaired_boards, project_id
+                        );
+                    }
+                } else if project_count > 1 {
+                    // Multiple projects — assign from board defaults where available
+                    let repaired_from_board: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT default_project_id FROM boards WHERE boards.id = tickets.board_id
+                        ) WHERE project_id IS NULL AND board_id IN (
+                            SELECT id FROM boards WHERE default_project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    let still_orphaned: i32 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+
+                    if repaired_from_board > 0 {
+                        tracing::info!(
+                            "Repaired {} tickets from board defaults, {} still without project",
+                            repaired_from_board, still_orphaned
+                        );
+                    }
+
+                    if still_orphaned > 0 {
+                        tracing::warn!(
+                            "{} tickets have no project assigned. Multiple projects exist; \
+                             manual reassignment may be needed via the ticket settings.",
+                            still_orphaned
+                        );
+                    }
+                }
+
+                tracing::info!("Migration to version 10 complete: project association repair");
+            }
+
+            // Migration from version 10 to 11: Improved project association repair
+            // Uses agent_runs.repo_path (which survived the FK cascade since it
+            // references tickets, not projects) to match tickets back to projects.
+            if current_version > 0 && current_version < 11 {
+                tracing::info!("Running migration to version 11: repo_path-based project repair");
+
+                let orphaned_before: i32 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+
+                if orphaned_before > 0 {
+                    // Step 1: Match via agent_runs.repo_path = projects.path
+                    let from_runs: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT p.id FROM projects p
+                            INNER JOIN agent_runs r ON r.ticket_id = tickets.id
+                            WHERE r.repo_path = p.path
+                            LIMIT 1
+                        )
+                        WHERE project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM agent_runs r
+                            INNER JOIN projects p ON p.path = r.repo_path
+                            WHERE r.ticket_id = tickets.id
+                        )"#,
+                        [],
+                    )?;
+
+                    if from_runs > 0 {
+                        tracing::info!("Repaired {} tickets from agent run repo_path", from_runs);
+                    }
+
+                    // Step 2: Board-level inference — if other tickets on the same
+                    // board already have a project (from step 1), assign orphans
+                    // on that board to the most common project.
+                    let from_board_inference: usize = conn.execute(
+                        r#"UPDATE tickets SET project_id = (
+                            SELECT t2.project_id FROM tickets t2
+                            WHERE t2.board_id = tickets.board_id
+                              AND t2.project_id IS NOT NULL
+                            GROUP BY t2.project_id
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1
+                        )
+                        WHERE project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM tickets t2
+                            WHERE t2.board_id = tickets.board_id
+                              AND t2.project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    if from_board_inference > 0 {
+                        tracing::info!(
+                            "Repaired {} tickets from board-level inference",
+                            from_board_inference
+                        );
+                    }
+
+                    // Step 3: Single-project fallback for anything still orphaned
+                    let still_orphaned: i32 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM tickets WHERE project_id IS NULL",
+                            [],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+
+                    if still_orphaned > 0 {
+                        let project_count: i32 = conn
+                            .query_row(
+                                "SELECT COUNT(*) FROM projects",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .unwrap_or(0);
+
+                        if project_count == 1 {
+                            let project_id: String = conn.query_row(
+                                "SELECT id FROM projects LIMIT 1",
+                                [],
+                                |row| row.get(0),
+                            )?;
+                            let assigned: usize = conn.execute(
+                                "UPDATE tickets SET project_id = ?1 WHERE project_id IS NULL",
+                                [&project_id],
+                            )?;
+                            if assigned > 0 {
+                                tracing::info!(
+                                    "Assigned {} remaining tickets to sole project",
+                                    assigned
+                                );
+                            }
+                        } else if still_orphaned > 0 {
+                            tracing::warn!(
+                                "{} tickets still orphaned across {} projects",
+                                still_orphaned,
+                                project_count
+                            );
+                        }
+                    }
+
+                    // Step 4: Recover board defaults from repaired ticket data
+                    let boards_fixed: usize = conn.execute(
+                        r#"UPDATE boards SET default_project_id = (
+                            SELECT project_id FROM tickets
+                            WHERE tickets.board_id = boards.id
+                              AND project_id IS NOT NULL
+                            GROUP BY project_id
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1
+                        )
+                        WHERE default_project_id IS NULL
+                        AND EXISTS (
+                            SELECT 1 FROM tickets
+                            WHERE tickets.board_id = boards.id
+                              AND project_id IS NOT NULL
+                        )"#,
+                        [],
+                    )?;
+
+                    if boards_fixed > 0 {
+                        tracing::info!(
+                            "Recovered {} board default_project_ids from ticket data",
+                            boards_fixed
+                        );
+                    }
+                }
+
+                tracing::info!("Migration to version 11 complete");
+            }
+
+            // Migration from version 11 to 12: Remove agent_type CHECK constraint
+            if current_version > 0 && current_version < 12 {
+                tracing::info!("Running migration to version 12: remove agent_type CHECK constraint");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE agent_runs_v12 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        agent_type TEXT NOT NULL,
+                        repo_path TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'finished', 'error', 'aborted', 'paused')),
+                        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        ended_at TEXT,
+                        exit_code INTEGER,
+                        summary_md TEXT,
+                        metadata_json TEXT,
+                        parent_run_id TEXT REFERENCES agent_runs_v12(id) ON DELETE CASCADE,
+                        stage TEXT,
+                        resumed_from_run_id TEXT REFERENCES agent_runs_v12(id) ON DELETE SET NULL
+                    );
+
+                    INSERT INTO agent_runs_v12 (id, ticket_id, agent_type, repo_path, status,
+                        started_at, ended_at, exit_code, summary_md, metadata_json,
+                        parent_run_id, stage, resumed_from_run_id)
+                    SELECT id, ticket_id, agent_type, repo_path, status,
+                        started_at, ended_at, exit_code, summary_md, metadata_json,
+                        parent_run_id, stage, resumed_from_run_id
+                    FROM agent_runs;
+
+                    DROP TABLE agent_runs;
+                    ALTER TABLE agent_runs_v12 RENAME TO agent_runs;
+
+                    CREATE INDEX IF NOT EXISTS idx_runs_ticket ON agent_runs(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
+                    CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_runs_resumed_from ON agent_runs(resumed_from_run_id) WHERE resumed_from_run_id IS NOT NULL;
+                    "#
+                )?;
+
+                tracing::info!("Migration to version 12 complete: agent_type CHECK constraint removed");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -611,12 +924,17 @@ impl Database {
                     if let Err(rollback_err) = conn.execute("ROLLBACK", []) {
                         tracing::error!("Rollback also failed: {}", rollback_err);
                     }
+                    // Re-enable foreign keys even on failure
+                    let _ = conn.execute("PRAGMA foreign_keys = ON", []);
                     return Err(DbError::Migration(format!(
                         "Migration from version {} to {} failed: {}. Database has been rolled back to version {}.",
                         current_version, SCHEMA_VERSION, e, current_version
                     )));
                 }
             }
+            
+            // Re-enable foreign key enforcement after migration
+            conn.execute("PRAGMA foreign_keys = ON", [])?;
         }
 
         Ok(())

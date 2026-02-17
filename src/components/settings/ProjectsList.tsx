@@ -7,15 +7,14 @@ import {
   checkGitStatus,
   initGitRepo,
   createProjectFolder,
-  getHookScriptPath,
-  getClaudeHookScriptPath,
-  installCursorHooksProject,
-  installClaudeHooksProject,
+  getAgentHookScriptPath,
+  installAgentHooksProject,
   installCommandsToProject,
   updateProjectHooks,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
 import { ConfirmModal } from '../common';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 type AddMode = 'none' | 'existing' | 'create';
 
@@ -139,56 +138,38 @@ export function ProjectsList() {
 
   const autoSetupProject = async (projectId: string, projectPath: string): Promise<string | null> => {
     const warnings: string[] = [];
-    const cursorHookPath = await getHookScriptPath();
-    const claudeHookPath = await getClaudeHookScriptPath();
 
-    let cursorHooksInstalled = false;
-    let claudeHooksInstalled = false;
+    const agents = useAgentRegistryStore.getState().agents;
 
-    setSetupStatus('Installing Cursor hooks...');
-    try {
-      if (cursorHookPath) {
-        await installCursorHooksProject(cursorHookPath, projectPath);
-        cursorHooksInstalled = true;
-      } else {
-        warnings.push('Cursor hooks: hook script path not available');
+    for (const agent of agents) {
+      // Install hooks
+      setSetupStatus(`Installing ${agent.displayName} hooks...`);
+      try {
+        const hookPath = await getAgentHookScriptPath(agent.id);
+        if (hookPath) {
+          await installAgentHooksProject(agent.id, hookPath, projectPath);
+          try {
+            await updateProjectHooks(projectId, agent.id, true);
+          } catch (e) {
+            warnings.push(`${agent.displayName} hook status update: ${e}`);
+          }
+        } else {
+          warnings.push(`${agent.displayName} hooks: hook script path not available`);
+        }
+      } catch (e) {
+        warnings.push(`${agent.displayName} hooks: ${e}`);
       }
-    } catch (e) {
-      warnings.push(`Cursor hooks: ${e}`);
-    }
 
-    setSetupStatus('Installing Cursor commands...');
-    try {
-      await installCommandsToProject('cursor', projectPath);
-    } catch (e) {
-      warnings.push(`Cursor commands: ${e}`);
-    }
-
-    setSetupStatus('Installing Claude hooks...');
-    try {
-      if (claudeHookPath) {
-        await installClaudeHooksProject(claudeHookPath, projectPath);
-        claudeHooksInstalled = true;
-      } else {
-        warnings.push('Claude hooks: hook script path not available');
+      // Install commands
+      setSetupStatus(`Installing ${agent.displayName} commands...`);
+      try {
+        await installCommandsToProject(agent.id, projectPath);
+      } catch (e) {
+        warnings.push(`${agent.displayName} commands: ${e}`);
       }
-    } catch (e) {
-      warnings.push(`Claude hooks: ${e}`);
-    }
-
-    setSetupStatus('Installing Claude commands...');
-    try {
-      await installCommandsToProject('claude', projectPath);
-    } catch (e) {
-      warnings.push(`Claude commands: ${e}`);
     }
 
     setSetupStatus('Finalizing...');
-    try {
-      await updateProjectHooks(projectId, cursorHooksInstalled, claudeHooksInstalled);
-    } catch (e) {
-      warnings.push(`Update status: ${e}`);
-    }
 
     setSetupStatus(null);
     if (warnings.length > 0) {
@@ -449,16 +430,16 @@ export function ProjectsList() {
                 {project.path}
               </div>
               <div className="flex flex-wrap gap-1 mt-1">
-                {project.cursorHooksInstalled && (
-                  <span className="text-xs bg-board-accent/20 text-board-accent px-1.5 py-0.5 rounded">
-                    Cursor
-                  </span>
-                )}
-                {project.claudeHooksInstalled && (
-                  <span className="text-xs bg-status-success/20 text-status-success px-1.5 py-0.5 rounded">
-                    Claude
-                  </span>
-                )}
+                {Object.entries(project.hooksInstalled)
+                  .filter(([, v]) => v)
+                  .map(([agentId]) => (
+                    <span
+                      key={agentId}
+                      className="text-xs px-1.5 py-0.5 rounded bg-board-accent/20 text-board-accent capitalize"
+                    >
+                      {agentId}
+                    </span>
+                  ))}
                 {!project.allowShellCommands && (
                   <span className="text-xs bg-status-warning/20 text-status-warning px-1.5 py-0.5 rounded">
                     No shell

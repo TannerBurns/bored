@@ -1,17 +1,12 @@
 import {
   useSettingsStore,
+  MODEL_OPTIONS,
   WORKFLOW_PRESETS,
   WORKFLOW_STAGE_INFO,
   type AIModel,
   type WorkflowPreset,
 } from '../../stores/settingsStore';
 import { cn } from '../../lib/utils';
-
-const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
-  { value: 'opus-4.6', label: 'Opus 4.6' },
-  { value: 'opus-4.5', label: 'Opus 4.5' },
-  { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-];
 
 const PRESET_KEYS = Object.keys(WORKFLOW_PRESETS) as Exclude<WorkflowPreset, 'custom'>[];
 

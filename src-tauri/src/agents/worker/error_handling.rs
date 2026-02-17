@@ -1,15 +1,16 @@
 //! Error handling for worker operations.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
+use crate::agents::provider::AgentProvider;
 use crate::db::{AuthorType, CreateComment, Database, Ticket};
 use crate::lifecycle::epic::on_child_blocked;
 
 use super::super::diagnostic;
 use super::super::worktree::WorktreeError;
-use super::super::{AgentKind, ClaudeApiConfig};
 
 /// Context for handling worktree failures.
 pub struct WorktreeFailureContext<'a> {
@@ -20,9 +21,10 @@ pub struct WorktreeFailureContext<'a> {
     pub error: &'a WorktreeError,
     pub api_url: &'a str,
     pub api_token: &'a str,
-    pub agent_kind: AgentKind,
-    pub claude_api_config: Option<ClaudeApiConfig>,
+    pub provider: Arc<dyn AgentProvider>,
+    pub agent_config: HashMap<String, serde_json::Value>,
     pub worker_id: &'a str,
+    pub diagnostic_model: Option<String>,
 }
 
 /// Spawns a diagnostic agent and moves ticket to Blocked.
@@ -35,9 +37,10 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
         error,
         api_url,
         api_token,
-        agent_kind,
-        claude_api_config,
+        provider,
+        agent_config,
         worker_id,
+        diagnostic_model,
     } = ctx;
     tracing::info!(
         "Worker {} handling worktree failure for ticket {}: {:?}",
@@ -69,7 +72,7 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
 
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();
-    let ticket_model = ticket.model.clone();
+    let model = Some(diagnostic_model.unwrap_or_else(|| crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string()));
     let api_url = api_url.to_string();
     let api_token = api_token.to_string();
     let context_clone = context.clone();
@@ -89,9 +92,9 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
             context_clone.clone(),
             &api_url,
             &api_token,
-            ticket_model,
-            agent_kind,
-            claude_api_config,
+            model,
+            provider,
+            agent_config,
         )
         .await
         {

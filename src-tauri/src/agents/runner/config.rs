@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
+use crate::agents::provider::AgentProvider;
 use crate::agents::spawner::CancelHandle;
-use crate::agents::{AgentKind, ClaudeApiConfig};
 use crate::commands::workflow_settings::WorkflowSettings;
 use crate::db::models::Task;
 use crate::db::{Database, RunStatus, Ticket};
@@ -22,7 +22,10 @@ pub struct RunnerConfig {
     pub task: Option<Task>,
     pub run_id: String,
     pub repo_path: PathBuf,
-    pub agent_kind: AgentKind,
+    /// Agent ID string (e.g. "cursor", "claude").
+    pub agent_id: String,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Arc<dyn AgentProvider>,
     pub api_url: String,
     pub api_token: String,
     pub hook_script_path: Option<String>,
@@ -33,8 +36,8 @@ pub struct RunnerConfig {
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
     pub timeout_secs: u64,
-    /// Claude API configuration (auth token, api key, base url, model override)
-    pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    pub agent_config: HashMap<String, serde_json::Value>,
     /// Maximum iterations for the code review loop (default: 3)
     pub code_review_max_iterations: usize,
     /// Timeout per workflow stage in seconds (default: 1800 = 30 min)

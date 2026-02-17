@@ -1,7 +1,12 @@
-//! Cursor command template management.
+//! Shared command template management.
+//!
+//! Both Claude and Cursor agents install the same set of command template files
+//! into their respective config directories. This module provides the shared
+//! implementation parameterized by `config_dir` (e.g. ".claude", ".cursor").
 
 use std::path::{Path, PathBuf};
 
+/// The set of command templates bundled with the application.
 pub const COMMAND_TEMPLATES: &[&str] = &[
     "add-and-commit.md",
     "cleanup.md",
@@ -10,8 +15,9 @@ pub const COMMAND_TEMPLATES: &[&str] = &[
     "unit-tests.md",
 ];
 
-pub fn check_project_commands_installed(repo_path: &Path) -> bool {
-    let commands_dir = repo_path.join(".cursor").join("commands");
+/// Check if all command templates are installed in a project's config directory.
+pub fn check_project_commands_installed(project: &Path, config_dir: &str) -> bool {
+    let commands_dir = project.join(config_dir).join("commands");
     if !commands_dir.exists() {
         return false;
     }
@@ -21,14 +27,14 @@ pub fn check_project_commands_installed(repo_path: &Path) -> bool {
         .all(|name| commands_dir.join(name).exists())
 }
 
-/// Get the user-level commands directory (~/.cursor/commands/)
-pub fn user_commands_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".cursor").join("commands"))
+/// Get the user-level commands directory (e.g. ~/.claude/commands/).
+pub fn user_commands_path(config_dir: &str) -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(config_dir).join("commands"))
 }
 
-/// Check if commands are installed at the user level (~/.cursor/commands/)
-pub fn check_user_commands_installed() -> bool {
-    user_commands_path()
+/// Check if commands are installed at the user level.
+pub fn check_user_commands_installed(config_dir: &str) -> bool {
+    user_commands_path(config_dir)
         .map(|p| {
             if !p.exists() {
                 return false;
@@ -39,9 +45,7 @@ pub fn check_user_commands_installed() -> bool {
 }
 
 /// Get the bundled commands path, checking development path first.
-/// This version doesn't have access to Tauri's resource resolver.
 pub fn get_bundled_commands_path() -> Option<PathBuf> {
-    // Check development path (only works in dev builds)
     let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
         .join("commands");
@@ -52,27 +56,28 @@ pub fn get_bundled_commands_path() -> Option<PathBuf> {
 }
 
 /// Get the bundled commands path with Tauri resource resolver fallback.
-/// In production builds, uses Tauri's resource API to locate bundled commands.
 pub fn get_bundled_commands_path_with_app<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Option<PathBuf> {
     use tauri::Manager;
 
-    // First, check development path
     if let Some(path) = get_bundled_commands_path() {
         return Some(path);
     }
 
-    // In production, resolve via Tauri's resource API
-    // The commands are bundled under scripts/commands/
     app.path()
         .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
         .ok()
         .filter(|p| p.exists())
 }
 
-pub fn install_commands(repo_path: &Path, commands_source: &Path) -> std::io::Result<Vec<String>> {
-    let commands_dir = repo_path.join(".cursor").join("commands");
+/// Install command templates from a source directory into a project's config directory.
+pub fn install_commands(
+    project: &Path,
+    config_dir: &str,
+    commands_source: &Path,
+) -> std::io::Result<Vec<String>> {
+    let commands_dir = project.join(config_dir).join("commands");
     std::fs::create_dir_all(&commands_dir)?;
 
     let mut installed = Vec::new();
@@ -90,9 +95,12 @@ pub fn install_commands(repo_path: &Path, commands_source: &Path) -> std::io::Re
     Ok(installed)
 }
 
-/// Install command templates to the user-level directory (~/.cursor/commands/)
-pub fn install_user_commands(commands_source: &Path) -> std::io::Result<Vec<String>> {
-    let commands_dir = user_commands_path().ok_or_else(|| {
+/// Install command templates to the user-level directory.
+pub fn install_user_commands(
+    config_dir: &str,
+    commands_source: &Path,
+) -> std::io::Result<Vec<String>> {
+    let commands_dir = user_commands_path(config_dir).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "Could not determine home directory",
@@ -116,6 +124,7 @@ pub fn install_user_commands(commands_source: &Path) -> std::io::Result<Vec<Stri
     Ok(installed)
 }
 
+/// Get available command templates from a source directory.
 pub fn get_available_commands(commands_source: &Path) -> Vec<String> {
     COMMAND_TEMPLATES
         .iter()
@@ -140,21 +149,22 @@ mod tests {
 
     #[test]
     fn check_project_commands_installed_returns_false_when_missing() {
-        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        assert!(!check_project_commands_installed(&temp_dir));
+        assert!(!check_project_commands_installed(&temp_dir, ".test"));
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
     fn install_commands_creates_directory_and_files() {
-        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
         let source_dir = temp_dir.join("source");
         std::fs::create_dir_all(&source_dir).unwrap();
 
-        // Create source command files
         for name in COMMAND_TEMPLATES {
             std::fs::write(source_dir.join(name), format!("# {}", name)).unwrap();
         }
@@ -162,26 +172,70 @@ mod tests {
         let project_dir = temp_dir.join("project");
         std::fs::create_dir_all(&project_dir).unwrap();
 
-        let installed = install_commands(&project_dir, &source_dir).unwrap();
+        let installed = install_commands(&project_dir, ".test", &source_dir).unwrap();
         assert_eq!(installed.len(), 5);
 
-        // Verify files exist
-        let commands_dir = project_dir.join(".cursor").join("commands");
+        let commands_dir = project_dir.join(".test").join("commands");
         for name in COMMAND_TEMPLATES {
             assert!(commands_dir.join(name).exists());
         }
 
-        assert!(check_project_commands_installed(&project_dir));
+        assert!(check_project_commands_installed(&project_dir, ".test"));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn check_project_commands_returns_false_when_partial() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
+        let commands_dir = temp_dir.join(".test").join("commands");
+        std::fs::create_dir_all(&commands_dir).unwrap();
+
+        // Install only 2 of 5 templates
+        std::fs::write(commands_dir.join("cleanup.md"), "# cleanup").unwrap();
+        std::fs::write(commands_dir.join("deslop.md"), "# deslop").unwrap();
+
+        assert!(!check_project_commands_installed(&temp_dir, ".test"));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn user_commands_path_returns_path_with_config_dir() {
+        let path = user_commands_path(".testcli");
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert!(p.to_string_lossy().contains(".testcli"));
+        assert!(p.to_string_lossy().ends_with("commands"));
+    }
+
+    #[test]
+    fn install_commands_skips_missing_source_files() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
+        let source_dir = temp_dir.join("source");
+        std::fs::create_dir_all(&source_dir).unwrap();
+
+        // Only create 1 source file
+        std::fs::write(source_dir.join("cleanup.md"), "# cleanup").unwrap();
+
+        let project_dir = temp_dir.join("project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+
+        let installed = install_commands(&project_dir, ".test", &source_dir).unwrap();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0], "cleanup.md");
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
     fn get_available_commands_returns_existing_files() {
-        let temp_dir = std::env::temp_dir().join(format!("cursor_test_{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // Create only some command files
         std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
         std::fs::write(temp_dir.join("deslop.md"), "# deslop").unwrap();
 

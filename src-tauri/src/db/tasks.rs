@@ -1146,7 +1146,7 @@ mod tests {
 
     #[test]
     fn cleanup_orphaned_in_progress_tasks_resets_when_run_aborted() {
-        use crate::db::models::{AgentType, CreateRun, RunStatus};
+        use crate::db::models::{CreateRun, RunStatus};
 
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
@@ -1165,7 +1165,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -1195,7 +1195,7 @@ mod tests {
 
     #[test]
     fn cleanup_orphaned_in_progress_tasks_ignores_running_runs() {
-        use crate::db::models::{AgentType, CreateRun, RunStatus};
+        use crate::db::models::{CreateRun, RunStatus};
 
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
@@ -1214,7 +1214,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket_id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,

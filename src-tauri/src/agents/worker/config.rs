@@ -6,14 +6,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
-use super::super::{AgentKind, ClaudeApiConfig};
-use crate::commands::claude::SharedClaudeApiSettings;
+use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::WorkflowSettings;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    pub agent_type: AgentKind,
+    /// Agent ID string (e.g. "cursor", "claude").
+    pub agent_id: String,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Arc<dyn AgentProvider>,
     pub project_id: Option<String>,
     pub api_url: String,
     pub api_token: String,
@@ -23,10 +25,8 @@ pub struct WorkerConfig {
     pub agent_timeout_secs: u64,
     pub hook_script_path: Option<String>,
     pub app_handle: Option<AppHandle>,
-    /// Claude API configuration snapshot (legacy fallback).
-    pub claude_api_config: Option<ClaudeApiConfig>,
-    /// Shared Claude API settings, read at task-processing time for fresh values.
-    pub claude_api_settings: Option<SharedClaudeApiSettings>,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    pub agent_config: HashMap<String, serde_json::Value>,
     /// Maximum iterations for the code review loop (default: 3)
     pub code_review_max_iterations: usize,
     /// Timeout per workflow stage in seconds (default: 1800 = 30 min)
@@ -34,32 +34,7 @@ pub struct WorkerConfig {
     /// Maximum retries per stage (default: 2)
     pub stage_max_retries: u32,
     /// Shared workflow settings reference, read at task-processing time.
-    /// When present, workers read the current settings from this shared state
-    /// each time they pick up a new task, so changes take effect immediately.
     pub workflow_settings: Option<Arc<Mutex<WorkflowSettings>>>,
-}
-
-impl Default for WorkerConfig {
-    fn default() -> Self {
-        Self {
-            agent_type: AgentKind::Cursor,
-            project_id: None,
-            api_url: "http://127.0.0.1:7432".to_string(),
-            api_token: "default-token".to_string(),
-            poll_interval_secs: 10,
-            heartbeat_interval_secs: 60,
-            lock_duration_mins: 30,
-            agent_timeout_secs: 3600, // 1 hour
-            hook_script_path: None,
-            app_handle: None,
-            claude_api_config: None,
-            claude_api_settings: None,
-            code_review_max_iterations: 3,
-            stage_timeout_secs: 1800, // 30 minutes
-            stage_max_retries: 2,
-            workflow_settings: None,
-        }
-    }
 }
 
 /// Resolved workflow settings for a single task.
@@ -73,16 +48,6 @@ pub struct ResolvedWorkflowSettings {
 }
 
 impl WorkerConfig {
-    /// Read the current Claude API config from shared state.
-    /// If no shared state is available, falls back to the static snapshot.
-    pub fn resolve_claude_api_config(&self) -> Option<ClaudeApiConfig> {
-        if let Some(ref shared) = self.claude_api_settings {
-            Some(ClaudeApiConfig::from(shared.get()))
-        } else {
-            self.claude_api_config.clone()
-        }
-    }
-
     /// Read the current workflow settings from the shared state.
     /// If no shared state is available, falls back to the static config values.
     pub fn resolve_workflow_settings(&self) -> ResolvedWorkflowSettings {
@@ -131,18 +96,6 @@ pub enum WorkerState {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn worker_config_default() {
-        let config = WorkerConfig::default();
-        assert_eq!(config.poll_interval_secs, 10);
-        assert_eq!(config.heartbeat_interval_secs, 60);
-        assert_eq!(config.lock_duration_mins, 30);
-        assert_eq!(config.agent_timeout_secs, 3600);
-        assert_eq!(config.code_review_max_iterations, 3);
-        assert_eq!(config.stage_timeout_secs, 1800);
-        assert_eq!(config.stage_max_retries, 2);
-    }
 
     #[test]
     fn worker_state_serializes() {
@@ -196,37 +149,6 @@ mod tests {
     }
 
     #[test]
-    fn worker_config_with_custom_values() {
-        let config = WorkerConfig {
-            agent_type: AgentKind::Claude,
-            project_id: Some("my-project".to_string()),
-            api_url: "http://localhost:8080".to_string(),
-            api_token: "secret".to_string(),
-            poll_interval_secs: 30,
-            heartbeat_interval_secs: 120,
-            lock_duration_mins: 60,
-            agent_timeout_secs: 7200,
-            hook_script_path: Some("/path/to/hook.js".to_string()),
-            app_handle: None,
-            claude_api_config: None,
-            claude_api_settings: None,
-            code_review_max_iterations: 5,
-            stage_timeout_secs: 900,
-            stage_max_retries: 3,
-            workflow_settings: None,
-        };
-
-        assert_eq!(config.poll_interval_secs, 30);
-        assert_eq!(config.heartbeat_interval_secs, 120);
-        assert_eq!(config.lock_duration_mins, 60);
-        assert_eq!(config.agent_timeout_secs, 7200);
-        assert_eq!(config.api_url, "http://localhost:8080");
-        assert_eq!(config.code_review_max_iterations, 5);
-        assert_eq!(config.stage_timeout_secs, 900);
-        assert_eq!(config.stage_max_retries, 3);
-    }
-
-    #[test]
     fn worker_status_with_all_fields() {
         let now = Utc::now();
         let status = WorkerStatus {
@@ -248,140 +170,5 @@ mod tests {
         assert_eq!(deserialized.current_ticket_id, Some("t1".to_string()));
         assert_eq!(deserialized.current_run_id, Some("r1".to_string()));
         assert_eq!(deserialized.status, WorkerState::Running);
-    }
-
-    #[test]
-    fn resolve_workflow_settings_without_shared_state_uses_config() {
-        let config = WorkerConfig {
-            code_review_max_iterations: 7,
-            stage_timeout_secs: 900,
-            stage_max_retries: 4,
-            workflow_settings: None,
-            ..Default::default()
-        };
-
-        let resolved = config.resolve_workflow_settings();
-        assert!(resolved.stage_configs.is_empty());
-        assert_eq!(resolved.code_review_max_iterations, 7);
-        assert_eq!(resolved.stage_timeout_secs, 900);
-        assert_eq!(resolved.stage_max_retries, 4);
-    }
-
-    #[test]
-    fn resolve_workflow_settings_with_shared_state_reads_latest() {
-        use crate::commands::workflow_settings::WorkflowSettings;
-
-        let shared_settings = Arc::new(Mutex::new(WorkflowSettings {
-            stage_configs: {
-                let mut m = HashMap::new();
-                m.insert(
-                    "plan".to_string(),
-                    StageConfig {
-                        enabled: true,
-                        model: "opus-4.6".to_string(),
-                    },
-                );
-                m
-            },
-            code_review_max_iterations: 10,
-            stage_timeout_hours: 2,
-            stage_max_retries: 5,
-            synced: true,
-        }));
-
-        let config = WorkerConfig {
-            // These static values should be ignored when shared state is present
-            code_review_max_iterations: 3,
-            stage_timeout_secs: 1800,
-            stage_max_retries: 2,
-            workflow_settings: Some(shared_settings.clone()),
-            ..Default::default()
-        };
-
-        let resolved = config.resolve_workflow_settings();
-        assert_eq!(resolved.stage_configs.len(), 1);
-        assert!(resolved.stage_configs["plan"].enabled);
-        assert_eq!(resolved.stage_configs["plan"].model, "opus-4.6");
-        assert_eq!(resolved.code_review_max_iterations, 10);
-        assert_eq!(resolved.stage_timeout_secs, 2 * 3600); // 2 hours -> 7200 secs
-        assert_eq!(resolved.stage_max_retries, 5);
-
-        // Now update the shared state and verify the config reads the new values
-        {
-            let mut settings = shared_settings.lock().unwrap();
-            settings.code_review_max_iterations = 1;
-            settings.stage_timeout_hours = 3;
-        }
-
-        let resolved2 = config.resolve_workflow_settings();
-        assert_eq!(resolved2.code_review_max_iterations, 1);
-        assert_eq!(resolved2.stage_timeout_secs, 3 * 3600); // 3 hours -> 10800 secs
-    }
-
-    #[test]
-    fn resolve_claude_api_config_without_shared_state_uses_snapshot() {
-        use crate::agents::ClaudeApiConfig;
-
-        let snapshot = ClaudeApiConfig {
-            thinking_enabled: Some(false),
-            ..Default::default()
-        };
-
-        let config = WorkerConfig {
-            claude_api_config: Some(snapshot),
-            claude_api_settings: None,
-            ..Default::default()
-        };
-
-        let resolved = config.resolve_claude_api_config();
-        assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().thinking_enabled, Some(false));
-    }
-
-    #[test]
-    fn resolve_claude_api_config_without_any_config_returns_none() {
-        let config = WorkerConfig::default();
-        assert!(config.resolve_claude_api_config().is_none());
-    }
-
-    #[test]
-    fn resolve_claude_api_config_with_shared_state_reads_latest() {
-        use crate::agents::ClaudeApiConfig;
-        use crate::commands::claude::ClaudeApiSettingsState;
-
-        let state = ClaudeApiSettingsState::new();
-        state.set(crate::commands::claude::ClaudeApiSettings {
-            thinking_enabled: Some(false),
-            extended_context_enabled: Some(true),
-            chrome_enabled: Some(true),
-            ..Default::default()
-        });
-        let shared = state.shared();
-
-        let config = WorkerConfig {
-            // Stale snapshot should be ignored when shared state is present
-            claude_api_config: Some(ClaudeApiConfig {
-                thinking_enabled: Some(true),
-                ..Default::default()
-            }),
-            claude_api_settings: Some(shared.clone()),
-            ..Default::default()
-        };
-
-        let resolved = config.resolve_claude_api_config().unwrap();
-        assert_eq!(resolved.thinking_enabled, Some(false));
-        assert_eq!(resolved.extended_context_enabled, Some(true));
-        assert_eq!(resolved.chrome_enabled, Some(true));
-
-        // Update the shared state and verify fresh values are read
-        state.set(crate::commands::claude::ClaudeApiSettings {
-            thinking_enabled: Some(true),
-            chrome_enabled: Some(false),
-            ..Default::default()
-        });
-
-        let resolved2 = config.resolve_claude_api_config().unwrap();
-        assert_eq!(resolved2.thinking_enabled, Some(true));
-        assert_eq!(resolved2.chrome_enabled, Some(false));
     }
 }

@@ -3,9 +3,8 @@ export interface Project {
   name: string;
   path: string;
   
-  // Hook status
-  cursorHooksInstalled: boolean;
-  claudeHooksInstalled: boolean;
+  // Hook installation status per agent (keyed by agent ID, e.g. { cursor: true, claude: true })
+  hooksInstalled: Record<string, boolean>;
   
   // Safety settings
   allowShellCommands: boolean;
@@ -100,7 +99,16 @@ export interface Comment {
   metadata?: Record<string, unknown>;
 }
 
-export type AgentType = 'cursor' | 'claude';
+export type AgentType = string;
+
+/** Agent metadata returned by the backend `get_available_agents` command. */
+export interface AgentInfo {
+  id: string;
+  displayName: string;
+  isAvailable: boolean;
+  version: string | null;
+  brandColor: string | null;
+}
 export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted' | 'paused';
 
 export interface AgentRun {
@@ -386,7 +394,7 @@ export interface CreateSpecInput {
   userInput: string;
   /** Preferred model */
   model?: string;
-  /** Optional settings (e.g. agentType: 'cursor' | 'claude' for brainstorm) */
+  /** Optional settings (e.g. agentType for brainstorm agent selection) */
   settings?: Record<string, unknown>;
 }
 

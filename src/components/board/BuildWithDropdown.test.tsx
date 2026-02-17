@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildWithDropdown } from './BuildWithDropdown';
+import type { AgentInfo } from '../../types';
 
-// Mock the useCliAvailability hook
-const mockUseCliAvailability = vi.fn();
-vi.mock('../../hooks/useCliAvailability', () => ({
-  useCliAvailability: () => mockUseCliAvailability(),
+const mockLoadAgents = vi.fn().mockResolvedValue([]);
+
+const MOCK_AGENTS: AgentInfo[] = [
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
+  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+];
+
+let storeAgents: AgentInfo[] = MOCK_AGENTS;
+
+vi.mock('../../stores/agentRegistryStore', () => ({
+  useAgentRegistryStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({
+      agents: storeAgents,
+      agentsLoading: false,
+      agentsLoaded: true,
+      loadAgents: mockLoadAgents,
+    }),
 }));
 
 describe('BuildWithDropdown', () => {
@@ -13,12 +27,7 @@ describe('BuildWithDropdown', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: both CLIs available
-    mockUseCliAvailability.mockReturnValue({
-      cursorAvailable: true,
-      claudeAvailable: true,
-      loading: false,
-    });
+    storeAgents = MOCK_AGENTS;
   });
 
   it('renders Build with button', () => {
@@ -28,7 +37,7 @@ describe('BuildWithDropdown', () => {
 
   it('opens dropdown on click', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     const button = screen.getByText('Build with');
     fireEvent.click(button);
     
@@ -38,7 +47,7 @@ describe('BuildWithDropdown', () => {
 
   it('calls onSelect with cursor when Cursor is clicked', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     fireEvent.click(screen.getByText('Build with'));
     fireEvent.click(screen.getByText('Cursor'));
     
@@ -48,7 +57,7 @@ describe('BuildWithDropdown', () => {
 
   it('calls onSelect with claude when Claude is clicked', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     fireEvent.click(screen.getByText('Build with'));
     fireEvent.click(screen.getByText('Claude'));
     
@@ -58,7 +67,7 @@ describe('BuildWithDropdown', () => {
 
   it('closes dropdown after selection', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
     
@@ -91,7 +100,7 @@ describe('BuildWithDropdown', () => {
 
   it('closes dropdown on escape key', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
     
@@ -107,7 +116,7 @@ describe('BuildWithDropdown', () => {
         <button data-testid="outside">Outside</button>
       </div>
     );
-    
+
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
     
@@ -118,7 +127,7 @@ describe('BuildWithDropdown', () => {
 
   it('toggles dropdown open and closed', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
+
     const button = screen.getByText('Build with');
     
     fireEvent.click(button);
@@ -130,13 +139,13 @@ describe('BuildWithDropdown', () => {
 
   describe('CLI availability', () => {
     it('does not call onSelect when Cursor CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
+
       fireEvent.click(screen.getByText('Build with'));
 
       const cursorButton = screen.getByText('Cursor').closest('button');
@@ -147,13 +156,13 @@ describe('BuildWithDropdown', () => {
     });
 
     it('does not call onSelect when Claude CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
+
       fireEvent.click(screen.getByText('Build with'));
 
       const claudeButton = screen.getByText('Claude').closest('button');
@@ -163,40 +172,27 @@ describe('BuildWithDropdown', () => {
       expect(mockOnSelect).not.toHaveBeenCalled();
     });
 
-    it('shows "(not installed)" text when Cursor CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+    it('shows "(not installed)" text when an agent is unavailable', () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      fireEvent.click(screen.getByText('Build with'));
 
-      expect(screen.getByText('(not installed)')).toBeInTheDocument();
-    });
-
-    it('shows "(not installed)" text when Claude CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
-
-      render(<BuildWithDropdown onSelect={mockOnSelect} />);
       fireEvent.click(screen.getByText('Build with'));
 
       expect(screen.getByText('(not installed)')).toBeInTheDocument();
     });
 
     it('shows both as unavailable when both CLIs are not installed', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: false,
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
+
       fireEvent.click(screen.getByText('Build with'));
 
       const notInstalledLabels = screen.getAllByText('(not installed)');
@@ -209,13 +205,13 @@ describe('BuildWithDropdown', () => {
     });
 
     it('allows Cursor selection when available but Claude is not', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
+
       fireEvent.click(screen.getByText('Build with'));
 
       const cursorButton = screen.getByText('Cursor').closest('button');
@@ -226,13 +222,13 @@ describe('BuildWithDropdown', () => {
     });
 
     it('allows Claude selection when available but Cursor is not', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
+
       fireEvent.click(screen.getByText('Build with'));
 
       const claudeButton = screen.getByText('Claude').closest('button');

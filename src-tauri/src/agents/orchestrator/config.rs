@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Window};
 
 use super::CancelHandlesMap;
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::WorkflowSettings;
 use crate::db::Database;
@@ -21,7 +21,10 @@ pub struct OrchestratorConfig {
     /// The task being executed. If None, falls back to legacy ticket-based workflow.
     pub task: Option<crate::db::models::Task>,
     pub repo_path: PathBuf,
-    pub agent_kind: AgentKind,
+    /// Agent ID string (e.g. "cursor", "claude").
+    pub agent_id: String,
+    /// Agent provider for agent-agnostic dispatch.
+    pub provider: Arc<dyn AgentProvider>,
     pub api_url: String,
     pub api_token: String,
     pub hook_script_path: Option<String>,
@@ -33,8 +36,8 @@ pub struct OrchestratorConfig {
     pub branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
-    /// Claude API configuration (auth token, api key, base url)
-    pub claude_api_config: Option<ClaudeApiConfig>,
+    /// Agent-specific configuration map (auth tokens, API keys, etc.)
+    pub agent_config: HashMap<String, serde_json::Value>,
     /// Stage to resume from (when resuming a paused ticket).
     /// If set, stages before this one will be skipped.
     pub resume_from_stage: Option<String>,

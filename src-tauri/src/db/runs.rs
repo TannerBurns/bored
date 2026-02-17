@@ -1,40 +1,37 @@
-use crate::db::models::{AgentRun, AgentRunWithContext, AgentType, CreateRun, RunStatus};
+use crate::db::models::{AgentRun, AgentRunWithContext, CreateRun, RunStatus};
 use crate::db::{parse_datetime, Database, DbError};
+
+const AGENT_RUN_COLUMNS: &str =
+    "id, ticket_id, agent_type, repo_path, status, started_at, ended_at, exit_code, summary_md, metadata_json, parent_run_id, stage, resumed_from_run_id";
+
+fn agent_run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRun> {
+    let status_str: String = row.get(4)?;
+    let metadata_json: Option<String> = row.get(9)?;
+
+    Ok(AgentRun {
+        id: row.get(0)?,
+        ticket_id: row.get(1)?,
+        agent_type: row.get(2)?,
+        repo_path: row.get(3)?,
+        status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
+        started_at: parse_datetime(row.get(5)?),
+        ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
+        exit_code: row.get(7)?,
+        summary_md: row.get(8)?,
+        metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+        parent_run_id: row.get(10)?,
+        stage: row.get(11)?,
+        resumed_from_run_id: row.get(12)?,
+    })
+}
 
 impl Database {
     pub fn get_run(&self, run_id: &str) -> Result<AgentRun, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage, resumed_from_run_id
-                   FROM agent_runs WHERE id = ?"#,
-            )?;
+            let sql = format!("SELECT {} FROM agent_runs WHERE id = ?", AGENT_RUN_COLUMNS);
+            let mut stmt = conn.prepare(&sql)?;
 
-            stmt.query_row([run_id], |row| {
-                let agent_type_str: String = row.get(2)?;
-                let status_str: String = row.get(4)?;
-                let metadata_json: Option<String> = row.get(9)?;
-
-                Ok(AgentRun {
-                    id: row.get(0)?,
-                    ticket_id: row.get(1)?,
-                    agent_type: match agent_type_str.as_str() {
-                        "cursor" => AgentType::Cursor,
-                        _ => AgentType::Claude,
-                    },
-                    repo_path: row.get(3)?,
-                    status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
-                    started_at: parse_datetime(row.get(5)?),
-                    ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
-                    exit_code: row.get(7)?,
-                    summary_md: row.get(8)?,
-                    metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
-                    parent_run_id: row.get(10)?,
-                    stage: row.get(11)?,
-                    resumed_from_run_id: row.get(12)?,
-                })
-            })
+            stmt.query_row([run_id], agent_run_from_row)
             .map_err(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => {
                     DbError::NotFound(format!("Run {}", run_id))
@@ -56,7 +53,7 @@ impl Database {
                 rusqlite::params![
                     run_id,
                     run.ticket_id,
-                    run.agent_type.as_str(),
+                    run.agent_type,
                     run.repo_path,
                     RunStatus::Queued.as_str(),
                     now.to_rfc3339(),
@@ -69,7 +66,7 @@ impl Database {
             Ok(AgentRun {
                 id: run_id,
                 ticket_id: run.ticket_id.clone(),
-                agent_type: run.agent_type,
+                agent_type: run.agent_type.clone(),
                 repo_path: run.repo_path.clone(),
                 status: RunStatus::Queued,
                 started_at: now,
@@ -163,40 +160,14 @@ impl Database {
 
     pub fn get_runs(&self, ticket_id: &str) -> Result<Vec<AgentRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage, resumed_from_run_id
-                   FROM agent_runs WHERE ticket_id = ? ORDER BY started_at DESC"#,
-            )?;
-
+            let sql = format!(
+                "SELECT {} FROM agent_runs WHERE ticket_id = ? ORDER BY started_at DESC",
+                AGENT_RUN_COLUMNS
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let runs = stmt
-                .query_map([ticket_id], |row| {
-                    let agent_type_str: String = row.get(2)?;
-                    let status_str: String = row.get(4)?;
-                    let metadata_json: Option<String> = row.get(9)?;
-
-                    Ok(AgentRun {
-                        id: row.get(0)?,
-                        ticket_id: row.get(1)?,
-                        agent_type: match agent_type_str.as_str() {
-                            "cursor" => AgentType::Cursor,
-                            _ => AgentType::Claude,
-                        },
-                        repo_path: row.get(3)?,
-                        status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
-                        started_at: parse_datetime(row.get(5)?),
-                        ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
-                        exit_code: row.get(7)?,
-                        summary_md: row.get(8)?,
-                        metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
-                        parent_run_id: row.get(10)?,
-                        stage: row.get(11)?,
-                        resumed_from_run_id: row.get(12)?,
-                    })
-                })?
+                .query_map([ticket_id], agent_run_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
-
             Ok(runs)
         })
     }
@@ -204,43 +175,14 @@ impl Database {
     /// Get recent runs across all tickets (for the runs view)
     pub fn get_recent_runs(&self, limit: u32) -> Result<Vec<AgentRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage, resumed_from_run_id
-                   FROM agent_runs 
-                   WHERE parent_run_id IS NULL
-                   ORDER BY started_at DESC 
-                   LIMIT ?"#,
-            )?;
-
+            let sql = format!(
+                "SELECT {} FROM agent_runs WHERE parent_run_id IS NULL ORDER BY started_at DESC LIMIT ?",
+                AGENT_RUN_COLUMNS
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let runs = stmt
-                .query_map([limit], |row| {
-                    let agent_type_str: String = row.get(2)?;
-                    let status_str: String = row.get(4)?;
-                    let metadata_json: Option<String> = row.get(9)?;
-
-                    Ok(AgentRun {
-                        id: row.get(0)?,
-                        ticket_id: row.get(1)?,
-                        agent_type: match agent_type_str.as_str() {
-                            "cursor" => AgentType::Cursor,
-                            _ => AgentType::Claude,
-                        },
-                        repo_path: row.get(3)?,
-                        status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
-                        started_at: parse_datetime(row.get(5)?),
-                        ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
-                        exit_code: row.get(7)?,
-                        summary_md: row.get(8)?,
-                        metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
-                        parent_run_id: row.get(10)?,
-                        stage: row.get(11)?,
-                        resumed_from_run_id: row.get(12)?,
-                    })
-                })?
+                .query_map([limit], agent_run_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
-
             Ok(runs)
         })
     }
@@ -277,29 +219,8 @@ impl Database {
 
             let runs = stmt
                 .query_map([limit], |row| {
-                    let agent_type_str: String = row.get(2)?;
-                    let status_str: String = row.get(4)?;
-                    let metadata_json: Option<String> = row.get(9)?;
-
                     Ok(AgentRunWithContext {
-                        run: AgentRun {
-                            id: row.get(0)?,
-                            ticket_id: row.get(1)?,
-                            agent_type: match agent_type_str.as_str() {
-                                "cursor" => AgentType::Cursor,
-                                _ => AgentType::Claude,
-                            },
-                            repo_path: row.get(3)?,
-                            status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
-                            started_at: parse_datetime(row.get(5)?),
-                            ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
-                            exit_code: row.get(7)?,
-                            summary_md: row.get(8)?,
-                            metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
-                            parent_run_id: row.get(10)?,
-                            stage: row.get(11)?,
-                            resumed_from_run_id: row.get(12)?,
-                        },
+                        run: agent_run_from_row(row)?,
                         ticket_title: row.get(13)?,
                         board_id: row.get(14)?,
                         board_name: row.get(15)?,
@@ -319,40 +240,14 @@ impl Database {
     /// Get all sub-runs for a parent run
     pub fn get_sub_runs(&self, parent_run_id: &str) -> Result<Vec<AgentRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                r#"SELECT id, ticket_id, agent_type, repo_path, status, 
-                          started_at, ended_at, exit_code, summary_md, metadata_json,
-                          parent_run_id, stage, resumed_from_run_id
-                   FROM agent_runs WHERE parent_run_id = ? ORDER BY started_at ASC"#,
-            )?;
-
+            let sql = format!(
+                "SELECT {} FROM agent_runs WHERE parent_run_id = ? ORDER BY started_at ASC",
+                AGENT_RUN_COLUMNS
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let runs = stmt
-                .query_map([parent_run_id], |row| {
-                    let agent_type_str: String = row.get(2)?;
-                    let status_str: String = row.get(4)?;
-                    let metadata_json: Option<String> = row.get(9)?;
-
-                    Ok(AgentRun {
-                        id: row.get(0)?,
-                        ticket_id: row.get(1)?,
-                        agent_type: match agent_type_str.as_str() {
-                            "cursor" => AgentType::Cursor,
-                            _ => AgentType::Claude,
-                        },
-                        repo_path: row.get(3)?,
-                        status: RunStatus::parse(&status_str).unwrap_or(RunStatus::Error),
-                        started_at: parse_datetime(row.get(5)?),
-                        ended_at: row.get::<_, Option<String>>(6)?.map(parse_datetime),
-                        exit_code: row.get(7)?,
-                        summary_md: row.get(8)?,
-                        metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
-                        parent_run_id: row.get(10)?,
-                        stage: row.get(11)?,
-                        resumed_from_run_id: row.get(12)?,
-                    })
-                })?
+                .query_map([parent_run_id], agent_run_from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
-
             Ok(runs)
         })
     }
@@ -455,7 +350,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -464,7 +359,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(run.status, RunStatus::Queued);
-        assert_eq!(run.agent_type, AgentType::Cursor);
+        assert_eq!(run.agent_type, "cursor");
 
         let runs = db.get_runs(&ticket.id).unwrap();
         assert_eq!(runs.len(), 1);
@@ -500,7 +395,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -547,7 +442,7 @@ mod tests {
         let created = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/repo".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -558,7 +453,7 @@ mod tests {
         let fetched = db.get_run(&created.id).unwrap();
         assert_eq!(fetched.id, created.id);
         assert_eq!(fetched.ticket_id, ticket.id);
-        assert_eq!(fetched.agent_type, AgentType::Cursor);
+        assert_eq!(fetched.agent_type, "cursor");
         assert_eq!(fetched.repo_path, "/tmp/repo");
         assert_eq!(fetched.status, RunStatus::Queued);
     }
@@ -601,7 +496,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp/repo".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -658,7 +553,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Claude,
+                agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -741,7 +636,7 @@ mod tests {
         let run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -789,7 +684,7 @@ mod tests {
 
         db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Claude,
+            agent_type: "claude".to_string(),
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
             stage: None,
@@ -832,7 +727,7 @@ mod tests {
         let parent_run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -843,7 +738,7 @@ mod tests {
         // Create a sub-run
         db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Cursor,
+            agent_type: "cursor".to_string(),
             repo_path: "/tmp".to_string(),
             parent_run_id: Some(parent_run.id.clone()),
             stage: Some("code_review".to_string()),
@@ -886,7 +781,7 @@ mod tests {
         let parent_run = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -898,7 +793,7 @@ mod tests {
         let sub1 = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: Some(parent_run.id.clone()),
                 stage: Some("build".to_string()),
@@ -911,7 +806,7 @@ mod tests {
         let sub2 = db
             .create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: Some(parent_run.id.clone()),
                 stage: Some("test".to_string()),
@@ -924,7 +819,7 @@ mod tests {
         // Third sub-run is still running
         db.create_run(&CreateRun {
             ticket_id: ticket.id.clone(),
-            agent_type: AgentType::Cursor,
+            agent_type: "cursor".to_string(),
             repo_path: "/tmp".to_string(),
             parent_run_id: Some(parent_run.id.clone()),
             stage: Some("review".to_string()),
@@ -968,7 +863,7 @@ mod tests {
 
             db.create_run(&CreateRun {
                 ticket_id: ticket.id.clone(),
-                agent_type: AgentType::Cursor,
+                agent_type: "cursor".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
                 stage: None,
@@ -979,6 +874,52 @@ mod tests {
 
         let results = db.get_recent_runs_with_context(3).unwrap();
         assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn arbitrary_agent_type_roundtrips_through_db() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "my-custom-agent".to_string(),
+                repo_path: "/tmp/repo".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(run.agent_type, "my-custom-agent");
+
+        let fetched = db.get_run(&run.id).unwrap();
+        assert_eq!(fetched.agent_type, "my-custom-agent");
+
+        let runs = db.get_runs(&ticket.id).unwrap();
+        assert_eq!(runs[0].agent_type, "my-custom-agent");
     }
 
 }

@@ -1,12 +1,11 @@
 //! Main workflow execution logic for the orchestrator.
 
 use super::WorkflowOrchestrator;
-use crate::agents::extract_text_from_stream_json;
 use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
 };
 use crate::agents::prompt::{
-    generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
+    generate_command_prompt_with_providers, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
 };
 use crate::db::models::TaskType;
@@ -126,8 +125,7 @@ impl WorkflowOrchestrator {
         // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
         // which can be 100K+ tokens. We only need the final plan text.
         let raw_output = plan_result.captured_stdout.unwrap_or_default();
-        let plan =
-            extract_text_from_stream_json(&raw_output).unwrap_or_else(|| raw_output.clone());
+        let plan = self.extract_text(&raw_output);
 
         tracing::info!(
             "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
@@ -167,8 +165,9 @@ impl WorkflowOrchestrator {
             api_url: self.api_url.clone(),
             api_token: self.api_token.clone(),
             model: Some(self.get_stage_model("plan")),
-            agent_kind: self.agent_kind,
-            claude_api_config: self.claude_api_config.clone(),
+            agent_id: self.agent_id.clone(),
+            provider: self.provider.clone(),
+            agent_config: self.agent_config.clone(),
             timeout_secs: self.stage_timeout_secs,
         };
 
@@ -232,7 +231,7 @@ impl WorkflowOrchestrator {
         let implement_prompt = if let Some(ref task) = self.task {
             // For preset tasks, use the preset-specific prompt
             if task.task_type != TaskType::Custom {
-                generate_task_prompt(task, &self.ticket, &self.repo_path)
+                generate_task_prompt(task, &self.ticket, &self.repo_path, &[self.provider.as_ref()])
             } else {
                 generate_task_implement_prompt(task, &self.ticket, plan)
             }
@@ -274,7 +273,7 @@ impl WorkflowOrchestrator {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            self.run_stage(cmd, &generate_command_prompt(cmd, &self.repo_path))
+            self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
                 .await?;
         }
 

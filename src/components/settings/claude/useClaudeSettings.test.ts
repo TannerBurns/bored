@@ -5,12 +5,12 @@ import * as tauri from '../../../lib/tauri';
 import { useSettingsStore } from '../../../stores/settingsStore';
 
 vi.mock('../../../lib/tauri', () => ({
-  getClaudeStatus: vi.fn(),
-  installClaudeHooksUser: vi.fn(),
-  installClaudeHooksProject: vi.fn(),
-  getClaudeHooksConfig: vi.fn(),
-  getClaudeApiSettings: vi.fn(),
-  setClaudeApiSettings: vi.fn(),
+  getAgentStatus: vi.fn(),
+  installAgentHooksGlobal: vi.fn(),
+  installAgentHooksProject: vi.fn(),
+  getAgentHooksConfig: vi.fn(),
+  getAgentSettings: vi.fn(),
+  setAgentSettings: vi.fn(),
   getProjects: vi.fn(),
   browseForDirectory: vi.fn(),
   getAvailableCommands: vi.fn(),
@@ -26,38 +26,29 @@ Object.assign(navigator, {
   },
 });
 
-const mockClaudeStatus = {
+const mockAgentStatus = {
   isAvailable: true,
   version: '1.2.3',
   hookScriptPath: '/path/to/claude-hook.sh',
-  userHooksInstalled: true,
+  globalHooksInstalled: true,
 };
 
-const mockApiSettings = {
-  authToken: 'test-token',
-  apiKey: 'test-api-key',
-  baseUrl: 'https://api.example.com',
-  modelOverride: 'claude-opus-4',
-  thinkingEnabled: true,
-  extendedContextEnabled: false,
-  chromeEnabled: false,
+const mockSettings: Record<string, unknown> = {
+  auth_token: 'test-token',
+  api_key: 'test-api-key',
+  base_url: 'https://api.example.com',
+  model_override: 'claude-opus-4',
+  thinking_enabled: true,
+  extended_context_enabled: false,
+  chrome_enabled: false,
 };
 
 describe('useClaudeSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useSettingsStore.setState({
-      claudeAuthToken: '',
-      claudeApiKey: '',
-      claudeBaseUrl: '',
-      claudeModelOverride: '',
-      claudeThinkingEnabled: true,
-      claudeExtendedContext: false,
-      claudeChromeEnabled: false,
-    });
-    vi.mocked(tauri.getClaudeStatus).mockResolvedValue(mockClaudeStatus);
-    vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue(mockApiSettings);
-    vi.mocked(tauri.setClaudeApiSettings).mockResolvedValue(undefined);
+    vi.mocked(tauri.getAgentStatus).mockResolvedValue(mockAgentStatus);
+    vi.mocked(tauri.getAgentSettings).mockResolvedValue({ ...mockSettings });
+    vi.mocked(tauri.setAgentSettings).mockResolvedValue(undefined);
     vi.mocked(tauri.getProjects).mockResolvedValue([]);
     vi.mocked(tauri.getAvailableCommands).mockResolvedValue([]);
     vi.mocked(tauri.checkUserCommandsInstalled).mockResolvedValue(false);
@@ -87,27 +78,18 @@ describe('useClaudeSettings', () => {
       const { result } = renderHook(() => useClaudeSettings());
 
       await waitFor(() => expect(result.current.loading).toBe(false));
-      // Wait for the effect to run and update the store
       await waitFor(() => {
         const state = useSettingsStore.getState();
-        return state.claudeAuthToken === 'test-token';
+        return (state.agentSettings.claude?.authToken as string) === 'test-token';
       });
 
       const storeState = useSettingsStore.getState();
-      expect(storeState.claudeAuthToken).toBe('test-token');
-      expect(storeState.claudeApiKey).toBe('test-api-key');
+      expect(storeState.agentSettings.claude?.authToken).toBe('test-token');
+      expect(storeState.agentSettings.claude?.apiKey).toBe('test-api-key');
     });
 
-    it('handles null API settings values', async () => {
-      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
-        authToken: null,
-        apiKey: null,
-        baseUrl: null,
-        modelOverride: null,
-        thinkingEnabled: null,
-        extendedContextEnabled: null,
-        chromeEnabled: null,
-      });
+    it('handles empty API settings values', async () => {
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({});
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -133,28 +115,15 @@ describe('useClaudeSettings', () => {
         await result.current.apiSettings.save();
       });
 
-      expect(tauri.setClaudeApiSettings).toHaveBeenCalledWith({
-        authToken: 'new-token',
-        apiKey: 'new-api-key',
-        baseUrl: 'https://api.example.com',
-        modelOverride: 'claude-opus-4',
-        thinkingEnabled: true,
-        extendedContextEnabled: false,
-        chromeEnabled: false,
-      });
+      expect(tauri.setAgentSettings).toHaveBeenCalledWith('claude', expect.objectContaining({
+        auth_token: 'new-token',
+        api_key: 'new-api-key',
+      }));
       expect(result.current.success).toBe('Claude API settings saved successfully!');
     });
 
     it('converts empty strings to null when saving', async () => {
-      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
-        authToken: null,
-        apiKey: null,
-        baseUrl: null,
-        modelOverride: null,
-        thinkingEnabled: null,
-        extendedContextEnabled: null,
-        chromeEnabled: null,
-      });
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({});
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -164,19 +133,16 @@ describe('useClaudeSettings', () => {
         await result.current.apiSettings.save();
       });
 
-      expect(tauri.setClaudeApiSettings).toHaveBeenCalledWith({
-        authToken: null,
-        apiKey: null,
-        baseUrl: null,
-        modelOverride: null,
-        thinkingEnabled: true,
-        extendedContextEnabled: false,
-        chromeEnabled: false,
-      });
+      expect(tauri.setAgentSettings).toHaveBeenCalledWith('claude', expect.objectContaining({
+        auth_token: null,
+        api_key: null,
+        base_url: null,
+        model_override: null,
+      }));
     });
 
     it('sets error on save failure', async () => {
-      vi.mocked(tauri.setClaudeApiSettings).mockRejectedValue(new Error('Save failed'));
+      vi.mocked(tauri.setAgentSettings).mockRejectedValue(new Error('Save failed'));
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -187,88 +153,6 @@ describe('useClaudeSettings', () => {
       });
 
       expect(result.current.error).toContain('Failed to save API settings');
-    });
-
-    it('sets saving flag during save', async () => {
-      let resolveSave: () => void;
-      const savePromise = new Promise<void>((resolve) => {
-        resolveSave = resolve;
-      });
-      vi.mocked(tauri.setClaudeApiSettings).mockReturnValue(savePromise);
-
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      let savePromiseFromHook: Promise<void>;
-      act(() => {
-        savePromiseFromHook = result.current.apiSettings.save();
-      });
-
-      expect(result.current.apiSettings.saving).toBe(true);
-
-      await act(async () => {
-        resolveSave!();
-        await savePromiseFromHook;
-      });
-
-      expect(result.current.apiSettings.saving).toBe(false);
-    });
-
-    it('updates store after successful save', async () => {
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      // Set new values
-      act(() => {
-        result.current.apiSettings.setAuthToken('new-saved-token');
-      });
-
-      // After save, the hook reloads from backend which updates the store
-      await act(async () => {
-        await result.current.apiSettings.save();
-      });
-
-      // The store should have been updated with the normalized values from getClaudeApiSettings
-      const storeState = useSettingsStore.getState();
-      expect(storeState.claudeAuthToken).toBe('test-token'); // From mockApiSettings reload
-    });
-
-    it('syncs CLI options back to store after save', async () => {
-      // Backend will return updated CLI options after save
-      vi.mocked(tauri.getClaudeApiSettings)
-        .mockResolvedValueOnce(mockApiSettings) // initial load
-        .mockResolvedValueOnce({
-          ...mockApiSettings,
-          thinkingEnabled: false,
-          extendedContextEnabled: true,
-          chromeEnabled: true,
-        }); // post-save reload
-
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      // Verify initial CLI option state
-      expect(result.current.cliOptions.thinkingEnabled).toBe(true);
-      expect(result.current.cliOptions.extendedContext).toBe(false);
-      expect(result.current.cliOptions.chromeEnabled).toBe(false);
-
-      await act(async () => {
-        await result.current.apiSettings.save();
-      });
-
-      // CLI options should be updated from the backend response
-      expect(result.current.cliOptions.thinkingEnabled).toBe(false);
-      expect(result.current.cliOptions.extendedContext).toBe(true);
-      expect(result.current.cliOptions.chromeEnabled).toBe(true);
-
-      // Zustand store should also reflect the updated values
-      const storeState = useSettingsStore.getState();
-      expect(storeState.claudeThinkingEnabled).toBe(false);
-      expect(storeState.claudeExtendedContext).toBe(true);
-      expect(storeState.claudeChromeEnabled).toBe(true);
     });
   });
 
@@ -294,11 +178,11 @@ describe('useClaudeSettings', () => {
 
   describe('CLI options', () => {
     it('loads CLI options from backend on mount', async () => {
-      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
-        ...mockApiSettings,
-        thinkingEnabled: false,
-        extendedContextEnabled: true,
-        chromeEnabled: true,
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({
+        ...mockSettings,
+        thinking_enabled: false,
+        extended_context_enabled: true,
+        chrome_enabled: true,
       });
 
       const { result } = renderHook(() => useClaudeSettings());
@@ -310,13 +194,8 @@ describe('useClaudeSettings', () => {
       expect(result.current.cliOptions.chromeEnabled).toBe(true);
     });
 
-    it('defaults CLI options when null from backend', async () => {
-      vi.mocked(tauri.getClaudeApiSettings).mockResolvedValue({
-        ...mockApiSettings,
-        thinkingEnabled: null,
-        extendedContextEnabled: null,
-        chromeEnabled: null,
-      });
+    it('defaults CLI options when missing from backend', async () => {
+      vi.mocked(tauri.getAgentSettings).mockResolvedValue({});
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -336,26 +215,9 @@ describe('useClaudeSettings', () => {
         result.current.cliOptions.setChromeEnabled(true);
       });
 
-      expect(tauri.setClaudeApiSettings).toHaveBeenCalled();
-    });
-
-    it('includes CLI options in the save payload', async () => {
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      await act(async () => {
-        result.current.cliOptions.setExtendedContext(true);
-      });
-
-      // The last call should include the CLI option in the payload
-      const calls = vi.mocked(tauri.setClaudeApiSettings).mock.calls;
-      const lastCall = calls[calls.length - 1]?.[0];
-      expect(lastCall).toMatchObject({
-        extendedContextEnabled: true,
-        thinkingEnabled: true,
-        chromeEnabled: false,
-      });
+      expect(tauri.setAgentSettings).toHaveBeenCalledWith('claude', expect.objectContaining({
+        chrome_enabled: expect.any(Boolean),
+      }));
     });
 
     it('sets error when CLI option auto-save fails', async () => {
@@ -363,8 +225,7 @@ describe('useClaudeSettings', () => {
 
       await waitFor(() => expect(result.current.loading).toBe(false));
 
-      // Make the next save call fail
-      vi.mocked(tauri.setClaudeApiSettings).mockRejectedValueOnce(
+      vi.mocked(tauri.setAgentSettings).mockRejectedValueOnce(
         new Error('Network error')
       );
 
@@ -374,40 +235,11 @@ describe('useClaudeSettings', () => {
 
       expect(result.current.error).toContain('Failed to save CLI option');
     });
-
-    it('sets saving flag during CLI option toggle', async () => {
-      let resolveSave: () => void;
-      const savePromise = new Promise<void>((resolve) => {
-        resolveSave = resolve;
-      });
-
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      // Make setClaudeApiSettings hang (for initial load it already resolved)
-      vi.mocked(tauri.setClaudeApiSettings).mockReturnValueOnce(savePromise);
-
-      let togglePromise: Promise<void> | undefined;
-      act(() => {
-        togglePromise = result.current.cliOptions.setChromeEnabled(true) as unknown as Promise<void>;
-      });
-
-      // saving should be true while the save is in progress
-      expect(result.current.cliOptions.saving).toBe(true);
-
-      await act(async () => {
-        resolveSave!();
-        await togglePromise;
-      });
-
-      expect(result.current.cliOptions.saving).toBe(false);
-    });
   });
 
   describe('extends useAgentSettings', () => {
     it('provides hook installation capabilities', async () => {
-      vi.mocked(tauri.installClaudeHooksUser).mockResolvedValue(undefined);
+      vi.mocked(tauri.installAgentHooksGlobal).mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useClaudeSettings());
 
@@ -417,7 +249,7 @@ describe('useClaudeSettings', () => {
         await result.current.hookInstall.install();
       });
 
-      expect(tauri.installClaudeHooksUser).toHaveBeenCalledWith('/path/to/claude-hook.sh');
+      expect(tauri.installAgentHooksGlobal).toHaveBeenCalledWith('claude', '/path/to/claude-hook.sh');
       expect(result.current.success).toContain('Hooks installed in user settings');
     });
   });

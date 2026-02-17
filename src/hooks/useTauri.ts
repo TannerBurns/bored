@@ -34,7 +34,7 @@ export function useTauri() {
   const moveTicket = useCallback((ticketId: string, columnId: string) => 
     withLoading(() => tauri.moveTicket(ticketId, columnId)), [withLoading]);
 
-  const startAgentRun = useCallback((ticketId: string, agentType: 'cursor' | 'claude', repoPath: string) => 
+  const startAgentRun = useCallback((ticketId: string, agentType: string, repoPath: string) => 
     withLoading(() => tauri.startAgentRun(ticketId, agentType, repoPath)), [withLoading]);
 
   const getAgentRuns = useCallback((ticketId: string) => 

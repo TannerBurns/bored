@@ -3,8 +3,11 @@
 use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use agent_kanban::agents::claude::provider::ClaudeProvider;
+use agent_kanban::agents::cursor::provider::CursorProvider;
+use agent_kanban::agents::registry::AgentRegistry;
 use agent_kanban::agents::validation_agent::AppProcessManager;
-use agent_kanban::commands::claude::ClaudeApiSettingsState;
+use agent_kanban::commands::AgentSettingsManager;
 use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
@@ -35,7 +38,10 @@ fn is_allowed_url(url: &url::Url) -> bool {
     false
 }
 
-fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn setup_hook_scripts(
+    app: &tauri::App,
+    registry: &AgentRegistry,
+) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -44,11 +50,13 @@ fn setup_hook_scripts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     let scripts_dir = app_data_dir.join("scripts");
     std::fs::create_dir_all(&scripts_dir)?;
 
-    // Copy Cursor hook script
-    copy_hook_script(app, "cursor-hook.js", &scripts_dir)?;
-
-    // Copy Claude hook script
-    copy_hook_script(app, "claude-hook.js", &scripts_dir)?;
+    // Copy each registered agent's hook script
+    for provider in registry.providers() {
+        let script = provider.hook_script_name();
+        if !script.is_empty() {
+            copy_hook_script(app, script, &scripts_dir)?;
+        }
+    }
 
     // Copy unified hook script (hook bridge)
     copy_hook_script(app, "agent-kanban-hook.js", &scripts_dir)?;
@@ -154,7 +162,12 @@ fn main() {
 
             tracing::info!("Main window created, continuing initialization...");
 
-            if let Err(e) = setup_hook_scripts(app) {
+            // Build the agent registry with all known providers
+            let mut agent_registry = AgentRegistry::new();
+            agent_registry.register(Arc::new(ClaudeProvider::new()));
+            agent_registry.register(Arc::new(CursorProvider::new()));
+
+            if let Err(e) = setup_hook_scripts(app, &agent_registry) {
                 tracing::warn!("Failed to setup hook scripts: {}", e);
             }
 
@@ -195,13 +208,19 @@ fn main() {
                 }
             });
 
+            // Create a clone of the registry for the API server (providers are Arc-shared)
+            let api_registry = agent_registry.clone_shared();
+
+            app.manage(agent_registry);
+
             app.manage(database.clone());
             app.manage(RunningAgents::new());
             app.manage(AppProcessManager::new());
 
-            // Load Claude API settings from disk (or create fresh if not present)
+            let agent_settings = AgentSettingsManager::new();
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
-            app.manage(ClaudeApiSettingsState::new_with_path(claude_settings_path));
+            agent_settings.register_agent_settings_path("claude", claude_settings_path);
+            app.manage(agent_settings);
 
             // Workflow settings (synced from frontend, read by workers at task time)
             app.manage(WorkflowSettingsState::new());
@@ -255,15 +274,16 @@ fn main() {
             app.manage(event_tx.clone());
             app.manage(ApiConnState { url: api_url, token: api_token });
 
-            // Start API server with shared event channel
+            // Start API server with shared event channel and agent registry
             let db_for_api = database.clone();
             let event_tx_for_api = event_tx;
             let api_config_clone = api_config.clone();
             tauri::async_runtime::spawn(async move {
-                match api::start_server_with_event_tx(
+                match api::start_server_with_registry(
                     db_for_api,
                     api_config_clone,
                     event_tx_for_api,
+                    Arc::new(api_registry),
                 )
                 .await
                 {
@@ -337,24 +357,17 @@ fn main() {
             commands::check_git_status,
             commands::init_git_repo,
             commands::create_project_folder,
-            // Cursor integration
-            commands::get_cursor_status,
-            commands::install_cursor_hooks_global,
-            commands::install_cursor_hooks_project,
-            commands::get_cursor_hooks_config,
-            commands::check_project_hooks_installed,
-            commands::get_hook_script_path_cmd,
-            // Claude Code integration
-            commands::get_claude_status,
-            commands::install_claude_hooks_user,
-            commands::install_claude_hooks_project,
-            commands::install_claude_hooks_local,
-            commands::get_claude_hooks_config,
-            commands::check_claude_available,
-            commands::check_claude_project_hooks_installed,
-            commands::get_claude_hook_script_path,
-            commands::get_claude_api_settings,
-            commands::set_claude_api_settings,
+            // Unified agent integration
+            commands::agents::get_agent_status,
+            commands::agents::install_agent_hooks_global,
+            commands::agents::install_agent_hooks_project,
+            commands::agents::get_agent_hooks_config,
+            commands::agents::check_agent_available,
+            commands::agents::check_agent_project_hooks_installed,
+            commands::agents::get_agent_hook_script_path,
+            // Agent settings (generic API)
+            commands::agent_settings::get_agent_settings,
+            commands::agent_settings::set_agent_settings,
             // Workflow settings sync
             commands::workflow_settings::sync_workflow_settings,
             commands::workflow_settings::get_workflow_settings,
@@ -374,6 +387,8 @@ fn main() {
             commands::workers::check_user_commands_installed,
             // API configuration
             commands::get_api_config,
+            // Agent registry
+            commands::get_available_agents,
             // Task queue management
             commands::tasks::get_tasks,
             commands::tasks::get_task,

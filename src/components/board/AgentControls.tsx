@@ -4,6 +4,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Ticket, AgentRun, AgentType } from '../../types';
 import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
 import { BuildWithDropdown } from './BuildWithDropdown';
+import { getAgentDisplayName } from '../common/AgentIcons';
 
 interface AgentLogEvent {
   runId: string;
@@ -314,7 +315,7 @@ export function AgentControls({
                     }`}
                   />
                   <span className="text-gray-300">
-                    {run.agentType === 'cursor' ? 'Cursor' : 'Claude'}
+                    {getAgentDisplayName(run.agentType)}
                   </span>
                   <span className="text-gray-500">
                     {new Date(run.startedAt).toLocaleString()}

@@ -43,7 +43,7 @@ export interface CommandInstallState {
  * Configuration for the agent settings hook factory
  */
 export interface AgentSettingsConfig {
-  agentType: 'claude' | 'cursor';
+  agentType: string;
   getStatus: () => Promise<AgentStatus & Record<string, unknown>>;
   installHooksUser: (hookPath: string) => Promise<void>;
   installHooksProject: (hookPath: string, projectPath: string) => Promise<void>;

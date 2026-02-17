@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { WorkerPanel } from './WorkerPanel';
+import type { AgentInfo } from '../../types';
 
 // Mock tauri invoke
 vi.mock('@tauri-apps/api/core', () => ({
@@ -13,6 +14,15 @@ vi.mock('@tauri-apps/api/core', () => ({
   }),
 }));
 
+const MOCK_AGENTS: AgentInfo[] = [
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+];
+
+const mockLoadAgents = vi.fn().mockResolvedValue(MOCK_AGENTS);
+
+let storeAgents: AgentInfo[] = MOCK_AGENTS;
+
 // Mock settings store
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({
@@ -20,23 +30,24 @@ vi.mock('../../stores/settingsStore', () => ({
     stageTimeoutHours: 1,
     stageMaxRetries: 2,
   }),
+  ensureWorkflowSettingsSynced: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock useCliAvailability hook
-const mockUseCliAvailability = vi.fn();
-vi.mock('../../hooks/useCliAvailability', () => ({
-  useCliAvailability: () => mockUseCliAvailability(),
+// Mock agent registry store
+vi.mock('../../stores/agentRegistryStore', () => ({
+  useAgentRegistryStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({
+      agents: storeAgents,
+      agentsLoading: false,
+      agentsLoaded: true,
+      loadAgents: mockLoadAgents,
+    }),
 }));
 
 describe('WorkerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: both CLIs available
-    mockUseCliAvailability.mockReturnValue({
-      cursorAvailable: true,
-      claudeAvailable: true,
-      loading: false,
-    });
+    storeAgents = MOCK_AGENTS;
   });
 
   it('renders the worker panel', async () => {
@@ -57,97 +68,104 @@ describe('WorkerPanel', () => {
   });
 
   describe('CLI availability', () => {
-    it('disables Cursor input when Cursor CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+    it('disables Cursor input when Cursor CLI is unavailable', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).toBeDisabled();
+      });
     });
 
-    it('disables Claude input when Claude CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
+    it('disables Claude input when Claude CLI is unavailable', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(claudeInput).toBeDisabled();
+      await waitFor(() => {
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(claudeInput).toBeDisabled();
+      });
     });
 
-    it('shows "(not installed)" text when Cursor CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+    it('shows "(not installed)" text when Cursor CLI is unavailable', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const cursorSection = screen.getByText('Cursor Workers').closest('span');
-      expect(cursorSection).toHaveTextContent('(not installed)');
+      await waitFor(() => {
+        const cursorSection = screen.getByText('Cursor Workers').closest('span');
+        expect(cursorSection).toHaveTextContent('(not installed)');
+      });
     });
 
-    it('shows "(not installed)" text when Claude CLI is unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
+    it('shows "(not installed)" text when Claude CLI is unavailable', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const claudeSection = screen.getByText('Claude Workers').closest('span');
-      expect(claudeSection).toHaveTextContent('(not installed)');
+      await waitFor(() => {
+        const claudeSection = screen.getByText('Claude Workers').closest('span');
+        expect(claudeSection).toHaveTextContent('(not installed)');
+      });
     });
 
-    it('disables both inputs when both CLIs are unavailable', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: false,
-        loading: false,
-      });
+    it('disables both inputs when both CLIs are unavailable', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).toBeDisabled();
-      expect(claudeInput).toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).toBeDisabled();
+        expect(claudeInput).toBeDisabled();
+      });
     });
 
-    it('enables Cursor input when Cursor CLI is available', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: true,
-        claudeAvailable: false,
-        loading: false,
-      });
+    it('enables Cursor input when Cursor CLI is available', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
-      expect(cursorInput).not.toBeDisabled();
+      await waitFor(() => {
+        const cursorInput = screen.getByText('Cursor Workers').closest('div')?.querySelector('input');
+        expect(cursorInput).not.toBeDisabled();
+      });
     });
 
-    it('enables Claude input when Claude CLI is available', () => {
-      mockUseCliAvailability.mockReturnValue({
-        cursorAvailable: false,
-        claudeAvailable: true,
-        loading: false,
-      });
+    it('enables Claude input when Claude CLI is available', async () => {
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
-      const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
-      expect(claudeInput).not.toBeDisabled();
+      await waitFor(() => {
+        const claudeInput = screen.getByText('Claude Workers').closest('div')?.querySelector('input');
+        expect(claudeInput).not.toBeDisabled();
+      });
     });
   });
 

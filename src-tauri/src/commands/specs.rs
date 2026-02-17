@@ -7,9 +7,9 @@ use tauri::State;
 use tokio::sync::broadcast;
 
 use crate::agents::planner::{PlannerAgent, PlannerConfig};
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::agents::AgentRegistry;
 use crate::api::state::LiveEvent;
-use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::commands::ApiConnState;
 use crate::db::{
     CreateSpec, Database, Exploration, Spec, SpecProgress, SpecVersion, SpecVersionStatus,
@@ -420,7 +420,8 @@ pub async fn start_planner(
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
     tracing::info!("Starting planner for spec {}", input.spec_id);
 
@@ -431,27 +432,27 @@ pub async fn start_planner(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
 
-    // Determine agent kind from parameter or default to Claude
-    let agent_kind = match input.agent_kind.as_deref() {
-        Some("cursor") => AgentKind::Cursor,
-        Some("claude") => AgentKind::Claude,
-        _ => AgentKind::Claude,
-    };
+    let agent_id = input.agent_kind.as_deref()
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| registry.default_agent_id());
 
-    // Get Claude API config if using Claude agent
-    let claude_api_config =
-        (agent_kind == AgentKind::Claude).then(|| ClaudeApiConfig::from(claude_api_state.get()));
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let config = PlannerConfig {
         spec_id: input.spec_id.clone(),
         max_explorations: input.max_explorations.unwrap_or(10),
         auto_approve: input.auto_approve.unwrap_or(false),
         model: input.model.or(spec.model),
-        agent_kind,
+        agent_id: agent_id.clone(),
+        provider: provider.clone(),
         repo_path: PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config,
+        agent_config,
         timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(300),
         max_retries: input.max_retries.unwrap_or(2),
     };
@@ -475,7 +476,8 @@ pub async fn execute_plan(
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<Vec<String>, String> {
     tracing::info!("Executing plan for spec {}", spec_id);
 
@@ -486,19 +488,28 @@ pub async fn execute_plan(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
 
-    // Get Claude API config (execute_plan doesn't run agents but we include for consistency)
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+    let agent_id = spec.settings.as_object()
+        .and_then(|s| s.get("agentType"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| registry.default_agent_id());
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let config = PlannerConfig {
         spec_id: spec_id.clone(),
         max_explorations: 0, // Not used for execution
         auto_approve: false,
         model: None,
-        agent_kind: AgentKind::Claude, // Not used for execution
+        agent_id,
+        provider,
         repo_path: PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config,
+        agent_config,
         timeout_secs: 300, // Not used for execution
         max_retries: 0,    // Not used for execution
     };

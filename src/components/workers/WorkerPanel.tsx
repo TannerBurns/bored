@@ -2,15 +2,25 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
-import { ClaudeIcon, CursorIcon, ConfirmModal } from '../common';
+import { ConfirmModal } from '../common';
+import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../common/AgentIcons';
 import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
 import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
-import { useCliAvailability } from '../../hooks/useCliAvailability';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+
+function AgentIconInline({ agentType, size }: { agentType: string; size: number }) {
+  const Icon = getAgentIcon(agentType);
+  const brandColor = getAgentBrandColor(agentType);
+  return brandColor
+    ? <Icon size={size} style={{ color: brandColor }} />
+    : <Icon size={size} className="text-board-text-secondary" />;
+}
 
 export function WorkerPanel() {
   const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries } = useSettingsStore();
-  const { cursorAvailable, claudeAvailable } = useCliAvailability();
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
     readyCount: 0,
@@ -18,10 +28,13 @@ export function WorkerPanel() {
     workerCount: 0,
   });
   const [isStarting, setIsStarting] = useState(false);
-  const [cursorCount, setCursorCount] = useState<number>(0);
-  const [claudeCount, setClaudeCount] = useState<number>(0);
+  const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [stopConfirm, setStopConfirm] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -44,6 +57,8 @@ export function WorkerPanel() {
     return () => clearInterval(interval);
   }, [loadStatus]);
 
+  const totalCount = Object.values(agentCounts).reduce((sum, c) => sum + c, 0);
+
   const handleStartWorkers = async () => {
     setIsStarting(true);
     setError(null);
@@ -52,35 +67,22 @@ export function WorkerPanel() {
       // Ensure backend has the latest workflow settings BEFORE starting workers
       await ensureWorkflowSettingsSynced();
 
-      // Start Cursor workers
-      for (let i = 0; i < cursorCount; i++) {
-        await invoke('start_worker', {
-          input: {
-            agentType: 'cursor',
-            projectId: null,
-            codeReviewMaxIterations,
-            stageTimeoutHours,
-            stageMaxRetries,
-          },
-        });
-      }
-      
-      // Start Claude workers
-      for (let i = 0; i < claudeCount; i++) {
-        await invoke('start_worker', {
-          input: {
-            agentType: 'claude',
-            projectId: null,
-            codeReviewMaxIterations,
-            stageTimeoutHours,
-            stageMaxRetries,
-          },
-        });
+      for (const [agentId, count] of Object.entries(agentCounts)) {
+        for (let i = 0; i < count; i++) {
+          await invoke('start_worker', {
+            input: {
+              agentType: agentId,
+              projectId: null,
+              codeReviewMaxIterations,
+              stageTimeoutHours,
+              stageMaxRetries,
+            },
+          });
+        }
       }
       
       await loadStatus();
-      setCursorCount(0);
-      setClaudeCount(0);
+      setAgentCounts({});
     } catch (err) {
       logger.error('Failed to start workers:', err);
       setError(String(err));
@@ -187,49 +189,40 @@ export function WorkerPanel() {
         </h3>
         
         <div className="space-y-3">
-          {/* Cursor worker count */}
-          <div className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!cursorAvailable ? 'opacity-50' : ''}`}>
-            <span className="text-sm font-medium text-board-text flex items-center gap-2">
-              <CursorIcon size={16} className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
-              Cursor Workers
-              {!cursorAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={10}
-              value={cursorCount}
-              onChange={(e) => setCursorCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
-              disabled={!cursorAvailable}
-              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-          </div>
-          
-          {/* Claude worker count */}
-          <div className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!claudeAvailable ? 'opacity-50' : ''}`}>
-            <span className="text-sm font-medium text-board-text flex items-center gap-2">
-              <ClaudeIcon size={16} className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
-              Claude Workers
-              {!claudeAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={10}
-              value={claudeCount}
-              onChange={(e) => setClaudeCount(Math.max(0, Math.min(10, parseInt(e.target.value) || 0)))}
-              disabled={!claudeAvailable}
-              className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-          </div>
+          {agents.map((agent) => {
+            const isAvailable = agent.isAvailable;
+            const brandColor = isAvailable ? getAgentBrandColor(agent.id, agent.brandColor) : undefined;
+            const Icon = getAgentIcon(agent.id);
+            return (
+              <div key={agent.id} className={`flex items-center justify-between glass-subtle rounded-lg px-3 py-2 ${!isAvailable ? 'opacity-50' : ''}`}>
+                <span className="text-sm font-medium text-board-text flex items-center gap-2">
+                  {brandColor
+                    ? <Icon size={16} style={{ color: brandColor }} />
+                    : <Icon size={16} className={isAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
+                  }
+                  {agent.displayName} Workers
+                  {!isAvailable && <span className="text-xs text-board-text-muted">(not installed)</span>}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={agentCounts[agent.id] || 0}
+                  onChange={(e) => setAgentCounts((prev) => ({ ...prev, [agent.id]: Math.max(0, Math.min(10, parseInt(e.target.value) || 0)) }))}
+                  disabled={!isAvailable}
+                  className="w-16 px-2 py-1 text-sm text-center glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
+            );
+          })}
           
           <Button
             onClick={handleStartWorkers}
-            disabled={isStarting || (cursorCount === 0 && claudeCount === 0)}
+            disabled={isStarting || totalCount === 0}
             variant="primary"
             className="w-full"
           >
-            {isStarting ? 'Starting...' : `Start ${cursorCount + claudeCount} Worker(s)`}
+            {isStarting ? 'Starting...' : `Start ${totalCount} Worker(s)`}
           </Button>
         </div>
       </div>
@@ -259,13 +252,9 @@ export function WorkerPanel() {
                         getStatusGlow(worker.status)
                       )}
                     />
-                    {worker.agentType === 'cursor' ? (
-                      <CursorIcon size={14} className="text-board-text-secondary" />
-                    ) : (
-                      <ClaudeIcon size={14} className="text-[#da7756]" />
-                    )}
+                    <AgentIconInline agentType={worker.agentType} size={14} />
                     <span className="font-medium text-sm text-board-text">
-                      {worker.agentType === 'cursor' ? 'Cursor' : 'Claude'} Worker
+                      {getAgentDisplayName(worker.agentType)} Worker
                     </span>
                     <span className="text-xs text-board-text-muted px-1.5 py-0.5 glass-subtle rounded">
                       {worker.status}

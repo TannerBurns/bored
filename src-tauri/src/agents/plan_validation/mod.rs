@@ -1,8 +1,8 @@
 //! Plan clarification detection for agent workflows.
 
 use crate::agents::spawner;
-use crate::agents::{extract_agent_text, AgentRunConfig};
-use crate::db::{AgentType, CreateRun, RunStatus};
+use crate::agents::AgentRunConfig;
+use crate::db::{CreateRun, RunStatus};
 
 mod config;
 mod parsing;
@@ -25,10 +25,7 @@ pub async fn validate_plan_for_clarification(
         plan.len()
     );
 
-    let agent_type = match config.agent_kind {
-        crate::agents::AgentKind::Cursor => AgentType::Cursor,
-        crate::agents::AgentKind::Claude => AgentType::Claude,
-    };
+    let agent_type = config.agent_id.clone();
 
     let run = config
         .db
@@ -52,7 +49,7 @@ pub async fn validate_plan_for_clarification(
     let prompt = build_plan_validation_prompt(plan);
 
     let agent_config = AgentRunConfig {
-        kind: config.agent_kind,
+        agent_id: config.agent_id.clone(),
         ticket_id: config.ticket_id.clone(),
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
@@ -61,12 +58,15 @@ pub async fn validate_plan_for_clarification(
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
-        claude_api_config: config.claude_api_config.clone(),
+        agent_config: config.agent_config.clone(),
     };
 
     let db = config.db.clone();
+    let provider = config.provider.clone();
 
-    let result = tokio::task::spawn_blocking(move || spawner::run_agent(agent_config, None)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        spawner::run_agent_via_provider(&*provider, &agent_config, None)
+    }).await;
 
     match result {
         Ok(Ok(agent_result)) => {
@@ -77,14 +77,9 @@ pub async fn validate_plan_for_clarification(
                 RunStatus::Error
             };
 
-            tracing::debug!(
-                "Plan validation agent completed: exit_code={:?}, stdout_len={:?}",
-                exit_code,
-                agent_result.captured_stdout.as_ref().map(|s| s.len())
-            );
-
             let validation_result = agent_result.captured_stdout.as_ref().and_then(|output| {
-                match parse_validation_response(output) {
+                let text = config.provider.extract_text(output);
+                match parse_validation_response(&text) {
                     Ok(result) => Some(result),
                     Err(e) => {
                         tracing::warn!("Failed to parse plan validation response: {}", e);
@@ -107,15 +102,6 @@ pub async fn validate_plan_for_clarification(
                 exit_code,
                 validation_result.as_ref().map(|r| r.needs_clarification)
             );
-
-            if validation_result.is_none() {
-                tracing::warn!(
-                    "No valid validation result parsed, using default (needs_clarification=false). \
-                    stdout_present={}, status={:?}",
-                    agent_result.captured_stdout.is_some(),
-                    status
-                );
-            }
 
             Ok(validation_result.unwrap_or_default())
         }
@@ -155,10 +141,7 @@ pub async fn generate_clarification_message(
         plan.len()
     );
 
-    let agent_type = match config.agent_kind {
-        crate::agents::AgentKind::Cursor => AgentType::Cursor,
-        crate::agents::AgentKind::Claude => AgentType::Claude,
-    };
+    let agent_type = config.agent_id.clone();
 
     let run = config
         .db
@@ -182,7 +165,7 @@ pub async fn generate_clarification_message(
     let prompt = build_clarification_message_prompt(plan);
 
     let agent_config = AgentRunConfig {
-        kind: config.agent_kind,
+        agent_id: config.agent_id.clone(),
         ticket_id: config.ticket_id.clone(),
         run_id: run_id.clone(),
         repo_path: config.repo_path.clone(),
@@ -191,12 +174,15 @@ pub async fn generate_clarification_message(
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         model: config.model.clone(),
-        claude_api_config: config.claude_api_config.clone(),
+        agent_config: config.agent_config.clone(),
     };
 
     let db = config.db.clone();
+    let provider = config.provider.clone();
 
-    let result = tokio::task::spawn_blocking(move || spawner::run_agent(agent_config, None)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        spawner::run_agent_via_provider(&*provider, &agent_config, None)
+    }).await;
 
     match result {
         Ok(Ok(agent_result)) => {
@@ -207,16 +193,10 @@ pub async fn generate_clarification_message(
                 RunStatus::Error
             };
 
-            tracing::debug!(
-                "Clarification agent completed: exit_code={:?}, stdout_len={:?}",
-                exit_code,
-                agent_result.captured_stdout.as_ref().map(|s| s.len())
-            );
-
             let message = agent_result
                 .captured_stdout
                 .as_ref()
-                .map(|output| extract_agent_text(output))
+                .map(|output| config.provider.extract_text(output))
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
 

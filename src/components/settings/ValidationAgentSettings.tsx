@@ -1,13 +1,8 @@
 import {
   useSettingsStore,
+  MODEL_OPTIONS,
   type AIModel,
 } from '../../stores/settingsStore';
-
-const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
-  { value: 'opus-4.6', label: 'Opus 4.6' },
-  { value: 'opus-4.5', label: 'Opus 4.5' },
-  { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-];
 
 export function ValidationAgentSettings() {
   const {

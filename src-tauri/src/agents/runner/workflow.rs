@@ -4,45 +4,34 @@ use tauri::{Emitter, Window};
 
 use super::config::RunnerConfig;
 use super::events::{AgentCompleteEvent, AgentErrorEvent};
-use crate::agents::claude as claude_hooks;
-use crate::agents::cursor as cursor_hooks;
 use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
-use crate::agents::AgentKind;
 use crate::db::{AuthorType, CreateComment, Database, RunStatus, Ticket};
 
 pub(super) fn update_project_hooks_for_run(
-    repo_path: &std::path::Path,
-    hook_script_path: &str,
-    api_url: &str,
-    api_token: &str,
-    run_id: &str,
-    agent_kind: AgentKind,
+    config: &RunnerConfig,
 ) -> Result<(), String> {
+    let hook_script_path = match &config.hook_script_path {
+        Some(p) => p,
+        None => {
+            tracing::warn!("No hook script path configured, skipping hook update");
+            return Ok(());
+        }
+    };
+
     tracing::debug!(
         "Updating project hooks: run_id={}, api_url={}, token_prefix={}...",
-        run_id,
-        api_url,
-        &api_token.chars().take(8).collect::<String>()
+        config.run_id,
+        config.api_url,
+        &config.api_token.chars().take(8).collect::<String>()
     );
 
-    match agent_kind {
-        AgentKind::Cursor => cursor_hooks::install_hooks_with_run_id(
-            repo_path,
-            hook_script_path,
-            Some(api_url),
-            Some(api_token),
-            Some(run_id),
-        )
-        .map_err(|e| format!("Failed to update Cursor hooks.json: {}", e)),
-        AgentKind::Claude => claude_hooks::install_local_hooks_with_run_id(
-            repo_path,
-            hook_script_path,
-            Some(api_url),
-            Some(api_token),
-            Some(run_id),
-        )
-        .map_err(|e| format!("Failed to update Claude settings.local.json: {}", e)),
-    }
+    config.provider.install_hooks_for_run(
+        &config.repo_path,
+        hook_script_path,
+        Some(&config.api_url),
+        Some(&config.api_token),
+        Some(&config.run_id),
+    )
 }
 
 pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), String> {
@@ -66,7 +55,8 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         ticket: config.ticket.clone(),
         task: config.task.clone(),
         repo_path: config.repo_path.clone(),
-        agent_kind: config.agent_kind,
+        agent_id: config.agent_id.clone(),
+        provider: config.provider.clone(),
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
         hook_script_path: config.hook_script_path.clone(),
@@ -74,7 +64,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,
         is_temp_branch: config.is_temp_branch,
-        claude_api_config: config.claude_api_config.clone(),
+        agent_config: config.agent_config.clone(),
         resume_from_stage: config.resume_from_stage.clone(),
         previous_run_id: config.previous_run_id.clone(),
         workflow_settings,

@@ -254,6 +254,14 @@ fn extract_issues_section_handles_empty_section() {
 use super::WorkflowOrchestrator;
 
 #[test]
+fn stage_config_key_maps_branch_gen() {
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("branch-gen"),
+        "branchGen"
+    );
+}
+
+#[test]
 fn stage_config_key_maps_plan_stages() {
     assert_eq!(WorkflowOrchestrator::stage_config_key("plan"), "plan");
     assert_eq!(

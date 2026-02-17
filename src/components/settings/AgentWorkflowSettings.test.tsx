@@ -12,6 +12,7 @@ vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({
     workflowPreset: 'balanced',
     workflowStages: {
+      branchGen:   { enabled: true, model: 'sonnet-4.5' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
@@ -38,7 +39,13 @@ vi.mock('../../stores/settingsStore', () => ({
     'quick-fix': { label: 'Quick Fix', description: 'Minimal stages', stages: {} },
     fastest: { label: 'Fastest', description: 'All Sonnet', stages: {} },
   },
+  MODEL_OPTIONS: [
+    { value: 'opus-4.6', label: 'Opus 4.6' },
+    { value: 'opus-4.5', label: 'Opus 4.5' },
+    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
+  ],
   WORKFLOW_STAGE_INFO: [
+    { key: 'branchGen', label: 'Branch Name', description: 'Generate branch name', required: true },
     { key: 'plan', label: 'Plan', description: 'Generate a plan', required: true },
     { key: 'implement', label: 'Implement', description: 'Write code', required: true },
     { key: 'codeReview', label: 'Code Review', description: 'Review loop', required: false },

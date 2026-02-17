@@ -1,15 +1,19 @@
-import { useState } from 'react';
-import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, SpecAgentSettings, ValidationAgentSettings, DataSettings } from '../settings';
+import { useState, useEffect, useMemo } from 'react';
+import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, AgentsSettings, DataSettings } from '../settings';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
-type SettingsTab = 'general' | 'workflow' | 'spec-agent' | 'validation-agent' | 'cursor' | 'claude' | 'data';
+const AGENT_SETTINGS_COMPONENTS: Record<string, React.ComponentType> = {
+  cursor: CursorSettings,
+  claude: ClaudeSettings,
+};
 
-const SETTINGS_TABS = [
+const CORE_TABS = [
   { id: 'general', label: 'General' },
   { id: 'workflow', label: 'Agent Workflow' },
-  { id: 'spec-agent', label: 'Spec Agent' },
-  { id: 'validation-agent', label: 'Validation Agent' },
-  { id: 'cursor', label: 'Cursor' },
-  { id: 'claude', label: 'Claude Code' },
+  { id: 'agents', label: 'Agents' },
+] as const;
+
+const TRAILING_TABS = [
   { id: 'data', label: 'Data' },
 ] as const;
 
@@ -18,12 +22,33 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [settingsTab, setSettingsTab] = useState<string>('general');
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
+
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
+
+  const agentTabs = useMemo(() =>
+    agents
+      .filter((a) => AGENT_SETTINGS_COMPONENTS[a.id])
+      .map((a) => ({ id: a.id, label: a.displayName })),
+    [agents]
+  );
+
+  const allTabs = useMemo(() => [
+    ...CORE_TABS,
+    ...agentTabs,
+    ...TRAILING_TABS,
+  ], [agentTabs]);
+
+  const AgentSettingsComponent = AGENT_SETTINGS_COMPONENTS[settingsTab];
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       <div className="flex gap-1 mb-3">
-        {SETTINGS_TABS.map((tab) => (
+        {allTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setSettingsTab(tab.id)}
@@ -41,10 +66,8 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
         {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
         {settingsTab === 'workflow' && <AgentWorkflowSettings />}
-        {settingsTab === 'spec-agent' && <SpecAgentSettings />}
-        {settingsTab === 'validation-agent' && <ValidationAgentSettings />}
-        {settingsTab === 'cursor' && <CursorSettings />}
-        {settingsTab === 'claude' && <ClaudeSettings />}
+        {settingsTab === 'agents' && <AgentsSettings />}
+        {AgentSettingsComponent && <AgentSettingsComponent />}
         {settingsTab === 'data' && <DataSettings />}
       </div>
     </div>

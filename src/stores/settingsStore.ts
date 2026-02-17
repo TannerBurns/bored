@@ -2,7 +2,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { syncWorkflowSettings } from '../lib/tauri';
 
-export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5';
+export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5' | (string & {});
+
+export const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
+  { value: 'opus-4.6', label: 'Opus 4.6' },
+  { value: 'opus-4.5', label: 'Opus 4.5' },
+  { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
+];
 
 export interface WorkflowStageConfig {
   enabled: boolean;
@@ -10,6 +16,7 @@ export interface WorkflowStageConfig {
 }
 
 export type WorkflowStageKey =
+  | 'branchGen'
   | 'plan'
   | 'implement'
   | 'codeReview'
@@ -39,6 +46,7 @@ interface WorkflowStageInfo {
 }
 
 export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
+  { key: 'branchGen', label: 'Branch Name', description: 'Generate a descriptive branch name for the changes', required: true },
   { key: 'plan', label: 'Plan', description: 'Explore the codebase and generate an implementation plan', required: true },
   { key: 'implement', label: 'Implement', description: 'Write the code changes based on the plan', required: true },
   { key: 'codeReview', label: 'Code Review', description: 'Iterative review loop to find and fix issues', required: false },
@@ -55,6 +63,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Most Comprehensive',
     description: 'Maximum quality, highest cost — all stages with Opus 4.6',
     stages: {
+      branchGen:   { enabled: true, model: 'sonnet-4.5' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
@@ -69,6 +78,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Balanced',
     description: 'Smart cost/quality tradeoff — all stages, mixed models',
     stages: {
+      branchGen:   { enabled: true, model: 'sonnet-4.5' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
@@ -83,6 +93,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Vibe',
     description: 'Trust the implementation, light QA — creative core with Opus 4.6',
     stages: {
+      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
       plan:        { enabled: true,  model: 'opus-4.6' },
       implement:   { enabled: true,  model: 'opus-4.6' },
       codeReview:  { enabled: true,  model: 'opus-4.5' },
@@ -97,6 +108,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Standard',
     description: 'Core workflow without polish — skips deslop and final review',
     stages: {
+      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
       plan:        { enabled: true,  model: 'opus-4.5' },
       implement:   { enabled: true,  model: 'opus-4.5' },
       codeReview:  { enabled: true,  model: 'opus-4.5' },
@@ -111,6 +123,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Quick Fix',
     description: 'Minimal stages for small changes — plan, implement, cleanup, commit',
     stages: {
+      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
       plan:        { enabled: true,  model: 'sonnet-4.5' },
       implement:   { enabled: true,  model: 'sonnet-4.5' },
       codeReview:  { enabled: false, model: 'sonnet-4.5' },
@@ -125,6 +138,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Fastest',
     description: 'Maximum speed — all stages with Sonnet 4.5',
     stages: {
+      branchGen:   { enabled: true, model: 'sonnet-4.5' },
       plan:        { enabled: true, model: 'sonnet-4.5' },
       implement:   { enabled: true, model: 'sonnet-4.5' },
       codeReview:  { enabled: true, model: 'sonnet-4.5' },
@@ -163,20 +177,16 @@ interface SettingsState {
   validationModel: AIModel;
   validationTimeoutMinutes: number;
 
-  // Claude API settings (stored locally, synced to backend on change)
-  claudeAuthToken: string;
-  claudeApiKey: string;
-  claudeBaseUrl: string;
-  claudeModelOverride: string;
+  // Diagnostic agent settings
+  diagnosticModel: AIModel;
 
-  // Claude CLI option settings
-  claudeThinkingEnabled: boolean;
-  claudeExtendedContext: boolean;
-  claudeChromeEnabled: boolean;
+  // Per-agent settings (keyed by agent ID, e.g. "claude", "cursor")
+  agentSettings: Record<string, Record<string, unknown>>;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setValidationModel: (model: AIModel) => void;
   setValidationTimeoutMinutes: (min: number) => void;
+  setDiagnosticModel: (model: AIModel) => void;
   setPlannerAutoApprove: (autoApprove: boolean) => void;
   setPlannerModel: (model: AIModel) => void;
   setPlannerMaxExplorations: (max: number) => void;
@@ -188,22 +198,9 @@ interface SettingsState {
   setWorkflowPreset: (preset: WorkflowPreset) => void;
   setWorkflowStages: (stages: WorkflowStages) => void;
   setWorkflowStageConfig: (key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
-  setClaudeAuthToken: (token: string) => void;
-  setClaudeApiKey: (key: string) => void;
-  setClaudeBaseUrl: (url: string) => void;
-  setClaudeModelOverride: (model: string) => void;
-  setClaudeThinkingEnabled: (enabled: boolean) => void;
-  setClaudeExtendedContext: (enabled: boolean) => void;
-  setClaudeChromeEnabled: (enabled: boolean) => void;
-  setClaudeApiSettings: (settings: {
-    authToken?: string;
-    apiKey?: string;
-    baseUrl?: string;
-    modelOverride?: string;
-    thinkingEnabled?: boolean;
-    extendedContext?: boolean;
-    chromeEnabled?: boolean;
-  }) => void;
+  getAgentSettings: (agentId: string) => Record<string, unknown>;
+  setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
+  setAgentSetting: (agentId: string, key: string, value: unknown) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -231,16 +228,23 @@ export const useSettingsStore = create<SettingsState>()(
       validationModel: 'sonnet-4.5',
       validationTimeoutMinutes: 10,
 
-      // Claude API defaults (empty = use environment/system defaults)
-      claudeAuthToken: '',
-      claudeApiKey: '',
-      claudeBaseUrl: '',
-      claudeModelOverride: '',
+      // Diagnostic agent defaults
+      diagnosticModel: 'sonnet-4.5',
 
-      // Claude CLI option defaults
-      claudeThinkingEnabled: true,
-      claudeExtendedContext: false,
-      claudeChromeEnabled: false,
+      agentSettings: {
+        claude: {
+          authToken: '',
+          apiKey: '',
+          baseUrl: '',
+          modelOverride: '',
+          thinkingEnabled: true,
+          extendedContext: false,
+          chromeEnabled: false,
+        },
+        cursor: {
+          thinkingEnabled: true,
+        },
+      },
 
       setTheme: (theme) => set({ theme }),
       setPlannerAutoApprove: (plannerAutoApprove) => set({ plannerAutoApprove }),
@@ -272,33 +276,75 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setValidationModel: (validationModel) => set({ validationModel }),
       setValidationTimeoutMinutes: (validationTimeoutMinutes) => set({ validationTimeoutMinutes }),
-      setClaudeAuthToken: (claudeAuthToken) => set({ claudeAuthToken }),
-      setClaudeApiKey: (claudeApiKey) => set({ claudeApiKey }),
-      setClaudeBaseUrl: (claudeBaseUrl) => set({ claudeBaseUrl }),
-      setClaudeModelOverride: (claudeModelOverride) => set({ claudeModelOverride }),
-      setClaudeThinkingEnabled: (claudeThinkingEnabled) => set({ claudeThinkingEnabled }),
-      setClaudeExtendedContext: (claudeExtendedContext) => set({ claudeExtendedContext }),
-      setClaudeChromeEnabled: (claudeChromeEnabled) => set({ claudeChromeEnabled }),
-      setClaudeApiSettings: (settings) => set(() => ({
-        ...(settings.authToken !== undefined && { claudeAuthToken: settings.authToken }),
-        ...(settings.apiKey !== undefined && { claudeApiKey: settings.apiKey }),
-        ...(settings.baseUrl !== undefined && { claudeBaseUrl: settings.baseUrl }),
-        ...(settings.modelOverride !== undefined && { claudeModelOverride: settings.modelOverride }),
-        ...(settings.thinkingEnabled !== undefined && { claudeThinkingEnabled: settings.thinkingEnabled }),
-        ...(settings.extendedContext !== undefined && { claudeExtendedContext: settings.extendedContext }),
-        ...(settings.chromeEnabled !== undefined && { claudeChromeEnabled: settings.chromeEnabled }),
-      })),
+      setDiagnosticModel: (diagnosticModel) => set({ diagnosticModel }),
+
+      getAgentSettings: (agentId) => get().agentSettings[agentId] ?? {},
+      setAgentSettings: (agentId, settings) => {
+        const current = get().agentSettings;
+        set({
+          agentSettings: {
+            ...current,
+            [agentId]: { ...(current[agentId] ?? {}), ...settings },
+          },
+        });
+      },
+      setAgentSetting: (agentId, key, value) => {
+        const current = get().agentSettings;
+        set({
+          agentSettings: {
+            ...current,
+            [agentId]: { ...(current[agentId] ?? {}), [key]: value },
+          },
+        });
+      },
+
     }),
     {
       name: 'agent-kanban-settings',
-      version: 8,
+      version: 10,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+        if (version < 10) {
+          // v9 -> v10: add branchGen stage to workflow and diagnosticModel setting
+          const stages = state.workflowStages as Record<string, unknown> | undefined;
+          if (stages && !stages.branchGen) {
+            stages.branchGen = { enabled: true, model: 'sonnet-4.5' };
+          }
+          if (state.diagnosticModel === undefined) {
+            state.diagnosticModel = 'sonnet-4.5';
+          }
+        }
         if (version < 8) {
           // v7 -> v8: add Claude CLI option settings with sensible defaults
           if (state.claudeThinkingEnabled === undefined) state.claudeThinkingEnabled = true;
           if (state.claudeExtendedContext === undefined) state.claudeExtendedContext = false;
           if (state.claudeChromeEnabled === undefined) state.claudeChromeEnabled = false;
+        }
+        if (version < 9) {
+          // v8 -> v9: migrate Claude-specific fields into generic agentSettings map
+          const claude: Record<string, unknown> = {};
+          const legacyKeys: Record<string, string> = {
+            claudeAuthToken: 'authToken',
+            claudeApiKey: 'apiKey',
+            claudeBaseUrl: 'baseUrl',
+            claudeModelOverride: 'modelOverride',
+            claudeThinkingEnabled: 'thinkingEnabled',
+            claudeExtendedContext: 'extendedContext',
+            claudeChromeEnabled: 'chromeEnabled',
+          };
+          for (const [oldKey, newKey] of Object.entries(legacyKeys)) {
+            if (state[oldKey] !== undefined) {
+              claude[newKey] = state[oldKey];
+              delete state[oldKey];
+            }
+          }
+          // Ensure defaults for any missing Claude settings
+          if (claude.thinkingEnabled === undefined) claude.thinkingEnabled = true;
+          if (claude.extendedContext === undefined) claude.extendedContext = false;
+          if (claude.chromeEnabled === undefined) claude.chromeEnabled = false;
+
+          const existing = (state.agentSettings as Record<string, Record<string, unknown>> | undefined) ?? {};
+          state.agentSettings = { ...existing, claude: { ...(existing.claude ?? {}), ...claude } };
         }
         if (version < 7) {
           // v6 -> v7: convert stageTimeoutMinutes to stageTimeoutHours
@@ -364,6 +410,7 @@ function syncCurrentWorkflowSettings(state: SettingsState) {
     codeReviewMaxIterations: state.codeReviewMaxIterations,
     stageTimeoutHours: state.stageTimeoutHours,
     stageMaxRetries: state.stageMaxRetries,
+    diagnosticModel: state.diagnosticModel,
   }).then(() => {
     console.debug('[settings] Workflow settings synced to backend');
   }).catch((err) => {
@@ -385,6 +432,7 @@ export async function ensureWorkflowSettingsSynced(): Promise<void> {
       codeReviewMaxIterations: state.codeReviewMaxIterations,
       stageTimeoutHours: state.stageTimeoutHours,
       stageMaxRetries: state.stageMaxRetries,
+      diagnosticModel: state.diagnosticModel,
     });
   } catch (err) {
     console.error('[settings] ensureWorkflowSettingsSynced failed:', err);
@@ -399,7 +447,8 @@ useSettingsStore.subscribe(
       state.workflowStages !== prevState.workflowStages ||
       state.codeReviewMaxIterations !== prevState.codeReviewMaxIterations ||
       state.stageTimeoutHours !== prevState.stageTimeoutHours ||
-      state.stageMaxRetries !== prevState.stageMaxRetries
+      state.stageMaxRetries !== prevState.stageMaxRetries ||
+      state.diagnosticModel !== prevState.diagnosticModel
     ) {
       syncCurrentWorkflowSettings(state);
     }
@@ -420,6 +469,7 @@ const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
       codeReviewMaxIterations: state.codeReviewMaxIterations,
       stageTimeoutHours: state.stageTimeoutHours,
       stageMaxRetries: state.stageMaxRetries,
+      diagnosticModel: state.diagnosticModel,
     }).then(() => {
       console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`);
     }).catch((err) => {

@@ -119,7 +119,7 @@ export function GetStartedStep({ onComplete, onBack }: GetStartedStepProps) {
             <div>
               <div className="text-sm font-medium text-board-text">Run Agents</div>
               <p className="text-xs text-board-text-muted mt-0.5">
-                Click "Build with" on any ticket to run Cursor or Claude. Or start Workers from the Agents view for hands-off automation.
+                Click "Build with" on any ticket to run an agent. Or start Workers from the Agents view for hands-off automation.
               </p>
             </div>
           </div>

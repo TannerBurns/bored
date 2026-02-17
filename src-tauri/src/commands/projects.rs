@@ -75,11 +75,11 @@ pub async fn check_ticket_readiness(
 #[tauri::command]
 pub async fn update_project_hooks(
     project_id: String,
-    cursor_installed: Option<bool>,
-    claude_installed: Option<bool>,
+    agent_id: String,
+    installed: bool,
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
-    db.update_project_hooks(&project_id, cursor_installed, claude_installed)
+    db.update_project_hooks(&project_id, &agent_id, installed)
         .map_err(|e| e.to_string())
 }
 

@@ -6,37 +6,40 @@ use tauri::State;
 use tokio::sync::broadcast;
 
 use crate::agents::planner::{PlannerAgent, PlannerConfig};
-use crate::agents::{AgentKind, ClaudeApiConfig};
+use crate::agents::AgentRegistry;
 use crate::api::state::LiveEvent;
-use crate::commands::claude::ClaudeApiSettingsState;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::commands::ApiConnState;
 use crate::db::{
     ConversationMessage, ConversationRole, CreateConversationMessage, Database,
     SpecVersionStatus, StructuredSpec, UpdateSpec, UpdateSpecVersion,
 };
 
-/// Resolve agent kind: explicit string > spec settings agentType > default Claude
-fn resolve_agent_kind(
+/// Input for starting or continuing a conversation.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationInput {
+    pub spec_id: String,
+    #[serde(default)]
+    pub content: Option<String>,
+    pub timeout_minutes: Option<u32>,
+    pub agent_type: Option<String>,
+}
+
+fn resolve_agent_id(
     agent_type: Option<&str>,
     settings: Option<&serde_json::Map<String, serde_json::Value>>,
-) -> AgentKind {
+    registry: &AgentRegistry,
+) -> String {
     if let Some(t) = agent_type {
-        return match t {
-            "cursor" => AgentKind::Cursor,
-            "claude" => AgentKind::Claude,
-            _ => AgentKind::Claude,
-        };
+        return t.to_string();
     }
     if let Some(settings) = settings {
         if let Some(serde_json::Value::String(s)) = settings.get("agentType") {
-            return match s.as_str() {
-                "cursor" => AgentKind::Cursor,
-                "claude" => AgentKind::Claude,
-                _ => AgentKind::Claude,
-            };
+            return s.clone();
         }
     }
-    AgentKind::Claude
+    registry.default_agent_id()
 }
 
 /// Get all conversation messages for a spec
@@ -53,15 +56,17 @@ pub async fn get_conversation_messages(
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn send_conversation_message(
-    spec_id: String,
-    content: String,
-    timeout_minutes: Option<u32>,
-    agent_type: Option<String>,
+    input: ConversationInput,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ConversationMessage, String> {
+    let spec_id = input.spec_id;
+    let content = input.content.unwrap_or_default();
+    let timeout_minutes = input.timeout_minutes;
+    let agent_type = input.agent_type;
     tracing::info!("Sending conversation message for spec {}", spec_id);
 
     let mut spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
@@ -137,14 +142,16 @@ pub async fn send_conversation_message(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
 
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
-
     let messages = db
         .get_conversation_messages(&spec_id)
         .map_err(|e| e.to_string())?;
 
-    // Resolve agent: explicit param > spec.settings.agentType > default Claude
-    let agent_kind = resolve_agent_kind(agent_type.as_deref(), spec.settings.as_object());
+    let agent_id = resolve_agent_id(agent_type.as_deref(), spec.settings.as_object(), &registry);
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     // Before brainstorm_config takes ownership of shared values
     let plan_trigger = PlanTriggerConfig {
@@ -153,8 +160,9 @@ pub async fn send_conversation_message(
         repo_path: std::path::PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config: claude_api_config.clone(),
-        agent_kind,
+        agent_config: agent_config.clone(),
+        agent_id: agent_id.clone(),
+        provider: provider.clone(),
         model: spec.model.clone(),
     };
 
@@ -164,8 +172,9 @@ pub async fn send_conversation_message(
         repo_path: std::path::PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config,
-        agent_kind,
+        agent_config,
+        agent_id,
+        provider,
         model: spec.model.clone(),
         timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
@@ -214,14 +223,16 @@ pub async fn send_conversation_message(
 /// Start a conversation for a spec (version should already be in conversing state)
 #[tauri::command]
 pub async fn start_conversation(
-    spec_id: String,
-    timeout_minutes: Option<u32>,
-    agent_type: Option<String>,
+    input: ConversationInput,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     api_conn: State<'_, ApiConnState>,
-    claude_api_state: State<'_, ClaudeApiSettingsState>,
+    agent_settings: State<'_, AgentSettingsManager>,
+    registry: State<'_, AgentRegistry>,
 ) -> Result<ConversationMessage, String> {
+    let spec_id = input.spec_id;
+    let timeout_minutes = input.timeout_minutes;
+    let agent_type = input.agent_type;
     tracing::info!("Starting conversation for spec {}", spec_id);
 
     let spec = db.get_spec(&spec_id).map_err(|e| e.to_string())?;
@@ -257,9 +268,12 @@ pub async fn start_conversation(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Project '{}' not found", spec.project_id))?;
 
-    let claude_api_config = Some(ClaudeApiConfig::from(claude_api_state.get()));
+    let agent_id = resolve_agent_id(agent_type.as_deref(), spec.settings.as_object(), &registry);
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
 
-    let agent_kind = resolve_agent_kind(agent_type.as_deref(), spec.settings.as_object());
+    let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let plan_trigger = PlanTriggerConfig {
         spec_id: spec_id.clone(),
@@ -267,8 +281,9 @@ pub async fn start_conversation(
         repo_path: std::path::PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config: claude_api_config.clone(),
-        agent_kind,
+        agent_config: agent_config.clone(),
+        agent_id: agent_id.clone(),
+        provider: provider.clone(),
         model: spec.model.clone(),
     };
 
@@ -278,8 +293,9 @@ pub async fn start_conversation(
         repo_path: std::path::PathBuf::from(&project.path),
         api_url: api_conn.url.clone(),
         api_token: api_conn.token.clone(),
-        claude_api_config,
-        agent_kind,
+        agent_config,
+        agent_id,
+        provider,
         model: spec.model.clone(),
         timeout_secs: timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
     };
@@ -336,8 +352,9 @@ struct PlanTriggerConfig {
     repo_path: PathBuf,
     api_url: String,
     api_token: String,
-    claude_api_config: Option<ClaudeApiConfig>,
-    agent_kind: AgentKind,
+    agent_config: std::collections::HashMap<String, serde_json::Value>,
+    agent_id: String,
+    provider: std::sync::Arc<dyn crate::agents::AgentProvider>,
     model: Option<String>,
 }
 
@@ -630,11 +647,12 @@ async fn run_plan_generation(
         max_explorations: 0,
         auto_approve: false,
         model: config.model,
-        agent_kind: config.agent_kind,
+        agent_id: config.agent_id,
+        provider: config.provider,
         repo_path: config.repo_path,
         api_url: config.api_url,
         api_token: config.api_token,
-        claude_api_config: config.claude_api_config,
+        agent_config: config.agent_config,
         timeout_secs: 300,
         max_retries: 2,
     };
@@ -924,5 +942,108 @@ mod tests {
         assert!(!result.contains("Session started"));
         assert!(result.contains("Build auth"));
         assert!(result.contains("OK, looking..."));
+    }
+
+    mod resolve_agent_id_tests {
+        use super::*;
+        use crate::agents::cost::RunCostData;
+        use crate::agents::provider::{AgentProvider, AgentRunConfig};
+        use crate::agents::registry::AgentRegistry;
+        use std::path::Path;
+
+        #[derive(Debug)]
+        struct FakeProvider {
+            name: String,
+            available: bool,
+        }
+
+        impl AgentProvider for FakeProvider {
+            fn id(&self) -> &str { &self.name }
+            fn display_name(&self) -> &str { &self.name }
+            fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { (self.name.clone(), vec![]) }
+            fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+            fn extract_text(&self, o: &str) -> String { o.to_string() }
+            fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
+            fn is_available(&self) -> bool { self.available }
+            fn get_version(&self) -> Option<String> { None }
+            fn config_dir_name(&self) -> &str { ".fake" }
+            fn command_instructions_subdir(&self) -> &str { "commands" }
+            fn format_command_reference(&self, c: &str) -> String { format!("/{}", c) }
+            fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
+        }
+
+        fn make_registry(providers: Vec<(&str, bool)>) -> AgentRegistry {
+            let mut reg = AgentRegistry::new();
+            for (name, available) in providers {
+                reg.register(std::sync::Arc::new(FakeProvider {
+                    name: name.to_string(),
+                    available,
+                }));
+            }
+            reg
+        }
+
+        #[test]
+        fn explicit_agent_type_takes_priority() {
+            let reg = make_registry(vec![("cursor", true), ("claude", true)]);
+            let result = resolve_agent_id(Some("cursor"), None, &reg);
+            assert_eq!(result, "cursor");
+        }
+
+        #[test]
+        fn explicit_agent_type_overrides_settings() {
+            let reg = make_registry(vec![("cursor", true), ("claude", true)]);
+            let mut settings = serde_json::Map::new();
+            settings.insert("agentType".to_string(), serde_json::json!("claude"));
+            let result = resolve_agent_id(Some("cursor"), Some(&settings), &reg);
+            assert_eq!(result, "cursor");
+        }
+
+        #[test]
+        fn settings_agent_type_used_when_no_explicit() {
+            let reg = make_registry(vec![("cursor", true), ("claude", true)]);
+            let mut settings = serde_json::Map::new();
+            settings.insert("agentType".to_string(), serde_json::json!("claude"));
+            let result = resolve_agent_id(None, Some(&settings), &reg);
+            assert_eq!(result, "claude");
+        }
+
+        #[test]
+        fn falls_back_to_first_available_agent() {
+            let reg = make_registry(vec![("offline", false), ("online", true)]);
+            let result = resolve_agent_id(None, None, &reg);
+            assert_eq!(result, "online");
+        }
+
+        #[test]
+        fn falls_back_to_first_registered_when_none_available() {
+            let reg = make_registry(vec![("offline1", false), ("offline2", false)]);
+            let result = resolve_agent_id(None, None, &reg);
+            // Falls back to first registered agent when none are available
+            assert!(!result.is_empty());
+        }
+
+        #[test]
+        fn falls_back_to_empty_when_registry_empty() {
+            let reg = AgentRegistry::new();
+            let result = resolve_agent_id(None, None, &reg);
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn unknown_explicit_agent_is_passed_through() {
+            let reg = make_registry(vec![("cursor", true)]);
+            let result = resolve_agent_id(Some("unknown-agent"), None, &reg);
+            assert_eq!(result, "unknown-agent");
+        }
+
+        #[test]
+        fn settings_with_non_string_agent_type_ignored() {
+            let reg = make_registry(vec![("cursor", true)]);
+            let mut settings = serde_json::Map::new();
+            settings.insert("agentType".to_string(), serde_json::json!(42));
+            let result = resolve_agent_id(None, Some(&settings), &reg);
+            assert_eq!(result, "cursor");
+        }
     }
 }

@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { ClaudeIcon, CursorIcon } from '../common';
-import { useCliAvailability } from '../../hooks/useCliAvailability';
+import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+import type { AgentType } from '../../types';
 
 interface BuildWithDropdownProps {
-  onSelect: (agent: 'cursor' | 'claude') => void;
+  onSelect: (agent: AgentType) => void;
   disabled?: boolean;
   disabledReason?: string;
   /** Button label (default: "Build with") */
@@ -21,20 +22,24 @@ export function BuildWithDropdown({
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
-  const { cursorAvailable, claudeAvailable } = useCliAvailability();
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    loadAgents();
+  }, [loadAgents]);
 
   const handleToggle = () => {
     if (disabled) return;
     
     if (!isOpen && buttonRef.current) {
       const buttonRect = buttonRef.current.getBoundingClientRect();
-      const dropdownHeight = 100; // Approximate height of dropdown menu
+      const dropdownHeight = 100;
       const spaceBelow = window.innerHeight - buttonRect.bottom;
       const spaceAbove = buttonRect.top;
       
-      // Open upward if not enough space below but enough above
       setOpenUpward(spaceBelow < dropdownHeight && spaceAbove > dropdownHeight);
     }
     
@@ -67,10 +72,24 @@ export function BuildWithDropdown({
     }
   }, [isOpen]);
 
-  const handleSelect = (agent: 'cursor' | 'claude') => {
+  const handleSelect = (agent: AgentType) => {
     setIsOpen(false);
     onSelect(agent);
   };
+
+  /** Get icon color for agents. Uses brand color from registry when available. */
+  const getIconStyle = (agentId: string, available: boolean): { className?: string; style?: React.CSSProperties } => {
+    if (!available) return { className: 'text-board-text-muted' };
+    const brandColor = getAgentBrandColor(agentId, agents.find(a => a.id === agentId)?.brandColor);
+    if (brandColor) return { style: { color: brandColor } };
+    return { className: 'text-board-text-secondary' };
+  };
+
+  const agentList: { id: AgentType; name: string; available: boolean }[] = agents.map((a) => ({
+    id: a.id as AgentType,
+    name: a.displayName,
+    available: a.isAvailable,
+  }));
 
   return (
     <div ref={dropdownRef} className="relative">
@@ -125,34 +144,27 @@ export function BuildWithDropdown({
         <div className={`absolute left-0 z-50 glass-intense rounded-xl shadow-lg py-1 min-w-[160px] border border-board-border overflow-hidden ${
           openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
         }`}>
-          <button
-            onClick={() => cursorAvailable && handleSelect('cursor')}
-            disabled={!cursorAvailable}
-            title={!cursorAvailable ? 'Cursor CLI not available' : undefined}
-            className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-3 ${
-              cursorAvailable
-                ? 'text-board-text hover:bg-board-card-hover cursor-pointer'
-                : 'text-board-text-muted cursor-not-allowed opacity-50'
-            }`}
-          >
-            <CursorIcon className={cursorAvailable ? 'text-board-text-secondary' : 'text-board-text-muted'} />
-            <span>Cursor</span>
-            {!cursorAvailable && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
-          </button>
-          <button
-            onClick={() => claudeAvailable && handleSelect('claude')}
-            disabled={!claudeAvailable}
-            title={!claudeAvailable ? 'Claude CLI not available' : undefined}
-            className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-3 ${
-              claudeAvailable
-                ? 'text-board-text hover:bg-board-card-hover cursor-pointer'
-                : 'text-board-text-muted cursor-not-allowed opacity-50'
-            }`}
-          >
-            <ClaudeIcon className={claudeAvailable ? 'text-[#da7756]' : 'text-board-text-muted'} />
-            <span>Claude</span>
-            {!claudeAvailable && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
-          </button>
+          {agentList.map((agent) => {
+            const Icon = getAgentIcon(agent.id);
+            const available = agent.available;
+            return (
+              <button
+                key={agent.id}
+                onClick={() => available && handleSelect(agent.id)}
+                disabled={!available}
+                title={!available ? `${agent.name} CLI not available` : undefined}
+                className={`w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-3 ${
+                  available
+                    ? 'text-board-text hover:bg-board-card-hover cursor-pointer'
+                    : 'text-board-text-muted cursor-not-allowed opacity-50'
+                }`}
+              >
+                <Icon {...getIconStyle(agent.id, available)} />
+                <span>{agent.name}</span>
+                {!available && <span className="text-xs text-board-text-muted ml-auto">(not installed)</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
