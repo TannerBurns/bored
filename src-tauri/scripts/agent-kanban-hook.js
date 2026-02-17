@@ -116,8 +116,8 @@ async function processSpooledEvents() {
     try {
       const content = fs.readFileSync(filepath, 'utf8');
       const event = JSON.parse(content);
-      const success = await postToApi(event);
-      if (success) fs.unlinkSync(filepath);
+      const result = await postToApi(event);
+      if (result.ok) fs.unlinkSync(filepath);
     } catch (error) {
       console.error(`Failed to process spooled event ${file}:`, error.message);
     }
@@ -132,14 +132,14 @@ async function postToApi(body) {
   for (let attempt = 0; attempt < CONFIG.maxRetries; attempt++) {
     try {
       const responseBody = await httpRequest('POST', url, body);
-      return JSON.parse(responseBody);
+      return { ok: true, data: JSON.parse(responseBody) };
     } catch (error) {
       if (attempt < CONFIG.maxRetries - 1) {
         await sleep(CONFIG.retryDelayMs * (attempt + 1));
       }
     }
   }
-  return null;
+  return { ok: false, data: null };
 }
 
 // ── Response wrapping ──────────────────────────────────────────────
@@ -208,16 +208,16 @@ async function main() {
       timestamp: new Date().toISOString(),
     };
 
-    const actionResponse = await postToApi(body);
+    const result = await postToApi(body);
 
-    if (!actionResponse) {
+    if (!result.ok) {
       // API unreachable — spool and allow the operation to continue
       spoolEvent(body);
     }
 
     await processSpooledEvents().catch(() => {});
 
-    const response = formatResponse(actionResponse, rawEventType);
+    const response = formatResponse(result.data, rawEventType);
     if (response) {
       console.log(typeof response === 'string' ? response : JSON.stringify(response));
     }
