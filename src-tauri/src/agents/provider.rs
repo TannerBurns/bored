@@ -217,7 +217,10 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     }
 
     /// Map a friendly model name to the CLI format this agent expects.
-    /// E.g. Claude maps "opus-4.6" -> "claude-opus-4-6".
+    /// E.g. "opus-4.6" -> "claude-opus-4-6".
+    ///
+    /// The default is a passthrough. Providers that target a specific model
+    /// family should override this (see [`models::map_model_name`]).
     fn map_model_name(&self, model: &str) -> String {
         model.to_string()
     }

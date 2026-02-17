@@ -1,11 +1,9 @@
 //! Claude CLI integration: commands, hooks, and availability checking.
 
 // Submodules
-mod availability;
 mod command;
 #[cfg(test)]
 mod command_tests;
-mod commands;
 mod hooks;
 pub mod provider;
 #[cfg(test)]
@@ -13,12 +11,6 @@ mod provider_tests;
 mod settings;
 
 // Public re-exports
-pub use availability::{get_claude_version, is_claude_available};
-pub use commands::{
-    check_project_commands_installed, check_user_commands_installed, get_available_commands,
-    get_bundled_commands_path, get_bundled_commands_path_with_app, install_commands,
-    install_user_commands, COMMAND_TEMPLATES,
-};
 pub use hooks::{
     generate_hooks_config, generate_hooks_settings, generate_hooks_settings_with_api,
     generate_hooks_settings_with_config, install_local_hooks, install_local_hooks_with_run_id,

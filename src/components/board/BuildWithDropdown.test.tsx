@@ -1,24 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildWithDropdown } from './BuildWithDropdown';
+import type { AgentInfo } from '../../types';
 
-// Mock the tauri module to provide agent data
-const mockGetAvailableAgents = vi.fn();
-vi.mock('../../lib/tauri', () => ({
-  getAvailableAgents: (...args: unknown[]) => mockGetAvailableAgents(...args),
-}));
+const mockLoadAgents = vi.fn().mockResolvedValue([]);
 
-const MOCK_AGENTS = [
+const MOCK_AGENTS: AgentInfo[] = [
   { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
   { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
 ];
+
+let storeAgents: AgentInfo[] = MOCK_AGENTS;
+
+vi.mock('../../stores/agentRegistryStore', () => ({
+  useAgentRegistryStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({
+      agents: storeAgents,
+      agentsLoading: false,
+      agentsLoaded: true,
+      loadAgents: mockLoadAgents,
+    }),
+}));
 
 describe('BuildWithDropdown', () => {
   const mockOnSelect = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAvailableAgents.mockResolvedValue(MOCK_AGENTS);
+    storeAgents = MOCK_AGENTS;
   });
 
   it('renders Build with button', () => {
@@ -26,10 +35,8 @@ describe('BuildWithDropdown', () => {
     expect(screen.getByText('Build with')).toBeInTheDocument();
   });
 
-  it('opens dropdown on click', async () => {
+  it('opens dropdown on click', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     const button = screen.getByText('Build with');
     fireEvent.click(button);
@@ -38,10 +45,8 @@ describe('BuildWithDropdown', () => {
     expect(screen.getByText('Claude')).toBeInTheDocument();
   });
 
-  it('calls onSelect with cursor when Cursor is clicked', async () => {
+  it('calls onSelect with cursor when Cursor is clicked', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('Build with'));
     fireEvent.click(screen.getByText('Cursor'));
@@ -50,10 +55,8 @@ describe('BuildWithDropdown', () => {
     expect(mockOnSelect).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onSelect with claude when Claude is clicked', async () => {
+  it('calls onSelect with claude when Claude is clicked', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('Build with'));
     fireEvent.click(screen.getByText('Claude'));
@@ -62,10 +65,8 @@ describe('BuildWithDropdown', () => {
     expect(mockOnSelect).toHaveBeenCalledTimes(1);
   });
 
-  it('closes dropdown after selection', async () => {
+  it('closes dropdown after selection', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
@@ -97,10 +98,8 @@ describe('BuildWithDropdown', () => {
     expect(button).toHaveAttribute('title', 'No project assigned');
   });
 
-  it('closes dropdown on escape key', async () => {
+  it('closes dropdown on escape key', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
@@ -110,15 +109,13 @@ describe('BuildWithDropdown', () => {
     expect(screen.queryByText('Cursor')).not.toBeInTheDocument();
   });
 
-  it('closes dropdown on outside click', async () => {
+  it('closes dropdown on outside click', () => {
     render(
       <div>
         <BuildWithDropdown onSelect={mockOnSelect} />
         <button data-testid="outside">Outside</button>
       </div>
     );
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     fireEvent.click(screen.getByText('Build with'));
     expect(screen.getByText('Cursor')).toBeInTheDocument();
@@ -128,10 +125,8 @@ describe('BuildWithDropdown', () => {
     expect(screen.queryByText('Cursor')).not.toBeInTheDocument();
   });
 
-  it('toggles dropdown open and closed', async () => {
+  it('toggles dropdown open and closed', () => {
     render(<BuildWithDropdown onSelect={mockOnSelect} />);
-    
-    await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
     const button = screen.getByText('Build with');
     
@@ -143,14 +138,13 @@ describe('BuildWithDropdown', () => {
   });
 
   describe('CLI availability', () => {
-    it('does not call onSelect when Cursor CLI is unavailable', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('does not call onSelect when Cursor CLI is unavailable', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 
@@ -161,14 +155,13 @@ describe('BuildWithDropdown', () => {
       expect(mockOnSelect).not.toHaveBeenCalled();
     });
 
-    it('does not call onSelect when Claude CLI is unavailable', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('does not call onSelect when Claude CLI is unavailable', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 
@@ -179,28 +172,26 @@ describe('BuildWithDropdown', () => {
       expect(mockOnSelect).not.toHaveBeenCalled();
     });
 
-    it('shows "(not installed)" text when an agent is unavailable', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('shows "(not installed)" text when an agent is unavailable', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 
       expect(screen.getByText('(not installed)')).toBeInTheDocument();
     });
 
-    it('shows both as unavailable when both CLIs are not installed', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('shows both as unavailable when both CLIs are not installed', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 
@@ -213,14 +204,13 @@ describe('BuildWithDropdown', () => {
       expect(claudeButton).toBeDisabled();
     });
 
-    it('allows Cursor selection when available but Claude is not', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('allows Cursor selection when available but Claude is not', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 
@@ -231,14 +221,13 @@ describe('BuildWithDropdown', () => {
       expect(mockOnSelect).toHaveBeenCalledWith('cursor');
     });
 
-    it('allows Claude selection when available but Cursor is not', async () => {
-      mockGetAvailableAgents.mockResolvedValue([
+    it('allows Claude selection when available but Cursor is not', () => {
+      storeAgents = [
         { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
         { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
-      ]);
+      ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
-      await waitFor(() => expect(mockGetAvailableAgents).toHaveBeenCalled());
 
       fireEvent.click(screen.getByText('Build with'));
 

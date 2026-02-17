@@ -15,7 +15,6 @@ const mockGetAgentHookScriptPath = vi.fn();
 const mockInstallAgentHooksProject = vi.fn();
 const mockInstallCommandsToProject = vi.fn();
 const mockUpdateProjectHooks = vi.fn();
-const mockGetAvailableAgents = vi.fn();
 
 vi.mock('../../lib/tauri', () => ({
   getProjects: (...args: unknown[]) => mockGetProjects(...args),
@@ -29,7 +28,6 @@ vi.mock('../../lib/tauri', () => ({
   installAgentHooksProject: (...args: unknown[]) => mockInstallAgentHooksProject(...args),
   installCommandsToProject: (...args: unknown[]) => mockInstallCommandsToProject(...args),
   updateProjectHooks: (...args: unknown[]) => mockUpdateProjectHooks(...args),
-  getAvailableAgents: (...args: unknown[]) => mockGetAvailableAgents(...args),
 }));
 
 // ── Test data ────────────────────────────────────────────────────────
@@ -38,6 +36,14 @@ const MOCK_AGENTS = [
   { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
   { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
 ];
+
+// Mock the agent registry store
+let storeAgents = MOCK_AGENTS;
+vi.mock('../../stores/agentRegistryStore', () => ({
+  useAgentRegistryStore: {
+    getState: () => ({ agents: storeAgents }),
+  },
+}));
 
 const MOCK_PROJECT = {
   id: 'proj-1',
@@ -58,7 +64,7 @@ function setupHappyPathMocks() {
   mockBrowseForDirectory.mockResolvedValue('/test/project');
   mockCheckGitStatus.mockResolvedValue(true);
   mockCreateProject.mockResolvedValue(MOCK_PROJECT);
-  mockGetAvailableAgents.mockResolvedValue(MOCK_AGENTS);
+  storeAgents = MOCK_AGENTS;
   mockGetAgentHookScriptPath.mockResolvedValue('/app/scripts/hook.js');
   mockInstallAgentHooksProject.mockResolvedValue(undefined);
   mockInstallCommandsToProject.mockResolvedValue(undefined);
@@ -247,7 +253,7 @@ describe('ProjectsList', () => {
   describe('autoSetupProject — no agents', () => {
     it('completes without error when no agents are available', async () => {
       setupHappyPathMocks();
-      mockGetAvailableAgents.mockResolvedValue([]);
+      storeAgents = [];
 
       await renderAndWaitForLoad();
       await addExistingProjectViaUI();
@@ -263,9 +269,9 @@ describe('ProjectsList', () => {
       expect(mockUpdateProjectHooks).not.toHaveBeenCalled();
     });
 
-    it('completes without error when getAvailableAgents fails', async () => {
+    it('completes without error when store has empty agents', async () => {
       setupHappyPathMocks();
-      mockGetAvailableAgents.mockRejectedValue(new Error('network error'));
+      storeAgents = [];
 
       await renderAndWaitForLoad();
       await addExistingProjectViaUI();

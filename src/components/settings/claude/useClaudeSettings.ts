@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getAgentStatus,
   installAgentHooksGlobal,
   installAgentHooksProject,
   getAgentHooksConfig,
   getAgentSettings,
   setAgentSettings,
+  getAgentStatus,
 } from '../../../lib/tauri';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useAgentSettings, type AgentSettingsConfig, type AgentSettingsReturn } from '../shared';
@@ -89,15 +89,10 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
   const [chromeEnabled, setChromeEnabled] = useState(false);
   const [savingApiSettings, setSavingApiSettings] = useState(false);
   const [savingCliOptions, setSavingCliOptions] = useState(false);
-  const [userHooksInstalled, setUserHooksInstalled] = useState(false);
-
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [settings, claudeStatus] = await Promise.all([
-          getAgentSettings('claude'),
-          getAgentStatus('claude'),
-        ]);
+        const settings = await getAgentSettings('claude');
 
         const authToken = str(settings, 'auth_token', 'authToken');
         const key = str(settings, 'api_key', 'apiKey');
@@ -114,7 +109,6 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
         setThinkingEnabled(thinking);
         setExtendedContext(extended);
         setChromeEnabled(chrome);
-        setUserHooksInstalled(claudeStatus.globalHooksInstalled);
 
         storeSetAgentSettings('claude', {
           authToken, apiKey: key, baseUrl, modelOverride,
@@ -201,7 +195,7 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
 
   return {
     ...base,
-    userHooksInstalled,
+    userHooksInstalled: base.status?.hooksInstalled ?? false,
     apiSettings: {
       authToken: apiAuthToken,
       setAuthToken: setApiAuthToken,

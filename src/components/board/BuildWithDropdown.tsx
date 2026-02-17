@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
-import { getAvailableAgents } from '../../lib/tauri';
-import type { AgentInfo, AgentType } from '../../types';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+import type { AgentType } from '../../types';
 
 interface BuildWithDropdownProps {
   onSelect: (agent: AgentType) => void;
@@ -22,16 +22,14 @@ export function BuildWithDropdown({
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
-  const [agents, setAgents] = useState<AgentInfo[] | null>(null);
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // Fetch available agents from the registry
   useEffect(() => {
-    getAvailableAgents()
-      .then(setAgents)
-      .catch(() => setAgents(null)); // Fall back to hardcoded if registry unavailable
-  }, []);
+    loadAgents();
+  }, [loadAgents]);
 
   const handleToggle = () => {
     if (disabled) return;
@@ -82,15 +80,16 @@ export function BuildWithDropdown({
   /** Get icon color for agents. Uses brand color from registry when available. */
   const getIconStyle = (agentId: string, available: boolean): { className?: string; style?: React.CSSProperties } => {
     if (!available) return { className: 'text-board-text-muted' };
-    const brandColor = getAgentBrandColor(agentId, agents?.find(a => a.id === agentId)?.brandColor);
+    const brandColor = getAgentBrandColor(agentId, agents.find(a => a.id === agentId)?.brandColor);
     if (brandColor) return { style: { color: brandColor } };
     return { className: 'text-board-text-secondary' };
   };
 
-  // Build the agent list from registry; empty if registry unavailable yet
-  const agentList: { id: AgentType; name: string; available: boolean }[] = agents
-    ? agents.map((a) => ({ id: a.id as AgentType, name: a.displayName, available: a.isAvailable }))
-    : [];
+  const agentList: { id: AgentType; name: string; available: boolean }[] = agents.map((a) => ({
+    id: a.id as AgentType,
+    name: a.displayName,
+    available: a.isAvailable,
+  }));
 
   return (
     <div ref={dropdownRef} className="relative">

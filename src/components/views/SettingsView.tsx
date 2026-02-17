@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, AgentsSettings, DataSettings } from '../settings';
-import { getAvailableAgents } from '../../lib/tauri';
-import type { AgentInfo } from '../../types';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 const AGENT_SETTINGS_COMPONENTS: Record<string, React.ComponentType> = {
   cursor: CursorSettings,
@@ -24,11 +23,12 @@ interface SettingsViewProps {
 
 export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
   const [settingsTab, setSettingsTab] = useState<string>('general');
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
 
   useEffect(() => {
-    getAvailableAgents().then(setAgents).catch(() => {});
-  }, []);
+    loadAgents();
+  }, [loadAgents]);
 
   const agentTabs = useMemo(() =>
     agents

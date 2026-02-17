@@ -11,10 +11,10 @@ import {
   installAgentHooksProject,
   installCommandsToProject,
   updateProjectHooks,
-  getAvailableAgents,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
 import { ConfirmModal } from '../common';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 type AddMode = 'none' | 'existing' | 'create';
 
@@ -139,12 +139,7 @@ export function ProjectsList() {
   const autoSetupProject = async (projectId: string, projectPath: string): Promise<string | null> => {
     const warnings: string[] = [];
 
-    let agents: Awaited<ReturnType<typeof getAvailableAgents>> = [];
-    try {
-      agents = await getAvailableAgents();
-    } catch {
-      agents = [];
-    }
+    const agents = useAgentRegistryStore.getState().agents;
 
     for (const agent of agents) {
       // Install hooks

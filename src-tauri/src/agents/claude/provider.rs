@@ -2,16 +2,14 @@
 
 use std::path::Path;
 
+use crate::agents::cli_utils::{self, is_dangerous_command};
+use crate::agents::command_templates;
 use crate::agents::cost::{self, RunCostData};
 use crate::agents::provider::{
     AgentProvider, AgentRunConfig, HookAction, NormalizedHookEvent, StopEventResult,
 };
 
-use crate::agents::cli_utils::is_dangerous_command;
-
-use super::availability;
 use super::command;
-use super::commands;
 use super::hooks;
 use super::settings;
 
@@ -170,11 +168,11 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn is_available(&self) -> bool {
-        availability::is_claude_available()
+        cli_utils::is_cli_available("claude")
     }
 
     fn get_version(&self) -> Option<String> {
-        availability::get_claude_version()
+        cli_utils::get_cli_version("claude")
     }
 
     fn config_dir_name(&self) -> &str {
@@ -372,25 +370,20 @@ impl AgentProvider for ClaudeProvider {
         }
     }
 
+    fn map_model_name(&self, model: &str) -> String {
+        crate::agents::models::map_model_name(model)
+    }
+
     fn brand_color(&self) -> Option<&str> {
         Some("#da7756")
     }
 
-    fn map_model_name(&self, model: &str) -> String {
-        match model {
-            "opus-4.6" => "claude-opus-4-6".to_string(),
-            "opus-4.5" => "claude-opus-4-5".to_string(),
-            "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-            other => other.to_string(),
-        }
-    }
-
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
-        commands::check_project_commands_installed(repo_path)
+        command_templates::check_project_commands_installed(repo_path, self.config_dir_name())
     }
 
     fn check_commands_installed_user(&self) -> bool {
-        commands::check_user_commands_installed()
+        command_templates::check_user_commands_installed(self.config_dir_name())
     }
 
     fn install_commands_to_project(
@@ -398,16 +391,16 @@ impl AgentProvider for ClaudeProvider {
         repo_path: &Path,
         commands_source: &Path,
     ) -> Result<Vec<String>, String> {
-        commands::install_commands(repo_path, commands_source)
-            .map_err(|e| format!("Failed to install Claude commands: {}", e))
+        command_templates::install_commands(repo_path, self.config_dir_name(), commands_source)
+            .map_err(|e| format!("Failed to install {} commands: {}", self.display_name(), e))
     }
 
     fn install_commands_to_user(
         &self,
         commands_source: &Path,
     ) -> Result<Vec<String>, String> {
-        commands::install_user_commands(commands_source)
-            .map_err(|e| format!("Failed to install Claude user commands: {}", e))
+        command_templates::install_user_commands(self.config_dir_name(), commands_source)
+            .map_err(|e| format!("Failed to install {} user commands: {}", self.display_name(), e))
     }
 }
 

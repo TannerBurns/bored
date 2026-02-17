@@ -55,21 +55,16 @@ export function useCursorSettings(): CursorSettingsReturn {
   const base = useAgentSettings(cursorConfig);
   const storeSetAgentSettings = useSettingsStore((s) => s.setAgentSettings);
 
-  const [globalHooksInstalled, setGlobalHooksInstalled] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [savingCliOptions, setSavingCliOptions] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [settings, cursorStatus] = await Promise.all([
-          getAgentSettings('cursor'),
-          getAgentStatus('cursor'),
-        ]);
+        const settings = await getAgentSettings('cursor');
 
         const thinking = bool(settings, true, 'thinking_enabled', 'thinkingEnabled');
         setThinkingEnabled(thinking);
-        setGlobalHooksInstalled(cursorStatus.globalHooksInstalled);
 
         storeSetAgentSettings('cursor', { thinkingEnabled: thinking });
       } catch {
@@ -95,7 +90,7 @@ export function useCursorSettings(): CursorSettingsReturn {
 
   return {
     ...base,
-    globalHooksInstalled,
+    globalHooksInstalled: base.status?.hooksInstalled ?? false,
     cliOptions: {
       thinkingEnabled,
       setThinkingEnabled: handleThinkingChange,

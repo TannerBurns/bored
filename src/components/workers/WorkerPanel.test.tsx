@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { WorkerPanel } from './WorkerPanel';
+import type { AgentInfo } from '../../types';
 
 // Mock tauri invoke
 vi.mock('@tauri-apps/api/core', () => ({
@@ -13,6 +14,15 @@ vi.mock('@tauri-apps/api/core', () => ({
   }),
 }));
 
+const MOCK_AGENTS: AgentInfo[] = [
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+];
+
+const mockLoadAgents = vi.fn().mockResolvedValue(MOCK_AGENTS);
+
+let storeAgents: AgentInfo[] = MOCK_AGENTS;
+
 // Mock settings store
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({
@@ -20,30 +30,24 @@ vi.mock('../../stores/settingsStore', () => ({
     stageTimeoutHours: 1,
     stageMaxRetries: 2,
   }),
+  ensureWorkflowSettingsSynced: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock useCliAvailability hook
-const mockUseCliAvailability = vi.fn();
-vi.mock('../../hooks/useCliAvailability', () => ({
-  useCliAvailability: () => mockUseCliAvailability(),
-}));
-
-// Mock getAvailableAgents
-vi.mock('../../lib/tauri', () => ({
-  getAvailableAgents: vi.fn().mockResolvedValue([
-    { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0' },
-    { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0' },
-  ]),
+// Mock agent registry store
+vi.mock('../../stores/agentRegistryStore', () => ({
+  useAgentRegistryStore: (selector: (s: Record<string, unknown>) => unknown) =>
+    selector({
+      agents: storeAgents,
+      agentsLoading: false,
+      agentsLoaded: true,
+      loadAgents: mockLoadAgents,
+    }),
 }));
 
 describe('WorkerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: both CLIs available
-    mockUseCliAvailability.mockReturnValue({
-      availability: { cursor: true, claude: true },
-      loading: false,
-    });
+    storeAgents = MOCK_AGENTS;
   });
 
   it('renders the worker panel', async () => {
@@ -65,10 +69,10 @@ describe('WorkerPanel', () => {
 
   describe('CLI availability', () => {
     it('disables Cursor input when Cursor CLI is unavailable', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: false, claude: true },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -79,10 +83,10 @@ describe('WorkerPanel', () => {
     });
 
     it('disables Claude input when Claude CLI is unavailable', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: true, claude: false },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -93,10 +97,10 @@ describe('WorkerPanel', () => {
     });
 
     it('shows "(not installed)" text when Cursor CLI is unavailable', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: false, claude: true },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -107,10 +111,10 @@ describe('WorkerPanel', () => {
     });
 
     it('shows "(not installed)" text when Claude CLI is unavailable', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: true, claude: false },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -121,10 +125,10 @@ describe('WorkerPanel', () => {
     });
 
     it('disables both inputs when both CLIs are unavailable', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: false, claude: false },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -137,10 +141,10 @@ describe('WorkerPanel', () => {
     });
 
     it('enables Cursor input when Cursor CLI is available', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: true, claude: false },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 
@@ -151,10 +155,10 @@ describe('WorkerPanel', () => {
     });
 
     it('enables Claude input when Claude CLI is available', async () => {
-      mockUseCliAvailability.mockReturnValue({
-        availability: { cursor: false, claude: true },
-        loading: false,
-      });
+      storeAgents = [
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+      ];
 
       render(<WorkerPanel />);
 

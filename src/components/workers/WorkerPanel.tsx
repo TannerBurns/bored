@@ -4,11 +4,10 @@ import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
 import { ConfirmModal } from '../common';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../common/AgentIcons';
-import type { WorkerStatus, WorkerQueueStatus, AgentInfo } from '../../types';
+import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
 import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
-import { useCliAvailability } from '../../hooks/useCliAvailability';
-import { getAvailableAgents } from '../../lib/tauri';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 function AgentIconInline({ agentType, size }: { agentType: string; size: number }) {
   const Icon = getAgentIcon(agentType);
@@ -20,8 +19,8 @@ function AgentIconInline({ agentType, size }: { agentType: string; size: number 
 
 export function WorkerPanel() {
   const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries } = useSettingsStore();
-  const { availability } = useCliAvailability();
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const agents = useAgentRegistryStore((s) => s.agents);
+  const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
     readyCount: 0,
@@ -34,10 +33,8 @@ export function WorkerPanel() {
   const [stopConfirm, setStopConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    getAvailableAgents()
-      .then(setAgents)
-      .catch(() => setAgents([]));
-  }, []);
+    loadAgents();
+  }, [loadAgents]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -193,7 +190,7 @@ export function WorkerPanel() {
         
         <div className="space-y-3">
           {agents.map((agent) => {
-            const isAvailable = availability[agent.id] ?? agent.isAvailable;
+            const isAvailable = agent.isAvailable;
             const brandColor = isAvailable ? getAgentBrandColor(agent.id, agent.brandColor) : undefined;
             const Icon = getAgentIcon(agent.id);
             return (
