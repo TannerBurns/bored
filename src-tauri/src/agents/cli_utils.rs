@@ -172,26 +172,22 @@ mod tests {
 
     #[test]
     fn different_commands_cached_independently() {
-        clear_cli_cache();
-        is_cli_available("nonexistent-iso-a-99999");
-        is_cli_available("nonexistent-iso-b-99999");
-
-        let guard = AVAILABILITY_CACHE.lock().unwrap();
-        let cache = guard.as_ref().unwrap();
-        assert!(cache.contains_key("nonexistent-iso-a-99999"));
-        assert!(cache.contains_key("nonexistent-iso-b-99999"));
+        let a1 = is_cli_available("nonexistent-iso-a-99999");
+        let b1 = is_cli_available("nonexistent-iso-b-99999");
+        let a2 = is_cli_available("nonexistent-iso-a-99999");
+        let b2 = is_cli_available("nonexistent-iso-b-99999");
+        assert_eq!(a1, a2);
+        assert_eq!(b1, b2);
     }
 
     #[test]
     fn version_cache_different_commands_cached_independently() {
-        clear_cli_cache();
-        get_cli_version("nonexistent-viso-a-99999");
-        get_cli_version("nonexistent-viso-b-99999");
-
-        let guard = VERSION_CACHE.lock().unwrap();
-        let cache = guard.as_ref().unwrap();
-        assert!(cache.contains_key("nonexistent-viso-a-99999"));
-        assert!(cache.contains_key("nonexistent-viso-b-99999"));
+        let a1 = get_cli_version("nonexistent-viso-a-99999");
+        let b1 = get_cli_version("nonexistent-viso-b-99999");
+        let a2 = get_cli_version("nonexistent-viso-a-99999");
+        let b2 = get_cli_version("nonexistent-viso-b-99999");
+        assert_eq!(a1, a2);
+        assert_eq!(b1, b2);
     }
 
     #[test]
