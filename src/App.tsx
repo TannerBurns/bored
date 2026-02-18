@@ -162,11 +162,7 @@ function App() {
                 ? 'AI Specs' 
                 : 'Bored'
           }
-          subtitle={
-            activeNav === 'boards' && currentBoard 
-              ? 'Manage your coding tasks and let AI agents do the work.' 
-              : undefined
-          }
+          subtitle={undefined}
           action={
             activeNav === 'boards' && boards.length > 0 ? (
               <button
