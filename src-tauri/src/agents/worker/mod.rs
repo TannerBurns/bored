@@ -206,9 +206,9 @@ impl Worker {
             }
         };
 
-        let diagnostic_model = self.config.workflow_settings.as_ref().map(|ws| {
-            let settings = ws.lock().expect("workflow settings mutex poisoned");
-            settings.diagnostic_model.clone()
+        let diagnostic_model = self.config.workflow_settings.as_ref().and_then(|ws| {
+            let per_agent = ws.lock().expect("workflow settings mutex poisoned");
+            per_agent.get(&self.config.agent_id).map(|s| s.diagnostic_model.clone())
         });
 
         // Create a worktree for isolated execution

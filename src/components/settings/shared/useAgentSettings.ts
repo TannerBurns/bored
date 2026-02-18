@@ -27,11 +27,14 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
   const [commandProjectId, setCommandProjectId] = useState('');
   const [installingCommands, setInstallingCommands] = useState(false);
 
+  const agentType = config.agentType;
+  const getStatus = config.getStatus;
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [agentStatus, projectList, commands] = await Promise.all([
-        config.getStatus(),
+        getStatus(),
         getProjects(),
         getAvailableCommands(),
       ]);
@@ -45,12 +48,12 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
       setProjects(projectList);
       setAvailableCommands(commands);
 
-      const userInstalled = await checkUserCommandsInstalled(config.agentType).catch(() => false);
+      const userInstalled = await checkUserCommandsInstalled(agentType).catch(() => false);
       setUserCommandsInstalled(userInstalled);
 
       const projectResults = await Promise.all(
         projectList.map((project) =>
-          checkCommandsInstalled(config.agentType, project.path)
+          checkCommandsInstalled(agentType, project.path)
             .then((installed) => ({ id: project.id, installed }))
             .catch(() => ({ id: project.id, installed: false }))
         )
@@ -64,11 +67,11 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
 
       setError(null);
     } catch (e) {
-      setError(`Failed to load ${config.agentType} status: ${e}`);
+      setError(`Failed to load ${agentType} status: ${e}`);
     } finally {
       setLoading(false);
     }
-  }, [config]);
+  }, [agentType, getStatus]);
 
   useEffect(() => {
     loadData();
@@ -96,9 +99,9 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
 
     try {
       if (commandLocation === 'user') {
-        const installed = await installCommandsToUser(config.agentType);
+        const installed = await installCommandsToUser(agentType);
         setSuccess(
-          `Installed ${installed.length} commands to ~/.${config.agentType}/commands/`
+          `Installed ${installed.length} commands to ~/.${agentType}/commands/`
         );
       } else {
         const path = commandProjectId
@@ -111,9 +114,9 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
           return;
         }
 
-        const installed = await installCommandsToProject(config.agentType, path);
+        const installed = await installCommandsToProject(agentType, path);
         setSuccess(
-          `Installed ${installed.length} commands to ${path}/.${config.agentType}/commands/`
+          `Installed ${installed.length} commands to ${path}/.${agentType}/commands/`
         );
       }
       await loadData();
@@ -122,7 +125,7 @@ export function useAgentSettings(config: AgentSettingsConfig): AgentSettingsRetu
     } finally {
       setInstallingCommands(false);
     }
-  }, [commandLocation, commandProjectId, commandProjectPath, projects, config, loadData]);
+  }, [commandLocation, commandProjectId, commandProjectPath, projects, agentType, loadData]);
 
   return {
     status,

@@ -6,7 +6,7 @@ import { ConfirmModal } from '../common';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../common/AgentIcons';
 import type { WorkerStatus, WorkerQueueStatus } from '../../types';
 import { logger } from '../../lib/logger';
-import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
+import { useSettingsStore, ensureAgentConfigsSynced } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 function AgentIconInline({ agentType, size }: { agentType: string; size: number }) {
@@ -18,7 +18,7 @@ function AgentIconInline({ agentType, size }: { agentType: string; size: number 
 }
 
 export function WorkerPanel() {
-  const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries } = useSettingsStore();
+  const agentConfigs = useSettingsStore((s) => s.agentConfigs);
   const agents = useAgentRegistryStore((s) => s.agents);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
@@ -64,18 +64,18 @@ export function WorkerPanel() {
     setError(null);
     
     try {
-      // Ensure backend has the latest workflow settings BEFORE starting workers
-      await ensureWorkflowSettingsSynced();
+      await ensureAgentConfigsSynced();
 
       for (const [agentId, count] of Object.entries(agentCounts)) {
+        const cfg = agentConfigs[agentId] ?? agentConfigs['claude'];
         for (let i = 0; i < count; i++) {
           await invoke('start_worker', {
             input: {
               agentType: agentId,
               projectId: null,
-              codeReviewMaxIterations,
-              stageTimeoutHours,
-              stageMaxRetries,
+              codeReviewMaxIterations: cfg.codeReviewMaxIterations,
+              stageTimeoutHours: cfg.stageTimeoutHours,
+              stageMaxRetries: cfg.stageMaxRetries,
             },
           });
         }

@@ -3,8 +3,8 @@ import { useAgentRegistryStore } from './agentRegistryStore';
 import type { AgentInfo } from '../types';
 
 const MOCK_AGENTS: AgentInfo[] = [
-  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
-  { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null, availableModels: [] },
+  { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
 ];
 
 const mockGetAvailableAgents = vi.fn();
@@ -144,7 +144,7 @@ describe('useAgentRegistryStore', () => {
 
     it('replaces stale agents with fresh data', async () => {
       const staleAgents: AgentInfo[] = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
       ];
       useAgentRegistryStore.setState({ agents: staleAgents, agentsLoaded: true });
 

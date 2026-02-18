@@ -279,4 +279,20 @@ fn check_commands_installed_user_returns_bool() {
     let _ = p.check_commands_installed_user();
 }
 
+#[test]
+fn available_models_returns_claude_models() {
+    let p = ClaudeProvider::new();
+    let models = p.available_models();
+    assert!(!models.is_empty());
+    let ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
+    assert!(ids.contains(&"opus-4.6"));
+    assert!(ids.contains(&"opus-4.5"));
+    assert!(ids.contains(&"sonnet-4.6"));
+    assert!(ids.contains(&"sonnet-4.5"));
+    for (id, label) in &models {
+        assert!(!id.is_empty());
+        assert!(!label.is_empty());
+    }
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests

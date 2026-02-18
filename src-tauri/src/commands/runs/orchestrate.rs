@@ -39,7 +39,7 @@ pub(super) struct WorkflowTaskContext {
     pub api_token: String,
     pub cancel_handles: Arc<Mutex<HashMap<String, CancelHandle>>>,
     pub agent_config: HashMap<String, serde_json::Value>,
-    pub workflow_settings: Arc<Mutex<crate::commands::workflow_settings::WorkflowSettings>>,
+    pub workflow_settings: Arc<Mutex<crate::commands::workflow_settings::PerAgentSettings>>,
     pub stage_configs: HashMap<String, StageConfig>,
     pub code_review_max_iterations: usize,
     pub stage_timeout_secs: u64,

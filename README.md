@@ -17,7 +17,7 @@
 
 <p align="center">
   Orchestrate AI coding agents with the same boards, tickets, and workflows you use to manage your own development work.<br>
-  Plan features with AI, generate work plans, and let <strong>Cursor</strong> or <strong>Claude Code</strong> build them autonomously.
+  Plan features with AI, generate work plans, and let <strong>Cursor</strong>, <strong>Claude Code</strong>, or <strong>Codex</strong> build them autonomously.
 </p>
 
 ---
@@ -67,7 +67,7 @@ Organize your work with drag-and-drop simplicity. Tickets flow through columns: 
 
 ### AI Agent Integration
 
-Click **"Build with"** on any ticket to spawn a Cursor or Claude Code agent. Agents receive the task description, work in your project directory, and report progress in real-time.
+Click **"Build with"** on any ticket to spawn a Cursor, Claude Code, or Codex agent. Agents receive the task description, work in your project directory, and report progress in real-time.
 
 <p align="center">
   <img src="docs/images/screenshot-ticket-detail.png" alt="Agent Running" width="700">
@@ -157,7 +157,7 @@ Tasks have their own status (`Pending` → `In Progress` → `Completed` / `Fail
 2. **Create a Board** to organize your work
 3. **Add a Project** — point to a local repository
 4. **Start Building:**
-   - **Single tickets:** Create a ticket, click **"Build with"** → Cursor or Claude
+   - **Single tickets:** Create a ticket, click **"Build with"** → Cursor, Claude, or Codex
    - **Large features:** Create a Spec, brainstorm with AI, approve the plan, and watch it execute
 
 ---
@@ -232,17 +232,15 @@ pnpm tauri build
 │                    └──────────┘               │         │
 └─────────────────────────────────────────────────────────┘
                            │
-            ┌──────────────┴──────────────┐
-            ▼                              ▼
-    ┌───────────────┐              ┌───────────────┐
-    │ Cursor Agent  │              │  Claude Code  │
-    │               │              │               │
-    │  Hook Script  │─────────────►│  Hook Script  │───────►
-    └───────────────┘   POST to    └───────────────┘ Events
-                        Local API
+            ┌──────────────┼──────────────┐
+            ▼              ▼              ▼
+    ┌───────────────┐ ┌───────────┐ ┌───────────────┐
+    │ Cursor Agent  │ │   Codex   │ │  Claude Code  │
+    │   (CLI)       │ │   (CLI)   │ │    (CLI)      │
+    └───────────────┘ └───────────┘ └───────────────┘
 ```
 
-The app runs a local HTTP API that receives lifecycle events from agent hook scripts. This enables real-time tracking without requiring any external services.
+Agents are invoked via their CLIs. The Tauri backend spawns agent processes, streams their output, and parses results for cost tracking and text extraction.
 
 ---
 
@@ -264,27 +262,13 @@ The app runs a local HTTP API that receives lifecycle events from agent hook scr
 
 ## Configuration
 
-### Agent Hooks
-
-Bored uses hook scripts to receive events from AI agents:
-
-**Cursor Hooks:**
-- `beforeShellExecution` — Before running shell commands
-- `afterFileEdit` — After editing files
-- `stop` — When the agent stops
-
-**Claude Hooks:**
-- `PreToolUse` / `PostToolUse` — Before/after tool calls
-- `Stop` — When the agent stops
-- `UserPromptSubmit` — When prompts are submitted
-
 ### Settings
 
 Access settings through the sidebar:
 - **General** — Theme (light/dark/system)
-- **Projects** — Manage registered repositories
-- **Cursor** — Cursor agent configuration
-- **Claude Code** — Claude agent configuration
+- **Claude Code** — Claude agent config, workflow, spec/validation/diagnostic settings
+- **Cursor** — Cursor agent config, workflow, spec/validation/diagnostic settings
+- **Codex** — Codex agent config, workflow, spec/validation/diagnostic settings
 - **Data** — Database management
 
 ---

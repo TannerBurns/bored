@@ -239,9 +239,9 @@ fn config_dir_name_returns_cursor() {
 }
 
 #[test]
-fn command_instructions_subdir_returns_rules() {
+fn command_instructions_subdir_returns_commands() {
     let p = CursorProvider::new();
-    assert_eq!(p.command_instructions_subdir(), "rules");
+    assert_eq!(p.command_instructions_subdir(), "commands");
 }
 
 #[test]
@@ -258,4 +258,20 @@ fn check_commands_installed_project_returns_false_for_missing_dir() {
     let p = CursorProvider::new();
     assert!(!p.check_commands_installed_project(&temp));
     std::fs::remove_dir_all(&temp).ok();
+}
+
+#[test]
+fn available_models_includes_claude_and_codex_models() {
+    let p = CursorProvider::new();
+    let models = p.available_models();
+    assert!(models.len() >= 4);
+    let ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
+    assert!(ids.contains(&"opus-4.6"), "should include Claude models");
+    assert!(ids.contains(&"sonnet-4.6"), "should include Claude models");
+    assert!(ids.contains(&"gpt-5.3-codex"), "should include Codex models");
+    assert!(ids.contains(&"gpt-5.2-codex"), "should include Codex models");
+    for (id, label) in &models {
+        assert!(!id.is_empty());
+        assert!(!label.is_empty());
+    }
 }

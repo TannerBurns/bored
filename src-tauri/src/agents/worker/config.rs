@@ -8,7 +8,7 @@ use tauri::AppHandle;
 
 use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
-use crate::commands::workflow_settings::WorkflowSettings;
+use crate::commands::workflow_settings::PerAgentSettings;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -32,8 +32,8 @@ pub struct WorkerConfig {
     pub stage_timeout_secs: u64,
     /// Maximum retries per stage (default: 2)
     pub stage_max_retries: u32,
-    /// Shared workflow settings reference, read at task-processing time.
-    pub workflow_settings: Option<Arc<Mutex<WorkflowSettings>>>,
+    /// Shared per-agent workflow settings, read at task-processing time.
+    pub workflow_settings: Option<Arc<Mutex<PerAgentSettings>>>,
 }
 
 /// Resolved workflow settings for a single task.
@@ -47,25 +47,25 @@ pub struct ResolvedWorkflowSettings {
 }
 
 impl WorkerConfig {
-    /// Read the current workflow settings from the shared state.
-    /// If no shared state is available, falls back to the static config values.
+    /// Read the current workflow settings for this worker's agent from the shared state.
+    /// If no shared state or agent config is available, falls back to the static config values.
     pub fn resolve_workflow_settings(&self) -> ResolvedWorkflowSettings {
         if let Some(ref shared) = self.workflow_settings {
-            let settings = shared.lock().expect("workflow settings mutex poisoned");
-            ResolvedWorkflowSettings {
-                stage_configs: settings.stage_configs.clone(),
-                code_review_max_iterations: settings.code_review_max_iterations,
-                stage_timeout_secs: settings.stage_timeout_hours as u64 * 3600,
-                stage_max_retries: settings.stage_max_retries,
+            let per_agent = shared.lock().expect("workflow settings mutex poisoned");
+            if let Some(settings) = per_agent.get(&self.agent_id) {
+                return ResolvedWorkflowSettings {
+                    stage_configs: settings.stage_configs.clone(),
+                    code_review_max_iterations: settings.code_review_max_iterations,
+                    stage_timeout_secs: settings.stage_timeout_hours as u64 * 3600,
+                    stage_max_retries: settings.stage_max_retries,
+                };
             }
-        } else {
-            // Fallback to static config (for backwards compatibility / tests)
-            ResolvedWorkflowSettings {
-                stage_configs: HashMap::new(),
-                code_review_max_iterations: self.code_review_max_iterations,
-                stage_timeout_secs: self.stage_timeout_secs,
-                stage_max_retries: self.stage_max_retries,
-            }
+        }
+        ResolvedWorkflowSettings {
+            stage_configs: HashMap::new(),
+            code_review_max_iterations: self.code_review_max_iterations,
+            stage_timeout_secs: self.stage_timeout_secs,
+            stage_max_retries: self.stage_max_retries,
         }
     }
 }

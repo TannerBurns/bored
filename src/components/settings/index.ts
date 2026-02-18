@@ -1,12 +1,6 @@
 export { ProjectsList } from './ProjectsList';
 export { BoardProjectSelector } from './BoardProjectSelector';
 export { TicketProjectSelector } from './TicketProjectSelector';
-export { CursorSettings } from './CursorSettings';
-export { ClaudeSettings } from './ClaudeSettings';
 export { GeneralSettings } from './GeneralSettings';
-export { AgentWorkflowSettings } from './AgentWorkflowSettings';
-export { SpecAgentSettings } from './SpecAgentSettings';
-export { ValidationAgentSettings } from './ValidationAgentSettings';
-export { DiagnosticAgentSettings } from './DiagnosticAgentSettings';
-export { AgentsSettings } from './AgentsSettings';
 export { DataSettings } from './DataSettings';
+export { AgentSettingsPage } from './AgentSettingsPage';

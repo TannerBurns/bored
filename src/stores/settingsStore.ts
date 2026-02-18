@@ -1,204 +1,35 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { syncWorkflowSettings } from '../lib/tauri';
+import { syncAgentConfigs } from '../lib/tauri';
 
-export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.6' | 'sonnet-4.5' | (string & {});
+import {
+  DEFAULT_WORKFLOW_PRESET,
+  DEFAULT_WORKFLOW_STAGES,
+  getDefaultConfigForAgent,
+  getPresetStagesForAgent,
+  mapModelForCodex,
+  mapStagesForCodex,
+  type AgentConfig,
+  type AIModel,
+  type WorkflowPreset,
+  type WorkflowStageConfig,
+  type WorkflowStageKey,
+  type WorkflowStages,
+} from './settingsStore.types';
 
-export const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
-  { value: 'opus-4.6', label: 'Opus 4.6' },
-  { value: 'opus-4.5', label: 'Opus 4.5' },
-  { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
-  { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-];
-
-export interface WorkflowStageConfig {
-  enabled: boolean;
-  model: AIModel;
-}
-
-export type WorkflowStageKey =
-  | 'branchGen'
-  | 'plan'
-  | 'implement'
-  | 'codeReview'
-  | 'deslop'
-  | 'cleanup'
-  | 'unitTests'
-  | 'finalReview'
-  | 'commit';
-
-export type WorkflowStages = Record<WorkflowStageKey, WorkflowStageConfig>;
-
-export type WorkflowPreset =
-  | 'comprehensive'
-  | 'balanced'
-  | 'vibe'
-  | 'standard'
-  | 'quick-fix'
-  | 'fastest'
-  | 'custom';
-
-/** Stage metadata for UI display */
-interface WorkflowStageInfo {
-  key: WorkflowStageKey;
-  label: string;
-  description: string;
-  required: boolean;
-}
-
-export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
-  { key: 'branchGen', label: 'Branch Name', description: 'Generate a descriptive branch name for the changes', required: true },
-  { key: 'plan', label: 'Plan', description: 'Explore the codebase and generate an implementation plan', required: true },
-  { key: 'implement', label: 'Implement', description: 'Write the code changes based on the plan', required: true },
-  { key: 'codeReview', label: 'Code Review', description: 'Iterative review loop to find and fix issues', required: false },
-  { key: 'deslop', label: 'De-slop', description: 'Remove AI-generated slop and improve code taste', required: false },
-  { key: 'cleanup', label: 'Cleanup', description: 'Run linters, fix build warnings, and clean up code', required: false },
-  { key: 'unitTests', label: 'Unit Tests', description: 'Generate and run unit tests for the changes', required: false },
-  { key: 'finalReview', label: 'Final Review', description: 'Senior code review for correctness and security', required: false },
-  { key: 'commit', label: 'Commit', description: 'Stage changes and create a git commit', required: true },
-];
-
-/** Preset definitions */
-export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label: string; description: string; stages: WorkflowStages }> = {
-  comprehensive: {
-    label: 'Most Comprehensive',
-    description: 'Maximum quality, highest cost — all stages with Opus 4.6',
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'opus-4.6' },
-      implement:   { enabled: true, model: 'opus-4.6' },
-      codeReview:  { enabled: true, model: 'opus-4.6' },
-      deslop:      { enabled: true, model: 'opus-4.6' },
-      cleanup:     { enabled: true, model: 'opus-4.6' },
-      unitTests:   { enabled: true, model: 'opus-4.6' },
-      finalReview: { enabled: true, model: 'opus-4.6' },
-      commit:      { enabled: true, model: 'opus-4.6' },
-    },
-  },
-  balanced: {
-    label: 'Balanced',
-    description: 'Smart cost/quality tradeoff — all stages, mixed models',
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'opus-4.6' },
-      implement:   { enabled: true, model: 'opus-4.6' },
-      codeReview:  { enabled: true, model: 'opus-4.6' },
-      deslop:      { enabled: true, model: 'opus-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.6' },
-      unitTests:   { enabled: true, model: 'opus-4.5' },
-      finalReview: { enabled: true, model: 'opus-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.6' },
-    },
-  },
-  vibe: {
-    label: 'Vibe',
-    description: 'Trust the implementation, light QA — creative core with Opus 4.6',
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'opus-4.6' },
-      implement:   { enabled: true,  model: 'opus-4.6' },
-      codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: true,  model: 'sonnet-4.6' },
-      cleanup:     { enabled: false, model: 'sonnet-4.6' },
-      unitTests:   { enabled: false, model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  standard: {
-    label: 'Standard',
-    description: 'Core workflow without polish — skips deslop and final review',
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'opus-4.5' },
-      implement:   { enabled: true,  model: 'opus-4.5' },
-      codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: false, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
-      unitTests:   { enabled: true,  model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  'quick-fix': {
-    label: 'Quick Fix',
-    description: 'Minimal stages for small changes — plan, implement, cleanup, commit',
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'sonnet-4.6' },
-      implement:   { enabled: true,  model: 'sonnet-4.6' },
-      codeReview:  { enabled: false, model: 'sonnet-4.6' },
-      deslop:      { enabled: false, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
-      unitTests:   { enabled: false, model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  fastest: {
-    label: 'Fastest',
-    description: 'Maximum speed — all stages with Sonnet 4.6',
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'sonnet-4.6' },
-      implement:   { enabled: true, model: 'sonnet-4.6' },
-      codeReview:  { enabled: true, model: 'sonnet-4.6' },
-      deslop:      { enabled: true, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true, model: 'sonnet-4.6' },
-      unitTests:   { enabled: true, model: 'sonnet-4.6' },
-      finalReview: { enabled: true, model: 'sonnet-4.6' },
-      commit:      { enabled: true, model: 'sonnet-4.6' },
-    },
-  },
-};
-
-const DEFAULT_WORKFLOW_PRESET: WorkflowPreset = 'balanced';
-const DEFAULT_WORKFLOW_STAGES: WorkflowStages = WORKFLOW_PRESETS.balanced.stages;
+export type { AIModel, WorkflowStageConfig, WorkflowStageKey, WorkflowStages, WorkflowPreset, AgentConfig };
+export { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, WORKFLOW_STAGE_INFO, WORKFLOW_PRESETS, getPresetStagesForAgent } from './settingsStore.types';
 
 interface SettingsState {
   theme: 'light' | 'dark' | 'system';
-  
-  // Planner settings
-  plannerAutoApprove: boolean;
-  plannerModel: AIModel;
-  plannerMaxExplorations: number;
-  plannerTimeoutMinutes: number;
-  plannerMaxRetries: number;
-  
-  // Workflow stage settings
-  codeReviewMaxIterations: number;
-  stageTimeoutHours: number;
-  stageMaxRetries: number;
-  
-  // Workflow per-stage configuration
-  workflowPreset: WorkflowPreset;
-  workflowStages: WorkflowStages;
-  
-  // Validation agent settings
-  validationModel: AIModel;
-  validationTimeoutMinutes: number;
-
-  // Diagnostic agent settings
-  diagnosticModel: AIModel;
-
-  // Per-agent settings (keyed by agent ID, e.g. "claude", "cursor")
-  agentSettings: Record<string, Record<string, unknown>>;
+  agentConfigs: Record<string, AgentConfig>;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
-  setValidationModel: (model: AIModel) => void;
-  setValidationTimeoutMinutes: (min: number) => void;
-  setDiagnosticModel: (model: AIModel) => void;
-  setPlannerAutoApprove: (autoApprove: boolean) => void;
-  setPlannerModel: (model: AIModel) => void;
-  setPlannerMaxExplorations: (max: number) => void;
-  setPlannerTimeoutMinutes: (min: number) => void;
-  setPlannerMaxRetries: (max: number) => void;
-  setCodeReviewMaxIterations: (max: number) => void;
-  setStageTimeoutHours: (hours: number) => void;
-  setStageMaxRetries: (max: number) => void;
-  setWorkflowPreset: (preset: WorkflowPreset) => void;
-  setWorkflowStages: (stages: WorkflowStages) => void;
-  setWorkflowStageConfig: (key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
+
+  getAgentConfig: (agentId: string) => AgentConfig;
+  updateAgentConfig: (agentId: string, partial: Partial<AgentConfig>) => void;
+  setAgentConfigWorkflowPreset: (agentId: string, preset: WorkflowPreset) => void;
+  setAgentConfigStage: (agentId: string, key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
   getAgentSettings: (agentId: string) => Record<string, unknown>;
   setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
   setAgentSetting: (agentId: string, key: string, value: unknown) => void;
@@ -208,105 +39,111 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       theme: 'dark',
-      
-      // Planner defaults
-      plannerAutoApprove: false,
-      plannerModel: 'opus-4.5',
-      plannerMaxExplorations: 10,
-      plannerTimeoutMinutes: 10,
-      plannerMaxRetries: 2,
-      
-      // Workflow stage defaults
-      codeReviewMaxIterations: 3,
-      stageTimeoutHours: 1,
-      stageMaxRetries: 2,
-      
-      // Workflow per-stage configuration defaults
-      workflowPreset: DEFAULT_WORKFLOW_PRESET,
-      workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
 
-      // Validation agent defaults
-      validationModel: 'sonnet-4.6',
-      validationTimeoutMinutes: 10,
-
-      // Diagnostic agent defaults
-      diagnosticModel: 'sonnet-4.6',
-
-      agentSettings: {
-        claude: {
-          authToken: '',
-          apiKey: '',
-          baseUrl: '',
-          modelOverride: '',
-          thinkingEnabled: true,
-          extendedContext: false,
-          chromeEnabled: false,
-        },
-        cursor: {
-          thinkingEnabled: true,
-        },
+      agentConfigs: {
+        claude: getDefaultConfigForAgent('claude'),
+        cursor: getDefaultConfigForAgent('cursor'),
+        codex: getDefaultConfigForAgent('codex'),
       },
 
       setTheme: (theme) => set({ theme }),
-      setPlannerAutoApprove: (plannerAutoApprove) => set({ plannerAutoApprove }),
-      setPlannerModel: (plannerModel) => set({ plannerModel }),
-      setPlannerMaxExplorations: (plannerMaxExplorations) => set({ plannerMaxExplorations }),
-      setPlannerTimeoutMinutes: (plannerTimeoutMinutes) => set({ plannerTimeoutMinutes }),
-      setPlannerMaxRetries: (plannerMaxRetries) => set({ plannerMaxRetries }),
-      setCodeReviewMaxIterations: (codeReviewMaxIterations) => set({ codeReviewMaxIterations }),
-      setStageTimeoutHours: (stageTimeoutHours) => set({ stageTimeoutHours }),
-      setStageMaxRetries: (stageMaxRetries) => set({ stageMaxRetries }),
-      setWorkflowPreset: (preset) => {
+
+      getAgentConfig: (agentId) => {
+        return get().agentConfigs[agentId] ?? getDefaultConfigForAgent(agentId);
+      },
+
+      updateAgentConfig: (agentId, partial) => {
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
+        set({
+          agentConfigs: {
+            ...configs,
+            [agentId]: { ...current, ...partial },
+          },
+        });
+      },
+
+      setAgentConfigWorkflowPreset: (agentId, preset) => {
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
         if (preset === 'custom') {
-          set({ workflowPreset: 'custom' });
+          set({
+            agentConfigs: {
+              ...configs,
+              [agentId]: { ...current, workflowPreset: 'custom' },
+            },
+          });
         } else {
           set({
-            workflowPreset: preset,
-            workflowStages: { ...WORKFLOW_PRESETS[preset].stages },
+            agentConfigs: {
+              ...configs,
+              [agentId]: {
+                ...current,
+                workflowPreset: preset,
+                workflowStages: getPresetStagesForAgent(preset, agentId),
+              },
+            },
           });
         }
       },
-      setWorkflowStages: (stages) => set({ workflowStages: stages, workflowPreset: 'custom' }),
-      setWorkflowStageConfig: (key, config) => {
-        const current = get().workflowStages;
-        const updated = {
-          ...current,
-          [key]: { ...current[key], ...config },
-        };
-        set({ workflowStages: updated, workflowPreset: 'custom' });
-      },
-      setValidationModel: (validationModel) => set({ validationModel }),
-      setValidationTimeoutMinutes: (validationTimeoutMinutes) => set({ validationTimeoutMinutes }),
-      setDiagnosticModel: (diagnosticModel) => set({ diagnosticModel }),
 
-      getAgentSettings: (agentId) => get().agentSettings[agentId] ?? {},
+      setAgentConfigStage: (agentId, key, config) => {
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
+        set({
+          agentConfigs: {
+            ...configs,
+            [agentId]: {
+              ...current,
+              workflowPreset: 'custom',
+              workflowStages: {
+                ...current.workflowStages,
+                [key]: { ...current.workflowStages[key], ...config },
+              },
+            },
+          },
+        });
+      },
+
+      getAgentSettings: (agentId) => {
+        return (get().agentConfigs[agentId] ?? getDefaultConfigForAgent(agentId)).settings;
+      },
+
       setAgentSettings: (agentId, settings) => {
-        const current = get().agentSettings;
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
         set({
-          agentSettings: {
-            ...current,
-            [agentId]: { ...(current[agentId] ?? {}), ...settings },
-          },
-        });
-      },
-      setAgentSetting: (agentId, key, value) => {
-        const current = get().agentSettings;
-        set({
-          agentSettings: {
-            ...current,
-            [agentId]: { ...(current[agentId] ?? {}), [key]: value },
+          agentConfigs: {
+            ...configs,
+            [agentId]: {
+              ...current,
+              settings: { ...current.settings, ...settings },
+            },
           },
         });
       },
 
+      setAgentSetting: (agentId, key, value) => {
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
+        set({
+          agentConfigs: {
+            ...configs,
+            [agentId]: {
+              ...current,
+              settings: { ...current.settings, [key]: value },
+            },
+          },
+        });
+      },
     }),
     {
       name: 'agent-kanban-settings',
-      version: 11,
+      version: 12,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
+
         if (version < 10) {
-          // v9 -> v10: add branchGen stage to workflow and diagnosticModel setting
           const stages = state.workflowStages as Record<string, unknown> | undefined;
           if (stages && !stages.branchGen) {
             stages.branchGen = { enabled: true, model: 'sonnet-4.5' };
@@ -316,56 +153,37 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
         if (version < 11) {
-          // v10 -> v11: upgrade default sonnet model from 4.5 to 4.6
-          if (state.validationModel === 'sonnet-4.5') {
-            state.validationModel = 'sonnet-4.6';
-          }
-          if (state.diagnosticModel === 'sonnet-4.5') {
-            state.diagnosticModel = 'sonnet-4.6';
-          }
+          if (state.validationModel === 'sonnet-4.5') state.validationModel = 'sonnet-4.6';
+          if (state.diagnosticModel === 'sonnet-4.5') state.diagnosticModel = 'sonnet-4.6';
           const stages11 = state.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
           if (stages11) {
             for (const key of Object.keys(stages11)) {
-              if (stages11[key].model === 'sonnet-4.5') {
-                stages11[key].model = 'sonnet-4.6';
-              }
+              if (stages11[key].model === 'sonnet-4.5') stages11[key].model = 'sonnet-4.6';
             }
           }
         }
         if (version < 8) {
-          // v7 -> v8: add Claude CLI option settings with sensible defaults
           if (state.claudeThinkingEnabled === undefined) state.claudeThinkingEnabled = true;
           if (state.claudeExtendedContext === undefined) state.claudeExtendedContext = false;
           if (state.claudeChromeEnabled === undefined) state.claudeChromeEnabled = false;
         }
         if (version < 9) {
-          // v8 -> v9: migrate Claude-specific fields into generic agentSettings map
           const claude: Record<string, unknown> = {};
           const legacyKeys: Record<string, string> = {
-            claudeAuthToken: 'authToken',
-            claudeApiKey: 'apiKey',
-            claudeBaseUrl: 'baseUrl',
-            claudeModelOverride: 'modelOverride',
-            claudeThinkingEnabled: 'thinkingEnabled',
-            claudeExtendedContext: 'extendedContext',
-            claudeChromeEnabled: 'chromeEnabled',
+            claudeAuthToken: 'authToken', claudeApiKey: 'apiKey', claudeBaseUrl: 'baseUrl',
+            claudeModelOverride: 'modelOverride', claudeThinkingEnabled: 'thinkingEnabled',
+            claudeExtendedContext: 'extendedContext', claudeChromeEnabled: 'chromeEnabled',
           };
           for (const [oldKey, newKey] of Object.entries(legacyKeys)) {
-            if (state[oldKey] !== undefined) {
-              claude[newKey] = state[oldKey];
-              delete state[oldKey];
-            }
+            if (state[oldKey] !== undefined) { claude[newKey] = state[oldKey]; delete state[oldKey]; }
           }
-          // Ensure defaults for any missing Claude settings
           if (claude.thinkingEnabled === undefined) claude.thinkingEnabled = true;
           if (claude.extendedContext === undefined) claude.extendedContext = false;
           if (claude.chromeEnabled === undefined) claude.chromeEnabled = false;
-
           const existing = (state.agentSettings as Record<string, Record<string, unknown>> | undefined) ?? {};
           state.agentSettings = { ...existing, claude: { ...(existing.claude ?? {}), ...claude } };
         }
         if (version < 7) {
-          // v6 -> v7: convert stageTimeoutMinutes to stageTimeoutHours
           const oldMinutes = state.stageTimeoutMinutes as number | undefined;
           if (oldMinutes !== undefined) {
             state.stageTimeoutHours = Math.max(1, Math.ceil(oldMinutes / 60));
@@ -374,133 +192,128 @@ export const useSettingsStore = create<SettingsState>()(
             state.stageTimeoutHours = 1;
           }
         }
-        if (version < 6) {
-          state.validationModel = 'sonnet-4.5';
-          state.validationTimeoutMinutes = 10;
-        }
-        if (version < 1) {
-          // v0 -> v1: 'default' plannerModel was removed; map to 'opus'
-          if (state.plannerModel === 'default') {
-            state.plannerModel = 'opus';
-          }
-        }
-        if (version < 2) {
-          // v1 -> v2: increase default timeout from 5 to 10 minutes
-          if (state.plannerTimeoutMinutes === 5) {
-            state.plannerTimeoutMinutes = 10;
-          }
-        }
-        if (version < 3) {
-          // v2 -> v3: default plannerModel changed from 'opus' to 'opus-4.5'
-          if (state.plannerModel === 'opus') {
-            state.plannerModel = 'opus-4.5';
-          }
-        }
+        if (version < 6) { state.validationModel = 'sonnet-4.5'; state.validationTimeoutMinutes = 10; }
+        if (version < 1) { if (state.plannerModel === 'default') state.plannerModel = 'opus'; }
+        if (version < 2) { if (state.plannerTimeoutMinutes === 5) state.plannerTimeoutMinutes = 10; }
+        if (version < 3) { if (state.plannerModel === 'opus') state.plannerModel = 'opus-4.5'; }
         if (version < 4) {
-          // v3 -> v4: require versioned model identifiers
-          if (state.plannerModel === 'opus') {
-            state.plannerModel = 'opus-4.6';
-          }
-          if (state.plannerModel === 'sonnet') {
-            state.plannerModel = 'sonnet-4.5';
-          }
+          if (state.plannerModel === 'opus') state.plannerModel = 'opus-4.6';
+          if (state.plannerModel === 'sonnet') state.plannerModel = 'sonnet-4.5';
         }
         if (version < 5) {
-          // v4 -> v5: add workflow stage configuration with balanced defaults
           state.workflowPreset = DEFAULT_WORKFLOW_PRESET;
           state.workflowStages = { ...DEFAULT_WORKFLOW_STAGES };
         }
+
+        if (version < 12) {
+          const agentSettings = (state.agentSettings as Record<string, Record<string, unknown>> | undefined) ?? {};
+          const buildConfig = (agentId: string): AgentConfig => {
+            const base = getDefaultConfigForAgent(agentId);
+            const isCodex = agentId === 'codex';
+            const mapModel = (m: unknown) => {
+              const model = typeof m === 'string' ? m : base.plannerModel;
+              return isCodex ? mapModelForCodex(model) : model;
+            };
+            const stages = state.workflowStages as WorkflowStages | undefined;
+            const workflowStages = stages
+              ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
+              : base.workflowStages;
+            return {
+              workflowPreset: (state.workflowPreset as WorkflowPreset) ?? base.workflowPreset,
+              workflowStages,
+              stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
+              stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
+              codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
+              plannerModel: mapModel(state.plannerModel),
+              plannerAutoApprove: (state.plannerAutoApprove as boolean) ?? base.plannerAutoApprove,
+              plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
+              plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
+              plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
+              validationModel: mapModel(state.validationModel) as AIModel,
+              validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
+              diagnosticModel: mapModel(state.diagnosticModel) as AIModel,
+              settings: agentSettings[agentId] ?? base.settings,
+            };
+          };
+          state.agentConfigs = { claude: buildConfig('claude'), cursor: buildConfig('cursor'), codex: buildConfig('codex') };
+          delete state.workflowPreset; delete state.workflowStages;
+          delete state.stageTimeoutHours; delete state.stageMaxRetries; delete state.codeReviewMaxIterations;
+          delete state.plannerModel; delete state.plannerAutoApprove; delete state.plannerMaxExplorations;
+          delete state.plannerTimeoutMinutes; delete state.plannerMaxRetries;
+          delete state.validationModel; delete state.validationTimeoutMinutes;
+          delete state.diagnosticModel; delete state.agentSettings;
+        }
+
         return state as unknown as SettingsState;
       },
     }
   )
 );
 
-// --- Sync workflow settings to backend ---
-// The backend shared WorkflowSettingsState is the SINGLE SOURCE OF TRUTH
-// that orchestrators read when starting a workflow.  We must keep it in
-// sync with the frontend settings store.
+function buildSyncPayload(configs: Record<string, AgentConfig>) {
+  const payload: Record<string, {
+    stageConfigs: Record<string, { enabled: boolean; model: string }>;
+    codeReviewMaxIterations: number;
+    stageTimeoutHours: number;
+    stageMaxRetries: number;
+    diagnosticModel: string;
+  }> = {};
+  for (const [agentId, config] of Object.entries(configs)) {
+    payload[agentId] = {
+      stageConfigs: config.workflowStages,
+      codeReviewMaxIterations: config.codeReviewMaxIterations,
+      stageTimeoutHours: config.stageTimeoutHours,
+      stageMaxRetries: config.stageMaxRetries,
+      diagnosticModel: config.diagnosticModel,
+    };
+  }
+  return payload;
+}
 
-/** Send current workflow settings to the backend (fire-and-forget). */
-function syncCurrentWorkflowSettings(state: SettingsState) {
-  syncWorkflowSettings({
-    stageConfigs: state.workflowStages,
-    codeReviewMaxIterations: state.codeReviewMaxIterations,
-    stageTimeoutHours: state.stageTimeoutHours,
-    stageMaxRetries: state.stageMaxRetries,
-    diagnosticModel: state.diagnosticModel,
-  }).then(() => {
-    console.debug('[settings] Workflow settings synced to backend');
-  }).catch((err) => {
-    console.warn('[settings] Failed to sync workflow settings to backend:', err);
-  });
+function syncCurrentAgentConfigs(state: SettingsState) {
+  syncAgentConfigs(buildSyncPayload(state.agentConfigs))
+    .then(() => { console.debug('[settings] Agent configs synced to backend'); })
+    .catch((err) => { console.warn('[settings] Failed to sync agent configs to backend:', err); });
 }
 
 /**
- * Ensure the backend has the latest workflow settings.
- * Call this before every agent run / worker start to guarantee the
- * backend shared state is populated, regardless of any startup race
- * conditions.  Returns a promise so the caller can await it.
+ * Ensure the backend has the latest per-agent configs.
+ * Call before every agent run / worker start.
  */
-export async function ensureWorkflowSettingsSynced(): Promise<void> {
+export async function ensureAgentConfigsSynced(): Promise<void> {
   const state = useSettingsStore.getState();
   try {
-    await syncWorkflowSettings({
-      stageConfigs: state.workflowStages,
-      codeReviewMaxIterations: state.codeReviewMaxIterations,
-      stageTimeoutHours: state.stageTimeoutHours,
-      stageMaxRetries: state.stageMaxRetries,
-      diagnosticModel: state.diagnosticModel,
-    });
+    await syncAgentConfigs(buildSyncPayload(state.agentConfigs));
   } catch (err) {
-    console.error('[settings] ensureWorkflowSettingsSynced failed:', err);
-    // Don't rethrow — the run can still proceed with whatever the backend has.
+    console.error('[settings] ensureAgentConfigsSynced failed:', err);
   }
 }
 
-// Sync on every relevant settings change
 useSettingsStore.subscribe(
   (state, prevState) => {
-    if (
-      state.workflowStages !== prevState.workflowStages ||
-      state.codeReviewMaxIterations !== prevState.codeReviewMaxIterations ||
-      state.stageTimeoutHours !== prevState.stageTimeoutHours ||
-      state.stageMaxRetries !== prevState.stageMaxRetries ||
-      state.diagnosticModel !== prevState.diagnosticModel
-    ) {
-      syncCurrentWorkflowSettings(state);
+    if (state.agentConfigs !== prevState.agentConfigs) {
+      syncCurrentAgentConfigs(state);
     }
   },
 );
 
-// Sync after store rehydration with retry logic.
-// The Tauri backend may not be ready when the store first rehydrates,
-// so we retry a few times with exponential backoff.
 const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
   const maxRetries = 5;
   let attempt = 0;
-
   const trySync = () => {
     attempt++;
-    syncWorkflowSettings({
-      stageConfigs: state.workflowStages,
-      codeReviewMaxIterations: state.codeReviewMaxIterations,
-      stageTimeoutHours: state.stageTimeoutHours,
-      stageMaxRetries: state.stageMaxRetries,
-      diagnosticModel: state.diagnosticModel,
-    }).then(() => {
-      console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`);
-    }).catch((err) => {
-      if (attempt < maxRetries) {
-        const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
-        console.debug(`[settings] Initial sync attempt ${attempt} failed, retrying in ${delay}ms:`, err);
-        setTimeout(trySync, delay);
-      } else {
-        console.warn(`[settings] Initial sync failed after ${maxRetries} attempts:`, err);
-      }
-    });
+    syncAgentConfigs(buildSyncPayload(state.agentConfigs))
+      .then(() => { console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`); })
+      .catch((err) => {
+        if (attempt < maxRetries) {
+          const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
+          console.debug(`[settings] Initial sync attempt ${attempt} failed, retrying in ${delay}ms:`, err);
+          setTimeout(trySync, delay);
+        } else {
+          console.warn(`[settings] Initial sync failed after ${maxRetries} attempts:`, err);
+        }
+      });
   };
-
   trySync();
   unsubRehydrate();
 });

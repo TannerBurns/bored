@@ -5,10 +5,10 @@ import {
 } from '../../stores/settingsStore';
 
 export function DiagnosticAgentSettings() {
-  const {
-    diagnosticModel,
-    setDiagnosticModel,
-  } = useSettingsStore();
+  const config = useSettingsStore((s) => s.agentConfigs['claude']);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const diagnosticModel = config.diagnosticModel;
 
   return (
     <div className="space-y-4">
@@ -26,7 +26,7 @@ export function DiagnosticAgentSettings() {
           </label>
           <select
             value={diagnosticModel}
-            onChange={(e) => setDiagnosticModel(e.target.value as AIModel)}
+            onChange={(e) => updateConfig('claude', { diagnosticModel: e.target.value as AIModel })}
             className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           >
             {MODEL_OPTIONS.map((opt) => (

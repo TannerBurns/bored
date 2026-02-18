@@ -8,7 +8,7 @@ use tauri::{AppHandle, Window};
 use super::CancelHandlesMap;
 use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
-use crate::commands::workflow_settings::WorkflowSettings;
+use crate::commands::workflow_settings::PerAgentSettings;
 use crate::db::Database;
 
 /// Configuration for creating a WorkflowOrchestrator
@@ -43,8 +43,8 @@ pub struct OrchestratorConfig {
     /// The previous run ID (when resuming a paused ticket).
     /// Used to retrieve stage outputs from the run that was paused.
     pub previous_run_id: Option<String>,
-    /// Shared workflow settings (stage configs, timeouts, retries).
-    pub workflow_settings: Arc<Mutex<WorkflowSettings>>,
+    /// Shared per-agent workflow settings (stage configs, timeouts, retries).
+    pub workflow_settings: Arc<Mutex<PerAgentSettings>>,
     /// Fallback stage configs used when workflow_settings hasn't been synced yet.
     pub stage_configs: HashMap<String, StageConfig>,
     pub code_review_max_iterations: usize,

@@ -6,18 +6,14 @@ import {
 import { cn } from '../../lib/utils';
 
 export function SpecAgentSettings() {
-  const {
-    plannerAutoApprove,
-    setPlannerAutoApprove,
-    plannerModel,
-    setPlannerModel,
-    plannerMaxExplorations,
-    setPlannerMaxExplorations,
-    plannerTimeoutMinutes,
-    setPlannerTimeoutMinutes,
-    plannerMaxRetries,
-    setPlannerMaxRetries,
-  } = useSettingsStore();
+  const config = useSettingsStore((s) => s.agentConfigs['claude']);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const plannerAutoApprove = config.plannerAutoApprove;
+  const plannerModel = config.plannerModel;
+  const plannerMaxExplorations = config.plannerMaxExplorations;
+  const plannerTimeoutMinutes = config.plannerTimeoutMinutes;
+  const plannerMaxRetries = config.plannerMaxRetries;
 
   return (
     <div className="space-y-4">
@@ -38,7 +34,7 @@ export function SpecAgentSettings() {
             </p>
           </div>
           <button
-            onClick={() => setPlannerAutoApprove(!plannerAutoApprove)}
+            onClick={() => updateConfig('claude', { plannerAutoApprove: !plannerAutoApprove })}
             className={cn(
               'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-board-accent',
               plannerAutoApprove ? 'bg-board-accent' : 'glass'
@@ -64,7 +60,7 @@ export function SpecAgentSettings() {
             min={1}
             max={50}
             value={plannerMaxExplorations}
-            onChange={(e) => setPlannerMaxExplorations(parseInt(e.target.value) || 10)}
+            onChange={(e) => updateConfig('claude', { plannerMaxExplorations: parseInt(e.target.value) || 10 })}
             className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           />
           <p className="text-xs text-board-text-muted mt-0.5">
@@ -83,7 +79,7 @@ export function SpecAgentSettings() {
               min={1}
               max={30}
               value={plannerTimeoutMinutes}
-              onChange={(e) => setPlannerTimeoutMinutes(parseInt(e.target.value) || 10)}
+              onChange={(e) => updateConfig('claude', { plannerTimeoutMinutes: parseInt(e.target.value) || 10 })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
@@ -96,7 +92,7 @@ export function SpecAgentSettings() {
               min={0}
               max={5}
               value={plannerMaxRetries}
-              onChange={(e) => setPlannerMaxRetries(parseInt(e.target.value) || 2)}
+              onChange={(e) => updateConfig('claude', { plannerMaxRetries: parseInt(e.target.value) || 2 })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
@@ -109,7 +105,7 @@ export function SpecAgentSettings() {
           </label>
           <select
             value={plannerModel}
-            onChange={(e) => setPlannerModel(e.target.value as AIModel)}
+            onChange={(e) => updateConfig('claude', { plannerModel: e.target.value as AIModel })}
             className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           >
             {MODEL_OPTIONS.map((opt) => (

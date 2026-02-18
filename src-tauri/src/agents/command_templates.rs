@@ -81,17 +81,14 @@ pub fn install_commands(
     std::fs::create_dir_all(&commands_dir)?;
 
     let mut installed = Vec::new();
-
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-
     Ok(installed)
 }
 
@@ -106,21 +103,17 @@ pub fn install_user_commands(
             "Could not determine home directory",
         )
     })?;
-
     std::fs::create_dir_all(&commands_dir)?;
 
     let mut installed = Vec::new();
-
     for name in COMMAND_TEMPLATES {
         let source = commands_source.join(name);
         let dest = commands_dir.join(name);
-
         if source.exists() {
             std::fs::copy(&source, &dest)?;
             installed.push(name.to_string());
         }
     }
-
     Ok(installed)
 }
 

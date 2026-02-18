@@ -98,6 +98,12 @@ export interface Comment {
 
 export type AgentType = string;
 
+/** A model option supported by a specific agent. */
+export interface AgentModelOption {
+  value: string;
+  label: string;
+}
+
 /** Agent metadata returned by the backend `get_available_agents` command. */
 export interface AgentInfo {
   id: string;
@@ -105,6 +111,7 @@ export interface AgentInfo {
   isAvailable: boolean;
   version: string | null;
   brandColor: string | null;
+  availableModels: AgentModelOption[];
 }
 export type RunStatus = 'queued' | 'running' | 'finished' | 'error' | 'aborted' | 'paused';
 

@@ -1,0 +1,189 @@
+//! Codex `AgentProvider` implementation.
+//!
+//! Codex CLI outputs NDJSON with `item.completed` and `turn.completed` events.
+//! This provider parses that format for text extraction and cost data.
+
+use crate::agents::cli_utils;
+use crate::agents::cost::RunCostData;
+use crate::agents::provider::{AgentProvider, AgentRunConfig};
+
+use super::command;
+
+#[derive(Debug)]
+pub struct CodexProvider;
+
+impl CodexProvider {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for CodexProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentProvider for CodexProvider {
+    fn id(&self) -> &str {
+        "codex"
+    }
+
+    fn display_name(&self) -> &str {
+        "Codex"
+    }
+
+    fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
+        command::build_command_from_provider_config(config)
+    }
+
+    fn build_env_vars(&self, _config: &AgentRunConfig) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
+    fn extract_text(&self, output: &str) -> String {
+        extract_text_from_codex_json(output).unwrap_or_else(|| output.to_string())
+    }
+
+    fn extract_cost(
+        &self,
+        stdout: &str,
+        model: &str,
+        duration_secs: f64,
+    ) -> Option<RunCostData> {
+        if let Some(cost) = extract_cost_from_codex_json(stdout, model) {
+            return Some(cost);
+        }
+        let output_chars = stdout.len();
+        if output_chars > 0 || duration_secs > 0.0 {
+            Some(crate::agents::cost::estimate_cost(model, output_chars, duration_secs))
+        } else {
+            None
+        }
+    }
+
+    fn is_available(&self) -> bool {
+        cli_utils::is_cli_available("codex")
+    }
+
+    fn get_version(&self) -> Option<String> {
+        cli_utils::get_cli_version("codex")
+    }
+
+    fn config_dir_name(&self) -> &str {
+        ".codex"
+    }
+
+    fn command_instructions_subdir(&self) -> &str {
+        "commands"
+    }
+
+    fn format_command_reference(&self, command: &str) -> String {
+        format!("(see {} instructions)", command)
+    }
+
+    fn brand_color(&self) -> Option<&str> {
+        Some("#0ea5e9")
+    }
+
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("gpt-5.3-codex", "GPT-5.3 Codex"),
+            ("gpt-5.2-codex", "GPT-5.2 Codex"),
+        ]
+    }
+}
+
+/// Extract text from Codex NDJSON output.
+///
+/// Collects text from `item.completed` events with `item.type == "agent_message"`,
+/// ignoring `reasoning` items.
+fn extract_text_from_codex_json(output: &str) -> Option<String> {
+    let mut text_parts = Vec::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() || !line.starts_with('{') {
+            continue;
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            if json.get("type").and_then(|t| t.as_str()) == Some("item.completed") {
+                if let Some(item) = json.get("item") {
+                    let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                    if item_type == "agent_message" {
+                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if text_parts.is_empty() {
+        None
+    } else {
+        Some(text_parts.join("\n"))
+    }
+}
+
+/// Extract cost/token data from `turn.completed` events in Codex NDJSON output.
+fn extract_cost_from_codex_json(output: &str, model: &str) -> Option<RunCostData> {
+    let mut total_input = 0u64;
+    let mut total_cached = 0u64;
+    let mut total_output = 0u64;
+    let mut found = false;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() || !line.starts_with('{') {
+            continue;
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            if json.get("type").and_then(|t| t.as_str()) == Some("turn.completed") {
+                if let Some(usage) = json.get("usage") {
+                    total_input += usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    total_cached += usage.get("cached_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    total_output += usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    found = true;
+                }
+            }
+        }
+    }
+
+    if !found {
+        return None;
+    }
+
+    let normalized_model = crate::agents::cost::normalize_model_name(model);
+    let mut model_usage = std::collections::HashMap::new();
+    let cost_usd = crate::agents::cost::compute_cost_from_tokens(
+        model,
+        total_input,
+        total_output,
+        total_cached,
+        0,
+    );
+    model_usage.insert(
+        normalized_model,
+        crate::agents::cost::ModelCostData {
+            input_tokens: total_input,
+            output_tokens: total_output,
+            cache_read_tokens: total_cached,
+            cache_creation_tokens: 0,
+            cost_usd,
+        },
+    );
+
+    Some(RunCostData {
+        input_tokens: total_input,
+        output_tokens: total_output,
+        cache_read_tokens: total_cached,
+        cache_creation_tokens: 0,
+        total_cost_usd: cost_usd,
+        model_usage,
+        is_estimated: false,
+    })
+}

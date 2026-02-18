@@ -346,7 +346,7 @@ mod tests {
         // First two paths from providers, third is bundled fallback
         assert!(paths.len() >= 3);
         assert_eq!(paths[0], PathBuf::from("/repo/.claude/commands/deslop.md"));
-        assert_eq!(paths[1], PathBuf::from("/repo/.cursor/rules/deslop.md"));
+        assert_eq!(paths[1], PathBuf::from("/repo/.cursor/commands/deslop.md"));
         // Last path is the bundled commands dir
         assert!(paths.last().unwrap().ends_with("scripts/commands/deslop.md"));
     }

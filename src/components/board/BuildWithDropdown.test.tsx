@@ -6,8 +6,8 @@ import type { AgentInfo } from '../../types';
 const mockLoadAgents = vi.fn().mockResolvedValue([]);
 
 const MOCK_AGENTS: AgentInfo[] = [
-  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
-  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null, availableModels: [] },
+  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756', availableModels: [] },
 ];
 
 let storeAgents: AgentInfo[] = MOCK_AGENTS;
@@ -140,8 +140,8 @@ describe('BuildWithDropdown', () => {
   describe('CLI availability', () => {
     it('does not call onSelect when Cursor CLI is unavailable', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
@@ -157,8 +157,8 @@ describe('BuildWithDropdown', () => {
 
     it('does not call onSelect when Claude CLI is unavailable', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
@@ -174,8 +174,8 @@ describe('BuildWithDropdown', () => {
 
     it('shows "(not installed)" text when an agent is unavailable', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
@@ -187,8 +187,8 @@ describe('BuildWithDropdown', () => {
 
     it('shows both as unavailable when both CLIs are not installed', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
@@ -206,8 +206,8 @@ describe('BuildWithDropdown', () => {
 
     it('allows Cursor selection when available but Claude is not', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);
@@ -223,8 +223,8 @@ describe('BuildWithDropdown', () => {
 
     it('allows Claude selection when available but Cursor is not', () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<BuildWithDropdown onSelect={mockOnSelect} />);

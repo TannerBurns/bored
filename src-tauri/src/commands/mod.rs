@@ -63,6 +63,13 @@ pub struct ApiConfigResponse {
     pub token: String,
 }
 
+/// A model option for a specific agent, returned to the frontend.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgentModelOption {
+    pub value: String,
+    pub label: String,
+}
+
 /// Information about a registered agent, returned to the frontend.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +79,7 @@ pub struct AgentInfo {
     pub is_available: bool,
     pub version: Option<String>,
     pub brand_color: Option<String>,
+    pub available_models: Vec<AgentModelOption>,
 }
 
 /// Return the list of all registered agents with their availability status.
@@ -88,6 +96,14 @@ pub fn get_available_agents(
             is_available: p.is_available(),
             version: p.get_version(),
             brand_color: p.brand_color().map(|s| s.to_string()),
+            available_models: p
+                .available_models()
+                .into_iter()
+                .map(|(v, l)| AgentModelOption {
+                    value: v.to_string(),
+                    label: l.to_string(),
+                })
+                .collect(),
         })
         .collect()
 }

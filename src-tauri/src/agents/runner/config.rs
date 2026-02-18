@@ -7,7 +7,7 @@ use tauri::{AppHandle, Window};
 
 use crate::agents::provider::AgentProvider;
 use crate::agents::spawner::CancelHandle;
-use crate::commands::workflow_settings::WorkflowSettings;
+use crate::commands::workflow_settings::PerAgentSettings;
 use crate::db::models::Task;
 use crate::db::{Database, RunStatus, Ticket};
 
@@ -52,8 +52,8 @@ pub struct RunnerConfig {
     /// Per-stage configuration (enabled/disabled + model selection).
     /// Keys are user-facing stage names (e.g., "plan", "codeReview").
     pub stage_configs: HashMap<String, crate::commands::runs::StageConfig>,
-    /// Shared workflow settings, passed through to the orchestrator.
-    pub workflow_settings: Option<Arc<Mutex<WorkflowSettings>>>,
+    /// Shared per-agent workflow settings, passed through to the orchestrator.
+    pub workflow_settings: Option<Arc<Mutex<PerAgentSettings>>>,
 }
 
 pub struct RunnerResult {

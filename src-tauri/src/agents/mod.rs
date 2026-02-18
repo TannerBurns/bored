@@ -1,6 +1,7 @@
 pub mod brainstorm;
 pub mod claude;
 pub mod cli_utils;
+pub mod codex;
 pub mod command_templates;
 pub mod cost;
 pub mod cursor;

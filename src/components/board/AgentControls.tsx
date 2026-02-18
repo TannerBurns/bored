@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Ticket, AgentRun, AgentType } from '../../types';
-import { useSettingsStore, ensureWorkflowSettingsSynced } from '../../stores/settingsStore';
+import { useSettingsStore, ensureAgentConfigsSynced } from '../../stores/settingsStore';
 import { BuildWithDropdown } from './BuildWithDropdown';
 import { getAgentDisplayName } from '../common/AgentIcons';
 
@@ -38,7 +38,7 @@ export function AgentControls({
   onRunStarted,
   onRunCompleted,
 }: AgentControlsProps) {
-  const { codeReviewMaxIterations, stageTimeoutHours, stageMaxRetries, workflowStages } = useSettingsStore();
+  const agentConfigs = useSettingsStore((s) => s.agentConfigs);
   const [isRunning, setIsRunning] = useState(false);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ stream: string; content: string }>>([]);
@@ -175,18 +175,18 @@ export function AgentControls({
     setError(null);
 
     try {
-      // Ensure backend has the latest workflow settings BEFORE starting the run
-      await ensureWorkflowSettingsSynced();
+      await ensureAgentConfigsSynced();
 
+      const cfg = agentConfigs[agentType] ?? agentConfigs['claude'];
       const runId = await invoke<string>('start_agent_run', {
         input: {
           ticketId: ticket.id,
           agentType,
           repoPath: '.',
-          codeReviewMaxIterations,
-          stageTimeoutHours,
-          stageMaxRetries,
-          stageConfigs: workflowStages,
+          codeReviewMaxIterations: cfg.codeReviewMaxIterations,
+          stageTimeoutHours: cfg.stageTimeoutHours,
+          stageMaxRetries: cfg.stageMaxRetries,
+          stageConfigs: cfg.workflowStages,
         },
       });
 

@@ -58,32 +58,68 @@ impl Default for WorkflowSettings {
     }
 }
 
-/// Managed Tauri state that holds the current workflow settings.
+/// Per-agent workflow settings keyed by agent ID (e.g. "claude", "cursor", "codex").
+pub type PerAgentSettings = HashMap<String, WorkflowSettings>;
+
+/// Managed Tauri state that holds per-agent workflow settings.
 ///
 /// The inner `Arc<Mutex<_>>` can be cloned cheaply and shared with workers
 /// so they can read current settings at task-processing time.
-pub struct WorkflowSettingsState(Arc<Mutex<WorkflowSettings>>);
+pub struct WorkflowSettingsState(Arc<Mutex<PerAgentSettings>>);
 
 impl WorkflowSettingsState {
     pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(WorkflowSettings::default())))
+        Self(Arc::new(Mutex::new(HashMap::new())))
     }
 
-    /// Get a snapshot of the current settings.
-    pub fn get(&self) -> WorkflowSettings {
+    /// Get a snapshot of the settings for a specific agent (or default if not synced).
+    pub fn get_for_agent(&self, agent_id: &str) -> WorkflowSettings {
         self.0
             .lock()
             .expect("workflow settings mutex poisoned")
-            .clone()
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
-    /// Update the settings in memory.
+    /// Get a snapshot of the current settings (first synced agent, for backward compat).
+    pub fn get(&self) -> WorkflowSettings {
+        let map = self.0.lock().expect("workflow settings mutex poisoned");
+        map.values()
+            .find(|ws| ws.synced)
+            .or_else(|| map.values().next())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Update settings for a specific agent.
+    pub fn set_for_agent(&self, agent_id: &str, settings: WorkflowSettings) {
+        self.0
+            .lock()
+            .expect("workflow settings mutex poisoned")
+            .insert(agent_id.to_string(), settings);
+    }
+
+    /// Update the settings in memory (legacy: applies to all agents).
     pub fn set(&self, settings: WorkflowSettings) {
-        *self.0.lock().expect("workflow settings mutex poisoned") = settings;
+        let mut map = self.0.lock().expect("workflow settings mutex poisoned");
+        for v in map.values_mut() {
+            *v = settings.clone();
+        }
+        if map.is_empty() {
+            map.insert("claude".to_string(), settings.clone());
+            map.insert("cursor".to_string(), settings.clone());
+            map.insert("codex".to_string(), settings);
+        }
+    }
+
+    /// Replace all per-agent settings at once.
+    pub fn set_all(&self, configs: HashMap<String, WorkflowSettings>) {
+        *self.0.lock().expect("workflow settings mutex poisoned") = configs;
     }
 
     /// Get a shared reference that can be passed to workers.
-    pub fn shared(&self) -> Arc<Mutex<WorkflowSettings>> {
+    pub fn shared(&self) -> Arc<Mutex<PerAgentSettings>> {
         self.0.clone()
     }
 }
@@ -95,6 +131,7 @@ impl Default for WorkflowSettingsState {
 }
 
 /// Tauri command: frontend calls this whenever workflow settings change.
+/// Accepts settings for a single agent (legacy) — applies to all agents.
 #[tauri::command]
 pub async fn sync_workflow_settings(
     mut settings: WorkflowSettings,
@@ -107,10 +144,27 @@ pub async fn sync_workflow_settings(
         settings.stage_timeout_hours,
         settings.stage_max_retries,
     );
-    // Mark as synced so the orchestrator trusts shared state even when
-    // stage_configs happens to be empty.
     settings.synced = true;
     state.set(settings);
+    Ok(())
+}
+
+/// Tauri command: frontend syncs per-agent workflow settings.
+#[tauri::command]
+pub async fn sync_agent_configs(
+    agent_configs: HashMap<String, WorkflowSettings>,
+    state: State<'_, WorkflowSettingsState>,
+) -> Result<(), String> {
+    tracing::debug!(
+        "Syncing per-agent configs from frontend: {} agents",
+        agent_configs.len(),
+    );
+    let mut marked = HashMap::with_capacity(agent_configs.len());
+    for (id, mut ws) in agent_configs {
+        ws.synced = true;
+        marked.insert(id, ws);
+    }
+    state.set_all(marked);
     Ok(())
 }
 
@@ -220,15 +274,14 @@ mod tests {
     }
 
     #[test]
-    fn workflow_settings_state_get_set() {
+    fn workflow_settings_state_per_agent_get_set() {
         let state = WorkflowSettingsState::new();
 
-        // Initially default
-        let initial = state.get();
-        assert!(initial.stage_configs.is_empty());
-        assert_eq!(initial.code_review_max_iterations, 3);
+        // Initially no agent config
+        let initial = state.get_for_agent("claude");
+        assert!(!initial.synced);
 
-        // Set new values
+        // Set per-agent values
         let mut configs = HashMap::new();
         configs.insert(
             "implement".to_string(),
@@ -237,7 +290,7 @@ mod tests {
                 model: "sonnet-4.5".to_string(),
             },
         );
-        state.set(WorkflowSettings {
+        state.set_for_agent("claude", WorkflowSettings {
             stage_configs: configs,
             code_review_max_iterations: 7,
             stage_timeout_hours: 2,
@@ -246,12 +299,13 @@ mod tests {
             ..Default::default()
         });
 
-        // Verify update
-        let updated = state.get();
+        let updated = state.get_for_agent("claude");
         assert_eq!(updated.stage_configs.len(), 1);
         assert_eq!(updated.code_review_max_iterations, 7);
-        assert_eq!(updated.stage_timeout_hours, 2);
-        assert_eq!(updated.stage_max_retries, 4);
+
+        // Other agent still gets default
+        let codex = state.get_for_agent("codex");
+        assert!(!codex.synced);
     }
 
     #[test]
@@ -259,14 +313,14 @@ mod tests {
         let state = WorkflowSettingsState::new();
         let shared = state.shared();
 
-        // Update via state
-        state.set(WorkflowSettings {
+        state.set_for_agent("claude", WorkflowSettings {
             code_review_max_iterations: 10,
+            synced: true,
             ..Default::default()
         });
 
-        // Read via shared Arc
-        let from_shared = shared.lock().unwrap().clone();
+        let per_agent = shared.lock().unwrap();
+        let from_shared = per_agent.get("claude").unwrap();
         assert_eq!(from_shared.code_review_max_iterations, 10);
     }
 
@@ -278,31 +332,123 @@ mod tests {
         assert!(!settings.synced);
     }
 
-    /// Regression: synced settings with empty stage_configs should still be
-    /// recognized as synced — the orchestrator must not fall back to config
-    /// defaults just because stage_configs is empty.
+    #[test]
+    fn workflow_settings_set_all_replaces_map() {
+        let state = WorkflowSettingsState::new();
+
+        let mut map = HashMap::new();
+        map.insert("claude".to_string(), WorkflowSettings {
+            code_review_max_iterations: 5,
+            synced: true,
+            ..Default::default()
+        });
+        map.insert("codex".to_string(), WorkflowSettings {
+            code_review_max_iterations: 8,
+            synced: true,
+            ..Default::default()
+        });
+        state.set_all(map);
+
+        assert_eq!(state.get_for_agent("claude").code_review_max_iterations, 5);
+        assert_eq!(state.get_for_agent("codex").code_review_max_iterations, 8);
+    }
+
     #[test]
     fn workflow_settings_synced_with_empty_stage_configs() {
         let state = WorkflowSettingsState::new();
-
-        // Simulate what sync_workflow_settings does
         let mut settings = WorkflowSettings {
             stage_configs: HashMap::new(),
             code_review_max_iterations: 10,
             stage_timeout_hours: 2,
             stage_max_retries: 5,
-            synced: false, // frontend doesn't send this
+            synced: false,
             ..Default::default()
         };
-        settings.synced = true; // sync_workflow_settings sets this
+        settings.synced = true;
+        state.set_for_agent("claude", settings);
 
-        state.set(settings);
-
-        let stored = state.get();
-        assert!(stored.synced, "settings should be marked as synced");
-        assert!(stored.stage_configs.is_empty(), "stage_configs should still be empty");
+        let stored = state.get_for_agent("claude");
+        assert!(stored.synced);
+        assert!(stored.stage_configs.is_empty());
         assert_eq!(stored.code_review_max_iterations, 10);
-        assert_eq!(stored.stage_timeout_hours, 2);
-        assert_eq!(stored.stage_max_retries, 5);
+    }
+
+    #[test]
+    fn get_prefers_synced_agent_over_unsynced() {
+        let state = WorkflowSettingsState::new();
+        state.set_for_agent("cursor", WorkflowSettings {
+            code_review_max_iterations: 1,
+            synced: false,
+            ..Default::default()
+        });
+        state.set_for_agent("claude", WorkflowSettings {
+            code_review_max_iterations: 9,
+            synced: true,
+            ..Default::default()
+        });
+        let result = state.get();
+        assert_eq!(result.code_review_max_iterations, 9);
+        assert!(result.synced);
+    }
+
+    #[test]
+    fn get_falls_back_to_first_when_none_synced() {
+        let state = WorkflowSettingsState::new();
+        state.set_for_agent("cursor", WorkflowSettings {
+            code_review_max_iterations: 4,
+            synced: false,
+            ..Default::default()
+        });
+        let result = state.get();
+        assert_eq!(result.code_review_max_iterations, 4);
+        assert!(!result.synced);
+    }
+
+    #[test]
+    fn legacy_set_populates_all_three_agents_when_empty() {
+        let state = WorkflowSettingsState::new();
+        state.set(WorkflowSettings {
+            code_review_max_iterations: 42,
+            synced: true,
+            ..Default::default()
+        });
+        assert_eq!(state.get_for_agent("claude").code_review_max_iterations, 42);
+        assert_eq!(state.get_for_agent("cursor").code_review_max_iterations, 42);
+        assert_eq!(state.get_for_agent("codex").code_review_max_iterations, 42);
+    }
+
+    #[test]
+    fn legacy_set_overwrites_existing_agents() {
+        let state = WorkflowSettingsState::new();
+        state.set_for_agent("claude", WorkflowSettings {
+            code_review_max_iterations: 1,
+            ..Default::default()
+        });
+        state.set_for_agent("cursor", WorkflowSettings {
+            code_review_max_iterations: 2,
+            ..Default::default()
+        });
+        state.set(WorkflowSettings {
+            code_review_max_iterations: 99,
+            ..Default::default()
+        });
+        assert_eq!(state.get_for_agent("claude").code_review_max_iterations, 99);
+        assert_eq!(state.get_for_agent("cursor").code_review_max_iterations, 99);
+    }
+
+    #[test]
+    fn set_all_clears_previous_agents() {
+        let state = WorkflowSettingsState::new();
+        state.set_for_agent("old-agent", WorkflowSettings {
+            code_review_max_iterations: 1,
+            ..Default::default()
+        });
+
+        let mut map = HashMap::new();
+        map.insert("new-agent".to_string(), WorkflowSettings::default());
+        state.set_all(map);
+
+        assert!(!state.get_for_agent("old-agent").synced);
+        assert_eq!(state.get_for_agent("old-agent").code_review_max_iterations, 3);
     }
 }

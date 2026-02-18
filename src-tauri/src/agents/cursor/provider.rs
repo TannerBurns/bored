@@ -89,11 +89,22 @@ impl AgentProvider for CursorProvider {
     }
 
     fn command_instructions_subdir(&self) -> &str {
-        "rules"
+        "commands"
     }
 
     fn format_command_reference(&self, command: &str) -> String {
         format!("/{}", command)
+    }
+
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("opus-4.6", "Opus 4.6"),
+            ("opus-4.5", "Opus 4.5"),
+            ("sonnet-4.6", "Sonnet 4.6"),
+            ("sonnet-4.5", "Sonnet 4.5"),
+            ("gpt-5.3-codex", "GPT-5.3 Codex"),
+            ("gpt-5.2-codex", "GPT-5.2 Codex"),
+        ]
     }
 
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {

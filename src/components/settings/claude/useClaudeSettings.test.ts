@@ -8,6 +8,7 @@ vi.mock('../../../lib/tauri', () => ({
   getAgentStatus: vi.fn(),
   getAgentSettings: vi.fn(),
   setAgentSettings: vi.fn(),
+  syncAgentConfigs: vi.fn().mockResolvedValue(undefined),
   getProjects: vi.fn(),
   browseForDirectory: vi.fn(),
   getAvailableCommands: vi.fn(),
@@ -61,12 +62,13 @@ describe('useClaudeSettings', () => {
       await waitFor(() => expect(result.current.loading).toBe(false));
       await waitFor(() => {
         const state = useSettingsStore.getState();
-        return (state.agentSettings.claude?.authToken as string) === 'test-token';
+        return (state.getAgentSettings('claude').authToken as string) === 'test-token';
       });
 
       const storeState = useSettingsStore.getState();
-      expect(storeState.agentSettings.claude?.authToken).toBe('test-token');
-      expect(storeState.agentSettings.claude?.apiKey).toBe('test-api-key');
+      const claudeSettings = storeState.getAgentSettings('claude');
+      expect(claudeSettings.authToken).toBe('test-token');
+      expect(claudeSettings.apiKey).toBe('test-api-key');
     });
 
     it('handles empty API settings values', async () => {

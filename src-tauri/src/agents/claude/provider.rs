@@ -191,6 +191,15 @@ impl AgentProvider for ClaudeProvider {
         Some("#da7756")
     }
 
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("opus-4.6", "Opus 4.6"),
+            ("opus-4.5", "Opus 4.5"),
+            ("sonnet-4.6", "Sonnet 4.6"),
+            ("sonnet-4.5", "Sonnet 4.5"),
+        ]
+    }
+
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
         command_templates::check_project_commands_installed(repo_path, self.config_dir_name())
     }
