@@ -1,5 +1,41 @@
 [
   {
+    "version": "0.1.0-beta.19",
+    "published_at": "2026-02-17",
+    "summary": "Removed unused hooks system (~5,100 lines), unified Cursor and Claude output parsing via stream-json format",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Cursor agent now uses structured stream-json output format, unifying output parsing with Claude Code via a shared parser"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Removed hooks system entirely (~5,100 lines) — hooks never provided functional data; all useful run data comes from log streaming",
+          "RunDetailsPanel now shows logs directly instead of a Timeline/Logs tab switcher",
+          "Settings UI no longer shows \"Supported Hooks\" tables",
+          "Validation no longer checks for hooks installation (one fewer setup requirement)",
+          "DB migration 13 drops the hooks_installed_json column on upgrade"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed flaky CLI utils cache independence tests caused by parallel test interference with shared global state"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 11 regression tests covering removed hook variants, validation flow, AppState shape, and provider trait surface",
+          "Added Cursor stream-json parsing tests: assistant-only fallback, malformed JSON handling, and multi-turn output"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.18",
     "published_at": "2026-02-16",
     "summary": "Agent-agnostic provider architecture, Claude CLI settings UI, and bug fixes for ticket status, PR creation, and webhook event spooling",
