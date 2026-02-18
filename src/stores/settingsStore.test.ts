@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSettingsStore, WORKFLOW_PRESETS, WORKFLOW_STAGE_INFO } from './settingsStore';
+import { useSettingsStore, WORKFLOW_PRESETS, WORKFLOW_STAGE_INFO, MODEL_OPTIONS } from './settingsStore';
 import type { WorkflowPreset, WorkflowStageKey } from './settingsStore';
 
 describe('useSettingsStore', () => {
@@ -328,7 +328,7 @@ describe('useSettingsStore', () => {
         for (const key of allStageKeys) {
           expect(preset.stages[key], `${name} missing ${key}`).toBeDefined();
           expect(typeof preset.stages[key].enabled).toBe('boolean');
-          expect(['opus-4.6', 'opus-4.5', 'sonnet-4.5']).toContain(preset.stages[key].model);
+          expect(['opus-4.6', 'opus-4.5', 'sonnet-4.6', 'sonnet-4.5']).toContain(preset.stages[key].model);
         }
       }
     });
@@ -341,23 +341,23 @@ describe('useSettingsStore', () => {
       }
     });
 
-    it('comprehensive preset enables all stages with opus-4.6 (except branchGen which uses sonnet-4.5)', () => {
+    it('comprehensive preset enables all stages with opus-4.6 (except branchGen which uses sonnet-4.6)', () => {
       const stages = WORKFLOW_PRESETS.comprehensive.stages;
       for (const key of allStageKeys) {
         expect(stages[key].enabled).toBe(true);
         if (key === 'branchGen') {
-          expect(stages[key].model).toBe('sonnet-4.5');
+          expect(stages[key].model).toBe('sonnet-4.6');
         } else {
           expect(stages[key].model).toBe('opus-4.6');
         }
       }
     });
 
-    it('fastest preset enables all stages with sonnet-4.5', () => {
+    it('fastest preset enables all stages with sonnet-4.6', () => {
       const stages = WORKFLOW_PRESETS.fastest.stages;
       for (const key of allStageKeys) {
         expect(stages[key].enabled).toBe(true);
-        expect(stages[key].model).toBe('sonnet-4.5');
+        expect(stages[key].model).toBe('sonnet-4.6');
       }
     });
 
@@ -645,22 +645,39 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 10', () => {
+    it('uses version 11', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(10);
+      expect(options.version).toBe(11);
+    });
+  });
+
+  describe('validation agent settings', () => {
+    it('has correct default validationModel', () => {
+      const state = useSettingsStore.getState();
+      expect(state.validationModel).toBe('sonnet-4.6');
     });
   });
 
   describe('diagnostic agent settings', () => {
     it('has correct default diagnosticModel', () => {
       const state = useSettingsStore.getState();
-      expect(state.diagnosticModel).toBe('sonnet-4.5');
+      expect(state.diagnosticModel).toBe('sonnet-4.6');
     });
 
     it('sets diagnosticModel', () => {
       useSettingsStore.getState().setDiagnosticModel('opus-4.5');
       expect(useSettingsStore.getState().diagnosticModel).toBe('opus-4.5');
+    });
+  });
+
+  describe('MODEL_OPTIONS', () => {
+    it('includes all expected models', () => {
+      const values = MODEL_OPTIONS.map(o => o.value);
+      expect(values).toContain('opus-4.6');
+      expect(values).toContain('opus-4.5');
+      expect(values).toContain('sonnet-4.6');
+      expect(values).toContain('sonnet-4.5');
     });
   });
 
@@ -685,7 +702,7 @@ describe('useSettingsStore', () => {
       ) as unknown as Record<string, unknown>;
 
       const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
-      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.5' });
+      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.6' });
       // Existing stages preserved
       expect(stages.plan.model).toBe('opus-4.6');
     });
@@ -721,7 +738,7 @@ describe('useSettingsStore', () => {
         { workflowStages: {} } as unknown,
         9
       ) as unknown as Record<string, unknown>;
-      expect(migrated.diagnosticModel).toBe('sonnet-4.5');
+      expect(migrated.diagnosticModel).toBe('sonnet-4.6');
     });
 
     it('does not overwrite existing diagnosticModel', () => {
@@ -742,9 +759,64 @@ describe('useSettingsStore', () => {
         0
       ) as unknown as Record<string, unknown>;
 
-      expect(migrated.diagnosticModel).toBe('sonnet-4.5');
+      expect(migrated.diagnosticModel).toBe('sonnet-4.6');
       const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
-      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.5' });
+      expect(stages.branchGen).toEqual({ enabled: true, model: 'sonnet-4.6' });
+    });
+  });
+
+  describe('workflow migration v10->v11 (sonnet-4.5 to sonnet-4.6)', () => {
+    it('upgrades validationModel from sonnet-4.5 to sonnet-4.6', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { validationModel: 'sonnet-4.5', diagnosticModel: 'opus-4.6' } as unknown,
+        10
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.validationModel).toBe('sonnet-4.6');
+      expect(migrated.diagnosticModel).toBe('opus-4.6');
+    });
+
+    it('upgrades diagnosticModel from sonnet-4.5 to sonnet-4.6', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { diagnosticModel: 'sonnet-4.5' } as unknown,
+        10
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.diagnosticModel).toBe('sonnet-4.6');
+    });
+
+    it('upgrades sonnet-4.5 in workflow stages to sonnet-4.6', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          workflowStages: {
+            branchGen: { enabled: true, model: 'sonnet-4.5' },
+            plan: { enabled: true, model: 'opus-4.6' },
+            implement: { enabled: true, model: 'opus-4.5' },
+            commit: { enabled: true, model: 'sonnet-4.5' },
+          },
+        } as unknown,
+        10
+      ) as unknown as Record<string, unknown>;
+      const stages = migrated.workflowStages as Record<string, { enabled: boolean; model: string }>;
+      expect(stages.branchGen.model).toBe('sonnet-4.6');
+      expect(stages.plan.model).toBe('opus-4.6');
+      expect(stages.implement.model).toBe('opus-4.5');
+      expect(stages.commit.model).toBe('sonnet-4.6');
+    });
+
+    it('does not touch non-sonnet-4.5 models', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { validationModel: 'opus-4.6', diagnosticModel: 'opus-4.5' } as unknown,
+        10
+      ) as unknown as Record<string, unknown>;
+      expect(migrated.validationModel).toBe('opus-4.6');
+      expect(migrated.diagnosticModel).toBe('opus-4.5');
     });
   });
 

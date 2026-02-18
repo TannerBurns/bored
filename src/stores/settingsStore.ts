@@ -2,11 +2,12 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { syncWorkflowSettings } from '../lib/tauri';
 
-export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.5' | (string & {});
+export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.6' | 'sonnet-4.5' | (string & {});
 
 export const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
   { value: 'opus-4.6', label: 'Opus 4.6' },
   { value: 'opus-4.5', label: 'Opus 4.5' },
+  { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
   { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
 ];
 
@@ -63,7 +64,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Most Comprehensive',
     description: 'Maximum quality, highest cost — all stages with Opus 4.6',
     stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.5' },
+      branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
@@ -78,75 +79,75 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
     label: 'Balanced',
     description: 'Smart cost/quality tradeoff — all stages, mixed models',
     stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.5' },
+      branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
       deslop:      { enabled: true, model: 'opus-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.5' },
+      cleanup:     { enabled: true, model: 'sonnet-4.6' },
       unitTests:   { enabled: true, model: 'opus-4.5' },
       finalReview: { enabled: true, model: 'opus-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.5' },
+      commit:      { enabled: true, model: 'sonnet-4.6' },
     },
   },
   vibe: {
     label: 'Vibe',
     description: 'Trust the implementation, light QA — creative core with Opus 4.6',
     stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
+      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
       plan:        { enabled: true,  model: 'opus-4.6' },
       implement:   { enabled: true,  model: 'opus-4.6' },
       codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: true,  model: 'sonnet-4.5' },
-      cleanup:     { enabled: false, model: 'sonnet-4.5' },
-      unitTests:   { enabled: false, model: 'sonnet-4.5' },
-      finalReview: { enabled: false, model: 'sonnet-4.5' },
-      commit:      { enabled: true,  model: 'sonnet-4.5' },
+      deslop:      { enabled: true,  model: 'sonnet-4.6' },
+      cleanup:     { enabled: false, model: 'sonnet-4.6' },
+      unitTests:   { enabled: false, model: 'sonnet-4.6' },
+      finalReview: { enabled: false, model: 'sonnet-4.6' },
+      commit:      { enabled: true,  model: 'sonnet-4.6' },
     },
   },
   standard: {
     label: 'Standard',
     description: 'Core workflow without polish — skips deslop and final review',
     stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
+      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
       plan:        { enabled: true,  model: 'opus-4.5' },
       implement:   { enabled: true,  model: 'opus-4.5' },
       codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: false, model: 'sonnet-4.5' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.5' },
-      unitTests:   { enabled: true,  model: 'sonnet-4.5' },
-      finalReview: { enabled: false, model: 'sonnet-4.5' },
-      commit:      { enabled: true,  model: 'sonnet-4.5' },
+      deslop:      { enabled: false, model: 'sonnet-4.6' },
+      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
+      unitTests:   { enabled: true,  model: 'sonnet-4.6' },
+      finalReview: { enabled: false, model: 'sonnet-4.6' },
+      commit:      { enabled: true,  model: 'sonnet-4.6' },
     },
   },
   'quick-fix': {
     label: 'Quick Fix',
     description: 'Minimal stages for small changes — plan, implement, cleanup, commit',
     stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.5' },
-      plan:        { enabled: true,  model: 'sonnet-4.5' },
-      implement:   { enabled: true,  model: 'sonnet-4.5' },
-      codeReview:  { enabled: false, model: 'sonnet-4.5' },
-      deslop:      { enabled: false, model: 'sonnet-4.5' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.5' },
-      unitTests:   { enabled: false, model: 'sonnet-4.5' },
-      finalReview: { enabled: false, model: 'sonnet-4.5' },
-      commit:      { enabled: true,  model: 'sonnet-4.5' },
+      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
+      plan:        { enabled: true,  model: 'sonnet-4.6' },
+      implement:   { enabled: true,  model: 'sonnet-4.6' },
+      codeReview:  { enabled: false, model: 'sonnet-4.6' },
+      deslop:      { enabled: false, model: 'sonnet-4.6' },
+      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
+      unitTests:   { enabled: false, model: 'sonnet-4.6' },
+      finalReview: { enabled: false, model: 'sonnet-4.6' },
+      commit:      { enabled: true,  model: 'sonnet-4.6' },
     },
   },
   fastest: {
     label: 'Fastest',
-    description: 'Maximum speed — all stages with Sonnet 4.5',
+    description: 'Maximum speed — all stages with Sonnet 4.6',
     stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.5' },
-      plan:        { enabled: true, model: 'sonnet-4.5' },
-      implement:   { enabled: true, model: 'sonnet-4.5' },
-      codeReview:  { enabled: true, model: 'sonnet-4.5' },
-      deslop:      { enabled: true, model: 'sonnet-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.5' },
-      unitTests:   { enabled: true, model: 'sonnet-4.5' },
-      finalReview: { enabled: true, model: 'sonnet-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.5' },
+      branchGen:   { enabled: true, model: 'sonnet-4.6' },
+      plan:        { enabled: true, model: 'sonnet-4.6' },
+      implement:   { enabled: true, model: 'sonnet-4.6' },
+      codeReview:  { enabled: true, model: 'sonnet-4.6' },
+      deslop:      { enabled: true, model: 'sonnet-4.6' },
+      cleanup:     { enabled: true, model: 'sonnet-4.6' },
+      unitTests:   { enabled: true, model: 'sonnet-4.6' },
+      finalReview: { enabled: true, model: 'sonnet-4.6' },
+      commit:      { enabled: true, model: 'sonnet-4.6' },
     },
   },
 };
@@ -225,11 +226,11 @@ export const useSettingsStore = create<SettingsState>()(
       workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
 
       // Validation agent defaults
-      validationModel: 'sonnet-4.5',
+      validationModel: 'sonnet-4.6',
       validationTimeoutMinutes: 10,
 
       // Diagnostic agent defaults
-      diagnosticModel: 'sonnet-4.5',
+      diagnosticModel: 'sonnet-4.6',
 
       agentSettings: {
         claude: {
@@ -301,7 +302,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 10,
+      version: 11,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
         if (version < 10) {
@@ -312,6 +313,23 @@ export const useSettingsStore = create<SettingsState>()(
           }
           if (state.diagnosticModel === undefined) {
             state.diagnosticModel = 'sonnet-4.5';
+          }
+        }
+        if (version < 11) {
+          // v10 -> v11: upgrade default sonnet model from 4.5 to 4.6
+          if (state.validationModel === 'sonnet-4.5') {
+            state.validationModel = 'sonnet-4.6';
+          }
+          if (state.diagnosticModel === 'sonnet-4.5') {
+            state.diagnosticModel = 'sonnet-4.6';
+          }
+          const stages11 = state.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
+          if (stages11) {
+            for (const key of Object.keys(stages11)) {
+              if (stages11[key].model === 'sonnet-4.5') {
+                stages11[key].model = 'sonnet-4.6';
+              }
+            }
           }
         }
         if (version < 8) {

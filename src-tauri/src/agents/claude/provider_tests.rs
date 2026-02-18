@@ -214,6 +214,7 @@ fn map_model_name_maps_known_models() {
     let p = ClaudeProvider::new();
     assert_eq!(p.map_model_name("opus-4.6"), "claude-opus-4-6");
     assert_eq!(p.map_model_name("opus-4.5"), "claude-opus-4-5");
+    assert_eq!(p.map_model_name("sonnet-4.6"), "claude-sonnet-4-6");
     assert_eq!(p.map_model_name("sonnet-4.5"), "claude-sonnet-4-5");
 }
 

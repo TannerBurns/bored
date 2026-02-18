@@ -65,7 +65,6 @@ mod tests {
     use super::*;
     use crate::agents::cost::RunCostData;
     use crate::agents::provider::AgentRunConfig;
-    use std::path::Path;
 
     /// Minimal stub provider for testing the registry.
     #[derive(Debug)]

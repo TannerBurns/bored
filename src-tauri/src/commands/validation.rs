@@ -762,7 +762,6 @@ mod tests {
     use crate::agents::cost::RunCostData;
     use crate::agents::provider::{AgentProvider, AgentRunConfig};
     use crate::agents::registry::AgentRegistry;
-    use std::path::Path;
 
     #[derive(Debug)]
     struct FakeProvider {

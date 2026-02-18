@@ -1,11 +1,9 @@
-import { useSettingsStore } from '../../stores/settingsStore';
+import {
+  useSettingsStore,
+  MODEL_OPTIONS,
+  type AIModel,
+} from '../../stores/settingsStore';
 import { cn } from '../../lib/utils';
-
-const plannerModelOptions = [
-  { value: 'opus-4.5', label: 'Opus 4.5', description: 'Most capable', isDefault: true },
-  { value: 'opus-4.6', label: 'Opus 4.6', description: 'Latest generation', isDefault: false },
-  { value: 'sonnet-4.5', label: 'Sonnet 4.5', description: 'Fast and capable', isDefault: false },
-] as const;
 
 export function SpecAgentSettings() {
   const {
@@ -105,44 +103,24 @@ export function SpecAgentSettings() {
         </div>
 
         {/* Model preference */}
-        <div>
-          <label className="block text-sm font-medium text-board-text mb-1.5">
-            Spec Agent Model
+        <div className="glass-subtle rounded-lg px-3 py-2">
+          <label className="block text-sm font-medium text-board-text mb-1">
+            Model
           </label>
-          <div className="grid grid-cols-3 gap-1.5">
-            {plannerModelOptions.map((option) => {
-              const isSelected = plannerModel === option.value;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => setPlannerModel(option.value)}
-                  className={cn(
-                    'flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-lg transition-all duration-200',
-                    isSelected
-                      ? 'glass-intense ring-1 ring-board-accent'
-                      : 'glass hover:glass-intense'
-                  )}
-                >
-                  <span className="flex items-center gap-1">
-                    <span className={cn(
-                      'text-xs font-medium',
-                      isSelected ? 'text-board-accent' : 'text-board-text'
-                    )}>
-                      {option.label}
-                    </span>
-                    {option.isDefault && (
-                      <span className="text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">
-                        default
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-board-text-muted">
-                    {option.description}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <select
+            value={plannerModel}
+            onChange={(e) => setPlannerModel(e.target.value as AIModel)}
+            className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+          >
+            {MODEL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-board-text-muted mt-0.5">
+            AI model used for spec generation
+          </p>
         </div>
       </div>
     </div>

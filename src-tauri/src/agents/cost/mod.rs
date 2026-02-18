@@ -23,6 +23,7 @@ pub fn normalize_model_name(name: &str) -> String {
     match lower.as_str() {
         "claude-opus-4-6" | "claude-opus-4.6" => "opus-4.6".to_string(),
         "claude-opus-4-5" | "claude-opus-4.5" => "opus-4.5".to_string(),
+        "claude-sonnet-4-6" | "claude-sonnet-4.6" => "sonnet-4.6".to_string(),
         "claude-sonnet-4-5" | "claude-sonnet-4.5" => "sonnet-4.5".to_string(),
         "claude-haiku-3" | "claude-haiku-3-5" | "claude-haiku-3.5" => "haiku-3.5".to_string(),
         _ => {
