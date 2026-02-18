@@ -39,7 +39,7 @@ function bool(settings: Record<string, unknown>, fallback: boolean, ...keys: str
 
 export function useCursorSettings(): CursorSettingsReturn {
   const base = useAgentSettings(cursorConfig);
-  const storeSetAgentSettings = useSettingsStore((s) => s.setAgentSettings);
+  const setStoreAgentSettings = useSettingsStore((s) => s.setAgentSettings);
 
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [savingCliOptions, setSavingCliOptions] = useState(false);
@@ -52,27 +52,27 @@ export function useCursorSettings(): CursorSettingsReturn {
         const thinking = bool(settings, true, 'thinking_enabled', 'thinkingEnabled');
         setThinkingEnabled(thinking);
 
-        storeSetAgentSettings('cursor', { thinkingEnabled: thinking });
+        setStoreAgentSettings('cursor', { thinkingEnabled: thinking });
       } catch {
         // useAgentSettings handles errors
       }
     };
 
     loadSettings();
-  }, [storeSetAgentSettings]);
+  }, [setStoreAgentSettings]);
 
   const handleThinkingChange = useCallback(async (value: boolean) => {
     setThinkingEnabled(value);
     setSavingCliOptions(true);
     try {
       await setAgentSettings('cursor', { thinking_enabled: value });
-      storeSetAgentSettings('cursor', { thinkingEnabled: value });
+      setStoreAgentSettings('cursor', { thinkingEnabled: value });
     } catch (e) {
       base.setError(`Failed to save CLI option: ${e}`);
     } finally {
       setSavingCliOptions(false);
     }
-  }, [base, storeSetAgentSettings]);
+  }, [base, setStoreAgentSettings]);
 
   return {
     ...base,

@@ -104,7 +104,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     deleteSpec, getSpec, setCurrentSpec, setStatus,
     activeTab, setActiveTab,
   } = useSpecStore();
-  const { plannerAutoApprove, plannerMaxExplorations, plannerModel, plannerTimeoutMinutes, plannerMaxRetries } = useSettingsStore();
+  const agentConfig = useSettingsStore((s) => s.agentConfigs['claude'] ?? s.getAgentConfig('claude'));
   
   // Extract version data (or use sensible defaults if no version exists yet)
   const version = spec.latestVersion;
@@ -124,7 +124,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     setIsStarting(true);
     setError(null);
     try {
-      const model = spec.model || plannerModel;
+      const model = spec.model || agentConfig.plannerModel;
       
       logger.info('Starting planner', { 
         specId: spec.id, 
@@ -134,11 +134,11 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
       await invoke('start_planner', {
         input: {
           specId: spec.id,
-          maxExplorations: plannerMaxExplorations,
-          autoApprove: plannerAutoApprove,
+          maxExplorations: agentConfig.plannerMaxExplorations,
+          autoApprove: agentConfig.plannerAutoApprove,
           model,
-          timeoutMinutes: plannerTimeoutMinutes,
-          maxRetries: plannerMaxRetries,
+          timeoutMinutes: agentConfig.plannerTimeoutMinutes,
+          maxRetries: agentConfig.plannerMaxRetries,
         },
       });
       

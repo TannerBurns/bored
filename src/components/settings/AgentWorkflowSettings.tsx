@@ -11,18 +11,16 @@ import { cn } from '../../lib/utils';
 const PRESET_KEYS = Object.keys(WORKFLOW_PRESETS) as Exclude<WorkflowPreset, 'custom'>[];
 
 export function AgentWorkflowSettings() {
-  const {
-    workflowPreset,
-    workflowStages,
-    setWorkflowPreset,
-    setWorkflowStageConfig,
-    codeReviewMaxIterations,
-    setCodeReviewMaxIterations,
-    stageTimeoutHours,
-    setStageTimeoutHours,
-    stageMaxRetries,
-    setStageMaxRetries,
-  } = useSettingsStore();
+  const config = useSettingsStore((s) => s.agentConfigs['claude']);
+  const setPreset = useSettingsStore((s) => s.setAgentConfigWorkflowPreset);
+  const setStage = useSettingsStore((s) => s.setAgentConfigStage);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const workflowPreset = config.workflowPreset;
+  const workflowStages = config.workflowStages;
+  const codeReviewMaxIterations = config.codeReviewMaxIterations;
+  const stageTimeoutHours = config.stageTimeoutHours;
+  const stageMaxRetries = config.stageMaxRetries;
 
   return (
     <div className="space-y-4">
@@ -49,7 +47,7 @@ export function AgentWorkflowSettings() {
             return (
               <button
                 key={key}
-                onClick={() => setWorkflowPreset(key)}
+                onClick={() => setPreset('claude', key)}
                 className={cn(
                   'flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-lg transition-all duration-200 text-left',
                   isSelected
@@ -100,8 +98,8 @@ export function AgentWorkflowSettings() {
           </div>
 
           {WORKFLOW_STAGE_INFO.map((stage) => {
-            const config = workflowStages[stage.key];
-            const isEnabled = config.enabled;
+            const stageConfig = workflowStages[stage.key];
+            const isEnabled = stageConfig.enabled;
             const isRequired = stage.required;
 
             return (
@@ -116,7 +114,7 @@ export function AgentWorkflowSettings() {
                 <button
                   onClick={() => {
                     if (!isRequired) {
-                      setWorkflowStageConfig(stage.key, { enabled: !isEnabled });
+                      setStage('claude', stage.key, { enabled: !isEnabled });
                     }
                   }}
                   disabled={isRequired}
@@ -149,8 +147,8 @@ export function AgentWorkflowSettings() {
 
                 {/* Model dropdown */}
                 <select
-                  value={config.model}
-                  onChange={(e) => setWorkflowStageConfig(stage.key, { model: e.target.value as AIModel })}
+                  value={stageConfig.model}
+                  onChange={(e) => setStage('claude', stage.key, { model: e.target.value as AIModel })}
                   disabled={!isEnabled}
                   className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -186,7 +184,7 @@ export function AgentWorkflowSettings() {
               min={1}
               step={1}
               value={stageTimeoutHours}
-              onChange={(e) => setStageTimeoutHours(parseInt(e.target.value) || 1)}
+              onChange={(e) => updateConfig('claude', { stageTimeoutHours: parseInt(e.target.value) || 1 })}
               className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
@@ -199,7 +197,7 @@ export function AgentWorkflowSettings() {
               min={0}
               max={5}
               value={stageMaxRetries}
-              onChange={(e) => setStageMaxRetries(parseInt(e.target.value) || 2)}
+              onChange={(e) => updateConfig('claude', { stageMaxRetries: parseInt(e.target.value) || 2 })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
             />
           </div>
@@ -215,7 +213,7 @@ export function AgentWorkflowSettings() {
             min={0}
             max={10}
             value={codeReviewMaxIterations}
-            onChange={(e) => setCodeReviewMaxIterations(parseInt(e.target.value) || 3)}
+            onChange={(e) => updateConfig('claude', { codeReviewMaxIterations: parseInt(e.target.value) || 3 })}
             className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           />
           <p className="text-xs text-board-text-muted mt-0.5">

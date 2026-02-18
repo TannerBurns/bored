@@ -423,13 +423,13 @@ export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> 
   return invoke('get_branch_diff_files', { ticketId });
 }
 
-// Workflow settings sync
-export async function syncWorkflowSettings(settings: {
+// Per-agent workflow settings sync
+export async function syncAgentConfigs(agentConfigs: Record<string, {
   stageConfigs: Record<string, { enabled: boolean; model: string }>;
   codeReviewMaxIterations: number;
   stageTimeoutHours: number;
   stageMaxRetries: number;
   diagnosticModel: string;
-}): Promise<void> {
-  return invoke('sync_workflow_settings', { settings });
+}>): Promise<void> {
+  return invoke('sync_agent_configs', { agentConfigs });
 }

@@ -5,12 +5,11 @@ import {
 } from '../../stores/settingsStore';
 
 export function ValidationAgentSettings() {
-  const {
-    validationModel,
-    setValidationModel,
-    validationTimeoutMinutes,
-    setValidationTimeoutMinutes,
-  } = useSettingsStore();
+  const config = useSettingsStore((s) => s.agentConfigs['claude']);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const validationModel = config.validationModel;
+  const validationTimeoutMinutes = config.validationTimeoutMinutes;
 
   return (
     <div className="space-y-4">
@@ -28,7 +27,7 @@ export function ValidationAgentSettings() {
           </label>
           <select
             value={validationModel}
-            onChange={(e) => setValidationModel(e.target.value as AIModel)}
+            onChange={(e) => updateConfig('claude', { validationModel: e.target.value as AIModel })}
             className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           >
             {MODEL_OPTIONS.map((opt) => (
@@ -52,7 +51,7 @@ export function ValidationAgentSettings() {
             max={120}
             value={validationTimeoutMinutes}
             onChange={(e) =>
-              setValidationTimeoutMinutes(Math.max(1, Math.min(120, parseInt(e.target.value) || 10)))
+              updateConfig('claude', { validationTimeoutMinutes: Math.max(1, Math.min(120, parseInt(e.target.value) || 10)) })
             }
             className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           />

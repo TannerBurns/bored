@@ -97,6 +97,12 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         model.to_string()
     }
 
+    /// Return the list of models this agent supports as `(id, display_label)` pairs.
+    /// Used by the frontend to populate model dropdowns per agent.
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![]
+    }
+
     // ── Commands checking and installation ───────────────────────────
 
     /// Check whether command templates are installed in a project.

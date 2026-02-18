@@ -15,7 +15,7 @@ export function ConversationView({ spec, onComplete }: ConversationViewProps) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
-  const { plannerTimeoutMinutes } = useSettingsStore();
+  const plannerTimeoutMinutes = useSettingsStore((s) => (s.agentConfigs['claude'] ?? s.getAgentConfig('claude')).plannerTimeoutMinutes);
   
   const { 
     conversationMessages, 

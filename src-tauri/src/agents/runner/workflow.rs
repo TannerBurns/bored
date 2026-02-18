@@ -15,9 +15,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         .clone()
         .unwrap_or_else(|| {
             tracing::warn!("No shared WorkflowSettings on RunnerConfig — using empty defaults");
-            std::sync::Arc::new(std::sync::Mutex::new(
-                crate::commands::workflow_settings::WorkflowSettings::default(),
-            ))
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
         });
 
     let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {

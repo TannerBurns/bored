@@ -8,7 +8,7 @@ use tauri::AppHandle;
 
 use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
-use crate::commands::workflow_settings::WorkflowSettings;
+use crate::commands::workflow_settings::PerAgentSettings;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -32,8 +32,8 @@ pub struct WorkerConfig {
     pub stage_timeout_secs: u64,
     /// Maximum retries per stage (default: 2)
     pub stage_max_retries: u32,
-    /// Shared workflow settings reference, read at task-processing time.
-    pub workflow_settings: Option<Arc<Mutex<WorkflowSettings>>>,
+    /// Shared per-agent workflow settings, read at task-processing time.
+    pub workflow_settings: Option<Arc<Mutex<PerAgentSettings>>>,
 }
 
 /// Resolved workflow settings for a single task.
@@ -47,25 +47,29 @@ pub struct ResolvedWorkflowSettings {
 }
 
 impl WorkerConfig {
-    /// Read the current workflow settings from the shared state.
-    /// If no shared state is available, falls back to the static config values.
+    /// Read the current workflow settings for this worker's agent from the shared state.
+    /// If no shared state or agent config is available, falls back to the static config values.
     pub fn resolve_workflow_settings(&self) -> ResolvedWorkflowSettings {
         if let Some(ref shared) = self.workflow_settings {
-            let settings = shared.lock().expect("workflow settings mutex poisoned");
-            ResolvedWorkflowSettings {
-                stage_configs: settings.stage_configs.clone(),
-                code_review_max_iterations: settings.code_review_max_iterations,
-                stage_timeout_secs: settings.stage_timeout_hours as u64 * 3600,
-                stage_max_retries: settings.stage_max_retries,
+            let per_agent = shared.lock().expect("workflow settings mutex poisoned");
+            if let Some(settings) = per_agent.get(&self.agent_id).filter(|s| s.synced) {
+                return ResolvedWorkflowSettings {
+                    stage_configs: settings.stage_configs.clone(),
+                    code_review_max_iterations: settings.code_review_max_iterations,
+                    stage_timeout_secs: settings.stage_timeout_hours as u64 * 3600,
+                    stage_max_retries: settings.stage_max_retries,
+                };
             }
-        } else {
-            // Fallback to static config (for backwards compatibility / tests)
-            ResolvedWorkflowSettings {
-                stage_configs: HashMap::new(),
-                code_review_max_iterations: self.code_review_max_iterations,
-                stage_timeout_secs: self.stage_timeout_secs,
-                stage_max_retries: self.stage_max_retries,
-            }
+            tracing::warn!(
+                "WorkflowSettings not yet synced for agent '{}', using static config fallback",
+                self.agent_id
+            );
+        }
+        ResolvedWorkflowSettings {
+            stage_configs: HashMap::new(),
+            code_review_max_iterations: self.code_review_max_iterations,
+            stage_timeout_secs: self.stage_timeout_secs,
+            stage_max_retries: self.stage_max_retries,
         }
     }
 }
@@ -95,6 +99,102 @@ pub enum WorkerState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::cost::RunCostData;
+    use crate::agents::provider::{AgentProvider, AgentRunConfig};
+    use crate::commands::workflow_settings::WorkflowSettings;
+
+    #[derive(Debug)]
+    struct StubProvider;
+    impl AgentProvider for StubProvider {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { ("stub".into(), vec![]) }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.into() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
+        fn is_available(&self) -> bool { false }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".stub" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+    }
+
+    fn make_worker_config(agent_id: &str, shared: Option<Arc<Mutex<HashMap<String, WorkflowSettings>>>>) -> WorkerConfig {
+        WorkerConfig {
+            agent_id: agent_id.to_string(),
+            provider: Arc::new(StubProvider),
+            project_id: None,
+            api_url: String::new(),
+            api_token: String::new(),
+            poll_interval_secs: 10,
+            heartbeat_interval_secs: 30,
+            lock_duration_mins: 5,
+            agent_timeout_secs: 600,
+            app_handle: None,
+            agent_config: HashMap::new(),
+            code_review_max_iterations: 3,
+            stage_timeout_secs: 1800,
+            stage_max_retries: 2,
+            workflow_settings: shared,
+        }
+    }
+
+    #[test]
+    fn resolve_uses_synced_settings() {
+        let mut ws = WorkflowSettings::default();
+        ws.synced = true;
+        ws.code_review_max_iterations = 7;
+        ws.stage_timeout_hours = 2;
+        ws.stage_max_retries = 5;
+
+        let mut map = HashMap::new();
+        map.insert("cursor".to_string(), ws);
+        let shared = Arc::new(Mutex::new(map));
+
+        let config = make_worker_config("cursor", Some(shared));
+        let resolved = config.resolve_workflow_settings();
+        assert_eq!(resolved.code_review_max_iterations, 7);
+        assert_eq!(resolved.stage_timeout_secs, 2 * 3600);
+        assert_eq!(resolved.stage_max_retries, 5);
+    }
+
+    #[test]
+    fn resolve_ignores_unsynced_settings() {
+        let mut ws = WorkflowSettings::default();
+        ws.synced = false;
+        ws.code_review_max_iterations = 99;
+
+        let mut map = HashMap::new();
+        map.insert("cursor".to_string(), ws);
+        let shared = Arc::new(Mutex::new(map));
+
+        let config = make_worker_config("cursor", Some(shared));
+        let resolved = config.resolve_workflow_settings();
+        assert_eq!(resolved.code_review_max_iterations, 3, "should fall back to static config");
+        assert_eq!(resolved.stage_timeout_secs, 1800);
+        assert_eq!(resolved.stage_max_retries, 2);
+    }
+
+    #[test]
+    fn resolve_falls_back_when_agent_missing() {
+        let map: HashMap<String, WorkflowSettings> = HashMap::new();
+        let shared = Arc::new(Mutex::new(map));
+
+        let config = make_worker_config("codex", Some(shared));
+        let resolved = config.resolve_workflow_settings();
+        assert_eq!(resolved.code_review_max_iterations, 3);
+        assert_eq!(resolved.stage_timeout_secs, 1800);
+        assert_eq!(resolved.stage_max_retries, 2);
+    }
+
+    #[test]
+    fn resolve_falls_back_when_no_shared_state() {
+        let config = make_worker_config("cursor", None);
+        let resolved = config.resolve_workflow_settings();
+        assert_eq!(resolved.code_review_max_iterations, 3);
+        assert_eq!(resolved.stage_timeout_secs, 1800);
+        assert_eq!(resolved.stage_max_retries, 2);
+    }
 
     #[test]
     fn worker_state_serializes() {

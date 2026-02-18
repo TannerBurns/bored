@@ -136,13 +136,14 @@ impl WorkflowOrchestrator {
             std::collections::HashMap::new()
         };
 
-        let ws = config
+        let per_agent = config
             .workflow_settings
             .lock()
             .expect("workflow settings mutex poisoned");
 
+        let agent_ws = per_agent.get(&config.agent_id);
         let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries) =
-            if ws.synced {
+            if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 (
                     ws.stage_configs.clone(),
                     ws.code_review_max_iterations,
@@ -150,7 +151,7 @@ impl WorkflowOrchestrator {
                     ws.stage_max_retries,
                 )
             } else {
-                tracing::warn!("WorkflowSettings not yet synced from frontend, using config fallback");
+                tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
                 (
                     config.stage_configs,
                     config.code_review_max_iterations,
@@ -159,7 +160,7 @@ impl WorkflowOrchestrator {
                 )
             };
 
-        drop(ws);
+        drop(per_agent);
 
         Self {
             db: config.db,

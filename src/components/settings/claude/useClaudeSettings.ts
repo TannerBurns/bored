@@ -64,7 +64,7 @@ function bool(settings: Record<string, unknown>, fallback: boolean, ...keys: str
 
 export function useClaudeSettings(): ClaudeSettingsReturn {
   const base = useAgentSettings(claudeConfig);
-  const storeSetAgentSettings = useSettingsStore((s) => s.setAgentSettings);
+  const setStoreAgentSettings = useSettingsStore((s) => s.setAgentSettings);
 
   const [apiAuthToken, setApiAuthToken] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -96,7 +96,7 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
         setExtendedContext(extended);
         setChromeEnabled(chrome);
 
-        storeSetAgentSettings('claude', {
+        setStoreAgentSettings('claude', {
           authToken, apiKey: key, baseUrl, modelOverride,
           thinkingEnabled: thinking, extendedContext: extended, chromeEnabled: chrome,
         });
@@ -106,7 +106,7 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     };
 
     loadSettings();
-  }, [storeSetAgentSettings]);
+  }, [setStoreAgentSettings]);
 
   const buildSettingsPayload = useCallback((): Record<string, unknown> => ({
     auth_token: apiAuthToken || null,
@@ -161,7 +161,7 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
       setExtendedContext(normalizedExtendedContext);
       setChromeEnabled(normalizedChrome);
 
-      storeSetAgentSettings('claude', {
+      setStoreAgentSettings('claude', {
         authToken: normalizedAuthToken,
         apiKey: normalizedApiKey,
         baseUrl: normalizedBaseUrl,
@@ -177,7 +177,7 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
     } finally {
       setSavingApiSettings(false);
     }
-  }, [buildSettingsPayload, base, storeSetAgentSettings]);
+  }, [buildSettingsPayload, base, setStoreAgentSettings]);
 
   return {
     ...base,

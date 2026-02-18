@@ -190,10 +190,10 @@ export const useValidationStore = create<ValidationState>((set) => ({
   sendMessage: async (sessionId, content) => {
     try {
       set({ isAgentThinking: true, agentLogs: [] });
-      const { validationModel, validationTimeoutMinutes } = useSettingsStore.getState();
+      const agentConfig = useSettingsStore.getState().getAgentConfig('claude');
       const message = await apiSendMessage(sessionId, content, {
-        model: validationModel,
-        timeoutMinutes: validationTimeoutMinutes,
+        model: agentConfig.validationModel,
+        timeoutMinutes: agentConfig.validationTimeoutMinutes,
       });
       // Reload all messages from DB to get full content (replaces SSE placeholders)
       const messages = await apiGetMessages(sessionId);

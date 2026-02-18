@@ -1,16 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { CursorSettings, ClaudeSettings, GeneralSettings, AgentWorkflowSettings, AgentsSettings, DataSettings } from '../settings';
+import { GeneralSettings, DataSettings } from '../settings';
+import { AgentSettingsPage } from '../settings/AgentSettingsPage';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
-
-const AGENT_SETTINGS_COMPONENTS: Record<string, React.ComponentType> = {
-  cursor: CursorSettings,
-  claude: ClaudeSettings,
-};
+import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 
 const CORE_TABS = [
   { id: 'general', label: 'General' },
-  { id: 'workflow', label: 'Agent Workflow' },
-  { id: 'agents', label: 'Agents' },
 ] as const;
 
 const TRAILING_TABS = [
@@ -31,9 +26,7 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
   }, [loadAgents]);
 
   const agentTabs = useMemo(() =>
-    agents
-      .filter((a) => AGENT_SETTINGS_COMPONENTS[a.id])
-      .map((a) => ({ id: a.id, label: a.displayName })),
+    agents.map((a) => ({ id: a.id, label: a.displayName, brandColor: a.brandColor })),
     [agents]
   );
 
@@ -43,31 +36,38 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
     ...TRAILING_TABS,
   ], [agentTabs]);
 
-  const AgentSettingsComponent = AGENT_SETTINGS_COMPONENTS[settingsTab];
+  const isAgentTab = agents.some((a) => a.id === settingsTab);
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       <div className="flex gap-1 mb-3">
-        {allTabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setSettingsTab(tab.id)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-              settingsTab === tab.id
-                ? 'bg-board-accent text-white shadow-sm'
-                : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {allTabs.map((tab) => {
+          const agentInfo = agents.find((a) => a.id === tab.id);
+          const isSelected = settingsTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setSettingsTab(tab.id)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-1.5 ${
+                isSelected
+                  ? 'bg-board-accent text-white shadow-sm'
+                  : 'glass text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
+              }`}
+            >
+              {agentInfo && (() => {
+                const Icon = getAgentIcon(agentInfo.id);
+                const color = isSelected ? undefined : getAgentBrandColor(agentInfo.id, agentInfo.brandColor);
+                return <Icon size={14} style={color ? { color } : undefined} />;
+              })()}
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
       
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
         {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
-        {settingsTab === 'workflow' && <AgentWorkflowSettings />}
-        {settingsTab === 'agents' && <AgentsSettings />}
-        {AgentSettingsComponent && <AgentSettingsComponent />}
+        {isAgentTab && <AgentSettingsPage agentId={settingsTab} />}
         {settingsTab === 'data' && <DataSettings />}
       </div>
     </div>

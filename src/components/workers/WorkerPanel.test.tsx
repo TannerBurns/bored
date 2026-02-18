@@ -15,8 +15,8 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 const MOCK_AGENTS: AgentInfo[] = [
-  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
-  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null, availableModels: [] },
+  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756', availableModels: [] },
 ];
 
 const mockLoadAgents = vi.fn().mockResolvedValue(MOCK_AGENTS);
@@ -25,12 +25,16 @@ let storeAgents: AgentInfo[] = MOCK_AGENTS;
 
 // Mock settings store
 vi.mock('../../stores/settingsStore', () => ({
-  useSettingsStore: () => ({
-    codeReviewMaxIterations: 3,
-    stageTimeoutHours: 1,
-    stageMaxRetries: 2,
-  }),
-  ensureWorkflowSettingsSynced: vi.fn().mockResolvedValue(undefined),
+  useSettingsStore: (selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = {
+      agentConfigs: {
+        claude: { codeReviewMaxIterations: 3, stageTimeoutHours: 1, stageMaxRetries: 2, workflowStages: {} },
+        cursor: { codeReviewMaxIterations: 3, stageTimeoutHours: 1, stageMaxRetries: 2, workflowStages: {} },
+      },
+    };
+    return selector ? selector(state) : state;
+  },
+  ensureAgentConfigsSynced: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock agent registry store
@@ -70,8 +74,8 @@ describe('WorkerPanel', () => {
   describe('CLI availability', () => {
     it('disables Cursor input when Cursor CLI is unavailable', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -84,8 +88,8 @@ describe('WorkerPanel', () => {
 
     it('disables Claude input when Claude CLI is unavailable', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -98,8 +102,8 @@ describe('WorkerPanel', () => {
 
     it('shows "(not installed)" text when Cursor CLI is unavailable', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -112,8 +116,8 @@ describe('WorkerPanel', () => {
 
     it('shows "(not installed)" text when Claude CLI is unavailable', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -126,8 +130,8 @@ describe('WorkerPanel', () => {
 
     it('disables both inputs when both CLIs are unavailable', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -142,8 +146,8 @@ describe('WorkerPanel', () => {
 
     it('enables Cursor input when Cursor CLI is available', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0.0', brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: false, version: null, brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);
@@ -156,8 +160,8 @@ describe('WorkerPanel', () => {
 
     it('enables Claude input when Claude CLI is available', async () => {
       storeAgents = [
-        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null },
-        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756' },
+        { id: 'cursor', displayName: 'Cursor', isAvailable: false, version: null, brandColor: null, availableModels: [] },
+        { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0.0', brandColor: '#da7756', availableModels: [] },
       ];
 
       render(<WorkerPanel />);

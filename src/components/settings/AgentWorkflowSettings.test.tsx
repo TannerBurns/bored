@@ -2,35 +2,38 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AgentWorkflowSettings } from './AgentWorkflowSettings';
 
-const mockSetStageTimeoutHours = vi.fn();
-const mockSetStageMaxRetries = vi.fn();
-const mockSetCodeReviewMaxIterations = vi.fn();
-const mockSetWorkflowPreset = vi.fn();
-const mockSetWorkflowStageConfig = vi.fn();
+const mockUpdateConfig = vi.fn();
+const mockSetPreset = vi.fn();
+const mockSetStage = vi.fn();
+
+const storeState = {
+  agentConfigs: {
+    claude: {
+      workflowPreset: 'balanced' as const,
+      workflowStages: {
+        branchGen:   { enabled: true, model: 'sonnet-4.6' },
+        plan:        { enabled: true, model: 'opus-4.6' },
+        implement:   { enabled: true, model: 'opus-4.6' },
+        codeReview:  { enabled: true, model: 'opus-4.6' },
+        deslop:      { enabled: true, model: 'opus-4.5' },
+        cleanup:     { enabled: true, model: 'sonnet-4.6' },
+        unitTests:   { enabled: true, model: 'opus-4.5' },
+        finalReview: { enabled: true, model: 'opus-4.5' },
+        commit:      { enabled: true, model: 'sonnet-4.6' },
+      },
+      codeReviewMaxIterations: 3,
+      stageTimeoutHours: 1,
+      stageMaxRetries: 2,
+    },
+  },
+  setAgentConfigWorkflowPreset: mockSetPreset,
+  setAgentConfigStage: mockSetStage,
+  updateAgentConfig: mockUpdateConfig,
+};
 
 vi.mock('../../stores/settingsStore', () => ({
-  useSettingsStore: () => ({
-    workflowPreset: 'balanced',
-    workflowStages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'opus-4.6' },
-      implement:   { enabled: true, model: 'opus-4.6' },
-      codeReview:  { enabled: true, model: 'opus-4.6' },
-      deslop:      { enabled: true, model: 'opus-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.6' },
-      unitTests:   { enabled: true, model: 'opus-4.5' },
-      finalReview: { enabled: true, model: 'opus-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.6' },
-    },
-    setWorkflowPreset: mockSetWorkflowPreset,
-    setWorkflowStageConfig: mockSetWorkflowStageConfig,
-    codeReviewMaxIterations: 3,
-    setCodeReviewMaxIterations: mockSetCodeReviewMaxIterations,
-    stageTimeoutHours: 1,
-    setStageTimeoutHours: mockSetStageTimeoutHours,
-    stageMaxRetries: 2,
-    setStageMaxRetries: mockSetStageMaxRetries,
-  }),
+  useSettingsStore: (selector?: (s: typeof storeState) => unknown) =>
+    selector ? selector(storeState) : storeState,
   WORKFLOW_PRESETS: {
     comprehensive: { label: 'Most Comprehensive', description: 'All stages with Opus 4.6', stages: {} },
     balanced: { label: 'Balanced', description: 'Mixed models', stages: {} },
@@ -112,13 +115,13 @@ describe('AgentWorkflowSettings', () => {
   });
 
   describe('stage timeout onChange', () => {
-    it('calls setStageTimeoutHours when value is typed', () => {
+    it('calls updateAgentConfig when value is typed', () => {
       render(<AgentWorkflowSettings />);
       const label = screen.getByText('Stage Timeout (hours)');
       const input = label.closest('div')?.querySelector('input');
 
       fireEvent.change(input!, { target: { value: '5' } });
-      expect(mockSetStageTimeoutHours).toHaveBeenCalledWith(5);
+      expect(mockUpdateConfig).toHaveBeenCalledWith('claude', { stageTimeoutHours: 5 });
     });
 
     it('falls back to 1 when input is cleared (NaN)', () => {
@@ -127,7 +130,7 @@ describe('AgentWorkflowSettings', () => {
       const input = label.closest('div')?.querySelector('input');
 
       fireEvent.change(input!, { target: { value: '' } });
-      expect(mockSetStageTimeoutHours).toHaveBeenCalledWith(1);
+      expect(mockUpdateConfig).toHaveBeenCalledWith('claude', { stageTimeoutHours: 1 });
     });
 
     it('accepts large values (no max constraint)', () => {
@@ -136,7 +139,7 @@ describe('AgentWorkflowSettings', () => {
       const input = label.closest('div')?.querySelector('input');
 
       fireEvent.change(input!, { target: { value: '100' } });
-      expect(mockSetStageTimeoutHours).toHaveBeenCalledWith(100);
+      expect(mockUpdateConfig).toHaveBeenCalledWith('claude', { stageTimeoutHours: 100 });
     });
   });
 });

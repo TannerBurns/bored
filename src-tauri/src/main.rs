@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use agent_kanban::agents::claude::provider::ClaudeProvider;
+use agent_kanban::agents::codex::provider::CodexProvider;
 use agent_kanban::agents::cursor::provider::CursorProvider;
 use agent_kanban::agents::registry::AgentRegistry;
 use agent_kanban::agents::validation_agent::AppProcessManager;
@@ -93,6 +94,7 @@ fn main() {
             let mut agent_registry = AgentRegistry::new();
             agent_registry.register(Arc::new(ClaudeProvider::new()));
             agent_registry.register(Arc::new(CursorProvider::new()));
+            agent_registry.register(Arc::new(CodexProvider::new()));
 
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = match db::Database::open(db_path.clone()) {
@@ -283,6 +285,7 @@ fn main() {
             commands::agent_settings::set_agent_settings,
             // Workflow settings sync
             commands::workflow_settings::sync_workflow_settings,
+            commands::workflow_settings::sync_agent_configs,
             commands::workflow_settings::get_workflow_settings,
             // Worker management
             commands::workers::start_worker,
