@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getAgentStatus,
-  installAgentHooksGlobal,
-  installAgentHooksProject,
-  getAgentHooksConfig,
   getAgentSettings,
   setAgentSettings,
 } from '../../../lib/tauri';
@@ -17,8 +14,6 @@ export interface CursorCliOptionsState {
 }
 
 export interface CursorSettingsReturn extends AgentSettingsReturn {
-  /** Whether global hooks are installed (from raw Cursor status) */
-  globalHooksInstalled: boolean;
   /** CLI options (thinking toggle) */
   cliOptions: CursorCliOptionsState;
 }
@@ -30,17 +25,8 @@ const cursorConfig: AgentSettingsConfig = {
     return {
       isAvailable: status.isAvailable,
       version: status.version ?? undefined,
-      hookScriptPath: status.hookScriptPath ?? undefined,
-      hooksInstalled: status.globalHooksInstalled,
     };
   },
-  installHooksUser: (hookPath: string) => installAgentHooksGlobal('cursor', hookPath),
-  installHooksProject: (hookPath: string, projectPath: string) =>
-    installAgentHooksProject('cursor', hookPath, projectPath),
-  getHooksConfig: (hookPath: string) => getAgentHooksConfig('cursor', hookPath),
-  userSuccessMessage: 'Hooks installed globally! Restart Cursor to apply changes.',
-  projectSuccessMessage: (path: string) =>
-    `Hooks installed in ${path}! Restart Cursor to apply changes.`,
 };
 
 function bool(settings: Record<string, unknown>, fallback: boolean, ...keys: string[]): boolean {
@@ -90,7 +76,6 @@ export function useCursorSettings(): CursorSettingsReturn {
 
   return {
     ...base,
-    globalHooksInstalled: base.status?.hooksInstalled ?? false,
     cliOptions: {
       thinkingEnabled,
       setThinkingEnabled: handleThinkingChange,

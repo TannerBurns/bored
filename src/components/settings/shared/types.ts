@@ -6,23 +6,6 @@ import type { Project } from '../../../types';
 export interface AgentStatus {
   isAvailable: boolean;
   version?: string;
-  hookScriptPath?: string;
-  hooksInstalled: boolean;
-}
-
-/**
- * State and handlers for hook installation
- */
-export interface HookInstallState {
-  location: 'user' | 'project';
-  setLocation: (loc: 'user' | 'project') => void;
-  projectPath: string;
-  setProjectPath: (path: string) => void;
-  selectedProjectId: string;
-  setSelectedProjectId: (id: string) => void;
-  installing: boolean;
-  install: () => Promise<void>;
-  copyConfig: () => Promise<void>;
 }
 
 /**
@@ -45,11 +28,6 @@ export interface CommandInstallState {
 export interface AgentSettingsConfig {
   agentType: string;
   getStatus: () => Promise<AgentStatus & Record<string, unknown>>;
-  installHooksUser: (hookPath: string) => Promise<void>;
-  installHooksProject: (hookPath: string, projectPath: string) => Promise<void>;
-  getHooksConfig: (hookPath: string) => Promise<string>;
-  userSuccessMessage: string;
-  projectSuccessMessage: (path: string) => string;
 }
 
 export interface AgentSettingsReturn {
@@ -65,16 +43,10 @@ export interface AgentSettingsReturn {
   userCommandsInstalled: boolean;
   projectCommandStatus: Record<string, boolean>;
 
-  hookInstall: HookInstallState;
   commandInstall: CommandInstallState;
 
-  handleBrowse: (target: 'hooks' | 'commands') => Promise<void>;
-  handleCopyPath: () => Promise<void>;
+  handleBrowse: (target: 'commands') => Promise<void>;
   reload: () => Promise<void>;
-
-  configVisible: boolean;
-  setConfigVisible: (visible: boolean) => void;
-  configJson: string;
 }
 
 /**

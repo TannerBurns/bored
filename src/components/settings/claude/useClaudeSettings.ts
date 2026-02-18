@@ -1,8 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  installAgentHooksGlobal,
-  installAgentHooksProject,
-  getAgentHooksConfig,
   getAgentSettings,
   setAgentSettings,
   getAgentStatus,
@@ -36,8 +33,6 @@ export interface ClaudeCliOptionsState {
 export interface ClaudeSettingsReturn extends AgentSettingsReturn {
   apiSettings: ClaudeApiState;
   cliOptions: ClaudeCliOptionsState;
-  /** Whether user hooks are installed (from raw Claude status) */
-  userHooksInstalled: boolean;
 }
 
 const claudeConfig: AgentSettingsConfig = {
@@ -47,17 +42,8 @@ const claudeConfig: AgentSettingsConfig = {
     return {
       isAvailable: status.isAvailable,
       version: status.version ?? undefined,
-      hookScriptPath: status.hookScriptPath ?? undefined,
-      hooksInstalled: status.globalHooksInstalled,
     };
   },
-  installHooksUser: (hookPath: string) => installAgentHooksGlobal('claude', hookPath),
-  installHooksProject: (hookPath: string, projectPath: string) =>
-    installAgentHooksProject('claude', hookPath, projectPath),
-  getHooksConfig: (hookPath: string) => getAgentHooksConfig('claude', hookPath),
-  userSuccessMessage: 'Hooks installed in user settings (~/.claude/settings.json)!',
-  projectSuccessMessage: (path: string) =>
-    `Hooks installed in ${path}/.claude/settings.json!`,
 };
 
 function str(settings: Record<string, unknown>, ...keys: string[]): string {
@@ -195,7 +181,6 @@ export function useClaudeSettings(): ClaudeSettingsReturn {
 
   return {
     ...base,
-    userHooksInstalled: base.status?.hooksInstalled ?? false,
     apiSettings: {
       authToken: apiAuthToken,
       setAuthToken: setApiAuthToken,

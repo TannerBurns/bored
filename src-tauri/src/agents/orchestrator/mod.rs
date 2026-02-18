@@ -51,11 +51,10 @@ pub struct WorkflowOrchestrator {
     repo_path: PathBuf,
     /// Agent ID string (e.g. "cursor", "claude").
     agent_id: String,
-    /// Agent provider for agent-agnostic dispatch (text extraction, cost, hooks).
+    /// Agent provider for agent-agnostic dispatch (text extraction, cost).
     provider: Arc<dyn AgentProvider>,
     api_url: String,
     api_token: String,
-    hook_script_path: Option<String>,
     /// Shared map of cancel handles for running agents
     cancel_handles: CancelHandlesMap,
     /// Flag to indicate if the workflow has been cancelled
@@ -174,7 +173,6 @@ impl WorkflowOrchestrator {
             provider: config.provider,
             api_url: config.api_url,
             api_token: config.api_token,
-            hook_script_path: config.hook_script_path,
             cancel_handles: config.cancel_handles,
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,
@@ -297,31 +295,6 @@ impl WorkflowOrchestrator {
             .get(key)
             .map(|c| c.model.clone())
             .unwrap_or_else(|| crate::agents::models::DEFAULT_STAGE_MODEL.to_string())
-    }
-
-    /// Update project hooks with run configuration
-    fn update_hooks_for_run(&self) -> Result<(), String> {
-        let hook_script_path = match &self.hook_script_path {
-            Some(p) => p,
-            None => {
-                tracing::warn!("No hook script path configured, skipping hook update");
-                return Ok(());
-            }
-        };
-
-        tracing::debug!(
-            "Updating hooks for parent run {} with token (first 8 chars): {}...",
-            self.parent_run_id,
-            &self.api_token.chars().take(8).collect::<String>()
-        );
-
-        self.provider.install_hooks_for_run(
-            &self.repo_path,
-            hook_script_path,
-            Some(&self.api_url),
-            Some(&self.api_token),
-            Some(&self.parent_run_id),
-        )
     }
 
     /// Extract text from agent output using the provider.

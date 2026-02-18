@@ -4,10 +4,9 @@ import { RunDetailsPanel } from './RunDetailsPanel';
 
 vi.mock('../../lib/tauri', () => ({
   getAgentRun: vi.fn(),
-  getRunEvents: vi.fn(),
 }));
 
-import { getAgentRun, getRunEvents } from '../../lib/tauri';
+import { getAgentRun } from '../../lib/tauri';
 
 const mockRun = {
   id: 'run-123',
@@ -24,7 +23,6 @@ const mockRun = {
 describe('RunDetailsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getRunEvents).mockResolvedValue([]);
   });
 
   it('shows loading state initially', () => {
@@ -104,17 +102,14 @@ describe('RunDetailsPanel', () => {
     });
   });
 
-  it('switches between timeline and logs tabs', async () => {
+  it('shows log output area', async () => {
     vi.mocked(getAgentRun).mockResolvedValue(mockRun);
 
     render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Timeline')).toBeInTheDocument();
+      expect(screen.getByText(/No log output captured/)).toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByText('Logs'));
-    expect(screen.getByText(/No log output captured/)).toBeInTheDocument();
   });
 
   it('displays repo path', async () => {

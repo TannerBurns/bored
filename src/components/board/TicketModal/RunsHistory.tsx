@@ -202,7 +202,7 @@ function CurrentRunSection({
               <SubRunsList subRuns={subRuns} />
             )}
             
-            {/* Events and Raw Logs */}
+            {/* Logs */}
             <RunEventsDisplay runEvents={runEvents} loadingEvents={loadingEvents} />
           </div>
         )}
@@ -427,7 +427,7 @@ function ExpandedRunDetails({
         </div>
       )}
 
-      {/* Events and Raw Logs */}
+      {/* Logs */}
       <RunEventsDisplay runEvents={runEvents} loadingEvents={loadingEvents} />
     </div>
   );
@@ -443,70 +443,37 @@ function RunEventsDisplay({ runEvents, loadingEvents }: RunEventsDisplayProps) {
     const type = getEventTypeString(e.eventType);
     return type === 'log_stdout' || type === 'log_stderr';
   });
-  const structuredEvents = runEvents.filter(e => {
-    const type = getEventTypeString(e.eventType);
-    return type !== 'log_stdout' && type !== 'log_stderr';
-  });
 
   return (
-    <>
-      {/* Events (from hooks - file edits, commands, etc.) */}
-      <div className="mt-2">
-        <p className="text-xs font-medium text-board-text-muted mb-1">
-          Events ({loadingEvents ? '...' : structuredEvents.length}):
-        </p>
-        {loadingEvents ? (
-          <p className="text-xs text-board-text-muted">Loading...</p>
-        ) : structuredEvents.length === 0 ? (
-          <p className="text-xs text-board-text-muted italic">No hook events recorded (hooks may not be installed)</p>
-        ) : (
-          <div className="bg-board-surface-raised rounded p-2 max-h-40 overflow-y-auto font-mono text-xs">
-            {structuredEvents.map((event) => (
-              <div key={event.id} className="text-board-text-secondary py-0.5 border-b border-board-border last:border-0">
-                <span className="text-board-text-muted">{new Date(event.createdAt).toLocaleTimeString()}</span>
-                {' '}
-                <span className="text-board-accent">[{getEventTypeString(event.eventType)}]</span>
-                {' '}
-                {typeof event.payload === 'object' 
-                  ? JSON.stringify(event.payload).substring(0, 100) + (JSON.stringify(event.payload).length > 100 ? '...' : '')
-                  : String(event.payload)}
+    <div className="mt-2">
+      <p className="text-xs font-medium text-board-text-muted mb-1">
+        Logs ({loadingEvents ? '...' : logEvents.length} lines):
+      </p>
+      {loadingEvents ? (
+        <p className="text-xs text-board-text-muted">Loading...</p>
+      ) : logEvents.length === 0 ? (
+        <p className="text-xs text-board-text-muted italic">No output logs recorded</p>
+      ) : (
+        <div className="bg-black/80 rounded p-2 max-h-60 overflow-y-auto font-mono text-xs">
+          {logEvents.map((event) => {
+            const payload = event.payload as { raw?: string } | null;
+            const content = payload?.raw || '';
+            const eventTypeStr = getEventTypeString(event.eventType);
+            const isStderr = eventTypeStr === 'log_stderr';
+            return (
+              <div 
+                key={event.id} 
+                className={cn(
+                  'whitespace-pre-wrap break-all',
+                  isStderr ? 'text-red-400' : 'text-green-400'
+                )}
+              >
+                {content}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-      
-      {/* Raw Logs (stdout/stderr from agent process) */}
-      <div className="mt-2">
-        <p className="text-xs font-medium text-board-text-muted mb-1">
-          Raw Logs ({loadingEvents ? '...' : logEvents.length} lines):
-        </p>
-        {loadingEvents ? (
-          <p className="text-xs text-board-text-muted">Loading...</p>
-        ) : logEvents.length === 0 ? (
-          <p className="text-xs text-board-text-muted italic">No output logs recorded</p>
-        ) : (
-          <div className="bg-black/80 rounded p-2 max-h-60 overflow-y-auto font-mono text-xs">
-            {logEvents.map((event) => {
-              const payload = event.payload as { raw?: string } | null;
-              const content = payload?.raw || '';
-              const eventTypeStr = getEventTypeString(event.eventType);
-              const isStderr = eventTypeStr === 'log_stderr';
-              return (
-                <div 
-                  key={event.id} 
-                  className={cn(
-                    'whitespace-pre-wrap break-all',
-                    isStderr ? 'text-red-400' : 'text-green-400'
-                  )}
-                >
-                  {content}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

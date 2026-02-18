@@ -18,8 +18,7 @@ pub fn get_default_spool_dir() -> PathBuf {
         })
         .unwrap_or_else(|| PathBuf::from("/tmp/agent-kanban"));
 
-    // Use AppData\Roaming to match the JavaScript hook script
-    // (dirs::data_dir() returns AppData\Local which causes a mismatch)
+    // Use AppData\Roaming for consistency across the application
     #[cfg(target_os = "windows")]
     let base_dir = dirs::home_dir()
         .map(|h| h.join("AppData").join("Roaming").join("agent-kanban"))
@@ -216,10 +215,10 @@ mod tests {
             "runId": "{}",
             "ticketId": "{}",
             "agentType": "cursor",
-            "eventType": "command_executed",
+            "eventType": "log_stdout",
             "payload": {{
-                "raw": "{{\"command\": \"ls\"}}",
-                "structured": {{"command": "ls"}}
+                "raw": "some log output",
+                "structured": null
             }},
             "timestamp": "{}"
         }}"#,
@@ -240,6 +239,6 @@ mod tests {
         // Event should be in the database
         let events = db.get_events(&run.id).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::CommandExecuted);
+        assert_eq!(events[0].event_type, EventType::Custom("log_stdout".to_string()));
     }
 }

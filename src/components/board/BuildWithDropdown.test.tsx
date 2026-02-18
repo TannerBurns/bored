@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildWithDropdown } from './BuildWithDropdown';
 import type { AgentInfo } from '../../types';
@@ -236,6 +236,135 @@ describe('BuildWithDropdown', () => {
 
       fireEvent.click(screen.getByText('Claude'));
       expect(mockOnSelect).toHaveBeenCalledWith('claude');
+    });
+  });
+
+  describe('overflow-aware dropdown direction', () => {
+    const origGetComputedStyle = window.getComputedStyle;
+
+    afterEach(() => {
+      window.getComputedStyle = origGetComputedStyle;
+    });
+
+    function makeDOMRect(overrides: Partial<DOMRect>): DOMRect {
+      return {
+        top: 0, bottom: 0, left: 0, right: 0,
+        width: 0, height: 0, x: 0, y: 0,
+        toJSON: () => ({}),
+        ...overrides,
+      } as DOMRect;
+    }
+
+    function mockClippingAncestor(
+      element: HTMLElement,
+      prop: 'overflow' | 'overflowY',
+    ) {
+      const orig = origGetComputedStyle;
+      window.getComputedStyle = ((elt: Element, pseudo?: string | null): CSSStyleDeclaration => {
+        const real = orig.call(window, elt, pseudo);
+        if (elt === element) {
+          return new Proxy(real, {
+            get(target, p, receiver) {
+              if (p === prop) return 'hidden';
+              return Reflect.get(target, p, receiver);
+            },
+          }) as CSSStyleDeclaration;
+        }
+        return real;
+      }) as typeof window.getComputedStyle;
+    }
+
+    it('opens upward when overflow-hidden ancestor constrains space below', () => {
+      const { container } = render(
+        <div data-testid="clipping-ancestor">
+          <BuildWithDropdown onSelect={mockOnSelect} />
+        </div>
+      );
+
+      const ancestor = screen.getByTestId('clipping-ancestor');
+      const button = screen.getByText('Build with').closest('button')!;
+
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 400, bottom: 440 })
+      );
+      vi.spyOn(ancestor, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 50, bottom: 470 })
+      );
+      mockClippingAncestor(ancestor, 'overflow');
+
+      fireEvent.click(button);
+
+      expect(screen.getByText('Cursor')).toBeInTheDocument();
+      expect(container.querySelector('.bottom-full')).not.toBeNull();
+      expect(container.querySelector('.top-full')).toBeNull();
+    });
+
+    it('opens downward when overflow-hidden ancestor has enough space below', () => {
+      const { container } = render(
+        <div data-testid="clipping-ancestor">
+          <BuildWithDropdown onSelect={mockOnSelect} />
+        </div>
+      );
+
+      const ancestor = screen.getByTestId('clipping-ancestor');
+      const button = screen.getByText('Build with').closest('button')!;
+
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 200, bottom: 240 })
+      );
+      vi.spyOn(ancestor, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 50, bottom: 500 })
+      );
+      mockClippingAncestor(ancestor, 'overflow');
+
+      fireEvent.click(button);
+
+      expect(screen.getByText('Cursor')).toBeInTheDocument();
+      expect(container.querySelector('.top-full')).not.toBeNull();
+      expect(container.querySelector('.bottom-full')).toBeNull();
+    });
+
+    it('detects overflowY: hidden on ancestor', () => {
+      const { container } = render(
+        <div data-testid="clipping-ancestor">
+          <BuildWithDropdown onSelect={mockOnSelect} />
+        </div>
+      );
+
+      const ancestor = screen.getByTestId('clipping-ancestor');
+      const button = screen.getByText('Build with').closest('button')!;
+
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 400, bottom: 440 })
+      );
+      vi.spyOn(ancestor, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 50, bottom: 470 })
+      );
+      mockClippingAncestor(ancestor, 'overflowY');
+
+      fireEvent.click(button);
+
+      expect(screen.getByText('Cursor')).toBeInTheDocument();
+      expect(container.querySelector('.bottom-full')).not.toBeNull();
+    });
+
+    it('falls back to viewport when no clipping ancestor exists', () => {
+      const { container } = render(
+        <BuildWithDropdown onSelect={mockOnSelect} />
+      );
+
+      const button = screen.getByText('Build with').closest('button')!;
+
+      // Place button well above the viewport bottom (JSDOM innerHeight=768)
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+        makeDOMRect({ top: 200, bottom: 240 })
+      );
+
+      fireEvent.click(button);
+
+      expect(screen.getByText('Cursor')).toBeInTheDocument();
+      expect(container.querySelector('.top-full')).not.toBeNull();
+      expect(container.querySelector('.bottom-full')).toBeNull();
     });
   });
 });

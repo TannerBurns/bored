@@ -38,79 +38,6 @@ fn is_allowed_url(url: &url::Url) -> bool {
     false
 }
 
-fn setup_hook_scripts(
-    app: &tauri::App,
-    registry: &AgentRegistry,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
-
-    let scripts_dir = app_data_dir.join("scripts");
-    std::fs::create_dir_all(&scripts_dir)?;
-
-    // Copy each registered agent's hook script
-    for provider in registry.providers() {
-        let script = provider.hook_script_name();
-        if !script.is_empty() {
-            copy_hook_script(app, script, &scripts_dir)?;
-        }
-    }
-
-    // Copy unified hook script (hook bridge)
-    copy_hook_script(app, "agent-kanban-hook.js", &scripts_dir)?;
-
-    Ok(())
-}
-
-fn copy_hook_script(
-    app: &tauri::App,
-    script_name: &str,
-    scripts_dir: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let resource_name = format!("scripts/{}", script_name);
-
-    if let Ok(resource_path) = app
-        .path()
-        .resolve(&resource_name, tauri::path::BaseDirectory::Resource)
-    {
-        let target_path = scripts_dir.join(script_name);
-
-        if resource_path.exists() {
-            let should_copy = if target_path.exists() {
-                let resource_modified = std::fs::metadata(&resource_path)?.modified()?;
-                let target_modified = std::fs::metadata(&target_path)?.modified()?;
-                resource_modified > target_modified
-            } else {
-                true
-            };
-
-            if should_copy {
-                std::fs::copy(&resource_path, &target_path)?;
-                tracing::info!("Copied {} to {:?}", script_name, target_path);
-
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mut perms = std::fs::metadata(&target_path)?.permissions();
-                    perms.set_mode(0o755);
-                    std::fs::set_permissions(&target_path, perms)?;
-                }
-            }
-        } else {
-            tracing::warn!("Hook script resource not found at {:?}", resource_path);
-        }
-    } else {
-        tracing::warn!(
-            "Could not resolve hook script resource path for {}",
-            script_name
-        );
-    }
-
-    Ok(())
-}
-
 fn main() {
     // Fix PATH for bundled apps on macOS/Linux
     // When launched from Finder, apps get a minimal PATH that doesn't include
@@ -167,10 +94,6 @@ fn main() {
             agent_registry.register(Arc::new(ClaudeProvider::new()));
             agent_registry.register(Arc::new(CursorProvider::new()));
 
-            if let Err(e) = setup_hook_scripts(app, &agent_registry) {
-                tracing::warn!("Failed to setup hook scripts: {}", e);
-            }
-
             let db_path = app_data_dir.join("agent-kanban.db");
             let database = match db::Database::open(db_path.clone()) {
                 Ok(db) => Arc::new(db),
@@ -207,9 +130,6 @@ fn main() {
                     _ => {}
                 }
             });
-
-            // Create a clone of the registry for the API server (providers are Arc-shared)
-            let api_registry = agent_registry.clone_shared();
 
             app.manage(agent_registry);
 
@@ -274,16 +194,15 @@ fn main() {
             app.manage(event_tx.clone());
             app.manage(ApiConnState { url: api_url, token: api_token });
 
-            // Start API server with shared event channel and agent registry
+            // Start API server with shared event channel
             let db_for_api = database.clone();
             let event_tx_for_api = event_tx;
             let api_config_clone = api_config.clone();
             tauri::async_runtime::spawn(async move {
-                match api::start_server_with_registry(
+                match api::start_server_with_event_tx(
                     db_for_api,
                     api_config_clone,
                     event_tx_for_api,
-                    Arc::new(api_registry),
                 )
                 .await
                 {
@@ -352,19 +271,13 @@ fn main() {
             commands::set_board_project,
             commands::set_ticket_project,
             commands::check_ticket_readiness,
-            commands::update_project_hooks,
             commands::browse_for_directory,
             commands::check_git_status,
             commands::init_git_repo,
             commands::create_project_folder,
             // Unified agent integration
             commands::agents::get_agent_status,
-            commands::agents::install_agent_hooks_global,
-            commands::agents::install_agent_hooks_project,
-            commands::agents::get_agent_hooks_config,
             commands::agents::check_agent_available,
-            commands::agents::check_agent_project_hooks_installed,
-            commands::agents::get_agent_hook_script_path,
             // Agent settings (generic API)
             commands::agent_settings::get_agent_settings,
             commands::agent_settings::set_agent_settings,

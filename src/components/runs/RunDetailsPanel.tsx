@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
-import { EventTimeline } from '../timeline/EventTimeline';
 import { cn } from '../../lib/utils';
 import { getAgentDisplayName } from '../common/AgentIcons';
 import type { AgentRun, RunStatus } from '../../types';
@@ -63,7 +62,6 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   const [run, setRun] = useState<AgentRun | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'timeline' | 'logs'>('timeline');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
   const statusRef = useRef<RunStatus | undefined>(undefined);
@@ -76,22 +74,19 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   }, [run?.status]);
 
   useEffect(() => {
-    if (activeTab === 'logs' && shouldAutoScroll && logsEndRef.current?.scrollIntoView) {
+    if (shouldAutoScroll && logsEndRef.current?.scrollIntoView) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [logs, activeTab, shouldAutoScroll]);
+  }, [logs, shouldAutoScroll]);
 
-  // Handle scroll to detect if user is at bottom
   const handleLogsScroll = () => {
     const container = logsContainerRef.current;
     if (!container) return;
     
-    // Check if user is near the bottom (within 50px)
     const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
     setShouldAutoScroll(isAtBottom);
   };
 
-  // Reset auto-scroll when logs are cleared or tab changes
   useEffect(() => {
     if (logs.length === 0) {
       setShouldAutoScroll(true);
@@ -154,7 +149,6 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
   useEffect(() => {
     loadRun();
     
-    // Poll for updates while run is active
     const interval = setInterval(() => {
       if (statusRef.current === 'running' || statusRef.current === 'queued') {
         loadRun();
@@ -240,73 +234,37 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-board-border px-4">
-        <button
-          onClick={() => setActiveTab('timeline')}
-          className={cn(
-            'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative',
-            activeTab === 'timeline'
-              ? 'text-board-accent'
-              : 'text-board-text-muted hover:text-board-text'
-          )}
-        >
-          Timeline
-          {activeTab === 'timeline' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={cn(
-            'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative',
-            activeTab === 'logs'
-              ? 'text-board-accent'
-              : 'text-board-text-muted hover:text-board-text'
-          )}
-        >
-          Logs
-          {activeTab === 'logs' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
-          )}
-        </button>
-      </div>
-
-      {/* Content */}
+      {/* Logs Content */}
       <div 
-        ref={activeTab === 'logs' ? logsContainerRef : undefined}
-        onScroll={activeTab === 'logs' ? handleLogsScroll : undefined}
+        ref={logsContainerRef}
+        onScroll={handleLogsScroll}
         className="flex-1 overflow-y-auto p-4"
       >
-        {activeTab === 'timeline' ? (
-          <EventTimeline runId={runId} />
-        ) : (
-          <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5 glass rounded-xl p-4">
-            {logs.length === 0 ? (
-              <p className="text-board-text-muted italic">
-                {run?.status === 'running' || run?.status === 'queued'
-                  ? 'Waiting for log output...'
-                  : 'No log output captured for this run.'}
-              </p>
-            ) : (
-              logs.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={cn(
-                    'py-0.5',
-                    entry.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
-                  )}
-                >
-                  <span className="text-board-text-muted select-none">
-                    [{entry.timestamp.toLocaleTimeString()}]
-                  </span>{' '}
-                  {entry.content}
-                </div>
-              ))
-            )}
-            <div ref={logsEndRef} />
-          </div>
-        )}
+        <div className="font-mono text-xs whitespace-pre-wrap space-y-0.5 glass rounded-xl p-4">
+          {logs.length === 0 ? (
+            <p className="text-board-text-muted italic">
+              {run?.status === 'running' || run?.status === 'queued'
+                ? 'Waiting for log output...'
+                : 'No log output captured for this run.'}
+            </p>
+          ) : (
+            logs.map((entry) => (
+              <div
+                key={entry.id}
+                className={cn(
+                  'py-0.5',
+                  entry.stream === 'stderr' ? 'text-status-error' : 'text-board-text-secondary'
+                )}
+              >
+                <span className="text-board-text-muted select-none">
+                  [{entry.timestamp.toLocaleTimeString()}]
+                </span>{' '}
+                {entry.content}
+              </div>
+            ))
+          )}
+          <div ref={logsEndRef} />
+        </div>
       </div>
 
       {/* Summary Footer */}

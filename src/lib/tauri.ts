@@ -72,18 +72,6 @@ export async function checkTicketReadiness(
   return invoke('check_ticket_readiness', { ticketId });
 }
 
-export async function updateProjectHooks(
-  projectId: string,
-  agentId: string,
-  installed: boolean
-): Promise<void> {
-  return invoke('update_project_hooks', {
-    projectId,
-    agentId,
-    installed,
-  });
-}
-
 export async function browseForDirectory(): Promise<string | null> {
   return invoke('browse_for_directory');
 }
@@ -208,53 +196,14 @@ export async function getRunEvents(runId: string): Promise<AgentEvent[]> {
 export interface AgentStatus {
   isAvailable: boolean;
   version: string | null;
-  globalHooksInstalled: boolean;
-  hookScriptPath: string | null;
 }
 
 export async function getAgentStatus(agentId: string): Promise<AgentStatus> {
   return invoke('get_agent_status', { agentId });
 }
 
-export async function installAgentHooksGlobal(
-  agentId: string,
-  hookScriptPath: string,
-  apiUrl?: string,
-  apiToken?: string
-): Promise<void> {
-  return invoke('install_agent_hooks_global', { agentId, hookScriptPath, apiUrl, apiToken });
-}
-
-export async function installAgentHooksProject(
-  agentId: string,
-  hookScriptPath: string,
-  projectPath: string,
-  apiUrl?: string,
-  apiToken?: string
-): Promise<void> {
-  return invoke('install_agent_hooks_project', { agentId, hookScriptPath, projectPath, apiUrl, apiToken });
-}
-
-export async function getAgentHooksConfig(
-  agentId: string,
-  hookScriptPath: string
-): Promise<string> {
-  return invoke('get_agent_hooks_config', { agentId, hookScriptPath });
-}
-
 export async function checkAgentAvailable(agentId: string): Promise<boolean> {
   return invoke('check_agent_available', { agentId });
-}
-
-export async function checkAgentProjectHooksInstalled(
-  agentId: string,
-  projectPath: string
-): Promise<boolean> {
-  return invoke('check_agent_project_hooks_installed', { agentId, projectPath });
-}
-
-export async function getAgentHookScriptPath(agentId: string): Promise<string | null> {
-  return invoke('get_agent_hook_script_path', { agentId });
 }
 
 export async function getAgentSettings(agentId: string): Promise<Record<string, unknown>> {

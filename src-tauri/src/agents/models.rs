@@ -3,15 +3,23 @@
 pub const DEFAULT_STAGE_MODEL: &str = "opus-4.6";
 pub const DEFAULT_DIAGNOSTIC_MODEL: &str = "sonnet-4.5";
 
-/// Map a friendly model name to its full CLI identifier.
-/// E.g. "opus-4.6" -> "claude-opus-4-6".
+/// Single source of truth for model-name mappings.
+/// Each entry: (friendly_name, cli_family_prefix, version).
+const MODEL_ENTRIES: &[(&str, &str, &str)] = &[
+    ("opus-4.6", "claude-opus", "4.6"),
+    ("opus-4.5", "claude-opus", "4.5"),
+    ("sonnet-4.5", "claude-sonnet", "4.5"),
+];
+
+/// Map a friendly model name to its Claude Code CLI identifier.
+/// Claude Code uses dashes in versions: "opus-4.6" -> "claude-opus-4-6".
 pub fn map_model_name(model: &str) -> String {
-    match model {
-        "opus-4.6" => "claude-opus-4-6".to_string(),
-        "opus-4.5" => "claude-opus-4-5".to_string(),
-        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
-        other => other.to_string(),
+    for &(friendly, family, version) in MODEL_ENTRIES {
+        if model == friendly {
+            return format!("{}-{}", family, version.replace('.', "-"));
+        }
     }
+    model.to_string()
 }
 
 #[cfg(test)]

@@ -444,7 +444,6 @@ mod tests {
             fn config_dir_name(&self) -> &str { ".test-agent" }
             fn command_instructions_subdir(&self) -> &str { "commands" }
             fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
-            fn install_hooks_for_run(&self, _: &std::path::Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
         }
 
         // Create a temp dir with a provider-specific command file

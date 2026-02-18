@@ -8,7 +8,6 @@ use tower_http::cors::{Any, CorsLayer};
 use super::auth::auth_middleware;
 use super::events::{sse_filtered, sse_handler};
 use super::handlers::*;
-use super::hooks::hook_event;
 use super::state::AppState;
 
 pub fn create_router(state: AppState) -> Router {
@@ -42,8 +41,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/v1/runs/:run_id/release", post(release_run))
         .route("/v1/runs/:run_id/events", get(list_events))
         .route("/v1/runs/:run_id/events", post(create_event))
-        // Hook events (agent hook script -> API normalization)
-        .route("/v1/hooks/event", post(hook_event))
         // Queue
         .route("/v1/queue/next", post(queue_next))
         .route("/v1/queue/status", get(queue_status))

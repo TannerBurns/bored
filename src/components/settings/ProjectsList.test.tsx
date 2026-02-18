@@ -11,10 +11,7 @@ const mockBrowseForDirectory = vi.fn();
 const mockCheckGitStatus = vi.fn();
 const mockInitGitRepo = vi.fn();
 const mockCreateProjectFolder = vi.fn();
-const mockGetAgentHookScriptPath = vi.fn();
-const mockInstallAgentHooksProject = vi.fn();
 const mockInstallCommandsToProject = vi.fn();
-const mockUpdateProjectHooks = vi.fn();
 
 vi.mock('../../lib/tauri', () => ({
   getProjects: (...args: unknown[]) => mockGetProjects(...args),
@@ -24,10 +21,7 @@ vi.mock('../../lib/tauri', () => ({
   checkGitStatus: (...args: unknown[]) => mockCheckGitStatus(...args),
   initGitRepo: (...args: unknown[]) => mockInitGitRepo(...args),
   createProjectFolder: (...args: unknown[]) => mockCreateProjectFolder(...args),
-  getAgentHookScriptPath: (...args: unknown[]) => mockGetAgentHookScriptPath(...args),
-  installAgentHooksProject: (...args: unknown[]) => mockInstallAgentHooksProject(...args),
   installCommandsToProject: (...args: unknown[]) => mockInstallCommandsToProject(...args),
-  updateProjectHooks: (...args: unknown[]) => mockUpdateProjectHooks(...args),
 }));
 
 // ── Test data ────────────────────────────────────────────────────────
@@ -49,7 +43,6 @@ const MOCK_PROJECT = {
   id: 'proj-1',
   name: 'project',
   path: '/test/project',
-  hooksInstalled: { cursor: false, claude: false },
   allowShellCommands: true,
   allowFileWrites: true,
   blockedPatterns: [],
@@ -65,10 +58,7 @@ function setupHappyPathMocks() {
   mockCheckGitStatus.mockResolvedValue(true);
   mockCreateProject.mockResolvedValue(MOCK_PROJECT);
   storeAgents = MOCK_AGENTS;
-  mockGetAgentHookScriptPath.mockResolvedValue('/app/scripts/hook.js');
-  mockInstallAgentHooksProject.mockResolvedValue(undefined);
   mockInstallCommandsToProject.mockResolvedValue(undefined);
-  mockUpdateProjectHooks.mockResolvedValue(undefined);
 }
 
 /** Renders the component and waits for the initial load to finish. */
@@ -124,7 +114,7 @@ describe('ProjectsList', () => {
       setupHappyPathMocks();
     });
 
-    it('installs hooks and commands for all agents', async () => {
+    it('installs commands for all agents', async () => {
       await renderAndWaitForLoad();
       await addExistingProjectViaUI();
 
@@ -133,22 +123,9 @@ describe('ProjectsList', () => {
         expect(mockGetProjects).toHaveBeenCalledTimes(2);
       });
 
-      // Hooks installed for each agent
-      expect(mockInstallAgentHooksProject).toHaveBeenCalledWith(
-        'cursor', '/app/scripts/hook.js', '/test/project'
-      );
-      expect(mockInstallAgentHooksProject).toHaveBeenCalledWith(
-        'claude', '/app/scripts/hook.js', '/test/project'
-      );
-
       // Commands installed for each agent
       expect(mockInstallCommandsToProject).toHaveBeenCalledWith('cursor', '/test/project');
       expect(mockInstallCommandsToProject).toHaveBeenCalledWith('claude', '/test/project');
-
-      // Per-agent hook status updated
-      expect(mockUpdateProjectHooks).toHaveBeenCalledWith('proj-1', 'cursor', true);
-      expect(mockUpdateProjectHooks).toHaveBeenCalledWith('proj-1', 'claude', true);
-      expect(mockUpdateProjectHooks).toHaveBeenCalledTimes(2);
     });
 
     it('calls createProject with browsed name and path', async () => {
@@ -181,54 +158,6 @@ describe('ProjectsList', () => {
   });
 
   describe('autoSetupProject — partial failure', () => {
-    it('shows warning when one agent hook install fails', async () => {
-      setupHappyPathMocks();
-      mockInstallAgentHooksProject.mockImplementation((agentId: string) => {
-        if (agentId === 'cursor') return Promise.reject('permission denied');
-        return Promise.resolve(undefined);
-      });
-
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      // Wait for setup to complete
-      await waitFor(() => {
-        expect(mockGetProjects).toHaveBeenCalledTimes(2);
-      });
-
-      // Warning message should be displayed
-      await waitFor(() => {
-        const errorEl = screen.getByText(/setup warnings/);
-        expect(errorEl).toBeInTheDocument();
-        expect(errorEl.textContent).toContain('Cursor hooks');
-      });
-
-      // Only claude's hook status was updated (cursor failed before updateProjectHooks)
-      expect(mockUpdateProjectHooks).toHaveBeenCalledTimes(1);
-      expect(mockUpdateProjectHooks).toHaveBeenCalledWith('proj-1', 'claude', true);
-    });
-
-    it('shows warning when hook script path is not available', async () => {
-      setupHappyPathMocks();
-      mockGetAgentHookScriptPath.mockImplementation((agentId: string) => {
-        if (agentId === 'cursor') return Promise.resolve(null);
-        return Promise.resolve('/app/scripts/hook.js');
-      });
-
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      await waitFor(() => {
-        const errorEl = screen.getByText(/setup warnings/);
-        expect(errorEl).toBeInTheDocument();
-        expect(errorEl.textContent).toContain('hook script path not available');
-      });
-
-      // Only claude's hook status was updated (cursor had no path)
-      expect(mockUpdateProjectHooks).toHaveBeenCalledTimes(1);
-      expect(mockUpdateProjectHooks).toHaveBeenCalledWith('proj-1', 'claude', true);
-    });
-
     it('shows warning when command install fails', async () => {
       setupHappyPathMocks();
       mockInstallCommandsToProject.mockImplementation((agentId: string) => {
@@ -244,9 +173,6 @@ describe('ProjectsList', () => {
         expect(errorEl).toBeInTheDocument();
         expect(errorEl.textContent).toContain('Claude commands');
       });
-
-      // Both hooks still installed (command failure doesn't block hooks)
-      expect(mockUpdateProjectHooks).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -263,26 +189,8 @@ describe('ProjectsList', () => {
         expect(mockGetProjects).toHaveBeenCalledTimes(2);
       });
 
-      // No hook installs attempted
-      expect(mockInstallAgentHooksProject).not.toHaveBeenCalled();
+      // No command installs attempted
       expect(mockInstallCommandsToProject).not.toHaveBeenCalled();
-      expect(mockUpdateProjectHooks).not.toHaveBeenCalled();
-    });
-
-    it('completes without error when store has empty agents', async () => {
-      setupHappyPathMocks();
-      storeAgents = [];
-
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      // Wait for setup to complete
-      await waitFor(() => {
-        expect(mockGetProjects).toHaveBeenCalledTimes(2);
-      });
-
-      expect(mockInstallAgentHooksProject).not.toHaveBeenCalled();
-      expect(mockUpdateProjectHooks).not.toHaveBeenCalled();
     });
   });
 });

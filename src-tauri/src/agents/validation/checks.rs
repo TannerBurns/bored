@@ -18,29 +18,6 @@ pub fn check_cli_available(provider: &dyn AgentProvider) -> ValidationCheck {
     }
 }
 
-pub fn check_hooks_configured(provider: &dyn AgentProvider, repo_path: &Path) -> ValidationCheck {
-    let global_installed = provider.check_hooks_installed_global();
-    let project_installed = provider.check_hooks_installed_project(repo_path);
-
-    if global_installed || project_installed {
-        let location = if project_installed {
-            "project"
-        } else {
-            "global"
-        };
-        ValidationCheck::pass(
-            "hooks_configured",
-            &format!("Hooks are configured ({})", location),
-        )
-    } else {
-        ValidationCheck::fail(
-            "hooks_configured",
-            "Hooks are not configured",
-            Some("install_hooks"),
-        )
-    }
-}
-
 pub fn check_commands_installed(provider: &dyn AgentProvider, repo_path: &Path) -> ValidationCheck {
     let user_installed = provider.check_commands_installed_user();
     let project_installed = provider.check_commands_installed_project(repo_path);
@@ -123,8 +100,6 @@ mod tests {
     #[derive(Debug, Default)]
     struct CheckStub {
         available: bool,
-        global_hooks: bool,
-        project_hooks: bool,
         user_commands: bool,
         project_commands: bool,
     }
@@ -141,9 +116,6 @@ mod tests {
         fn config_dir_name(&self) -> &str { ".stub" }
         fn command_instructions_subdir(&self) -> &str { "commands" }
         fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
-        fn install_hooks_for_run(&self, _: &Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
-        fn check_hooks_installed_global(&self) -> bool { self.global_hooks }
-        fn check_hooks_installed_project(&self, _: &Path) -> bool { self.project_hooks }
         fn check_commands_installed_user(&self) -> bool { self.user_commands }
         fn check_commands_installed_project(&self, _: &Path) -> bool { self.project_commands }
     }
@@ -165,40 +137,6 @@ mod tests {
         let check = check_cli_available(&stub);
         assert!(!check.passed);
         assert!(check.message.contains("not installed"));
-    }
-
-    // ── check_hooks_configured ───────────────────────────────────────
-
-    #[test]
-    fn hooks_configured_passes_with_global_hooks() {
-        let stub = CheckStub { global_hooks: true, ..Default::default() };
-        let check = check_hooks_configured(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("global"));
-    }
-
-    #[test]
-    fn hooks_configured_passes_with_project_hooks() {
-        let stub = CheckStub { project_hooks: true, ..Default::default() };
-        let check = check_hooks_configured(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("project"));
-    }
-
-    #[test]
-    fn hooks_configured_prefers_project_over_global() {
-        let stub = CheckStub { global_hooks: true, project_hooks: true, ..Default::default() };
-        let check = check_hooks_configured(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("project"));
-    }
-
-    #[test]
-    fn hooks_configured_fails_when_neither_installed() {
-        let stub = CheckStub::default();
-        let check = check_hooks_configured(&stub, Path::new("/tmp"));
-        assert!(!check.passed);
-        assert_eq!(check.fix_action.as_deref(), Some("install_hooks"));
     }
 
     // ── check_commands_installed ──────────────────────────────────────

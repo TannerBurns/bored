@@ -6,9 +6,6 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 
 vi.mock('../../../lib/tauri', () => ({
   getAgentStatus: vi.fn(),
-  installAgentHooksGlobal: vi.fn(),
-  installAgentHooksProject: vi.fn(),
-  getAgentHooksConfig: vi.fn(),
   getAgentSettings: vi.fn(),
   setAgentSettings: vi.fn(),
   getProjects: vi.fn(),
@@ -20,17 +17,9 @@ vi.mock('../../../lib/tauri', () => ({
   checkUserCommandsInstalled: vi.fn(),
 }));
 
-Object.assign(navigator, {
-  clipboard: {
-    writeText: vi.fn(() => Promise.resolve()),
-  },
-});
-
 const mockAgentStatus = {
   isAvailable: true,
   version: '1.2.3',
-  hookScriptPath: '/path/to/claude-hook.sh',
-  globalHooksInstalled: true,
 };
 
 const mockSettings: Record<string, unknown> = {
@@ -64,14 +53,6 @@ describe('useClaudeSettings', () => {
       expect(result.current.apiSettings.apiKey).toBe('test-api-key');
       expect(result.current.apiSettings.baseUrl).toBe('https://api.example.com');
       expect(result.current.apiSettings.modelOverride).toBe('claude-opus-4');
-    });
-
-    it('loads userHooksInstalled from Claude status', async () => {
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      expect(result.current.userHooksInstalled).toBe(true);
     });
 
     it('updates settings store with loaded API settings', async () => {
@@ -234,23 +215,6 @@ describe('useClaudeSettings', () => {
       });
 
       expect(result.current.error).toContain('Failed to save CLI option');
-    });
-  });
-
-  describe('extends useAgentSettings', () => {
-    it('provides hook installation capabilities', async () => {
-      vi.mocked(tauri.installAgentHooksGlobal).mockResolvedValue(undefined);
-
-      const { result } = renderHook(() => useClaudeSettings());
-
-      await waitFor(() => expect(result.current.loading).toBe(false));
-
-      await act(async () => {
-        await result.current.hookInstall.install();
-      });
-
-      expect(tauri.installAgentHooksGlobal).toHaveBeenCalledWith('claude', '/path/to/claude-hook.sh');
-      expect(result.current.success).toContain('Hooks installed in user settings');
     });
   });
 });

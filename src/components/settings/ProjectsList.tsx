@@ -7,10 +7,7 @@ import {
   checkGitStatus,
   initGitRepo,
   createProjectFolder,
-  getAgentHookScriptPath,
-  installAgentHooksProject,
   installCommandsToProject,
-  updateProjectHooks,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
 import { ConfirmModal } from '../common';
@@ -107,11 +104,11 @@ export function ProjectsList() {
     try {
       const fullPath = await createProjectFolder(parentPath.trim(), newName.trim());
       await initGitRepo(fullPath);
-      const project = await createProject({
+      await createProject({
         name: newName.trim(),
         path: fullPath,
       });
-      const setupWarning = await autoSetupProject(project.id, fullPath);
+      const setupWarning = await autoSetupProject(fullPath);
       resetForm();
       await loadProjects();
       // Set warning after resetForm() so it's not cleared
@@ -136,31 +133,12 @@ export function ProjectsList() {
     setSetupStatus(null);
   };
 
-  const autoSetupProject = async (projectId: string, projectPath: string): Promise<string | null> => {
+  const autoSetupProject = async (projectPath: string): Promise<string | null> => {
     const warnings: string[] = [];
 
     const agents = useAgentRegistryStore.getState().agents;
 
     for (const agent of agents) {
-      // Install hooks
-      setSetupStatus(`Installing ${agent.displayName} hooks...`);
-      try {
-        const hookPath = await getAgentHookScriptPath(agent.id);
-        if (hookPath) {
-          await installAgentHooksProject(agent.id, hookPath, projectPath);
-          try {
-            await updateProjectHooks(projectId, agent.id, true);
-          } catch (e) {
-            warnings.push(`${agent.displayName} hook status update: ${e}`);
-          }
-        } else {
-          warnings.push(`${agent.displayName} hooks: hook script path not available`);
-        }
-      } catch (e) {
-        warnings.push(`${agent.displayName} hooks: ${e}`);
-      }
-
-      // Install commands
       setSetupStatus(`Installing ${agent.displayName} commands...`);
       try {
         await installCommandsToProject(agent.id, projectPath);
@@ -185,11 +163,11 @@ export function ProjectsList() {
     setCreatingProject(true);
     setError(null);
     try {
-      const project = await createProject({
+      await createProject({
         name: newName.trim(),
         path: newPath.trim(),
       });
-      const setupWarning = await autoSetupProject(project.id, newPath.trim());
+      const setupWarning = await autoSetupProject(newPath.trim());
       resetForm();
       await loadProjects();
       // Set warning after resetForm() so it's not cleared
@@ -430,16 +408,6 @@ export function ProjectsList() {
                 {project.path}
               </div>
               <div className="flex flex-wrap gap-1 mt-1">
-                {Object.entries(project.hooksInstalled)
-                  .filter(([, v]) => v)
-                  .map(([agentId]) => (
-                    <span
-                      key={agentId}
-                      className="text-xs px-1.5 py-0.5 rounded bg-board-accent/20 text-board-accent capitalize"
-                    >
-                      {agentId}
-                    </span>
-                  ))}
                 {!project.allowShellCommands && (
                   <span className="text-xs bg-status-warning/20 text-status-warning px-1.5 py-0.5 rounded">
                     No shell

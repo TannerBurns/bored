@@ -52,18 +52,6 @@ pub struct WorkerQueueStatus {
     pub worker_count: usize,
 }
 
-fn get_hook_script_path(app: &tauri::AppHandle, hook_script_name: &str) -> Option<String> {
-    use tauri::Manager;
-    if hook_script_name.is_empty() {
-        return None;
-    }
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join("scripts").join(hook_script_name))
-        .map(|p| p.to_string_lossy().to_string())
-}
-
 #[tauri::command]
 pub async fn start_worker(
     app: tauri::AppHandle,
@@ -102,9 +90,6 @@ pub async fn start_worker(
     let api_token =
         std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
-    let hook_script_path = get_hook_script_path(&app, provider.hook_script_name());
-    tracing::info!("Worker hook script path: {:?}", hook_script_path);
-
     let agent_config = agent_settings.agent_config_for(&agent_id);
 
     // Pass the shared workflow settings so workers read the latest values at task time
@@ -120,7 +105,6 @@ pub async fn start_worker(
         heartbeat_interval_secs: 60,
         lock_duration_mins: 30,
         agent_timeout_secs: 3600,
-        hook_script_path,
         app_handle: Some(app.clone()),
         agent_config,
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),

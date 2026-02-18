@@ -17,11 +17,7 @@ mod validation_parsing;
 pub mod workers;
 pub mod workflow_settings;
 
-pub use agents::{
-    check_agent_available, check_agent_project_hooks_installed, get_agent_hook_script_path,
-    get_agent_hooks_config, get_agent_status, install_agent_hooks_global,
-    install_agent_hooks_project, AgentStatus,
-};
+pub use agents::{check_agent_available, get_agent_status, AgentStatus};
 pub use boards::*;
 pub use agent_settings::{AgentSettingsManager, SharedAgentSettings};
 pub use conversations::{

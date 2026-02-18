@@ -7,9 +7,6 @@ vi.mock('../../../lib/tauri', () => ({
   getAgentStatus: vi.fn(),
   getAgentSettings: vi.fn(),
   setAgentSettings: vi.fn(),
-  installAgentHooksGlobal: vi.fn(),
-  installAgentHooksProject: vi.fn(),
-  getAgentHooksConfig: vi.fn(),
   getProjects: vi.fn().mockResolvedValue([]),
   browseForDirectory: vi.fn(),
   getAvailableCommands: vi.fn().mockResolvedValue([]),
@@ -22,8 +19,6 @@ vi.mock('../../../lib/tauri', () => ({
 const mockAgentStatus = {
   isAvailable: true,
   version: '0.48.0',
-  globalHooksInstalled: true,
-  hookScriptPath: '/path/to/hook.js',
 };
 
 describe('useCursorSettings', () => {
@@ -34,45 +29,15 @@ describe('useCursorSettings', () => {
     vi.mocked(tauri.setAgentSettings).mockResolvedValue(undefined);
   });
 
-  it('fetches cursor-specific globalHooksInstalled status', async () => {
-    const { result } = renderHook(() => useCursorSettings());
-
-    await waitFor(() => {
-      expect(result.current.globalHooksInstalled).toBe(true);
-    });
-
-    expect(tauri.getAgentStatus).toHaveBeenCalledWith('cursor');
-  });
-
-  it('defaults globalHooksInstalled to false before fetch', () => {
-    vi.mocked(tauri.getAgentStatus).mockReturnValue(new Promise(() => {}));
-    vi.mocked(tauri.getAgentSettings).mockReturnValue(new Promise(() => {}));
-    const { result } = renderHook(() => useCursorSettings());
-    expect(result.current.globalHooksInstalled).toBe(false);
-  });
-
-  it('sets globalHooksInstalled to false when status fetch fails', async () => {
-    vi.mocked(tauri.getAgentStatus).mockRejectedValue(new Error('not available'));
-    vi.mocked(tauri.getAgentSettings).mockRejectedValue(new Error('not available'));
-    const { result } = renderHook(() => useCursorSettings());
-
-    await waitFor(() => {
-      expect(tauri.getAgentStatus).toHaveBeenCalled();
-    });
-
-    expect(result.current.globalHooksInstalled).toBe(false);
-  });
-
   it('spreads base agent settings from useAgentSettings', async () => {
     const { result } = renderHook(() => useCursorSettings());
 
     await waitFor(() => {
-      expect(result.current.globalHooksInstalled).toBe(true);
+      expect(result.current.loading).toBe(false);
     });
 
     expect(result.current).toHaveProperty('loading');
     expect(result.current).toHaveProperty('status');
-    expect(result.current).toHaveProperty('hookInstall');
     expect(result.current).toHaveProperty('reload');
   });
 
@@ -93,7 +58,7 @@ describe('useCursorSettings', () => {
       const { result } = renderHook(() => useCursorSettings());
 
       await waitFor(() => {
-        expect(result.current.globalHooksInstalled).toBe(true);
+        expect(result.current.loading).toBe(false);
       });
 
       expect(result.current.cliOptions.thinkingEnabled).toBe(true);
@@ -103,7 +68,7 @@ describe('useCursorSettings', () => {
       const { result } = renderHook(() => useCursorSettings());
 
       await waitFor(() => {
-        expect(result.current.globalHooksInstalled).toBe(true);
+        expect(result.current.loading).toBe(false);
       });
 
       await act(async () => {
@@ -119,7 +84,7 @@ describe('useCursorSettings', () => {
       const { result } = renderHook(() => useCursorSettings());
 
       await waitFor(() => {
-        expect(result.current.globalHooksInstalled).toBe(true);
+        expect(result.current.loading).toBe(false);
       });
 
       vi.mocked(tauri.setAgentSettings).mockRejectedValueOnce(new Error('Network error'));

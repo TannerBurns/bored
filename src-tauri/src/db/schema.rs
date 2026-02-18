@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 12;
+pub const SCHEMA_VERSION: i32 = 13;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -9,9 +9,6 @@ CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
-    
-    -- Hook installation status (JSON map of agent_id -> boolean)
-    hooks_installed_json TEXT NOT NULL DEFAULT '{}',
     
     -- Safety settings
     allow_shell_commands INTEGER NOT NULL DEFAULT 1,
@@ -168,7 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_runs_resumed_from ON agent_runs(resumed_from_run_id) WHERE resumed_from_run_id IS NOT NULL;
 
--- Agent events table (audit trail for hook events)
+-- Agent events table (log events from agent runs)
 CREATE TABLE IF NOT EXISTS agent_events (
     id TEXT PRIMARY KEY NOT NULL,
     run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,

@@ -27,7 +27,6 @@ pub struct OrchestratorConfig {
     pub provider: Arc<dyn AgentProvider>,
     pub api_url: String,
     pub api_token: String,
-    pub hook_script_path: Option<String>,
     pub cancel_handles: CancelHandlesMap,
     /// The branch name to use (if already known). If None, orchestrator will generate one.
     pub worktree_branch: Option<String>,
