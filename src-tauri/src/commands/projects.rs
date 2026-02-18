@@ -73,17 +73,6 @@ pub async fn check_ticket_readiness(
 }
 
 #[tauri::command]
-pub async fn update_project_hooks(
-    project_id: String,
-    agent_id: String,
-    installed: bool,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
-    db.update_project_hooks(&project_id, &agent_id, installed)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn browse_for_directory(
     app: tauri::AppHandle,
 ) -> Result<Option<String>, String> {

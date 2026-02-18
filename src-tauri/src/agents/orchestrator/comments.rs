@@ -186,9 +186,14 @@ impl WorkflowOrchestrator {
     }
 }
 
-const IMPL_SUMMARY_MAX_LEN: usize = 5_000;
+const IMPL_SUMMARY_MAX_LEN: usize = 20_000;
 
 /// Build the markdown body for the workflow-complete comment.
+///
+/// The plan is intentionally excluded here because it is already posted as
+/// its own comment by `add_plan_comment` during the planning stage. Including
+/// it again would duplicate content and eat into the implementation summary
+/// budget, causing useful output to be truncated.
 ///
 /// Pure function so it can be unit-tested without the full orchestrator.
 fn build_workflow_summary(
@@ -201,13 +206,6 @@ fn build_workflow_summary(
         "## Workflow Complete\n\nMulti-stage workflow completed successfully for ticket **{}**.",
         title
     ));
-
-    if let Some(plan_output) = stage_outputs.get("plan") {
-        let plan_body = strip_plan_header(plan_output).trim();
-        if !plan_body.is_empty() {
-            sections.push(format!("### Plan\n\n{}", plan_body));
-        }
-    }
 
     if let Some(impl_output) = stage_outputs.get("implement") {
         let impl_body = impl_output.trim();
@@ -377,16 +375,16 @@ mod tests {
     }
 
     #[test]
-    fn summary_with_plan_only() {
+    fn summary_excludes_plan_even_when_present() {
         let mut outputs = HashMap::new();
         outputs.insert("plan".into(), "## Implementation Plan\n\n### Steps\n1. Do X".into());
         let result = build_workflow_summary("Ticket A", &outputs);
-        assert!(result.contains("### Plan\n\n### Steps\n1. Do X"));
-        assert!(!result.contains("### Implementation Summary"));
+        assert!(!result.contains("### Plan"));
+        assert!(!result.contains("### Steps"));
     }
 
     #[test]
-    fn summary_with_implement_only() {
+    fn summary_with_implement_output() {
         let mut outputs = HashMap::new();
         outputs.insert("implement".into(), "Created foo.rs and bar.rs".into());
         let result = build_workflow_summary("Ticket B", &outputs);
@@ -396,21 +394,13 @@ mod tests {
     }
 
     #[test]
-    fn summary_with_both_plan_and_implement() {
+    fn summary_with_both_shows_only_implement() {
         let mut outputs = HashMap::new();
         outputs.insert("plan".into(), "### Steps\n1. Add feature".into());
         outputs.insert("implement".into(), "Added the feature to main.rs".into());
         let result = build_workflow_summary("Ticket C", &outputs);
-        assert!(result.contains("### Plan"));
-        assert!(result.contains("### Implementation Summary"));
-    }
-
-    #[test]
-    fn summary_skips_empty_plan_after_strip() {
-        let mut outputs = HashMap::new();
-        outputs.insert("plan".into(), "## Implementation Plan\n\n".into());
-        let result = build_workflow_summary("Ticket D", &outputs);
         assert!(!result.contains("### Plan"));
+        assert!(result.contains("### Implementation Summary"));
     }
 
     #[test]
@@ -429,7 +419,6 @@ mod tests {
         let result = build_workflow_summary("Ticket F", &outputs);
         assert!(result.contains("### Implementation Summary"));
         assert!(result.contains("*...(truncated)*"));
-        // The truncated body should be at most IMPL_SUMMARY_MAX_LEN bytes
         let after_header = result
             .split("### Implementation Summary\n\n")
             .nth(1)

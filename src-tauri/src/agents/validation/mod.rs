@@ -34,12 +34,6 @@ pub fn validate_worker_environment_with_options(
     }
     all_checks.push(cli_check);
 
-    let hooks_check = checks::check_hooks_configured(provider, repo_path);
-    if !hooks_check.passed {
-        errors.push(hooks_check.message.clone());
-    }
-    all_checks.push(hooks_check);
-
     let commands_check = checks::check_commands_installed(provider, repo_path);
     if !commands_check.passed {
         errors.push(commands_check.message.clone());
@@ -167,6 +161,29 @@ mod tests {
         let git_check = result.checks.iter().find(|c| c.name == "git_repository");
         assert!(git_check.is_some());
         assert!(!git_check.unwrap().passed);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn validation_does_not_include_hooks_check() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("validation_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let provider = CursorProvider::new();
+        let result = validate_worker_environment(&provider, &temp_dir, None);
+
+        let hooks_check = result.checks.iter().find(|c| c.name == "hooks_configured");
+        assert!(
+            hooks_check.is_none(),
+            "Validation should not include a hooks_configured check after hooks removal"
+        );
+
+        let check_names: Vec<&str> = result.checks.iter().map(|c| c.name.as_str()).collect();
+        assert!(check_names.contains(&"cli_available"));
+        assert!(check_names.contains(&"commands_installed"));
+        assert!(check_names.contains(&"git_repository"));
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

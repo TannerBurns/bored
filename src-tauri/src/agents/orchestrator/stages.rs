@@ -109,11 +109,6 @@ impl WorkflowOrchestrator {
             })
             .map_err(|e| format!("Failed to create sub-run: {}", e))?;
 
-        // Update project hooks with parent run configuration
-        if let Err(e) = self.update_hooks_for_run() {
-            tracing::warn!("Failed to update hooks for stage '{}': {}", stage, e);
-        }
-
         // Update sub-run status to running
         self.db
             .update_run_status(&sub_run.id, RunStatus::Running, None, None)

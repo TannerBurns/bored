@@ -669,16 +669,6 @@ mod tests {
             fn format_command_reference(&self, cmd: &str) -> String {
                 format!("/{}", cmd)
             }
-            fn install_hooks_for_run(
-                &self,
-                _: &Path,
-                _: &str,
-                _: Option<&str>,
-                _: Option<&str>,
-                _: Option<&str>,
-            ) -> Result<(), String> {
-                Ok(())
-            }
         }
 
         fn make_registry() -> AgentRegistry {

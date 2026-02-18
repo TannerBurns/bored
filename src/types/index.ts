@@ -3,9 +3,6 @@ export interface Project {
   name: string;
   path: string;
   
-  // Hook installation status per agent (keyed by agent ID, e.g. { cursor: true, claude: true })
-  hooksInstalled: Record<string, boolean>;
-  
   // Safety settings
   allowShellCommands: boolean;
   allowFileWrites: boolean;

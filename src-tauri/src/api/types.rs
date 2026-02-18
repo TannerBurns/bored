@@ -164,28 +164,5 @@ pub struct DeleteResponse {
     pub id: String,
 }
 
-// ===== Hook Event Types =====
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HookEventRequest {
-    pub agent_type: String,
-    pub run_id: String,
-    pub raw_event_type: String,
-    pub raw_payload: serde_json::Value,
-    #[serde(default = "Utc::now")]
-    pub timestamp: DateTime<Utc>,
-    pub ticket_id: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HookEventResponse {
-    #[serde(flatten)]
-    pub action: crate::agents::HookAction,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_result: Option<crate::agents::StopEventResult>,
-}
-
 pub const LOCK_DURATION_MINUTES: i64 = 30;
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 60;

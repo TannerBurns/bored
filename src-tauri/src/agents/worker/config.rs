@@ -23,7 +23,6 @@ pub struct WorkerConfig {
     pub heartbeat_interval_secs: u64,
     pub lock_duration_mins: i64,
     pub agent_timeout_secs: u64,
-    pub hook_script_path: Option<String>,
     pub app_handle: Option<AppHandle>,
     /// Agent-specific configuration map (auth tokens, API keys, etc.)
     pub agent_config: HashMap<String, serde_json::Value>,

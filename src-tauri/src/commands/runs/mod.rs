@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, State, Window};
+use tauri::{State, Window};
 
 use crate::agents::spawner::CancelHandle;
 use crate::agents::AgentRegistry;
@@ -21,7 +21,7 @@ use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::models::{CreateRun, RunStatus};
 use crate::db::Database;
 
-use branch::{get_hook_script_path, setup_worktree_and_branch, update_project_hooks_for_run, WorktreeBranchSetup};
+use branch::{setup_worktree_and_branch, WorktreeBranchSetup};
 
 /// Shared state for tracking running agents
 pub struct RunningAgents {
@@ -226,29 +226,6 @@ pub async fn start_agent_run(
         worktree_info.is_some()
     );
 
-    // Get hook script path for updating project hooks
-    let app_handle = window.app_handle();
-    let hook_script_path = get_hook_script_path(app_handle, provider.hook_script_name());
-
-    // Update project hooks with run-specific configuration
-    // This ensures the hook script receives AGENT_KANBAN_RUN_ID and API credentials
-    // Install hooks in the working directory (worktree or main repo)
-    if let Some(ref hook_path) = hook_script_path {
-        if let Err(e) = update_project_hooks_for_run(
-            &working_path,
-            hook_path,
-            &api_url,
-            &api_token,
-            &run_id,
-            &*provider,
-        ) {
-            tracing::warn!("Failed to update project hooks: {}", e);
-            // Continue anyway - hooks might already be configured or not needed
-        }
-    } else {
-        tracing::warn!("Could not determine hook script path, hooks may not track this run");
-    }
-
     // All tickets now use multi-stage workflow
     tracing::info!(
         "Workflow type: {:?}, run_id: {}, working_path: {}",
@@ -288,7 +265,6 @@ pub async fn start_agent_run(
         provider,
         api_url,
         api_token,
-        hook_script_path,
         cancel_handles: running_agents_handles,
         agent_config,
         workflow_settings: shared_workflow_settings,

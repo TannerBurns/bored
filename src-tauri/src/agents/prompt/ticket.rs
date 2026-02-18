@@ -132,7 +132,7 @@ pub fn generate_system_prompt(api_url: &str, ticket_id: &str, run_id: &str) -> S
 4. If you encounter blockers, document them clearly
 
 ## Communication
-Your actions are being tracked via hooks. The board will be automatically updated as you work.
+The board will be automatically updated as you work.
 "#
     )
 }

@@ -1,7 +1,7 @@
 //! Tests for the Cursor AgentProvider implementation.
 
 use super::provider::*;
-use crate::agents::provider::{AgentProvider, AgentRunConfig, HookAction};
+use crate::agents::provider::{AgentProvider, AgentRunConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -66,18 +66,13 @@ fn extract_cost_empty_returns_none() {
 // ── map_model_name ─────────────────────────────────────────────
 
 #[test]
-fn map_model_name_maps_known_models() {
+fn map_model_name_is_passthrough() {
     let p = CursorProvider::new();
-    assert_eq!(p.map_model_name("opus-4.6"), "claude-opus-4-6");
-    assert_eq!(p.map_model_name("opus-4.5"), "claude-opus-4-5");
-    assert_eq!(p.map_model_name("sonnet-4.5"), "claude-sonnet-4-5");
-}
-
-#[test]
-fn map_model_name_passes_through_unknown() {
-    let p = CursorProvider::new();
+    assert_eq!(p.map_model_name("opus-4.6"), "opus-4.6");
+    assert_eq!(p.map_model_name("opus-4.5"), "opus-4.5");
+    assert_eq!(p.map_model_name("sonnet-4.5"), "sonnet-4.5");
     assert_eq!(p.map_model_name("custom-model"), "custom-model");
-    assert_eq!(p.map_model_name("claude-opus-4-6"), "claude-opus-4-6");
+    assert_eq!(p.map_model_name(""), "");
 }
 
 #[test]
@@ -87,8 +82,8 @@ fn build_command_maps_model_name_end_to_end() {
     config.model = Some("opus-4.6".to_string());
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-6-thinking".to_string()),
-        "Default thinking=true should map opus-4.6 -> claude-opus-4-6-thinking"
+        args.contains(&"opus-4.6-thinking".to_string()),
+        "Default thinking=true should produce opus-4.6-thinking"
     );
 }
 
@@ -113,8 +108,8 @@ fn build_command_thinking_enabled_appends_suffix() {
     );
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-5-thinking".to_string()),
-        "thinking_enabled=true should produce claude-opus-4-5-thinking"
+        args.contains(&"opus-4.5-thinking".to_string()),
+        "thinking_enabled=true should produce opus-4.5-thinking"
     );
 }
 
@@ -129,11 +124,11 @@ fn build_command_thinking_disabled_no_suffix() {
     );
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-5".to_string()),
-        "thinking_enabled=false should produce claude-opus-4-5 without suffix"
+        args.contains(&"opus-4.5".to_string()),
+        "thinking_enabled=false should produce opus-4.5 without suffix"
     );
     assert!(
-        !args.contains(&"claude-opus-4-5-thinking".to_string()),
+        !args.contains(&"opus-4.5-thinking".to_string()),
         "thinking_enabled=false should NOT have -thinking suffix"
     );
 }
@@ -145,7 +140,7 @@ fn build_command_thinking_defaults_to_true() {
     config.model = Some("sonnet-4.5".to_string());
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-sonnet-4-5-thinking".to_string()),
+        args.contains(&"sonnet-4.5-thinking".to_string()),
         "Empty agent_config should default thinking=true"
     );
 }
@@ -161,11 +156,11 @@ fn build_command_thinking_accepts_camel_case_key() {
     );
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-6".to_string()),
+        args.contains(&"opus-4.6".to_string()),
         "camelCase thinkingEnabled=false should work"
     );
     assert!(
-        !args.contains(&"claude-opus-4-6-thinking".to_string()),
+        !args.contains(&"opus-4.6-thinking".to_string()),
         "camelCase thinkingEnabled=false should NOT have -thinking suffix"
     );
 }
@@ -217,7 +212,7 @@ fn build_command_snake_case_takes_precedence_over_camel_case() {
     );
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-5".to_string()),
+        args.contains(&"opus-4.5".to_string()),
         "snake_case thinking_enabled should take precedence over camelCase"
     );
 }
@@ -250,147 +245,4 @@ fn check_commands_installed_project_returns_false_for_missing_dir() {
     let p = CursorProvider::new();
     assert!(!p.check_commands_installed_project(&temp));
     std::fs::remove_dir_all(&temp).ok();
-}
-
-#[test]
-fn check_hooks_installed_project_returns_false_for_missing_hooks() {
-    let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp).unwrap();
-    let p = CursorProvider::new();
-    assert!(!p.check_hooks_installed_project(&temp));
-    std::fs::remove_dir_all(&temp).ok();
-}
-
-// ── Hook normalization tests ───────────────────────────────────
-
-#[test]
-fn normalize_hook_event_before_shell_execution() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({
-        "command": "cargo build",
-        "cwd": "/home/user/project"
-    });
-    let result = p.normalize_hook_event("beforeShellExecution", &payload);
-    assert_eq!(result.event_type, "command_requested");
-    assert_eq!(result.structured["command"], "cargo build");
-    assert_eq!(result.structured["workingDirectory"], "/home/user/project");
-}
-
-#[test]
-fn normalize_hook_event_after_file_edit() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({
-        "path": "/src/main.rs",
-        "oldContent": "fn main() {}",
-        "newContent": "fn main() { println!(\"hello\"); }"
-    });
-    let result = p.normalize_hook_event("afterFileEdit", &payload);
-    assert_eq!(result.event_type, "file_edited");
-    assert_eq!(result.structured["filePath"], "/src/main.rs");
-}
-
-#[test]
-fn normalize_hook_event_before_read_file() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "path": "/src/lib.rs" });
-    let result = p.normalize_hook_event("beforeReadFile", &payload);
-    assert_eq!(result.event_type, "file_read");
-    assert_eq!(result.structured["filePath"], "/src/lib.rs");
-}
-
-#[test]
-fn normalize_hook_event_stop() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "status": "completed", "reason": "done" });
-    let result = p.normalize_hook_event("stop", &payload);
-    assert_eq!(result.event_type, "run_stopped");
-    assert_eq!(result.structured["status"], "completed");
-}
-
-#[test]
-fn normalize_hook_event_before_mcp() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({});
-    let result = p.normalize_hook_event("beforeMCPExecution", &payload);
-    assert_eq!(result.event_type, "command_requested");
-}
-
-#[test]
-fn normalize_hook_event_unknown_passes_through() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "data": 123 });
-    let result = p.normalize_hook_event("someNewEvent", &payload);
-    assert_eq!(result.event_type, "someNewEvent");
-    assert_eq!(result.structured, payload);
-}
-
-// ── Hook action tests ──────────────────────────────────────────
-
-#[test]
-fn hook_action_allows_safe_shell_command() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "command": "npm test" });
-    let action = p.hook_action("beforeShellExecution", &payload, Some("t"), Some("r"));
-    assert_eq!(action, HookAction::Allow);
-}
-
-#[test]
-fn hook_action_denies_dangerous_shell_command() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "command": "rm -rf /" });
-    let action = p.hook_action("beforeShellExecution", &payload, Some("t"), Some("r"));
-    assert!(matches!(action, HookAction::Deny { .. }));
-}
-
-#[test]
-fn hook_action_denies_sudo_rm() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "command": "sudo rm -rf /var" });
-    let action = p.hook_action("beforeShellExecution", &payload, Some("t"), Some("r"));
-    assert!(matches!(action, HookAction::Deny { .. }));
-}
-
-#[test]
-fn hook_action_allows_non_shell_event() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "path": "/etc/passwd" });
-    let action = p.hook_action("beforeReadFile", &payload, Some("t"), Some("r"));
-    assert_eq!(action, HookAction::Allow);
-}
-
-// ── Stop event normalization tests ─────────────────────────────
-
-#[test]
-fn normalize_stop_event_error() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "status": "error" });
-    let result = p.normalize_stop_event(&payload);
-    assert_eq!(result.status, "error");
-    assert_eq!(result.exit_code, 1);
-}
-
-#[test]
-fn normalize_stop_event_aborted() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "status": "aborted" });
-    let result = p.normalize_stop_event(&payload);
-    assert_eq!(result.status, "aborted");
-    assert_eq!(result.exit_code, 1);
-}
-
-#[test]
-fn normalize_stop_event_normal() {
-    let p = CursorProvider::new();
-    let payload = serde_json::json!({ "status": "completed" });
-    let result = p.normalize_stop_event(&payload);
-    assert_eq!(result.status, "finished");
-    assert_eq!(result.exit_code, 0);
-}
-
-#[test]
-fn normalize_stop_event_empty_payload() {
-    let p = CursorProvider::new();
-    let result = p.normalize_stop_event(&serde_json::json!({}));
-    assert_eq!(result.status, "finished");
-    assert_eq!(result.exit_code, 0);
 }

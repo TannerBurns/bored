@@ -117,20 +117,20 @@ mod tests {
                 run_id: run.id.clone(),
                 ticket_id: ticket.id.clone(),
                 agent_type: "cursor".to_string(),
-                event_type: EventType::FileEdited,
+                event_type: EventType::Custom("log_stdout".to_string()),
                 payload: AgentEventPayload {
-                    raw: Some("edited file.txt".to_string()),
+                    raw: Some("some log output".to_string()),
                     structured: None,
                 },
                 timestamp: chrono::Utc::now(),
             })
             .unwrap();
 
-        assert_eq!(event.event_type, EventType::FileEdited);
+        assert_eq!(event.event_type, EventType::Custom("log_stdout".to_string()));
 
         let events = db.get_events(&run.id).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].id, event.id);
-        assert_eq!(events[0].payload.raw, Some("edited file.txt".to_string()));
+        assert_eq!(events[0].payload.raw, Some("some log output".to_string()));
     }
 }

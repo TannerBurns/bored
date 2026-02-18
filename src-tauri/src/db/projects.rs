@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::db::models::{CreateProject, Project, ReadinessCheck, UpdateProject};
 use crate::db::{parse_datetime, Database, DbError};
 
@@ -47,7 +45,6 @@ impl Database {
                 id: project_id,
                 name: input.name.clone(),
                 path: canonical_path,
-                hooks_installed: HashMap::new(),
                 allow_shell_commands: true,
                 allow_file_writes: true,
                 blocked_patterns: vec![],
@@ -62,7 +59,7 @@ impl Database {
     pub fn get_projects(&self) -> Result<Vec<Project>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, name, path, hooks_installed_json,
+                r#"SELECT id, name, path,
                           allow_shell_commands, allow_file_writes,
                           blocked_patterns_json, settings_json, created_at, updated_at,
                           requires_git
@@ -71,23 +68,21 @@ impl Database {
 
             let projects = stmt
                 .query_map([], |row| {
-                    let hooks_json: String = row.get(3)?;
-                    let blocked_json: String = row.get(6)?;
-                    let settings_json: String = row.get(7)?;
+                    let blocked_json: String = row.get(5)?;
+                    let settings_json: String = row.get(6)?;
 
                     Ok(Project {
                         id: row.get(0)?,
                         name: row.get(1)?,
                         path: row.get(2)?,
-                        hooks_installed: serde_json::from_str(&hooks_json).unwrap_or_default(),
-                        allow_shell_commands: row.get::<_, i32>(4)? != 0,
-                        allow_file_writes: row.get::<_, i32>(5)? != 0,
+                        allow_shell_commands: row.get::<_, i32>(3)? != 0,
+                        allow_file_writes: row.get::<_, i32>(4)? != 0,
                         blocked_patterns: serde_json::from_str(&blocked_json).unwrap_or_default(),
                         settings: serde_json::from_str(&settings_json)
                             .unwrap_or(serde_json::json!({})),
-                        requires_git: row.get::<_, i32>(10).unwrap_or(1) != 0,
-                        created_at: parse_datetime(row.get(8)?),
-                        updated_at: parse_datetime(row.get(9)?),
+                        requires_git: row.get::<_, i32>(9).unwrap_or(1) != 0,
+                        created_at: parse_datetime(row.get(7)?),
+                        updated_at: parse_datetime(row.get(8)?),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -153,38 +148,6 @@ impl Database {
                     rusqlite::params![requires_git as i32, now, project_id],
                 )?;
             }
-
-            Ok(())
-        })
-    }
-
-    pub fn update_project_hooks(
-        &self,
-        project_id: &str,
-        agent_id: &str,
-        installed: bool,
-    ) -> Result<(), DbError> {
-        self.with_conn(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
-
-            // Read current JSON, merge in the new value, write back
-            let current_json: String = conn
-                .query_row(
-                    "SELECT hooks_installed_json FROM projects WHERE id = ?",
-                    [project_id],
-                    |row| row.get(0),
-                )
-                .map_err(|_| DbError::NotFound(format!("Project {} not found", project_id)))?;
-
-            let mut hooks: HashMap<String, bool> =
-                serde_json::from_str(&current_json).unwrap_or_default();
-            hooks.insert(agent_id.to_string(), installed);
-
-            let updated_json = serde_json::to_string(&hooks).unwrap_or_else(|_| "{}".to_string());
-            conn.execute(
-                "UPDATE projects SET hooks_installed_json = ?, updated_at = ? WHERE id = ?",
-                rusqlite::params![updated_json, now, project_id],
-            )?;
 
             Ok(())
         })
@@ -342,97 +305,6 @@ mod tests {
 
         let not_found = db.get_project_by_path("/some/other/path").unwrap();
         assert!(not_found.is_none());
-    }
-
-    #[test]
-    fn update_project_hooks() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        assert!(project.hooks_installed.is_empty());
-
-        db.update_project_hooks(&project.id, "cursor", true)
-            .unwrap();
-        let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert_eq!(updated.hooks_installed.get("cursor"), Some(&true));
-        assert_eq!(updated.hooks_installed.get("claude"), None);
-
-        db.update_project_hooks(&project.id, "claude", true)
-            .unwrap();
-        let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert_eq!(updated.hooks_installed.get("cursor"), Some(&true));
-        assert_eq!(updated.hooks_installed.get("claude"), Some(&true));
-    }
-
-    #[test]
-    fn update_project_hooks_set_false() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        // Set hook to true then back to false
-        db.update_project_hooks(&project.id, "cursor", true).unwrap();
-        db.update_project_hooks(&project.id, "cursor", false).unwrap();
-        let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert_eq!(updated.hooks_installed.get("cursor"), Some(&false));
-    }
-
-    #[test]
-    fn update_project_hooks_multiple_agents() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        db.update_project_hooks(&project.id, "cursor", true).unwrap();
-        db.update_project_hooks(&project.id, "claude", true).unwrap();
-        db.update_project_hooks(&project.id, "windsurf", true).unwrap();
-        let updated = db.get_project(&project.id).unwrap().unwrap();
-        assert_eq!(updated.hooks_installed.len(), 3);
-        assert_eq!(updated.hooks_installed.get("windsurf"), Some(&true));
-    }
-
-    #[test]
-    fn update_project_hooks_nonexistent_project() {
-        let db = create_test_db();
-        let result = db.update_project_hooks("nonexistent-id", "cursor", true);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not found"));
-    }
-
-    #[test]
-    fn create_project_hooks_start_empty() {
-        let db = create_test_db();
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-        assert!(project.hooks_installed.is_empty());
-
-        // Verify it persists empty via get
-        let fetched = db.get_project(&project.id).unwrap().unwrap();
-        assert!(fetched.hooks_installed.is_empty());
     }
 
     #[test]

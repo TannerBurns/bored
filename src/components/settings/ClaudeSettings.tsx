@@ -7,7 +7,6 @@ import {
   useClaudeSettings,
   ApiConfigSection,
   CliOptionsSection,
-  ClaudeInfoSections,
 } from './claude';
 
 export function ClaudeSettings() {
@@ -38,8 +37,6 @@ export function ClaudeSettings() {
       <CliOptionsSection cliOptions={claude.cliOptions} />
 
       <ApiConfigSection apiSettings={claude.apiSettings} />
-
-      <ClaudeInfoSections />
     </div>
   );
 }

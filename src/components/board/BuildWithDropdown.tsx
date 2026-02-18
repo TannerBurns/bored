@@ -37,8 +37,22 @@ export function BuildWithDropdown({
     if (!isOpen && buttonRef.current) {
       const buttonRect = buttonRef.current.getBoundingClientRect();
       const dropdownHeight = 100;
-      const spaceBelow = window.innerHeight - buttonRect.bottom;
-      const spaceAbove = buttonRect.top;
+      let spaceBelow = window.innerHeight - buttonRect.bottom;
+      let spaceAbove = buttonRect.top;
+
+      // Measure against the nearest overflow:hidden ancestor (e.g. modal)
+      // rather than the viewport, since that's the actual clipping boundary.
+      let ancestor: HTMLElement | null = buttonRef.current.parentElement;
+      while (ancestor) {
+        const style = window.getComputedStyle(ancestor);
+        if (style.overflow === 'hidden' || style.overflowY === 'hidden') {
+          const ancestorRect = ancestor.getBoundingClientRect();
+          spaceBelow = Math.min(spaceBelow, ancestorRect.bottom - buttonRect.bottom);
+          spaceAbove = Math.min(spaceAbove, buttonRect.top - ancestorRect.top);
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
       
       setOpenUpward(spaceBelow < dropdownHeight && spaceAbove > dropdownHeight);
     }

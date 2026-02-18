@@ -302,20 +302,6 @@ fn agent_run_config_empty_agent_config() {
 // ── AgentProvider trait method tests ──────────────────────────
 
 #[test]
-fn claude_provider_hook_script_name() {
-    use crate::agents::claude::provider::ClaudeProvider;
-    let p = ClaudeProvider::new();
-    assert_eq!(p.hook_script_name(), "claude-hook.js");
-}
-
-#[test]
-fn cursor_provider_hook_script_name() {
-    use crate::agents::cursor::provider::CursorProvider;
-    let p = CursorProvider::new();
-    assert_eq!(p.hook_script_name(), "cursor-hook.js");
-}
-
-#[test]
 fn claude_provider_brand_color() {
     use crate::agents::claude::provider::ClaudeProvider;
     let p = ClaudeProvider::new();
@@ -327,26 +313,6 @@ fn cursor_provider_brand_color_is_none() {
     use crate::agents::cursor::provider::CursorProvider;
     let p = CursorProvider::new();
     assert_eq!(p.brand_color(), None);
-}
-
-#[test]
-fn claude_provider_generate_hooks_config_returns_json() {
-    use crate::agents::claude::provider::ClaudeProvider;
-    let p = ClaudeProvider::new();
-    let result = p.generate_hooks_config_json("/some/path/hook.js");
-    assert!(result.is_ok());
-    let json = result.unwrap();
-    let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-}
-
-#[test]
-fn cursor_provider_generate_hooks_config_returns_json() {
-    use crate::agents::cursor::provider::CursorProvider;
-    let p = CursorProvider::new();
-    let result = p.generate_hooks_config_json("/some/path/hook.js");
-    assert!(result.is_ok());
-    let json = result.unwrap();
-    let _: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
 }
 
 // ── AgentProvider trait default method tests ──────────────────
@@ -366,7 +332,6 @@ impl AgentProvider for StubProvider {
     fn config_dir_name(&self) -> &str { ".stub" }
     fn command_instructions_subdir(&self) -> &str { "commands" }
     fn format_command_reference(&self, cmd: &str) -> String { format!("/{}", cmd) }
-    fn install_hooks_for_run(&self, _: &std::path::Path, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> Result<(), String> { Ok(()) }
 }
 
 #[test]
@@ -381,80 +346,6 @@ fn default_map_model_name_is_passthrough() {
 fn default_brand_color_is_none() {
     let p = StubProvider;
     assert!(p.brand_color().is_none());
-}
-
-#[test]
-fn default_hook_script_name_is_empty() {
-    let p = StubProvider;
-    assert_eq!(p.hook_script_name(), "");
-}
-
-#[test]
-fn default_check_hooks_installed_global_is_false() {
-    let p = StubProvider;
-    assert!(!p.check_hooks_installed_global());
-}
-
-#[test]
-fn default_check_hooks_installed_project_is_false() {
-    let p = StubProvider;
-    assert!(!p.check_hooks_installed_project(std::path::Path::new("/tmp")));
-}
-
-#[test]
-fn default_install_hooks_global_returns_err() {
-    let p = StubProvider;
-    let result = p.install_hooks_global("/path/hook.js", None, None);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("not supported"));
-}
-
-#[test]
-fn default_install_hooks_project_returns_err() {
-    let p = StubProvider;
-    let result = p.install_hooks_project(
-        std::path::Path::new("/tmp"),
-        "/path/hook.js",
-        None,
-        None,
-    );
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("not supported"));
-}
-
-#[test]
-fn default_generate_hooks_config_json_returns_empty_object() {
-    let p = StubProvider;
-    let result = p.generate_hooks_config_json("/path/hook.js");
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), "{}");
-}
-
-#[test]
-fn default_normalize_hook_event_lowercases_type_and_clones_payload() {
-    let p = StubProvider;
-    let payload = serde_json::json!({"key": "value"});
-    let result = p.normalize_hook_event("SomeEvent", &payload);
-    assert_eq!(result.event_type, "someevent");
-    assert_eq!(result.structured, payload);
-}
-
-#[test]
-fn default_hook_action_is_allow() {
-    let p = StubProvider;
-    let payload = serde_json::json!({});
-    let action = p.hook_action("any_event", &payload, None, None);
-    assert_eq!(action, provider::HookAction::Allow);
-}
-
-#[test]
-fn default_normalize_stop_event_returns_finished() {
-    let p = StubProvider;
-    let payload = serde_json::json!({});
-    let result = p.normalize_stop_event(&payload);
-    assert_eq!(result.status, "finished");
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.summary, "Completed successfully.");
 }
 
 #[test]
@@ -486,4 +377,37 @@ fn default_install_commands_to_user_returns_empty() {
     let result = p.install_commands_to_user(std::path::Path::new("/src"));
     assert!(result.is_ok());
     assert!(result.unwrap().is_empty());
+}
+
+// ── Provider trait surface after hooks removal ──────────────────────
+
+#[test]
+fn cursor_provider_implements_agent_provider_without_hooks() {
+    use crate::agents::cursor::provider::CursorProvider;
+    let p: Box<dyn AgentProvider> = Box::new(CursorProvider::new());
+    assert_eq!(p.id(), "cursor");
+    assert_eq!(p.display_name(), "Cursor");
+    assert_eq!(p.config_dir_name(), ".cursor");
+}
+
+#[test]
+fn claude_provider_implements_agent_provider_without_hooks() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    let p: Box<dyn AgentProvider> = Box::new(ClaudeProvider::new());
+    assert_eq!(p.id(), "claude");
+    assert_eq!(p.display_name(), "Claude Code");
+    assert_eq!(p.config_dir_name(), ".claude");
+}
+
+#[test]
+fn stub_provider_has_no_hook_methods() {
+    let p = StubProvider;
+    // After hooks removal, the trait should be implementable with only
+    // core methods (id, display_name, build_command, extract_text, etc.)
+    // and commands methods. Verify the trait object works:
+    let provider: &dyn AgentProvider = &p;
+    assert_eq!(provider.id(), "stub");
+    assert_eq!(provider.config_dir_name(), ".stub");
+    assert!(provider.brand_color().is_none());
+    assert!(!provider.check_commands_installed_user());
 }

@@ -4,7 +4,7 @@ import {
   AlertMessages,
   StatusSection,
 } from './shared';
-import { useCursorSettings, CursorInfoSections, type CursorCliOptionsState } from './cursor';
+import { useCursorSettings, type CursorCliOptionsState } from './cursor';
 
 function CursorCliOptionsSection({ cliOptions }: { cliOptions: CursorCliOptionsState }) {
   return (
@@ -74,8 +74,6 @@ export function CursorSettings() {
       />
 
       <CursorCliOptionsSection cliOptions={cursor.cliOptions} />
-
-      <CursorInfoSections />
     </div>
   );
 }

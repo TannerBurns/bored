@@ -28,7 +28,6 @@ pub struct RunnerConfig {
     pub provider: Arc<dyn AgentProvider>,
     pub api_url: String,
     pub api_token: String,
-    pub hook_script_path: Option<String>,
     pub cancel_handles: CancelHandlesMap,
     pub worktree_branch: Option<String>,
     /// Whether the branch was already created (e.g., via worktree creation).

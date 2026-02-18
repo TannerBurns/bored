@@ -21,10 +21,6 @@ pub async fn execute_agent_run(config: RunnerConfig) -> Result<RunnerResult, Str
         config.agent_id
     );
 
-    if let Err(e) = workflow::update_project_hooks_for_run(&config) {
-        tracing::warn!("Failed to update project hooks: {}", e);
-    }
-
     config
         .db
         .update_run_status(&config.run_id, RunStatus::Running, None, None)

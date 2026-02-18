@@ -7,33 +7,6 @@ use super::events::{AgentCompleteEvent, AgentErrorEvent};
 use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::db::{AuthorType, CreateComment, Database, RunStatus, Ticket};
 
-pub(super) fn update_project_hooks_for_run(
-    config: &RunnerConfig,
-) -> Result<(), String> {
-    let hook_script_path = match &config.hook_script_path {
-        Some(p) => p,
-        None => {
-            tracing::warn!("No hook script path configured, skipping hook update");
-            return Ok(());
-        }
-    };
-
-    tracing::debug!(
-        "Updating project hooks: run_id={}, api_url={}, token_prefix={}...",
-        config.run_id,
-        config.api_url,
-        &config.api_token.chars().take(8).collect::<String>()
-    );
-
-    config.provider.install_hooks_for_run(
-        &config.repo_path,
-        hook_script_path,
-        Some(&config.api_url),
-        Some(&config.api_token),
-        Some(&config.run_id),
-    )
-}
-
 pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Result<(), String> {
     tracing::info!("Starting multi-stage workflow for run {}", config.run_id);
 
@@ -59,7 +32,6 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         provider: config.provider.clone(),
         api_url: config.api_url.clone(),
         api_token: config.api_token.clone(),
-        hook_script_path: config.hook_script_path.clone(),
         cancel_handles: config.cancel_handles.clone(),
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,

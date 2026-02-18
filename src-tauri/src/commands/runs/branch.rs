@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, Manager, Window};
+use tauri::{Emitter, Window};
 
 use crate::agents::prompt::{
     generate_branch_name_generation_prompt, parse_branch_name_from_output,
@@ -23,45 +23,6 @@ pub(super) struct WorktreeBranchSetup<'a> {
     pub db: &'a Arc<Database>,
     pub window: &'a Window,
     pub branch_gen_model: Option<String>,
-}
-
-pub(super) fn get_hook_script_path(app: &AppHandle, hook_script_name: &str) -> Option<String> {
-    if hook_script_name.is_empty() {
-        return None;
-    }
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|dir| dir.join("scripts").join(hook_script_name))
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-/// Update project hooks with run-specific configuration (run_id, api_url, api_token)
-/// This ensures the hook script has access to the current run context
-pub(super) fn update_project_hooks_for_run(
-    repo_path: &std::path::Path,
-    hook_script_path: &str,
-    api_url: &str,
-    api_token: &str,
-    run_id: &str,
-    provider: &dyn AgentProvider,
-) -> Result<(), String> {
-    tracing::debug!(
-        "Updating project hooks: run_id={}, api_url={}, token_prefix={}...",
-        run_id,
-        api_url,
-        &api_token.chars().take(8).collect::<String>()
-    );
-
-    provider
-        .install_hooks_for_run(
-            repo_path,
-            hook_script_path,
-            Some(api_url),
-            Some(api_token),
-            Some(run_id),
-        )
-        .map_err(|e| format!("Failed to update project hooks: {}", e))
 }
 
 /// Generate a branch name using AI via a quick agent call
