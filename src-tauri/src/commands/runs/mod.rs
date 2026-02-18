@@ -195,7 +195,7 @@ pub async fn start_agent_run(
         std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
     let branch_gen_model = {
-        let ws = workflow_settings_state.get();
+        let ws = workflow_settings_state.get_for_agent(&agent_id);
         ws.stage_configs
             .get("branchGen")
             .map(|c| c.model.clone())

@@ -60,20 +60,30 @@ pub(super) async fn generate_ai_branch_name(
         tracing::warn!("Failed to create branch-gen sub-run: {}", e);
     }
 
+    let model_for_cost = model.clone().unwrap_or_default();
+
+    tracing::info!(
+        "Branch-gen config: agent={}, model={:?}, repo={}",
+        agent_id,
+        &model_for_cost,
+        repo_path.display(),
+    );
+
     let config = AgentRunConfig {
         agent_id: agent_id.to_string(),
         ticket_id: ticket.id.clone(),
         run_id: run_id.clone(),
         repo_path: repo_path.to_path_buf(),
         prompt: prompt.clone(),
-        timeout_secs: Some(60), // Short timeout for branch generation
+        timeout_secs: Some(60),
         api_url: String::new(),
         api_token: String::new(),
         model,
         agent_config: std::collections::HashMap::new(),
     };
 
-    // Run synchronously in a blocking task
+    let start_time = std::time::Instant::now();
+
     let provider_for_extract = provider.clone();
     let result = tokio::task::spawn_blocking(move || {
         run_agent_via_provider(&*provider, &config, None)
@@ -82,33 +92,77 @@ pub(super) async fn generate_ai_branch_name(
 
     match result {
         Ok(Ok(agent_result)) => {
-            if let Some(ref stdout) = agent_result.captured_stdout {
-                let text_content = provider_for_extract.extract_text(stdout);
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
+            let stdout_len = stdout.len();
 
-                tracing::debug!("Branch-gen output (extracted): {}", text_content);
+            tracing::info!(
+                "Branch-gen agent finished: exit_code={:?}, status={:?}, stdout_len={}, duration={:.1}s",
+                agent_result.exit_code,
+                agent_result.status,
+                stdout_len,
+                duration_secs,
+            );
+
+            let cost_data = provider_for_extract.extract_cost(stdout, &model_for_cost, duration_secs);
+            if let Ok(ref sr) = sub_run {
+                let mut metadata = serde_json::json!({
+                    "duration_secs": duration_secs,
+                    "exit_code": agent_result.exit_code,
+                    "stdout_len": stdout_len,
+                });
+                if let Some(ref cost) = cost_data {
+                    metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+                }
+                let _ = db.set_run_metadata(&sr.id, &metadata);
+            }
+
+            if stdout.is_empty() {
+                tracing::warn!(
+                    "Branch-gen produced no stdout (exit_code={:?})",
+                    agent_result.exit_code,
+                );
+            } else {
+                let text_content = provider_for_extract.extract_text(stdout);
+                let preview: String = text_content.chars().take(500).collect();
+                tracing::info!("Branch-gen extracted text ({} chars): {}", text_content.len(), preview);
 
                 if let Some(branch_name) = parse_branch_name_from_output(&text_content) {
                     tracing::info!("AI generated branch name: {}", branch_name);
-
-                    // Update sub-run status
                     if let Ok(ref sr) = sub_run {
                         let _ = db.update_run_status(&sr.id, RunStatus::Finished, Some(0), None);
                     }
-
                     return Some(branch_name);
                 }
+
+                let raw_preview: String = stdout.chars().take(1000).collect();
+                tracing::warn!(
+                    "Could not parse branch_name JSON from extracted text. \
+                     Raw stdout preview: {}",
+                    raw_preview,
+                );
             }
-            tracing::warn!("Could not parse branch name from AI output");
         }
         Ok(Err(e)) => {
-            tracing::warn!("Branch generation agent failed: {:?}", e);
+            tracing::error!("Branch-gen agent spawn/execution failed: {}", e);
+            if let Ok(ref sr) = sub_run {
+                let _ = db.set_run_metadata(&sr.id, &serde_json::json!({
+                    "error": format!("{}", e),
+                    "error_kind": "spawn_failed",
+                }));
+            }
         }
         Err(e) => {
-            tracing::warn!("Branch generation task failed: {}", e);
+            tracing::error!("Branch-gen tokio task panicked or was cancelled: {}", e);
+            if let Ok(ref sr) = sub_run {
+                let _ = db.set_run_metadata(&sr.id, &serde_json::json!({
+                    "error": format!("{}", e),
+                    "error_kind": "task_join_failed",
+                }));
+            }
         }
     }
 
-    // Update sub-run status on failure
     if let Ok(ref sr) = sub_run {
         let _ = db.update_run_status(
             &sr.id,

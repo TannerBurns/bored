@@ -63,6 +63,8 @@ pub async fn validate_plan_for_clarification(
 
     let db = config.db.clone();
     let provider = config.provider.clone();
+    let model_for_cost = config.model.clone().unwrap_or_default();
+    let start_time = std::time::Instant::now();
 
     let result = tokio::task::spawn_blocking(move || {
         spawner::run_agent_via_provider(&*provider, &agent_config, None)
@@ -70,12 +72,23 @@ pub async fn validate_plan_for_clarification(
 
     match result {
         Ok(Ok(agent_result)) => {
+            let duration_secs = start_time.elapsed().as_secs_f64();
             let exit_code = agent_result.exit_code;
             let status = if exit_code == Some(0) {
                 RunStatus::Finished
             } else {
                 RunStatus::Error
             };
+
+            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = config.provider.extract_cost(stdout, &model_for_cost, duration_secs);
+            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if let Err(e) = db.set_run_metadata(&run.id, &metadata) {
+                tracing::warn!("Failed to save plan-validation cost metadata: {}", e);
+            }
 
             let validation_result = agent_result.captured_stdout.as_ref().and_then(|output| {
                 let text = config.provider.extract_text(output);

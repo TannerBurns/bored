@@ -98,33 +98,64 @@ Respond with ONLY a JSON object on a single line, nothing else:
     )
 }
 
-/// Parse the branch name from agent output (expects JSON format)
+/// Parse the branch name from agent output (expects JSON format).
+///
+/// Searches the entire output for a JSON object containing `branch_name`.
+/// This handles plain JSON, concatenated JSON objects, prose with embedded
+/// JSON, and NDJSON (Codex `--json` output) where the branch name may appear
+/// inside a nested `text` field.
 pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
-    // Try to find JSON in the output
     let trimmed = output.trim();
 
-    // Try parsing as JSON directly
+    // Try parsing the whole thing as a single JSON object
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(branch) = json.get("branch_name").and_then(|v| v.as_str()) {
             return Some(branch.to_string());
         }
     }
 
-    // Try to find the FIRST complete JSON object in the output
-    // This handles cases where multiple JSON objects are concatenated together
-    if let Some(start) = trimmed.find('{') {
-        // Find matching closing brace by counting braces
-        let chars: Vec<char> = trimmed[start..].chars().collect();
-        let mut depth = 0;
-        let mut end_offset = None;
+    // Scan every line for a JSON object containing `branch_name`.
+    // This handles NDJSON and multi-line output where the branch JSON
+    // may appear on any line (not necessarily the first).
+    for line in trimmed.lines() {
+        if let Some(branch) = extract_branch_from_line(line.trim()) {
+            return Some(branch);
+        }
+    }
 
-        for (i, ch) in chars.iter().enumerate() {
+    // Fallback: if any line looks like a bare branch name, use it
+    for line in trimmed.lines() {
+        let l = line.trim();
+        if l.contains('/') && !l.contains(' ') && l.len() < 100 {
+            return Some(l.to_string());
+        }
+    }
+
+    None
+}
+
+/// Try to extract `branch_name` from a single line of text.
+///
+/// Finds every top-level JSON object on the line and checks for a
+/// `branch_name` key (including inside a nested `item.text` field
+/// for Codex NDJSON events).
+fn extract_branch_from_line(line: &str) -> Option<String> {
+    let mut search_from = 0;
+    let chars: Vec<char> = line.chars().collect();
+
+    while search_from < chars.len() {
+        let start = chars[search_from..].iter().position(|&c| c == '{')?;
+        let start = search_from + start;
+
+        let mut depth = 0;
+        let mut end = None;
+        for (i, &ch) in chars[start..].iter().enumerate() {
             match ch {
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        end_offset = Some(i);
+                        end = Some(start + i);
                         break;
                     }
                 }
@@ -132,20 +163,31 @@ pub fn parse_branch_name_from_output(output: &str) -> Option<String> {
             }
         }
 
-        if let Some(end) = end_offset {
-            let json_str: String = chars[..=end].iter().collect();
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if let Some(branch) = json.get("branch_name").and_then(|v| v.as_str()) {
-                    return Some(branch.to_string());
+        let end = match end {
+            Some(e) => e,
+            None => break,
+        };
+
+        let json_str: String = chars[start..=end].iter().collect();
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let Some(branch) = json.get("branch_name").and_then(|v| v.as_str()) {
+                return Some(branch.to_string());
+            }
+            // Codex NDJSON: branch_name may be inside item.text as a JSON string
+            if let Some(text) = json
+                .get("item")
+                .and_then(|i| i.get("text"))
+                .and_then(|t| t.as_str())
+            {
+                if let Ok(inner) = serde_json::from_str::<serde_json::Value>(text) {
+                    if let Some(branch) = inner.get("branch_name").and_then(|v| v.as_str()) {
+                        return Some(branch.to_string());
+                    }
                 }
             }
         }
-    }
 
-    // Fallback: if it looks like a valid branch name, use the first line
-    let first_line = trimmed.lines().next().unwrap_or("");
-    if first_line.contains('/') && !first_line.contains(' ') && first_line.len() < 100 {
-        return Some(first_line.to_string());
+        search_from = end + 1;
     }
 
     None
@@ -224,6 +266,80 @@ mod tests {
         let output = "This is just some text without a branch name";
         let result = parse_branch_name_from_output(output);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_branch_name_from_codex_ndjson() {
+        let output = r#"{"type":"thread.started","thread_id":"abc123"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"Analyzing ticket..."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"branch_name\": \"feat/abc12345/add-dark-mode\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":50,"output_tokens":10}}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, Some("feat/abc12345/add-dark-mode".to_string()));
+    }
+
+    #[test]
+    fn parse_branch_name_from_codex_ndjson_nested_in_item_text() {
+        let output = r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"branch_name\": \"fix/JIRA-456/login-error\"}"}}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, Some("fix/JIRA-456/login-error".to_string()));
+    }
+
+    #[test]
+    fn parse_branch_name_fallback_to_any_line_with_branch() {
+        let output = "Some preamble\nfeat/abc/some-branch\nMore text";
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, Some("feat/abc/some-branch".to_string()));
+    }
+
+    #[test]
+    fn parse_branch_name_ndjson_no_branch_anywhere_returns_none() {
+        let output = r#"{"type":"thread.started","thread_id":"abc"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I don't know what branch to use"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_branch_name_json_without_branch_key_skipped() {
+        let output = r#"{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}
+{"branch_name": "feat/abc/found-it"}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, Some("feat/abc/found-it".to_string()));
+    }
+
+    #[test]
+    fn parse_branch_name_unclosed_json_does_not_panic() {
+        let output = r#"{"branch_name": "feat/abc/ok"
+some garbage after"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, None, "unclosed JSON brace should not match");
+    }
+
+    #[test]
+    fn parse_branch_name_item_text_not_json_skipped() {
+        let output = r#"{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"not json at all"}}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn extract_branch_from_line_multiple_json_objects() {
+        let line = r#"{"other":"data"} {"branch_name": "fix/abc/second-object"}"#;
+        let result = extract_branch_from_line(line);
+        assert_eq!(result, Some("fix/abc/second-object".to_string()));
+    }
+
+    #[test]
+    fn extract_branch_from_line_no_json() {
+        assert_eq!(extract_branch_from_line("plain text no braces"), None);
+    }
+
+    #[test]
+    fn extract_branch_from_line_empty() {
+        assert_eq!(extract_branch_from_line(""), None);
     }
 
     #[test]

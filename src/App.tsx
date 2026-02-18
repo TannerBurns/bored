@@ -213,7 +213,7 @@ function App() {
           <AgentsView recentRuns={recentRuns} />
         )}
 
-        {activeNav === 'projects' && <ProjectsView />}
+        {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
 
         {activeNav === 'validation' && (
           <ValidationView

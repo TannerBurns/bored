@@ -96,10 +96,13 @@ impl AgentProvider for CodexProvider {
 
 /// Extract text from Codex NDJSON output.
 ///
-/// Collects text from `item.completed` events with `item.type == "agent_message"`,
-/// ignoring `reasoning` items.
+/// Collects text from `item.completed` events. Prioritises `agent_message`
+/// items (the assistant's final answer). When no `agent_message` is found,
+/// falls back to `command_execution` aggregated output so that callers still
+/// receive meaningful content even when the agent only executes commands.
 fn extract_text_from_codex_json(output: &str) -> Option<String> {
-    let mut text_parts = Vec::new();
+    let mut agent_texts = Vec::new();
+    let mut command_outputs = Vec::new();
 
     for line in output.lines() {
         let line = line.trim();
@@ -107,24 +110,43 @@ fn extract_text_from_codex_json(output: &str) -> Option<String> {
             continue;
         }
 
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-            if json.get("type").and_then(|t| t.as_str()) == Some("item.completed") {
-                if let Some(item) = json.get("item") {
-                    let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                    if item_type == "agent_message" {
-                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                            text_parts.push(text.to_string());
-                        }
+        let json = match serde_json::from_str::<serde_json::Value>(line) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+
+        if json.get("type").and_then(|t| t.as_str()) != Some("item.completed") {
+            continue;
+        }
+
+        let item = match json.get("item") {
+            Some(i) => i,
+            None => continue,
+        };
+
+        match item.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+            "agent_message" => {
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    agent_texts.push(text.to_string());
+                }
+            }
+            "command_execution" => {
+                if let Some(out) = item.get("aggregated_output").and_then(|t| t.as_str()) {
+                    if !out.is_empty() {
+                        command_outputs.push(out.to_string());
                     }
                 }
             }
+            _ => {}
         }
     }
 
-    if text_parts.is_empty() {
-        None
+    if !agent_texts.is_empty() {
+        Some(agent_texts.join("\n"))
+    } else if !command_outputs.is_empty() {
+        Some(command_outputs.join("\n"))
     } else {
-        Some(text_parts.join("\n"))
+        None
     }
 }
 

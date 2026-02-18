@@ -20,14 +20,30 @@ struct ModelPricing {
 
 /// Get pricing for a model. Falls back to Sonnet pricing if unknown.
 ///
-/// Pricing as of 2026 (Claude 4.x generation):
-///   Opus  4.6 / 4.5:  $5  input, $25 output, $0.50 cache-read, $6.25 cache-write
-///   Sonnet 4.5 / 4  :  $3  input, $15 output, $0.30 cache-read, $3.75 cache-write
-///   Haiku  4.5       :  $1  input, $5  output, $0.10 cache-read, $1.25 cache-write
+/// Pricing as of 2026:
+///   Claude Opus  4.6 / 4.5:  $5    input, $25 output, $0.50 cache-read, $6.25 cache-write
+///   Claude Sonnet 4.5 / 4  :  $3    input, $15 output, $0.30 cache-read, $3.75 cache-write
+///   Claude Haiku  4.5       :  $1    input, $5  output, $0.10 cache-read, $1.25 cache-write
+///   GPT-5.3 Codex           :  $2.50 input, $10 output, $0.25 cache-read, $3.13 cache-write
+///   GPT-5.2 Codex           :  $1.25 input, $5  output, $0.13 cache-read, $1.56 cache-write
 fn get_model_pricing(model: &str) -> ModelPricing {
     let normalized = model.to_lowercase().replace(['-', '_'], " ");
 
-    if normalized.contains("opus") {
+    if normalized.contains("gpt 5.3 codex") || normalized.contains("gpt 5 3 codex") {
+        ModelPricing {
+            input_per_mtok: 2.50,
+            output_per_mtok: 10.0,
+            cache_read_per_mtok: 0.25,
+            cache_write_per_mtok: 3.13,
+        }
+    } else if normalized.contains("gpt 5.2 codex") || normalized.contains("gpt 5 2 codex") || normalized.contains("codex") {
+        ModelPricing {
+            input_per_mtok: 1.25,
+            output_per_mtok: 5.0,
+            cache_read_per_mtok: 0.13,
+            cache_write_per_mtok: 1.56,
+        }
+    } else if normalized.contains("opus") {
         ModelPricing {
             input_per_mtok: 5.0,
             output_per_mtok: 25.0,
