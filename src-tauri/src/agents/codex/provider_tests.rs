@@ -75,6 +75,62 @@ fn extract_text_no_items_returns_raw() {
 }
 
 #[test]
+fn extract_text_falls_back_to_command_output_when_no_agent_message() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo hello","aggregated_output":"hello\n","exit_code":0,"status":"completed"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":50,"output_tokens":10}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, "hello\n");
+}
+
+#[test]
+fn extract_text_prefers_agent_message_over_command_output() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls","aggregated_output":"file.txt\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"The answer is 42"}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, "The answer is 42");
+}
+
+#[test]
+fn extract_text_skips_empty_command_output() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"true","aggregated_output":"","exit_code":0,"status":"completed"}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, output, "should fall through to raw output when command output is empty");
+}
+
+#[test]
+fn extract_text_multiple_command_outputs_joined() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo a","aggregated_output":"aaa\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"echo b","aggregated_output":"bbb\n","exit_code":0,"status":"completed"}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, "aaa\n\nbbb\n");
+}
+
+#[test]
+fn extract_text_skips_non_item_completed_events() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"thread.started","thread_id":"abc"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"ls"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"result"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, "result");
+}
+
+#[test]
+fn extract_text_item_completed_without_item_field_skipped() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"item.completed"}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"ok"}}"#;
+    let text = p.extract_text(output);
+    assert_eq!(text, "ok");
+}
+
+#[test]
 fn extract_cost_from_turn_completed() {
     let p = CodexProvider::new();
     let output = r#"{"type":"turn.completed","usage":{"input_tokens":7448,"cached_input_tokens":6528,"output_tokens":74}}"#;

@@ -15,7 +15,11 @@ import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 type AddMode = 'none' | 'existing' | 'create';
 
-export function ProjectsList() {
+interface ProjectsListProps {
+  onProjectsChange?: () => void;
+}
+
+export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [addMode, setAddMode] = useState<AddMode>('none');
   const [newName, setNewName] = useState('');
@@ -111,7 +115,7 @@ export function ProjectsList() {
       const setupWarning = await autoSetupProject(fullPath);
       resetForm();
       await loadProjects();
-      // Set warning after resetForm() so it's not cleared
+      onProjectsChange?.();
       if (setupWarning) {
         setError(setupWarning);
       }
@@ -170,7 +174,7 @@ export function ProjectsList() {
       const setupWarning = await autoSetupProject(newPath.trim());
       resetForm();
       await loadProjects();
-      // Set warning after resetForm() so it's not cleared
+      onProjectsChange?.();
       if (setupWarning) {
         setError(setupWarning);
       }
@@ -194,6 +198,7 @@ export function ProjectsList() {
       setError(null);
       setDeleteConfirm(null);
       await loadProjects();
+      onProjectsChange?.();
     } catch (e) {
       setError(`Failed to delete project: ${e}`);
       setDeleteConfirm(null);

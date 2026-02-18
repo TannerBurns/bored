@@ -558,3 +558,72 @@ fn cost_by_agent_empty_registry_empty_output_returns_none() {
     let cost = extract_or_estimate_cost_by_agent(&registry, "claude", "", "opus-4.6", 0.0);
     assert!(cost.is_none());
 }
+
+#[test]
+fn normalize_model_name_maps_codex_variants() {
+    assert_eq!(normalize_model_name("gpt-5.3-codex"), "gpt-5.3-codex");
+    assert_eq!(normalize_model_name("gpt-5-3-codex"), "gpt-5.3-codex");
+    assert_eq!(normalize_model_name("gpt-5.2-codex"), "gpt-5.2-codex");
+    assert_eq!(normalize_model_name("gpt-5-2-codex"), "gpt-5.2-codex");
+}
+
+#[test]
+fn normalize_model_name_codex_is_case_insensitive() {
+    assert_eq!(normalize_model_name("GPT-5.3-CODEX"), "gpt-5.3-codex");
+    assert_eq!(normalize_model_name("Gpt-5.2-Codex"), "gpt-5.2-codex");
+}
+
+#[test]
+fn compute_cost_codex_uses_codex_pricing() {
+    let cost_53 = compute_cost_from_tokens("gpt-5.3-codex", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+    let expected_53 = 2.50 + 10.0 + 0.25 + 3.13;
+    assert!((cost_53 - expected_53).abs() < 0.01, "GPT-5.3 Codex: expected {expected_53}, got {cost_53}");
+
+    let cost_52 = compute_cost_from_tokens("gpt-5.2-codex", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+    let expected_52 = 1.25 + 5.0 + 0.13 + 1.56;
+    assert!((cost_52 - expected_52).abs() < 0.01, "GPT-5.2 Codex: expected {expected_52}, got {cost_52}");
+}
+
+#[test]
+fn compute_cost_codex_differs_from_claude() {
+    let codex = compute_cost_from_tokens("gpt-5.3-codex", 1_000_000, 1_000_000, 0, 0);
+    let opus = compute_cost_from_tokens("opus-4.6", 1_000_000, 1_000_000, 0, 0);
+    let sonnet = compute_cost_from_tokens("sonnet-4.6", 1_000_000, 1_000_000, 0, 0);
+    assert!(codex < opus, "Codex 5.3 should be cheaper than Opus");
+    assert!(codex < sonnet, "Codex 5.3 should be cheaper than Sonnet");
+}
+
+#[test]
+fn estimate_cost_codex_uses_codex_pricing_not_default() {
+    let codex = estimate_cost("gpt-5.3-codex", 4000, 10.0);
+    let unknown = estimate_cost("unknown-model", 4000, 10.0);
+    assert!(codex.model_usage.contains_key("gpt-5.3-codex"));
+    assert_ne!(
+        format!("{:.6}", codex.total_cost_usd),
+        format!("{:.6}", unknown.total_cost_usd),
+        "Codex should not use default Sonnet pricing"
+    );
+}
+
+#[test]
+fn estimate_cost_generic_codex_falls_to_5_2_tier() {
+    let generic = estimate_cost("some-codex-model", 4000, 10.0);
+    let explicit_52 = estimate_cost("gpt-5.2-codex", 4000, 10.0);
+    assert!(
+        (generic.total_cost_usd - explicit_52.total_cost_usd).abs() < 0.0001,
+        "Generic 'codex' should match gpt-5.2 pricing"
+    );
+}
+
+#[test]
+fn cost_by_agent_codex_extracts_from_ndjson() {
+    let mut registry = crate::agents::registry::AgentRegistry::new();
+    registry.register(std::sync::Arc::new(crate::agents::codex::provider::CodexProvider::new()));
+
+    let ndjson = r#"{"type":"turn.completed","usage":{"input_tokens":7448,"cached_input_tokens":6528,"output_tokens":74}}"#;
+    let cost = extract_or_estimate_cost_by_agent(&registry, "codex", ndjson, "gpt-5.3-codex", 5.0).unwrap();
+    assert!(!cost.is_estimated);
+    assert_eq!(cost.input_tokens, 7448);
+    assert_eq!(cost.output_tokens, 74);
+    assert!(cost.model_usage.contains_key("gpt-5.3-codex"));
+}
