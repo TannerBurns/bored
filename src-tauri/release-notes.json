@@ -1,5 +1,53 @@
 [
   {
+    "version": "0.1.0-beta.20",
+    "published_at": "2026-02-18",
+    "summary": "Codex CLI agent with per-agent settings architecture, Sonnet 4.6 model support, and Codex agent bug fixes",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Codex CLI agent — OpenAI Codex is now available as a third agent alongside Claude Code and Cursor, invoked via codex exec --json with NDJSON output parsing and token-based cost tracking",
+          "Per-agent settings architecture — each agent (Claude Code, Cursor, Codex) now has independent workflow configuration, model selections, and sub-agent settings instead of shared globals",
+          "Sonnet 4.6 model support — added claude-sonnet-4-6 across all model selectors with cost tracking normalization"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Settings tabs reorganized to General | Claude Code | Cursor | Codex | Data, with each agent tab showing a self-contained configuration page",
+          "All workflow preset defaults updated from Sonnet 4.5 to Sonnet 4.6",
+          "Spec agent model selector replaced with dropdown using full MODEL_OPTIONS list so new models appear automatically",
+          "available_models() API added to AgentProvider trait for dynamic model discovery across all providers",
+          "Split settingsStore.ts into settingsStore.ts + settingsStore.types.ts for modularity",
+          "Removed tagline subtitle from board headers for cleaner UI"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed Cursor command_instructions_subdir using \"rules\" instead of \"commands\" to match Cursor's actual .cursor/commands/ directory",
+          "Fixed Worker not checking synced flag in resolve_workflow_settings, which could use default-constructed settings before frontend sync",
+          "Fixed shallow-copy bug in getDefaultConfigForAgent that allowed mutations to leak into shared preset constants",
+          "Fixed newly created projects not appearing in ticket project lookup",
+          "Fixed Codex branch name generation: NDJSON-aware parsing with command_execution fallback and nested item.text scanning",
+          "Fixed Codex cost tracking: correct pricing tiers, model normalization, and cost capture in branch-gen and plan-validation sub-runs",
+          "Fixed branch-gen model lookup using get_for_agent() instead of get() for correct per-agent settings",
+          "Fixed UTF-8 panic in branch-gen log preview caused by byte-index slicing",
+          "Fixed brace counting in extract_branch_from_line ignoring braces inside JSON string literals"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 17 unit tests covering Codex NDJSON parsing, cost tracking, and branch name extraction",
+          "Added 4 tests for synced/unsynced/missing-agent/no-shared-state paths in Worker config resolution",
+          "Added 4 tests for JSON string-aware brace counting in branch name extraction"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.19",
     "published_at": "2026-02-17",
     "summary": "Removed unused hooks system (~5,100 lines), unified Cursor and Claude output parsing via stream-json format",
