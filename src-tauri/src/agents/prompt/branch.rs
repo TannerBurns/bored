@@ -149,8 +149,23 @@ fn extract_branch_from_line(line: &str) -> Option<String> {
 
         let mut depth = 0;
         let mut end = None;
+        let mut in_string = false;
+        let mut escape_next = false;
         for (i, &ch) in chars[start..].iter().enumerate() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+            if in_string {
+                match ch {
+                    '\\' => escape_next = true,
+                    '"' => in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
             match ch {
+                '"' => in_string = true,
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
@@ -330,6 +345,35 @@ some garbage after"#;
         let line = r#"{"other":"data"} {"branch_name": "fix/abc/second-object"}"#;
         let result = extract_branch_from_line(line);
         assert_eq!(result, Some("fix/abc/second-object".to_string()));
+    }
+
+    #[test]
+    fn extract_branch_from_line_brace_inside_string_value() {
+        let line = r#"{"msg": "a { here", "branch_name": "feat/abc/fix"}"#;
+        let result = extract_branch_from_line(line);
+        assert_eq!(result, Some("feat/abc/fix".to_string()));
+    }
+
+    #[test]
+    fn extract_branch_from_line_closing_brace_inside_string() {
+        let line = r#"{"msg": "close } here", "branch_name": "feat/abc/fix"}"#;
+        let result = extract_branch_from_line(line);
+        assert_eq!(result, Some("feat/abc/fix".to_string()));
+    }
+
+    #[test]
+    fn extract_branch_from_line_escaped_quote_in_string() {
+        let line = r#"{"msg": "say \"hello\"", "branch_name": "feat/abc/fix"}"#;
+        let result = extract_branch_from_line(line);
+        assert_eq!(result, Some("feat/abc/fix".to_string()));
+    }
+
+    #[test]
+    fn parse_branch_name_ndjson_with_brace_in_text() {
+        let output = r#"{"type":"item.completed","item":{"type":"agent_message","text":"Use struct Foo { field } syntax"}}
+{"branch_name": "feat/abc/found"}"#;
+        let result = parse_branch_name_from_output(output);
+        assert_eq!(result, Some("feat/abc/found".to_string()));
     }
 
     #[test]
