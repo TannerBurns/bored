@@ -30,7 +30,7 @@ pub struct WorkflowSettings {
     pub stage_timeout_hours: u32,
     /// Maximum retries per stage.
     pub stage_max_retries: u32,
-    /// Model for the diagnostic agent (defaults to sonnet-4.5).
+    /// Model for the diagnostic agent (defaults to sonnet-4.6).
     #[serde(default = "default_diagnostic_model")]
     pub diagnostic_model: String,
     /// Whether the frontend has synced settings at least once.
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(settings.code_review_max_iterations, 3);
         assert_eq!(settings.stage_timeout_hours, 1);
         assert_eq!(settings.stage_max_retries, 2);
-        assert_eq!(settings.diagnostic_model, "sonnet-4.5");
+        assert_eq!(settings.diagnostic_model, "sonnet-4.6");
         assert!(!settings.synced, "default settings should not be marked as synced");
     }
 
@@ -179,8 +179,8 @@ mod tests {
         assert_eq!(settings.stage_max_retries, 1);
         // `synced` is not in the JSON, so it should default to false
         assert!(!settings.synced, "synced should default to false when absent from JSON");
-        // `diagnosticModel` is not in the JSON, so it should default to "sonnet-4.5"
-        assert_eq!(settings.diagnostic_model, "sonnet-4.5");
+        // `diagnosticModel` is not in the JSON, so it should default to "sonnet-4.6"
+        assert_eq!(settings.diagnostic_model, "sonnet-4.6");
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         let settings = WorkflowSettings::default();
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("diagnosticModel"));
-        assert!(json.contains("sonnet-4.5"));
+        assert!(json.contains("sonnet-4.6"));
     }
 
     #[test]

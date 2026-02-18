@@ -12,15 +12,15 @@ vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({
     workflowPreset: 'balanced',
     workflowStages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.5' },
+      branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'opus-4.6' },
       implement:   { enabled: true, model: 'opus-4.6' },
       codeReview:  { enabled: true, model: 'opus-4.6' },
       deslop:      { enabled: true, model: 'opus-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.5' },
+      cleanup:     { enabled: true, model: 'sonnet-4.6' },
       unitTests:   { enabled: true, model: 'opus-4.5' },
       finalReview: { enabled: true, model: 'opus-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.5' },
+      commit:      { enabled: true, model: 'sonnet-4.6' },
     },
     setWorkflowPreset: mockSetWorkflowPreset,
     setWorkflowStageConfig: mockSetWorkflowStageConfig,
@@ -42,6 +42,7 @@ vi.mock('../../stores/settingsStore', () => ({
   MODEL_OPTIONS: [
     { value: 'opus-4.6', label: 'Opus 4.6' },
     { value: 'opus-4.5', label: 'Opus 4.5' },
+    { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
     { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
   ],
   WORKFLOW_STAGE_INFO: [

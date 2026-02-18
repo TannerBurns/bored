@@ -70,6 +70,7 @@ fn map_model_name_is_passthrough() {
     let p = CursorProvider::new();
     assert_eq!(p.map_model_name("opus-4.6"), "opus-4.6");
     assert_eq!(p.map_model_name("opus-4.5"), "opus-4.5");
+    assert_eq!(p.map_model_name("sonnet-4.6"), "sonnet-4.6");
     assert_eq!(p.map_model_name("sonnet-4.5"), "sonnet-4.5");
     assert_eq!(p.map_model_name("custom-model"), "custom-model");
     assert_eq!(p.map_model_name(""), "");
@@ -142,6 +143,18 @@ fn build_command_thinking_defaults_to_true() {
     assert!(
         args.contains(&"sonnet-4.5-thinking".to_string()),
         "Empty agent_config should default thinking=true"
+    );
+}
+
+#[test]
+fn build_command_sonnet_4_6_appends_thinking_suffix() {
+    let p = CursorProvider::new();
+    let mut config = make_config();
+    config.model = Some("sonnet-4.6".to_string());
+    let (_, args) = p.build_command(&config);
+    assert!(
+        args.contains(&"sonnet-4.6-thinking".to_string()),
+        "sonnet-4.6 with default thinking=true should produce sonnet-4.6-thinking"
     );
 }
 

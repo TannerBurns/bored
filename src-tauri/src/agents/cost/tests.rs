@@ -89,6 +89,15 @@ fn estimate_cost_sonnet() {
 }
 
 #[test]
+fn estimate_cost_sonnet_4_6_uses_sonnet_pricing() {
+    let cost_4_6 = estimate_cost("sonnet-4.6", 4000, 10.0);
+    let cost_4_5 = estimate_cost("sonnet-4.5", 4000, 10.0);
+    assert!(cost_4_6.is_estimated);
+    assert!((cost_4_6.total_cost_usd - cost_4_5.total_cost_usd).abs() < 0.0001);
+    assert!(cost_4_6.model_usage.contains_key("sonnet-4.6"));
+}
+
+#[test]
 fn estimate_cost_zero_output() {
     let cost = estimate_cost("sonnet-4.5", 0, 5.0);
     assert!(cost.is_estimated);
@@ -317,7 +326,10 @@ fn extract_via_cursor_provider_empty_positive_duration() {
 #[test]
 fn normalize_model_name_maps_claude_variants() {
     assert_eq!(normalize_model_name("claude-opus-4-6"), "opus-4.6");
+    assert_eq!(normalize_model_name("claude-opus-4.6"), "opus-4.6");
     assert_eq!(normalize_model_name("claude-opus-4-5"), "opus-4.5");
+    assert_eq!(normalize_model_name("claude-sonnet-4-6"), "sonnet-4.6");
+    assert_eq!(normalize_model_name("claude-sonnet-4.6"), "sonnet-4.6");
     assert_eq!(normalize_model_name("claude-sonnet-4-5"), "sonnet-4.5");
     assert_eq!(normalize_model_name("claude-haiku-3"), "haiku-3.5");
 }
@@ -325,6 +337,7 @@ fn normalize_model_name_maps_claude_variants() {
 #[test]
 fn normalize_model_name_preserves_short_form() {
     assert_eq!(normalize_model_name("opus-4.6"), "opus-4.6");
+    assert_eq!(normalize_model_name("sonnet-4.6"), "sonnet-4.6");
     assert_eq!(normalize_model_name("sonnet-4.5"), "sonnet-4.5");
 }
 
@@ -336,6 +349,7 @@ fn normalize_model_name_strips_claude_prefix_for_unknown() {
 #[test]
 fn normalize_model_name_is_case_insensitive() {
     assert_eq!(normalize_model_name("Claude-Opus-4-6"), "opus-4.6");
+    assert_eq!(normalize_model_name("CLAUDE-SONNET-4-6"), "sonnet-4.6");
     assert_eq!(normalize_model_name("CLAUDE-SONNET-4-5"), "sonnet-4.5");
 }
 

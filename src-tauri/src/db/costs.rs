@@ -611,7 +611,6 @@ mod tests {
         use crate::db::models::{
             AgentEventPayload, EventType, NormalizedEvent, RunStatus,
         };
-        use std::path::Path;
         use std::sync::Arc;
 
         /// Stub provider that returns fixed cost data from `extract_cost`.
