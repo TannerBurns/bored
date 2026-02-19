@@ -113,8 +113,6 @@ pub(super) async fn wait_for_fix_tasks(
     });
 
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
-
         let mut completed = 0usize;
         let mut failed = 0usize;
         let mut still_pending = 0usize;
@@ -151,6 +149,8 @@ pub(super) async fn wait_for_fix_tasks(
             ),
             timestamp: chrono::Utc::now().to_rfc3339(),
         });
+
+        tokio::time::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
     }
 }
 
