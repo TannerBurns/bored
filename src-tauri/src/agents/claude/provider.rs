@@ -12,6 +12,7 @@ use super::command;
 /// Configuration extracted from the generic `agent_config` map.
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeApiConfig {
+    pub use_local_provider: Option<bool>,
     pub auth_token: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
@@ -33,6 +34,7 @@ impl ClaudeApiConfig {
     /// Accepts both snake_case and camelCase keys for backward compatibility.
     pub fn from_agent_config(map: &std::collections::HashMap<String, serde_json::Value>) -> Self {
         Self {
+            use_local_provider: Self::get_bool(map, "use_local_provider", "useLocalProvider"),
             auth_token: Self::get_str(map, "auth_token", "authToken"),
             api_key: Self::get_str(map, "api_key", "apiKey"),
             base_url: Self::get_str(map, "base_url", "baseUrl"),
@@ -46,6 +48,9 @@ impl ClaudeApiConfig {
     /// Convert this config into a generic agent_config map.
     pub fn to_agent_config(&self) -> std::collections::HashMap<String, serde_json::Value> {
         let mut map = std::collections::HashMap::new();
+        if let Some(v) = self.use_local_provider {
+            map.insert("use_local_provider".to_string(), serde_json::json!(v));
+        }
         if let Some(ref v) = self.auth_token {
             map.insert("auth_token".to_string(), serde_json::json!(v));
         }
@@ -107,6 +112,12 @@ impl AgentProvider for ClaudeProvider {
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)> {
         let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
         let mut env_vars = Vec::new();
+
+        if !api_config.use_local_provider.unwrap_or(false)
+            || api_config.base_url.as_ref().is_none_or(|s| s.is_empty())
+        {
+            return env_vars;
+        }
 
         if let Some(v) = api_config.auth_token.as_ref().filter(|s| !s.is_empty()) {
             env_vars.push(("ANTHROPIC_AUTH_TOKEN".to_string(), v.clone()));
@@ -198,6 +209,24 @@ impl AgentProvider for ClaudeProvider {
             ("sonnet-4.6", "Sonnet 4.6"),
             ("sonnet-4.5", "Sonnet 4.5"),
         ]
+    }
+
+    fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+        let api_config = ClaudeApiConfig::from_agent_config(agent_config);
+        api_config.use_local_provider.unwrap_or(false)
+            && api_config.base_url.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        agent_config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> String {
+        let api_config = ClaudeApiConfig::from_agent_config(agent_config);
+        api_config
+            .model_override
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| stage_model.to_string())
     }
 
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {

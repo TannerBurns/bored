@@ -142,6 +142,8 @@ fn main() {
             let agent_settings = AgentSettingsManager::new();
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
             agent_settings.register_agent_settings_path("claude", claude_settings_path);
+            let codex_settings_path = app_data_dir.join("codex_api_settings.json");
+            agent_settings.register_agent_settings_path("codex", codex_settings_path);
             app.manage(agent_settings);
 
             // Workflow settings (synced from frontend, read by workers at task time)

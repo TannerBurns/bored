@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { StatusSection, AlertMessages, useAgentSettings } from './shared';
+import { ToggleRow, AGENT_SPECIFIC_SECTIONS } from './AgentSpecificSettings';
 import { getAgentStatus } from '../../lib/tauri';
 import {
   useSettingsStore,
@@ -34,95 +35,6 @@ function getModelOptions(agentId: string, availableModels?: AgentModelOption[]):
   }
   if (agentId === 'codex') return CODEX_MODEL_OPTIONS;
   return MODEL_OPTIONS;
-}
-
-function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
-  const settings = useSettingsStore((s) => s.getAgentSettings(agentId));
-  const setAgentSetting = useSettingsStore((s) => s.setAgentSetting);
-
-  const thinkingEnabled = (settings.thinkingEnabled as boolean) ?? true;
-  const extendedContext = (settings.extendedContext as boolean) ?? false;
-  const chromeEnabled = (settings.chromeEnabled as boolean) ?? false;
-
-  return (
-    <div className="glass rounded-lg p-3 space-y-3">
-      <div>
-        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
-        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
-      </div>
-      <ToggleRow
-        label="Thinking" description="Enable extended thinking for better reasoning."
-        enabled={thinkingEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'thinkingEnabled', v)}
-      />
-      <ToggleRow
-        label="Extended Context" description="Enable 1M token context window."
-        enabled={extendedContext}
-        onChange={(v) => setAgentSetting(agentId, 'extendedContext', v)}
-      />
-      <ToggleRow
-        label="Chrome" description="Enable Chrome browser access."
-        enabled={chromeEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'chromeEnabled', v)}
-      />
-    </div>
-  );
-}
-
-function CursorSpecificSettings({ agentId }: { agentId: string }) {
-  const settings = useSettingsStore((s) => s.getAgentSettings(agentId));
-  const setAgentSetting = useSettingsStore((s) => s.setAgentSetting);
-  const thinkingEnabled = (settings.thinkingEnabled as boolean) ?? true;
-
-  return (
-    <div className="glass rounded-lg p-3 space-y-3">
-      <div>
-        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
-        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
-      </div>
-      <ToggleRow
-        label="Thinking" description='Appends "-thinking" to the model name sent to Cursor.'
-        enabled={thinkingEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'thinkingEnabled', v)}
-      />
-    </div>
-  );
-}
-
-const AGENT_SPECIFIC_SECTIONS: Record<string, React.ComponentType<{ agentId: string }>> = {
-  claude: ClaudeSpecificSettings,
-  cursor: CursorSpecificSettings,
-};
-
-function ToggleRow({ label, description, enabled, onChange, disabled }: {
-  label: string;
-  description: string;
-  enabled: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
-      <div className="mr-3">
-        <span className="text-sm font-medium text-board-text">{label}</span>
-        <p className="text-xs text-board-text-muted">{description}</p>
-      </div>
-      <button
-        onClick={() => onChange(!enabled)}
-        disabled={disabled}
-        className={cn(
-          'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-board-accent',
-          enabled ? 'bg-board-accent' : 'glass',
-          disabled && 'opacity-50 cursor-not-allowed'
-        )}
-      >
-        <span className={cn(
-          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-          enabled ? 'translate-x-4' : 'translate-x-0.5'
-        )} style={{ marginTop: '2px' }} />
-      </button>
-    </div>
-  );
 }
 
 function WorkflowSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {

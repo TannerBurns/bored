@@ -103,6 +103,29 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         vec![]
     }
 
+    // ── Local provider overrides ──────────────────────────────────────
+
+    /// Whether the agent_config indicates a local/self-hosted provider override.
+    ///
+    /// When true, cost tracking will record token counts but zero out USD cost
+    /// since self-hosted inference has no per-token API charge.
+    fn is_local_override(&self, _agent_config: &HashMap<String, serde_json::Value>) -> bool {
+        false
+    }
+
+    /// Resolve the model name to use for cost/usage tracking.
+    ///
+    /// When a local provider override supplies a `model_override`, this returns
+    /// that name so usage reports attribute tokens to the actual model rather
+    /// than the workflow-settings stage model.
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        _agent_config: &HashMap<String, serde_json::Value>,
+    ) -> String {
+        stage_model.to_string()
+    }
+
     // ── Commands checking and installation ───────────────────────────
 
     /// Check whether command templates are installed in a project.
@@ -145,6 +168,26 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     }
 }
 
+/// Extract cost with local-provider-aware model resolution and zero-cost handling.
+///
+/// Composes [`AgentProvider::effective_cost_model`], [`AgentProvider::extract_cost`],
+/// and [`AgentProvider::is_local_override`] into a single call. All cost extraction
+/// call sites should use this to ensure consistent handling of local overrides.
+pub fn extract_cost_with_overrides(
+    provider: &dyn AgentProvider,
+    stdout: &str,
+    stage_model: &str,
+    agent_config: &HashMap<String, serde_json::Value>,
+    duration_secs: f64,
+) -> Option<RunCostData> {
+    let effective_model = provider.effective_cost_model(stage_model, agent_config);
+    let mut cost = provider.extract_cost(stdout, &effective_model, duration_secs)?;
+    if provider.is_local_override(agent_config) {
+        cost.zero_out_costs();
+    }
+    Some(cost)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +215,122 @@ mod tests {
     fn stub_provider_has_correct_id() {
         let stub = StubProvider;
         assert_eq!(stub.id(), "stub");
+    }
+
+    #[test]
+    fn default_is_local_override_returns_false() {
+        let stub = StubProvider;
+        let empty = HashMap::new();
+        assert!(!stub.is_local_override(&empty));
+
+        let mut with_values = HashMap::new();
+        with_values.insert("base_url".to_string(), serde_json::json!("http://localhost"));
+        assert!(!stub.is_local_override(&with_values));
+    }
+
+    #[test]
+    fn default_effective_cost_model_passes_through_stage_model() {
+        let stub = StubProvider;
+        let empty = HashMap::new();
+        assert_eq!(stub.effective_cost_model("opus-4.6", &empty), "opus-4.6");
+
+        let mut with_override = HashMap::new();
+        with_override.insert("model_override".to_string(), serde_json::json!("custom"));
+        assert_eq!(
+            stub.effective_cost_model("opus-4.6", &with_override),
+            "opus-4.6",
+            "default impl ignores agent_config"
+        );
+    }
+
+    // ── extract_cost_with_overrides tests ──────────────────────────
+
+    #[derive(Debug)]
+    struct FakeProvider {
+        local_override: bool,
+        override_model: Option<String>,
+    }
+
+    impl AgentProvider for FakeProvider {
+        fn id(&self) -> &str { "fake" }
+        fn display_name(&self) -> &str { "Fake" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+            ("fake".into(), vec![])
+        }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.into() }
+        fn extract_cost(&self, stdout: &str, model: &str, _dur: f64) -> Option<RunCostData> {
+            if stdout.is_empty() { return None; }
+            let mut usage = HashMap::new();
+            usage.insert(model.to_string(), crate::agents::cost::ModelCostData {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.03,
+                ..Default::default()
+            });
+            Some(RunCostData {
+                input_tokens: 100,
+                output_tokens: 50,
+                total_cost_usd: 0.03,
+                model_usage: usage,
+                ..Default::default()
+            })
+        }
+        fn is_available(&self) -> bool { false }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".fake" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+
+        fn is_local_override(&self, _: &HashMap<String, serde_json::Value>) -> bool {
+            self.local_override
+        }
+        fn effective_cost_model(&self, stage: &str, _: &HashMap<String, serde_json::Value>) -> String {
+            self.override_model.clone().unwrap_or_else(|| stage.to_string())
+        }
+    }
+
+    #[test]
+    fn extract_cost_with_overrides_returns_none_when_no_cost() {
+        let p = FakeProvider { local_override: false, override_model: None };
+        let result = extract_cost_with_overrides(&p, "", "opus-4.6", &HashMap::new(), 5.0);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn extract_cost_with_overrides_passes_through_for_non_local() {
+        let p = FakeProvider { local_override: false, override_model: None };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert_eq!(cost.total_cost_usd, 0.03);
+        assert_eq!(cost.input_tokens, 100);
+        assert!(cost.model_usage.contains_key("opus-4.6"));
+    }
+
+    #[test]
+    fn extract_cost_with_overrides_zeroes_cost_for_local() {
+        let p = FakeProvider { local_override: true, override_model: None };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert_eq!(cost.total_cost_usd, 0.0, "local override should zero cost");
+        assert_eq!(cost.input_tokens, 100, "tokens should be preserved");
+        assert_eq!(cost.model_usage["opus-4.6"].cost_usd, 0.0);
+        assert_eq!(cost.model_usage["opus-4.6"].input_tokens, 100);
+    }
+
+    #[test]
+    fn extract_cost_with_overrides_uses_effective_model() {
+        let p = FakeProvider { local_override: false, override_model: Some("llama3.2".into()) };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert!(cost.model_usage.contains_key("llama3.2"), "should use effective model name");
+        assert!(!cost.model_usage.contains_key("opus-4.6"), "should not use stage model name");
+    }
+
+    #[test]
+    fn extract_cost_with_overrides_local_override_with_model_override() {
+        let p = FakeProvider { local_override: true, override_model: Some("my-local".into()) };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert_eq!(cost.total_cost_usd, 0.0);
+        assert!(cost.model_usage.contains_key("my-local"));
+        assert_eq!(cost.model_usage["my-local"].cost_usd, 0.0);
+        assert_eq!(cost.model_usage["my-local"].input_tokens, 100);
     }
 }

@@ -9,6 +9,33 @@ use crate::agents::provider::{AgentProvider, AgentRunConfig};
 
 use super::command;
 
+/// Configuration extracted from the generic `agent_config` map.
+#[derive(Debug, Clone, Default)]
+pub struct CodexApiConfig {
+    pub oss_enabled: Option<bool>,
+    pub local_provider: Option<String>,
+    pub model_override: Option<String>,
+}
+
+impl CodexApiConfig {
+    fn get_str(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<String> {
+        map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_str()).map(|s| s.to_string())
+    }
+
+    fn get_bool(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<bool> {
+        map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_bool())
+    }
+
+    /// Accepts both snake_case and camelCase keys for backward compatibility.
+    pub fn from_agent_config(map: &std::collections::HashMap<String, serde_json::Value>) -> Self {
+        Self {
+            oss_enabled: Self::get_bool(map, "oss_enabled", "ossEnabled"),
+            local_provider: Self::get_str(map, "local_provider", "localProvider"),
+            model_override: Self::get_str(map, "model_override", "modelOverride"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CodexProvider;
 
@@ -91,6 +118,24 @@ impl AgentProvider for CodexProvider {
             ("gpt-5.3-codex", "GPT-5.3 Codex"),
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]
+    }
+
+    fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+        let api_config = CodexApiConfig::from_agent_config(agent_config);
+        api_config.oss_enabled.unwrap_or(false)
+            && api_config.local_provider.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        agent_config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> String {
+        let api_config = CodexApiConfig::from_agent_config(agent_config);
+        api_config
+            .model_override
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| stage_model.to_string())
     }
 }
 

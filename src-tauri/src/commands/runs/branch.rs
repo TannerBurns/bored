@@ -23,6 +23,7 @@ pub(super) struct WorktreeBranchSetup<'a> {
     pub db: &'a Arc<Database>,
     pub window: &'a Window,
     pub branch_gen_model: Option<String>,
+    pub agent_config: &'a std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Generate a branch name using AI via a quick agent call
@@ -35,8 +36,8 @@ pub(super) async fn generate_ai_branch_name(
     agent_id: &str,
     provider: Arc<dyn AgentProvider>,
     db: Arc<Database>,
-    _window: Option<&Window>,
     model: Option<String>,
+    agent_config: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Option<String> {
     let prompt = generate_branch_name_generation_prompt(ticket);
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -79,7 +80,7 @@ pub(super) async fn generate_ai_branch_name(
         api_url: String::new(),
         api_token: String::new(),
         model,
-        agent_config: std::collections::HashMap::new(),
+        agent_config: agent_config.clone(),
     };
 
     let start_time = std::time::Instant::now();
@@ -104,7 +105,13 @@ pub(super) async fn generate_ai_branch_name(
                 duration_secs,
             );
 
-            let cost_data = provider_for_extract.extract_cost(stdout, &model_for_cost, duration_secs);
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*provider_for_extract,
+                stdout,
+                &model_for_cost,
+                agent_config,
+                duration_secs,
+            );
             if let Ok(ref sr) = sub_run {
                 let mut metadata = serde_json::json!({
                     "duration_secs": duration_secs,
@@ -187,6 +194,7 @@ pub(super) async fn setup_worktree_and_branch(
     let WorktreeBranchSetup {
         ticket, run_id, repo_path, agent_id,
         provider, db, window, branch_gen_model,
+        agent_config,
     } = ctx;
 
     let ticket_id = &ticket.id;
@@ -200,8 +208,8 @@ pub(super) async fn setup_worktree_and_branch(
 
         let ai_branch = generate_ai_branch_name(
             ticket, &repo_path_buf, agent_id,
-            provider.clone(), db.clone(), Some(window),
-            branch_gen_model,
+            provider.clone(), db.clone(),
+            branch_gen_model, agent_config,
         ).await;
 
         let branch = if let Some(name) = ai_branch {

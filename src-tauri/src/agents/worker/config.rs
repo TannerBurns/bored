@@ -141,11 +141,13 @@ mod tests {
 
     #[test]
     fn resolve_uses_synced_settings() {
-        let mut ws = WorkflowSettings::default();
-        ws.synced = true;
-        ws.code_review_max_iterations = 7;
-        ws.stage_timeout_hours = 2;
-        ws.stage_max_retries = 5;
+        let ws = WorkflowSettings {
+            synced: true,
+            code_review_max_iterations: 7,
+            stage_timeout_hours: 2,
+            stage_max_retries: 5,
+            ..Default::default()
+        };
 
         let mut map = HashMap::new();
         map.insert("cursor".to_string(), ws);
@@ -160,9 +162,11 @@ mod tests {
 
     #[test]
     fn resolve_ignores_unsynced_settings() {
-        let mut ws = WorkflowSettings::default();
-        ws.synced = false;
-        ws.code_review_max_iterations = 99;
+        let ws = WorkflowSettings {
+            synced: false,
+            code_review_max_iterations: 99,
+            ..Default::default()
+        };
 
         let mut map = HashMap::new();
         map.insert("cursor".to_string(), ws);

@@ -82,7 +82,7 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let parsed: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, original.id);
-        assert_eq!(parsed.allow_file_writes, true);
+        assert!(parsed.allow_file_writes);
         assert_eq!(parsed.blocked_patterns, vec!["*.log".to_string()]);
     }
 

@@ -11,6 +11,7 @@ use crate::agents::claude::provider::ClaudeApiConfig;
 fn claude_config_empty_map_returns_all_none() {
     let config = HashMap::new();
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.use_local_provider.is_none());
     assert!(api.auth_token.is_none());
     assert!(api.api_key.is_none());
     assert!(api.base_url.is_none());
@@ -23,6 +24,7 @@ fn claude_config_empty_map_returns_all_none() {
 #[test]
 fn claude_config_reads_snake_case_keys() {
     let mut config = HashMap::new();
+    config.insert("use_local_provider".to_string(), serde_json::json!(true));
     config.insert("auth_token".to_string(), serde_json::json!("tok"));
     config.insert("api_key".to_string(), serde_json::json!("key"));
     config.insert("base_url".to_string(), serde_json::json!("https://x"));
@@ -32,6 +34,7 @@ fn claude_config_reads_snake_case_keys() {
     config.insert("chrome_enabled".to_string(), serde_json::json!(true));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.use_local_provider, Some(true));
     assert_eq!(api.auth_token.as_deref(), Some("tok"));
     assert_eq!(api.api_key.as_deref(), Some("key"));
     assert_eq!(api.base_url.as_deref(), Some("https://x"));
@@ -44,6 +47,7 @@ fn claude_config_reads_snake_case_keys() {
 #[test]
 fn claude_config_reads_camel_case_keys() {
     let mut config = HashMap::new();
+    config.insert("useLocalProvider".to_string(), serde_json::json!(false));
     config.insert("authToken".to_string(), serde_json::json!("tok"));
     config.insert("apiKey".to_string(), serde_json::json!("key"));
     config.insert("baseUrl".to_string(), serde_json::json!("https://x"));
@@ -53,6 +57,7 @@ fn claude_config_reads_camel_case_keys() {
     config.insert("chromeEnabled".to_string(), serde_json::json!(true));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.use_local_provider, Some(false));
     assert_eq!(api.auth_token.as_deref(), Some("tok"));
     assert_eq!(api.api_key.as_deref(), Some("key"));
     assert_eq!(api.base_url.as_deref(), Some("https://x"));
@@ -88,10 +93,12 @@ fn claude_config_falls_back_to_camel_when_snake_missing() {
 #[test]
 fn claude_config_ignores_wrong_types() {
     let mut config = HashMap::new();
+    config.insert("use_local_provider".to_string(), serde_json::json!("yes"));
     config.insert("auth_token".to_string(), serde_json::json!(42));
     config.insert("thinking_enabled".to_string(), serde_json::json!("yes"));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.use_local_provider.is_none());
     assert!(api.auth_token.is_none());
     assert!(api.thinking_enabled.is_none());
 }
@@ -99,6 +106,7 @@ fn claude_config_ignores_wrong_types() {
 #[test]
 fn claude_config_to_agent_config_roundtrips() {
     let original = ClaudeApiConfig {
+        use_local_provider: Some(true),
         auth_token: Some("tok".to_string()),
         api_key: Some("key".to_string()),
         base_url: None,
@@ -109,6 +117,7 @@ fn claude_config_to_agent_config_roundtrips() {
     };
     let map = original.to_agent_config();
     let recovered = ClaudeApiConfig::from_agent_config(&map);
+    assert_eq!(recovered.use_local_provider, original.use_local_provider);
     assert_eq!(recovered.auth_token, original.auth_token);
     assert_eq!(recovered.api_key, original.api_key);
     assert_eq!(recovered.base_url, original.base_url);
@@ -358,9 +367,9 @@ fn manager_multiple_agents_independent() {
     let claude = manager.agent_config_for("claude");
     let cursor = manager.agent_config_for("cursor");
     assert_eq!(claude.get("auth_token").and_then(|v| v.as_str()), Some("claude-tok"));
-    assert!(claude.get("custom_key").is_none());
+    assert!(!claude.contains_key("custom_key"));
     assert_eq!(cursor.get("custom_key").and_then(|v| v.as_str()), Some("cursor-val"));
-    assert!(cursor.get("auth_token").is_none());
+    assert!(!cursor.contains_key("auth_token"));
 }
 
 #[test]
@@ -377,7 +386,7 @@ fn manager_set_agent_config_replaces_entire_map() {
     manager.set_agent_config("agent", config2);
 
     let loaded = manager.agent_config_for("agent");
-    assert!(loaded.get("key_a").is_none(), "old keys should be replaced");
+    assert!(!loaded.contains_key("key_a"), "old keys should be replaced");
     assert_eq!(loaded.get("key_c").and_then(|v| v.as_str()), Some("val_c"));
 }
 

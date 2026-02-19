@@ -307,9 +307,15 @@ impl WorkflowOrchestrator {
     pub(super) fn extract_cost(
         &self,
         stdout: &str,
-        model: &str,
+        stage_model: &str,
         duration_secs: f64,
     ) -> Option<crate::agents::cost::RunCostData> {
-        self.provider.extract_cost(stdout, model, duration_secs)
+        crate::agents::provider::extract_cost_with_overrides(
+            &*self.provider,
+            stdout,
+            stage_model,
+            &self.agent_config,
+            duration_secs,
+        )
     }
 }
