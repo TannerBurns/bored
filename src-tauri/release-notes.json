@@ -1,5 +1,49 @@
 [
   {
+    "version": "0.1.0-beta.22",
+    "published_at": "2026-02-19",
+    "summary": "Customizable per-agent workflow stage ordering with drag-and-drop UI, and validation agent fix-task lifecycle improvements",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Customizable per-agent workflow stage ordering — drag-and-drop UI lets you reorder optional stages (deslop, review, tests, cleanup) independently for each agent (Claude, Cursor, Codex)",
+          "Selecting a preset resets both stage configs and ordering; manual reorder switches to Custom preset"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Validation agent now waits for created fix tasks to complete their multi-stage workflows before returning to the user, with progress indicators during polling",
+          "Post-fix system message summarizes fix task outcomes and asks about next steps instead of silently returning",
+          "Agent lists sorted alphabetically by display name across Settings, Worker Panel, and Build-With picker",
+          "Extracted fix-task helpers into dedicated validation_fix_tasks.rs module, reducing validation.rs from 1334 to 791 lines",
+          "Removed dead updateSessionStatus frontend wrappers after Pass Validation button removal",
+          "Zustand store version bumped to 13 with migration adding stageOrder to existing agent configs"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed validation agent returning immediately after creating fix tasks while the actual multi-stage workflow was still running in the background",
+          "Fixed dropped fix tasks when an agent response contained both a run_command and create_fix_task block — fix tasks are now extracted before send_agent_followup overwrites the response",
+          "Fixed duplicate fix-task creation when the command loop re-processed a response already handled by send_agent_followup",
+          "Fixed timeout completion message producing misleading '0 completed and 0 failed' for tasks still running after timeout",
+          "Fixed unnecessary 5-second delay on first poll iteration in wait_for_fix_tasks by moving sleep to end of loop",
+          "Fixed required stage keys (branch, plan, implement, commit) leaking into optional stage ordering, causing duplicate add-and-commit execution and broken resume logic",
+          "Removed Pass Validation button that had no effect on the validation workflow"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 14 unit tests for validation fix-task wait and completion logic covering task ID extraction, completion messages, and terminal-state handling",
+          "Added 2 tests for build_full_stage_order verifying no duplicate stages with full 9-key frontend input and equivalence with optional-only input"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.21",
     "published_at": "2026-02-19",
     "summary": "Local provider support for Codex and Claude Code (Ollama / LM Studio), and a drag-and-drop column targeting fix",
