@@ -182,7 +182,31 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
 
   const ossEnabled = (settings.ossEnabled as boolean) ?? false;
   const localProvider = (settings.localProvider as string) ?? 'ollama';
-  const modelOverride = (settings.modelOverride as string) ?? '';
+
+  const [modelOverride, setModelOverride] = useState('');
+  const [apiLoaded, setApiLoaded] = useState(false);
+
+  useEffect(() => {
+    getAgentSettingsBackend(agentId).then((s) => {
+      const str = (...keys: string[]) => {
+        for (const k of keys) { const v = s[k]; if (typeof v === 'string') return v; }
+        return '';
+      };
+      const bool = (...keys: string[]): boolean | undefined => {
+        for (const k of keys) { const v = s[k]; if (typeof v === 'boolean') return v; }
+        return undefined;
+      };
+      const oss = bool('oss_enabled', 'ossEnabled');
+      const loaded = {
+        ...(oss !== undefined && { ossEnabled: oss }),
+        localProvider: str('local_provider', 'localProvider') || 'ollama',
+        modelOverride: str('model_override', 'modelOverride'),
+      };
+      setModelOverride(loaded.modelOverride);
+      useSettingsStore.getState().setAgentSettings(agentId, loaded);
+      setApiLoaded(true);
+    }).catch(() => setApiLoaded(true));
+  }, [agentId]);
 
   const updateSetting = useCallback((key: string, value: unknown) => {
     setAgentSetting(agentId, key, value);
@@ -203,7 +227,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         enabled={ossEnabled}
         onChange={(v) => updateSetting('ossEnabled', v)}
       />
-      {ossEnabled && (
+      {ossEnabled && apiLoaded && (
         <>
           <div className="glass-subtle rounded-lg px-3 py-2 space-y-1.5">
             <label className="block text-sm font-medium text-board-text">Provider</label>
@@ -233,12 +257,15 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
               type="text"
               placeholder="e.g., llama3.2, codestral, deepseek-coder"
               value={modelOverride}
-              onChange={(e) => updateSetting('modelOverride', e.target.value)}
+              onChange={(e) => { setModelOverride(e.target.value); updateSetting('modelOverride', e.target.value); }}
               className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
             <p className="text-xs text-board-text-muted mt-1">The model name your local server should use. Overrides stage model selection.</p>
           </div>
         </>
+      )}
+      {ossEnabled && !apiLoaded && (
+        <p className="text-xs text-board-text-muted">Loading settings...</p>
       )}
     </div>
   );
