@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import type { AgentType } from '../../types';
@@ -22,7 +22,8 @@ export function BuildWithDropdown({
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
-  const agents = useAgentRegistryStore((s) => s.agents);
+  const unsortedAgents = useAgentRegistryStore((s) => s.agents);
+  const agents = useMemo(() => [...unsortedAgents].sort((a, b) => a.displayName.localeCompare(b.displayName)), [unsortedAgents]);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);

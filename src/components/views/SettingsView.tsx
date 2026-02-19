@@ -26,7 +26,9 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
   }, [loadAgents]);
 
   const agentTabs = useMemo(() =>
-    agents.map((a) => ({ id: a.id, label: a.displayName, brandColor: a.brandColor })),
+    [...agents]
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+      .map((a) => ({ id: a.id, label: a.displayName, brandColor: a.brandColor })),
     [agents]
   );
 

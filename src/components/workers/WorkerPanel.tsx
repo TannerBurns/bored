@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
@@ -19,7 +19,8 @@ function AgentIconInline({ agentType, size }: { agentType: string; size: number 
 
 export function WorkerPanel() {
   const agentConfigs = useSettingsStore((s) => s.agentConfigs);
-  const agents = useAgentRegistryStore((s) => s.agents);
+  const unsortedAgents = useAgentRegistryStore((s) => s.agents);
+  const agents = useMemo(() => [...unsortedAgents].sort((a, b) => a.displayName.localeCompare(b.displayName)), [unsortedAgents]);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const [workers, setWorkers] = useState<WorkerStatus[]>([]);
   const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
