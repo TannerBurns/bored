@@ -30,14 +30,12 @@ pub(super) struct WorktreeBranchSetup<'a> {
 ///
 /// This runs a quick Claude/Cursor agent call to generate a meaningful branch name
 /// based on the ticket's title and description.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn generate_ai_branch_name(
     ticket: &Ticket,
     repo_path: &std::path::Path,
     agent_id: &str,
     provider: Arc<dyn AgentProvider>,
     db: Arc<Database>,
-    _window: Option<&Window>,
     model: Option<String>,
     agent_config: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Option<String> {
@@ -210,7 +208,7 @@ pub(super) async fn setup_worktree_and_branch(
 
         let ai_branch = generate_ai_branch_name(
             ticket, &repo_path_buf, agent_id,
-            provider.clone(), db.clone(), Some(window),
+            provider.clone(), db.clone(),
             branch_gen_model, agent_config,
         ).await;
 
