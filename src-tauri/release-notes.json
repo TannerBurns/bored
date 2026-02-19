@@ -1,5 +1,49 @@
 [
   {
+    "version": "0.1.0-beta.21",
+    "published_at": "2026-02-19",
+    "summary": "Local provider support for Codex and Claude Code (Ollama / LM Studio), and a drag-and-drop column targeting fix",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Local provider support for Codex — new OSS toggle in Codex settings enables running against self-hosted models via Ollama or LM Studio with configurable model override",
+          "Local provider support for Claude Code — new \"Use Local Provider\" toggle in Claude Code settings reveals Base URL, Model Override, API Key, and Auth Token fields for custom endpoints",
+          "Zero-cost tracking for local providers — runs using local model overrides now display $0 cost while still tracking token usage under the actual model name"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Agent provider trait extended with is_local_override and effective_cost_model methods for dynamic cost behavior across all providers",
+          "New extract_cost_with_overrides helper consolidates the resolve-model / extract-cost / zero-if-local pattern used by all cost extraction call sites",
+          "Agent config now threaded through branch name generation so local provider settings apply during the branch-gen stage",
+          "Codex and Claude settings both hydrate from backend on mount, preventing stale defaults from overwriting persisted configuration",
+          "Removed dead ClaudeSettings and CursorSettings components (899 lines)"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed tickets unable to be dragged to the Ready column — replaced closestCorners collision detection with a custom strategy that prioritizes column droppables via pointerWithin with rectIntersection and closestCenter fallbacks",
+          "Fixed stale droppable rects after window resize by adding MeasuringStrategy.Always to DndContext",
+          "Fixed credential-loss bug where toggling a Claude CLI option silently wiped previously saved API credentials from the backend",
+          "Fixed build_env_vars / is_local_override inconsistency — both now require use_local_provider=true AND a non-empty base_url",
+          "Fixed useLocalProvider toggle reverting to false on page reload due to missing backend hydration",
+          "Fixed Codex settings not syncing to backend AgentSettingsManager (only updated frontend Zustand store)"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 7 unit tests for CodexApiConfig parsing and command builder edge cases",
+          "Added 5 tests for extract_cost_with_overrides covering pass-through, zero-cost, and model override scenarios",
+          "Added use_local_provider assertions to Claude agent settings tests"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.20",
     "published_at": "2026-02-18",
     "summary": "Codex CLI agent with per-agent settings architecture, Sonnet 4.6 model support, and Codex agent bug fixes",
