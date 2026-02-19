@@ -211,6 +211,7 @@ pub async fn start_agent_run(
         db: db.inner(),
         window: &window,
         branch_gen_model,
+        agent_config: &agent_config,
     }).await?;
 
     // Use worktree path if available, otherwise fall back to main repo

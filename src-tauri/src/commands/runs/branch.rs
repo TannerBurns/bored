@@ -23,12 +23,14 @@ pub(super) struct WorktreeBranchSetup<'a> {
     pub db: &'a Arc<Database>,
     pub window: &'a Window,
     pub branch_gen_model: Option<String>,
+    pub agent_config: &'a std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Generate a branch name using AI via a quick agent call
 ///
 /// This runs a quick Claude/Cursor agent call to generate a meaningful branch name
 /// based on the ticket's title and description.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn generate_ai_branch_name(
     ticket: &Ticket,
     repo_path: &std::path::Path,
@@ -37,6 +39,7 @@ pub(super) async fn generate_ai_branch_name(
     db: Arc<Database>,
     _window: Option<&Window>,
     model: Option<String>,
+    agent_config: &std::collections::HashMap<String, serde_json::Value>,
 ) -> Option<String> {
     let prompt = generate_branch_name_generation_prompt(ticket);
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -79,7 +82,7 @@ pub(super) async fn generate_ai_branch_name(
         api_url: String::new(),
         api_token: String::new(),
         model,
-        agent_config: std::collections::HashMap::new(),
+        agent_config: agent_config.clone(),
     };
 
     let start_time = std::time::Instant::now();
@@ -108,7 +111,7 @@ pub(super) async fn generate_ai_branch_name(
                 &*provider_for_extract,
                 stdout,
                 &model_for_cost,
-                &std::collections::HashMap::new(),
+                agent_config,
                 duration_secs,
             );
             if let Ok(ref sr) = sub_run {
@@ -193,6 +196,7 @@ pub(super) async fn setup_worktree_and_branch(
     let WorktreeBranchSetup {
         ticket, run_id, repo_path, agent_id,
         provider, db, window, branch_gen_model,
+        agent_config,
     } = ctx;
 
     let ticket_id = &ticket.id;
@@ -207,7 +211,7 @@ pub(super) async fn setup_worktree_and_branch(
         let ai_branch = generate_ai_branch_name(
             ticket, &repo_path_buf, agent_id,
             provider.clone(), db.clone(), Some(window),
-            branch_gen_model,
+            branch_gen_model, agent_config,
         ).await;
 
         let branch = if let Some(name) = ai_branch {
