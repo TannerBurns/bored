@@ -916,6 +916,7 @@ mod tests {
     use crate::agents::cost::RunCostData;
     use crate::agents::provider::{AgentProvider, AgentRunConfig};
     use crate::agents::registry::AgentRegistry;
+    use crate::db::models::{CreateTask, CreateTicket, Priority, TaskType, WorkflowType};
 
     #[derive(Debug)]
     struct FakeProvider {
@@ -948,6 +949,43 @@ mod tests {
         reg
     }
 
+    /// Shared helper: creates an in-memory DB with a board, ticket, and
+    /// validation session.  Returns (db, board_id, ticket_id, session_id).
+    fn setup_validation_fixture() -> (Arc<Database>, String, String, String) {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Test Ticket".to_string(),
+                description_md: "Test description".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        let session = db
+            .create_validation_session(&CreateValidationSession {
+                ticket_id: ticket.id.clone(),
+                project_id: None,
+                agent_type: None,
+            })
+            .unwrap();
+        (db, board.id, ticket.id, session.id)
+    }
+
+    // --- resolve_validation_agent_id ---
+
     #[test]
     fn resolve_explicit_agent_type() {
         let reg = make_registry(vec![("cursor", true), ("claude", true)]);
@@ -976,5 +1014,278 @@ mod tests {
     fn resolve_none_returns_empty_when_registry_empty() {
         let reg = AgentRegistry::new();
         assert_eq!(resolve_validation_agent_id(None, &reg), "");
+    }
+
+    // --- process_fix_tasks_in_response: return value ---
+
+    #[test]
+    fn process_fix_tasks_returns_created_task_ids() {
+        let (db, board_id, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let response = "Found issues:\n```json\n\
+            { \"create_fix_task\": { \"title\": \"Fix login\", \"description\": \"Login broken\" } }\n\
+            ```";
+
+        let ids = process_fix_tasks_in_response(
+            response, &db, &session_id, &ticket_id,
+            "Test Ticket", &board_id, &event_tx,
+        );
+
+        assert_eq!(ids.len(), 1);
+        let task = db.get_task(&ids[0]).unwrap();
+        assert_eq!(task.title, Some("Fix login".to_string()));
+        assert_eq!(task.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn process_fix_tasks_returns_empty_when_no_blocks() {
+        let (db, board_id, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let ids = process_fix_tasks_in_response(
+            "Looks good, no issues found.",
+            &db, &session_id, &ticket_id,
+            "Test Ticket", &board_id, &event_tx,
+        );
+
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn process_fix_tasks_returns_multiple_ids_for_plural_form() {
+        let (db, board_id, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let response = "Multiple issues:\n```json\n\
+            { \"create_fix_tasks\": { \"tasks\": [\n\
+                { \"title\": \"Fix A\", \"description\": \"A\" },\n\
+                { \"title\": \"Fix B\", \"description\": \"B\" }\n\
+            ] } }\n```";
+
+        let ids = process_fix_tasks_in_response(
+            response, &db, &session_id, &ticket_id,
+            "Test Ticket", &board_id, &event_tx,
+        );
+
+        assert_eq!(ids.len(), 2);
+        assert_eq!(db.get_task(&ids[0]).unwrap().title, Some("Fix A".to_string()));
+        assert_eq!(db.get_task(&ids[1]).unwrap().title, Some("Fix B".to_string()));
+    }
+
+    #[test]
+    fn process_fix_tasks_sets_session_status_to_failed() {
+        let (db, board_id, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let response = "```json\n\
+            { \"create_fix_task\": { \"title\": \"Fix it\", \"description\": \"broken\" } }\n```";
+
+        let ids = process_fix_tasks_in_response(
+            response, &db, &session_id, &ticket_id,
+            "Test Ticket", &board_id, &event_tx,
+        );
+
+        assert!(!ids.is_empty());
+        let session = db.get_validation_session(&session_id).unwrap();
+        assert_eq!(session.status, ValidationSessionStatus::Failed);
+    }
+
+    // --- post_fix_tasks_completion_message ---
+
+    #[test]
+    fn completion_message_returns_none_for_empty_ids() {
+        let (db, _, _, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        assert!(post_fix_tasks_completion_message(&[], &db, &event_tx, &session_id).is_none());
+    }
+
+    #[test]
+    fn completion_message_all_completed() {
+        let (db, _, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 1".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.complete_task(&t1.id).unwrap();
+
+        let t2 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 2".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t2.id, "run-2").unwrap();
+        db.complete_task(&t2.id).unwrap();
+
+        let msg = post_fix_tasks_completion_message(
+            &[t1.id, t2.id], &db, &event_tx, &session_id,
+        ).unwrap();
+
+        assert!(msg.content.contains("All 2 fix task(s) completed successfully"));
+        assert_eq!(msg.role, ValidationMessageRole::System);
+    }
+
+    #[test]
+    fn completion_message_all_failed() {
+        let (db, _, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 1".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.fail_task(&t1.id).unwrap();
+
+        let msg = post_fix_tasks_completion_message(
+            &[t1.id], &db, &event_tx, &session_id,
+        ).unwrap();
+
+        assert!(msg.content.contains("All 1 fix task(s) failed"));
+    }
+
+    #[test]
+    fn completion_message_mixed_results() {
+        let (db, _, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 1".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.complete_task(&t1.id).unwrap();
+
+        let t2 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 2".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t2.id, "run-2").unwrap();
+        db.fail_task(&t2.id).unwrap();
+
+        let msg = post_fix_tasks_completion_message(
+            &[t1.id, t2.id], &db, &event_tx, &session_id,
+        ).unwrap();
+
+        assert!(msg.content.contains("1 fix task(s) completed and 1 failed"));
+    }
+
+    #[test]
+    fn completion_message_has_correct_metadata_type() {
+        let (db, _, ticket_id, session_id) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.complete_task(&t1.id).unwrap();
+
+        let msg = post_fix_tasks_completion_message(
+            &[t1.id], &db, &event_tx, &session_id,
+        ).unwrap();
+
+        let meta = msg.metadata.unwrap();
+        assert_eq!(meta.get("type").and_then(|v| v.as_str()), Some("fix_tasks_completed"));
+    }
+
+    // --- wait_for_fix_tasks ---
+
+    #[tokio::test]
+    async fn wait_for_fix_tasks_empty_returns_immediately() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        wait_for_fix_tasks(&[], &db, &event_tx, "session-1").await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_fix_tasks_exits_when_all_completed() {
+        tokio::time::pause();
+        let (db, _, ticket_id, _) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.complete_task(&t1.id).unwrap();
+
+        wait_for_fix_tasks(&[t1.id], &db, &event_tx, "session-1").await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_fix_tasks_exits_when_all_failed() {
+        tokio::time::pause();
+        let (db, _, ticket_id, _) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.fail_task(&t1.id).unwrap();
+
+        wait_for_fix_tasks(&[t1.id], &db, &event_tx, "session-1").await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_fix_tasks_exits_on_mix_of_completed_and_failed() {
+        tokio::time::pause();
+        let (db, _, ticket_id, _) = setup_validation_fixture();
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        let t1 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 1".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t1.id, "run-1").unwrap();
+        db.complete_task(&t1.id).unwrap();
+
+        let t2 = db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Fix 2".to_string()),
+            content: None,
+        }).unwrap();
+        db.start_task(&t2.id, "run-2").unwrap();
+        db.fail_task(&t2.id).unwrap();
+
+        wait_for_fix_tasks(&[t1.id, t2.id], &db, &event_tx, "session-1").await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_fix_tasks_treats_missing_task_as_complete() {
+        tokio::time::pause();
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (event_tx, _rx) = broadcast::channel(16);
+
+        wait_for_fix_tasks(
+            &["nonexistent-id".to_string()], &db, &event_tx, "session-1",
+        ).await;
     }
 }
