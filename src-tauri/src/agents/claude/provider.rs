@@ -113,7 +113,9 @@ impl AgentProvider for ClaudeProvider {
         let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
         let mut env_vars = Vec::new();
 
-        if !api_config.use_local_provider.unwrap_or(false) {
+        if !api_config.use_local_provider.unwrap_or(false)
+            || api_config.base_url.as_ref().is_none_or(|s| s.is_empty())
+        {
             return env_vars;
         }
 

@@ -46,6 +46,7 @@ fn build_env_vars_includes_auth_token() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
     config.agent_config.insert("auth_token".into(), serde_json::json!("my-token"));
     let env = p.build_env_vars(&config);
     assert!(env.iter().any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-token"));
@@ -56,9 +57,21 @@ fn build_env_vars_skips_empty_values() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
     config.agent_config.insert("auth_token".into(), serde_json::json!(""));
     let env = p.build_env_vars(&config);
     assert!(!env.iter().any(|(k, _)| k == "ANTHROPIC_AUTH_TOKEN"));
+}
+
+#[test]
+fn build_env_vars_empty_when_local_provider_enabled_without_base_url() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("auth_token".into(), serde_json::json!("tok"));
+    config.agent_config.insert("api_key".into(), serde_json::json!("key"));
+    let env = p.build_env_vars(&config);
+    assert!(env.is_empty(), "env vars should not be set without a base_url");
 }
 
 #[test]

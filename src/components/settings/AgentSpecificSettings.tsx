@@ -55,7 +55,13 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
         for (const k of keys) { const v = s[k]; if (typeof v === 'string') return v; }
         return '';
       };
+      const bool = (...keys: string[]): boolean | undefined => {
+        for (const k of keys) { const v = s[k]; if (typeof v === 'boolean') return v; }
+        return undefined;
+      };
+      const useLocal = bool('use_local_provider', 'useLocalProvider');
       const loaded = {
+        ...(useLocal !== undefined && { useLocalProvider: useLocal }),
         authToken: str('auth_token', 'authToken'),
         apiKey: str('api_key', 'apiKey'),
         baseUrl: str('base_url', 'baseUrl'),
