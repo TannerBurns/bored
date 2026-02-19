@@ -1,7 +1,7 @@
-import { useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { StatusSection, AlertMessages, useAgentSettings } from './shared';
-import { getAgentStatus, setAgentSettings as setAgentSettingsBackend } from '../../lib/tauri';
+import { getAgentStatus, getAgentSettings as getAgentSettingsBackend, setAgentSettings as setAgentSettingsBackend } from '../../lib/tauri';
 import {
   useSettingsStore,
   WORKFLOW_PRESETS,
@@ -44,28 +44,98 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
   const extendedContext = (settings.extendedContext as boolean) ?? false;
   const chromeEnabled = (settings.chromeEnabled as boolean) ?? false;
 
+  const [authToken, setAuthToken] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [modelOverride, setModelOverride] = useState('');
+  const [apiLoaded, setApiLoaded] = useState(false);
+
+  useEffect(() => {
+    getAgentSettingsBackend(agentId).then((s) => {
+      const str = (...keys: string[]) => {
+        for (const k of keys) { const v = s[k]; if (typeof v === 'string') return v; }
+        return '';
+      };
+      setAuthToken(str('auth_token', 'authToken'));
+      setApiKey(str('api_key', 'apiKey'));
+      setBaseUrl(str('base_url', 'baseUrl'));
+      setModelOverride(str('model_override', 'modelOverride'));
+      setApiLoaded(true);
+    }).catch(() => setApiLoaded(true));
+  }, [agentId]);
+
+  const updateSetting = useCallback((key: string, value: unknown) => {
+    setAgentSetting(agentId, key, value);
+    const current = useSettingsStore.getState().getAgentSettings(agentId);
+    setAgentSettingsBackend(agentId, { ...current, [key]: value })
+      .catch((err) => console.warn('[claude] Failed to sync setting:', err));
+  }, [agentId, setAgentSetting]);
+
   return (
-    <div className="glass rounded-lg p-3 space-y-3">
-      <div>
-        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
-        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
+    <>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
+          <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
+        </div>
+        <ToggleRow
+          label="Thinking" description="Enable extended thinking for better reasoning."
+          enabled={thinkingEnabled}
+          onChange={(v) => updateSetting('thinkingEnabled', v)}
+        />
+        <ToggleRow
+          label="Extended Context" description="Enable 1M token context window."
+          enabled={extendedContext}
+          onChange={(v) => updateSetting('extendedContext', v)}
+        />
+        <ToggleRow
+          label="Chrome" description="Enable Chrome browser access."
+          enabled={chromeEnabled}
+          onChange={(v) => updateSetting('chromeEnabled', v)}
+        />
       </div>
-      <ToggleRow
-        label="Thinking" description="Enable extended thinking for better reasoning."
-        enabled={thinkingEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'thinkingEnabled', v)}
-      />
-      <ToggleRow
-        label="Extended Context" description="Enable 1M token context window."
-        enabled={extendedContext}
-        onChange={(v) => setAgentSetting(agentId, 'extendedContext', v)}
-      />
-      <ToggleRow
-        label="Chrome" description="Enable Chrome browser access."
-        enabled={chromeEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'chromeEnabled', v)}
-      />
-    </div>
+
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-board-text">API Configuration</h3>
+          <p className="text-xs text-board-text-muted">
+            Configure custom API credentials for local providers. Leave empty to use system defaults. Changes are saved automatically.
+          </p>
+        </div>
+        {apiLoaded ? (
+          <div className="grid gap-2">
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">Auth Token</label>
+              <input type="password" placeholder="ANTHROPIC_AUTH_TOKEN" value={authToken}
+                onChange={(e) => { setAuthToken(e.target.value); updateSetting('authToken', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+            </div>
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">API Key</label>
+              <input type="password" placeholder="ANTHROPIC_API_KEY" value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); updateSetting('apiKey', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+            </div>
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">Base URL</label>
+              <input type="text" placeholder="https://api.anthropic.com" value={baseUrl}
+                onChange={(e) => { setBaseUrl(e.target.value); updateSetting('baseUrl', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+              <p className="text-xs text-board-text-muted mt-1">Set to point Claude Code at a local provider (e.g., http://localhost:8080).</p>
+            </div>
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">Model Override</label>
+              <input type="text" placeholder="e.g., claude-opus-4-6" value={modelOverride}
+                onChange={(e) => { setModelOverride(e.target.value); updateSetting('modelOverride', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+              <p className="text-xs text-board-text-muted mt-1">Overrides the model used by Claude Code for all stages.</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-board-text-muted">Loading API settings...</p>
+        )}
+      </div>
+    </>
   );
 }
 
