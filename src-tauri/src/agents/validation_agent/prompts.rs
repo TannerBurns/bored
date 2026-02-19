@@ -53,7 +53,7 @@ CRITICAL RULES:
    ```json
    {{ "create_fix_task": {{ "title": "Fix the broken login form", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
    ```
-   The system will automatically create this task on the ticket and a worker agent will fix it. After the fix is complete the system will restart the app for re-validation.
+   The system will automatically create this task on the ticket and a worker agent will fix it. The system will wait for the fix to complete and notify the user.
 
 Begin by reviewing the diff. If the app needs setup commands first (e.g. install dependencies), output a `run_command` block. Then output `start_app` to start the application."#,
         ticket_title,
