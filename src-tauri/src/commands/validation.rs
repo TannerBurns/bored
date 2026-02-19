@@ -435,6 +435,14 @@ pub async fn send_validation_message(
                 metadata: None,
             });
 
+            if !fix_tasks_already_extracted {
+                let fix_ids_from_current = process_fix_tasks_in_response(
+                    &current_response, db.inner(), &session_id, &session.ticket_id,
+                    &ticket.title, &ticket.board_id, event_tx.inner(),
+                );
+                all_fix_task_ids.extend(fix_ids_from_current);
+            }
+
             let (next_response, next_msg, fix_ids) = send_agent_followup(
                 &agent, &db, &event_tx, &session_id, &session, &ticket,
             ).await?;
@@ -473,6 +481,14 @@ pub async fn send_validation_message(
                         ),
                         metadata: None,
                     });
+
+                    if !fix_tasks_already_extracted {
+                        let fix_ids_from_current = process_fix_tasks_in_response(
+                            &current_response, db.inner(), &session_id, &session.ticket_id,
+                            &ticket.title, &ticket.board_id, event_tx.inner(),
+                        );
+                        all_fix_task_ids.extend(fix_ids_from_current);
+                    }
 
                     let (next_response, next_msg, fix_ids) = send_agent_followup(
                         &agent, &db, &event_tx, &session_id, &session, &ticket,
@@ -548,13 +564,16 @@ pub async fn send_validation_message(
                 e
             })?;
 
-            // Process fix tasks from both the initial response and the follow-up
-            // before returning. Without this, fix tasks in a response that also
-            // contains a start_app block would be silently dropped by the early return.
-            let fix_ids_1 = process_fix_tasks_in_response(
-                &response_text, db.inner(), &session_id, &session.ticket_id,
-                &ticket.title, &ticket.board_id, event_tx.inner(),
-            );
+            // Process fix tasks from the initial response (if not already extracted
+            // during a prior loop round) and the follow-up before returning.
+            let fix_ids_1 = if !fix_tasks_already_extracted {
+                process_fix_tasks_in_response(
+                    &response_text, db.inner(), &session_id, &session.ticket_id,
+                    &ticket.title, &ticket.board_id, event_tx.inner(),
+                )
+            } else {
+                Vec::new()
+            };
             let fix_ids_2 = process_fix_tasks_in_response(
                 &follow_up_response, db.inner(), &session_id, &session.ticket_id,
                 &ticket.title, &ticket.board_id, event_tx.inner(),
