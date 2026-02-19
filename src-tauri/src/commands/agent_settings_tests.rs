@@ -99,6 +99,7 @@ fn claude_config_ignores_wrong_types() {
 #[test]
 fn claude_config_to_agent_config_roundtrips() {
     let original = ClaudeApiConfig {
+        use_local_provider: Some(true),
         auth_token: Some("tok".to_string()),
         api_key: Some("key".to_string()),
         base_url: None,
@@ -109,6 +110,7 @@ fn claude_config_to_agent_config_roundtrips() {
     };
     let map = original.to_agent_config();
     let recovered = ClaudeApiConfig::from_agent_config(&map);
+    assert_eq!(recovered.use_local_provider, original.use_local_provider);
     assert_eq!(recovered.auth_token, original.auth_token);
     assert_eq!(recovered.api_key, original.api_key);
     assert_eq!(recovered.base_url, original.base_url);

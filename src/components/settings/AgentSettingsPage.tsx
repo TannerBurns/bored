@@ -43,6 +43,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
   const thinkingEnabled = (settings.thinkingEnabled as boolean) ?? true;
   const extendedContext = (settings.extendedContext as boolean) ?? false;
   const chromeEnabled = (settings.chromeEnabled as boolean) ?? false;
+  const useLocalProvider = (settings.useLocalProvider as boolean) ?? false;
 
   const [authToken, setAuthToken] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -97,31 +98,23 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
 
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
-          <h3 className="text-sm font-medium text-board-text">API Configuration</h3>
-          <p className="text-xs text-board-text-muted">
-            Configure custom API credentials for local providers. Leave empty to use system defaults. Changes are saved automatically.
-          </p>
+          <h3 className="text-sm font-medium text-board-text">Local Provider Override</h3>
+          <p className="text-xs text-board-text-muted">Run Claude Code against a custom API endpoint instead of Anthropic.</p>
         </div>
-        {apiLoaded ? (
-          <div className="grid gap-2">
-            <div className="glass-subtle rounded-lg px-3 py-2">
-              <label className="block text-sm font-medium text-board-text mb-1">Auth Token</label>
-              <input type="password" placeholder="ANTHROPIC_AUTH_TOKEN" value={authToken}
-                onChange={(e) => { setAuthToken(e.target.value); updateSetting('authToken', e.target.value); }}
-                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
-            </div>
-            <div className="glass-subtle rounded-lg px-3 py-2">
-              <label className="block text-sm font-medium text-board-text mb-1">API Key</label>
-              <input type="password" placeholder="ANTHROPIC_API_KEY" value={apiKey}
-                onChange={(e) => { setApiKey(e.target.value); updateSetting('apiKey', e.target.value); }}
-                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
-            </div>
+        <ToggleRow
+          label="Use Local Provider"
+          description="Override API configuration to use a custom endpoint."
+          enabled={useLocalProvider}
+          onChange={(v) => updateSetting('useLocalProvider', v)}
+        />
+        {useLocalProvider && apiLoaded && (
+          <>
             <div className="glass-subtle rounded-lg px-3 py-2">
               <label className="block text-sm font-medium text-board-text mb-1">Base URL</label>
-              <input type="text" placeholder="https://api.anthropic.com" value={baseUrl}
+              <input type="text" placeholder="e.g., http://localhost:8080" value={baseUrl}
                 onChange={(e) => { setBaseUrl(e.target.value); updateSetting('baseUrl', e.target.value); }}
                 className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
-              <p className="text-xs text-board-text-muted mt-1">Set to point Claude Code at a local provider (e.g., http://localhost:8080).</p>
+              <p className="text-xs text-board-text-muted mt-1">The endpoint URL your local provider is listening on (sets ANTHROPIC_BASE_URL).</p>
             </div>
             <div className="glass-subtle rounded-lg px-3 py-2">
               <label className="block text-sm font-medium text-board-text mb-1">Model Override</label>
@@ -130,8 +123,21 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
                 className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
               <p className="text-xs text-board-text-muted mt-1">Overrides the model used by Claude Code for all stages.</p>
             </div>
-          </div>
-        ) : (
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">API Key</label>
+              <input type="password" placeholder="ANTHROPIC_API_KEY" value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); updateSetting('apiKey', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+            </div>
+            <div className="glass-subtle rounded-lg px-3 py-2">
+              <label className="block text-sm font-medium text-board-text mb-1">Auth Token</label>
+              <input type="password" placeholder="ANTHROPIC_AUTH_TOKEN" value={authToken}
+                onChange={(e) => { setAuthToken(e.target.value); updateSetting('authToken', e.target.value); }}
+                className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text" />
+            </div>
+          </>
+        )}
+        {useLocalProvider && !apiLoaded && (
           <p className="text-xs text-board-text-muted">Loading API settings...</p>
         )}
       </div>

@@ -45,24 +45,31 @@ fn build_env_vars_empty_when_no_config() {
 fn build_env_vars_includes_auth_token() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config
-        .agent_config
-        .insert("auth_token".to_string(), serde_json::json!("my-token"));
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("auth_token".into(), serde_json::json!("my-token"));
     let env = p.build_env_vars(&config);
-    assert!(env
-        .iter()
-        .any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-token"));
+    assert!(env.iter().any(|(k, v)| k == "ANTHROPIC_AUTH_TOKEN" && v == "my-token"));
 }
 
 #[test]
 fn build_env_vars_skips_empty_values() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config
-        .agent_config
-        .insert("auth_token".to_string(), serde_json::json!(""));
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("auth_token".into(), serde_json::json!(""));
     let env = p.build_env_vars(&config);
     assert!(!env.iter().any(|(k, _)| k == "ANTHROPIC_AUTH_TOKEN"));
+}
+
+#[test]
+fn build_env_vars_empty_when_local_provider_disabled() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(false));
+    config.agent_config.insert("auth_token".into(), serde_json::json!("tok"));
+    config.agent_config.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
+    let env = p.build_env_vars(&config);
+    assert!(env.is_empty(), "env vars should not be set when local provider is disabled");
 }
 
 #[test]
@@ -95,6 +102,7 @@ fn claude_api_config_roundtrip() {
 #[test]
 fn claude_api_config_roundtrip_all_fields() {
     let original = ClaudeApiConfig {
+        use_local_provider: Some(true),
         auth_token: Some("auth".to_string()),
         api_key: Some("key".to_string()),
         base_url: Some("https://api.example.com".to_string()),
@@ -104,8 +112,9 @@ fn claude_api_config_roundtrip_all_fields() {
         chrome_enabled: Some(true),
     };
     let map = original.to_agent_config();
-    assert_eq!(map.len(), 7);
+    assert_eq!(map.len(), 8);
     let restored = ClaudeApiConfig::from_agent_config(&map);
+    assert_eq!(restored.use_local_provider, Some(true));
     assert_eq!(restored.auth_token.as_deref(), Some("auth"));
     assert_eq!(restored.api_key.as_deref(), Some("key"));
     assert_eq!(restored.base_url.as_deref(), Some("https://api.example.com"));
@@ -140,32 +149,22 @@ fn claude_api_config_ignores_wrong_types() {
 fn build_env_vars_includes_api_key_and_base_url() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config
-        .agent_config
-        .insert("api_key".to_string(), serde_json::json!("k"));
-    config
-        .agent_config
-        .insert("base_url".to_string(), serde_json::json!("https://x.com"));
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("api_key".into(), serde_json::json!("k"));
+    config.agent_config.insert("base_url".into(), serde_json::json!("https://x.com"));
     let env = p.build_env_vars(&config);
     assert!(env.iter().any(|(k, v)| k == "ANTHROPIC_API_KEY" && v == "k"));
-    assert!(env
-        .iter()
-        .any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://x.com"));
+    assert!(env.iter().any(|(k, v)| k == "ANTHROPIC_BASE_URL" && v == "https://x.com"));
 }
 
 #[test]
 fn build_env_vars_all_three_vars() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config
-        .agent_config
-        .insert("auth_token".to_string(), serde_json::json!("a"));
-    config
-        .agent_config
-        .insert("api_key".to_string(), serde_json::json!("b"));
-    config
-        .agent_config
-        .insert("base_url".to_string(), serde_json::json!("c"));
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("auth_token".into(), serde_json::json!("a"));
+    config.agent_config.insert("api_key".into(), serde_json::json!("b"));
+    config.agent_config.insert("base_url".into(), serde_json::json!("c"));
     let env = p.build_env_vars(&config);
     assert_eq!(env.len(), 3);
 }
@@ -321,19 +320,38 @@ fn is_local_override_false_when_base_url_empty() {
 }
 
 #[test]
-fn is_local_override_true_when_base_url_set() {
+fn is_local_override_false_when_toggle_off_with_base_url() {
     let p = ClaudeProvider::new();
     let mut map = HashMap::new();
+    map.insert("use_local_provider".into(), serde_json::json!(false));
+    map.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_true_when_toggle_on_and_base_url_set() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("use_local_provider".into(), serde_json::json!(true));
     map.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
     assert!(p.is_local_override(&map));
 }
 
 #[test]
-fn is_local_override_true_with_camel_case_base_url() {
+fn is_local_override_true_with_camel_case_keys() {
     let p = ClaudeProvider::new();
     let mut map = HashMap::new();
+    map.insert("useLocalProvider".into(), serde_json::json!(true));
     map.insert("baseUrl".into(), serde_json::json!("http://192.168.1.10:5000"));
     assert!(p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_toggle_on_but_no_base_url() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("use_local_provider".into(), serde_json::json!(true));
+    assert!(!p.is_local_override(&map));
 }
 
 #[test]
@@ -363,6 +381,7 @@ fn effective_cost_model_falls_back_when_override_empty() {
 fn extract_cost_with_local_override_tracks_override_model_and_zero_cost() {
     let p = ClaudeProvider::new();
     let mut map = HashMap::new();
+    map.insert("use_local_provider".into(), serde_json::json!(true));
     map.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
     map.insert("model_override".into(), serde_json::json!("my-local-model"));
 
@@ -387,6 +406,7 @@ fn extract_cost_with_local_override_tracks_override_model_and_zero_cost() {
 fn extract_cost_estimation_fallback_uses_override_model_name() {
     let p = ClaudeProvider::new();
     let mut map = HashMap::new();
+    map.insert("useLocalProvider".into(), serde_json::json!(true));
     map.insert("baseUrl".into(), serde_json::json!("http://localhost:11434"));
     map.insert("modelOverride".into(), serde_json::json!("mistral-nemo"));
 
