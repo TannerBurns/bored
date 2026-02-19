@@ -18,9 +18,9 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     if api_config.oss_enabled.unwrap_or(false) {
         args.push("--oss".to_string());
 
-        if let Some(ref provider) = api_config.local_provider.as_ref().filter(|s| !s.is_empty()) {
+        if let Some(provider) = api_config.local_provider.as_ref().filter(|s| !s.is_empty()) {
             args.push("--local-provider".to_string());
-            args.push(provider.to_string());
+            args.push(provider.clone());
         }
     }
 

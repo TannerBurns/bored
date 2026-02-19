@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { StatusSection, AlertMessages, useAgentSettings } from './shared';
-import { getAgentStatus } from '../../lib/tauri';
+import { getAgentStatus, setAgentSettings as setAgentSettingsBackend } from '../../lib/tauri';
 import {
   useSettingsStore,
   WORKFLOW_PRESETS,
@@ -97,6 +97,13 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
   const localProvider = (settings.localProvider as string) ?? 'ollama';
   const modelOverride = (settings.modelOverride as string) ?? '';
 
+  const updateSetting = useCallback((key: string, value: unknown) => {
+    setAgentSetting(agentId, key, value);
+    const current = useSettingsStore.getState().getAgentSettings(agentId);
+    setAgentSettingsBackend(agentId, { ...current, [key]: value } as Record<string, unknown>)
+      .catch((err) => console.warn('[codex] Failed to sync settings to backend:', err));
+  }, [agentId, setAgentSetting]);
+
   return (
     <div className="glass rounded-lg p-3 space-y-3">
       <div>
@@ -107,7 +114,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         label="Use Local Provider"
         description="Enable open-source mode (--oss) for local model inference."
         enabled={ossEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'ossEnabled', v)}
+        onChange={(v) => updateSetting('ossEnabled', v)}
       />
       {ossEnabled && (
         <>
@@ -120,7 +127,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
               ].map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setAgentSetting(agentId, 'localProvider', opt.value)}
+                  onClick={() => updateSetting('localProvider', opt.value)}
                   className={cn(
                     'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200',
                     localProvider === opt.value
@@ -139,7 +146,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
               type="text"
               placeholder="e.g., llama3.2, codestral, deepseek-coder"
               value={modelOverride}
-              onChange={(e) => setAgentSetting(agentId, 'modelOverride', e.target.value)}
+              onChange={(e) => updateSetting('modelOverride', e.target.value)}
               className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg border border-board-border focus:border-board-accent focus:outline-none font-mono text-xs text-board-text"
             />
             <p className="text-xs text-board-text-muted mt-1">The model name your local server should use. Overrides stage model selection.</p>
