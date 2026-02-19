@@ -11,6 +11,7 @@ use crate::agents::claude::provider::ClaudeApiConfig;
 fn claude_config_empty_map_returns_all_none() {
     let config = HashMap::new();
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.use_local_provider.is_none());
     assert!(api.auth_token.is_none());
     assert!(api.api_key.is_none());
     assert!(api.base_url.is_none());
@@ -23,6 +24,7 @@ fn claude_config_empty_map_returns_all_none() {
 #[test]
 fn claude_config_reads_snake_case_keys() {
     let mut config = HashMap::new();
+    config.insert("use_local_provider".to_string(), serde_json::json!(true));
     config.insert("auth_token".to_string(), serde_json::json!("tok"));
     config.insert("api_key".to_string(), serde_json::json!("key"));
     config.insert("base_url".to_string(), serde_json::json!("https://x"));
@@ -32,6 +34,7 @@ fn claude_config_reads_snake_case_keys() {
     config.insert("chrome_enabled".to_string(), serde_json::json!(true));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.use_local_provider, Some(true));
     assert_eq!(api.auth_token.as_deref(), Some("tok"));
     assert_eq!(api.api_key.as_deref(), Some("key"));
     assert_eq!(api.base_url.as_deref(), Some("https://x"));
@@ -44,6 +47,7 @@ fn claude_config_reads_snake_case_keys() {
 #[test]
 fn claude_config_reads_camel_case_keys() {
     let mut config = HashMap::new();
+    config.insert("useLocalProvider".to_string(), serde_json::json!(false));
     config.insert("authToken".to_string(), serde_json::json!("tok"));
     config.insert("apiKey".to_string(), serde_json::json!("key"));
     config.insert("baseUrl".to_string(), serde_json::json!("https://x"));
@@ -53,6 +57,7 @@ fn claude_config_reads_camel_case_keys() {
     config.insert("chromeEnabled".to_string(), serde_json::json!(true));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert_eq!(api.use_local_provider, Some(false));
     assert_eq!(api.auth_token.as_deref(), Some("tok"));
     assert_eq!(api.api_key.as_deref(), Some("key"));
     assert_eq!(api.base_url.as_deref(), Some("https://x"));
@@ -88,10 +93,12 @@ fn claude_config_falls_back_to_camel_when_snake_missing() {
 #[test]
 fn claude_config_ignores_wrong_types() {
     let mut config = HashMap::new();
+    config.insert("use_local_provider".to_string(), serde_json::json!("yes"));
     config.insert("auth_token".to_string(), serde_json::json!(42));
     config.insert("thinking_enabled".to_string(), serde_json::json!("yes"));
 
     let api = ClaudeApiConfig::from_agent_config(&config);
+    assert!(api.use_local_provider.is_none());
     assert!(api.auth_token.is_none());
     assert!(api.thinking_enabled.is_none());
 }
