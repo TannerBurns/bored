@@ -16,13 +16,13 @@ use crate::commands::agent_settings::AgentSettingsManager;
 use crate::commands::next_steps::{get_branch_diff_sync, get_ticket_working_dir};
 use crate::commands::ApiConnState;
 use crate::db::models::{
-    CreateValidationMessage, CreateValidationSession, FixTask, ValidationMessage,
+    CreateValidationMessage, CreateValidationSession, FixTask, TaskStatus, ValidationMessage,
     ValidationMessageRole, ValidationSession, ValidationSessionStatus,
 };
 use crate::db::Database;
 
 /// Helper: get a follow-up response from the agent, save it, process fix tasks, and return the
-/// response text + saved message. Used by the unified command loop.
+/// response text + saved message + any created fix-task IDs.
 async fn send_agent_followup(
     agent: &crate::agents::validation_agent::ValidationAgent,
     db: &Arc<Database>,
@@ -30,7 +30,7 @@ async fn send_agent_followup(
     session_id: &str,
     session: &ValidationSession,
     ticket: &crate::db::models::Ticket,
-) -> Result<(String, ValidationMessage), String> {
+) -> Result<(String, ValidationMessage, Vec<String>), String> {
     let msgs = db.get_validation_messages(session_id).map_err(|e| e.to_string())?;
     let next_response = agent.process_message(&msgs).await.map_err(|e| {
         tracing::error!("Validation agent follow-up error: {}", e);
@@ -56,16 +56,17 @@ async fn send_agent_followup(
         role: "assistant".to_string(),
     });
 
-    process_fix_tasks_in_response(
+    let fix_task_ids = process_fix_tasks_in_response(
         &next_response, db, session_id, &session.ticket_id,
         &ticket.title, &ticket.board_id, event_tx,
     );
 
-    Ok((next_response, next_msg))
+    Ok((next_response, next_msg, fix_task_ids))
 }
 
 /// Process any create_fix_task blocks found in an agent response.
 /// Creates tasks in the DB, updates session status, moves ticket to Ready, and emits events.
+/// Returns the IDs of any tasks that were created.
 fn process_fix_tasks_in_response(
     response_text: &str,
     db: &Arc<Database>,
@@ -74,10 +75,10 @@ fn process_fix_tasks_in_response(
     ticket_title: &str,
     ticket_board_id: &str,
     event_tx: &broadcast::Sender<LiveEvent>,
-) {
+) -> Vec<String> {
     let fix_block = match parse_create_fix_tasks_from_response(response_text) {
         Some(block) => block,
-        None => return,
+        None => return Vec::new(),
     };
 
     let mut task_ids = Vec::new();
@@ -133,6 +134,133 @@ fn process_fix_tasks_in_response(
             task_count: task_ids.len(),
         });
     }
+
+    task_ids
+}
+
+/// Poll the DB until all tasks in `task_ids` reach a terminal state (completed/failed),
+/// emitting progress log events so the UI keeps showing the thinking indicator.
+async fn wait_for_fix_tasks(
+    task_ids: &[String],
+    db: &Arc<Database>,
+    event_tx: &broadcast::Sender<LiveEvent>,
+    session_id: &str,
+) {
+    if task_ids.is_empty() {
+        return;
+    }
+
+    const POLL_INTERVAL_SECS: u64 = 5;
+    const MAX_WAIT_SECS: u64 = 30 * 60;
+    let timeout = std::time::Duration::from_secs(MAX_WAIT_SECS);
+    let start = std::time::Instant::now();
+
+    let _ = event_tx.send(LiveEvent::ValidationLogEntry {
+        session_id: session_id.to_string(),
+        stream: "stdout".to_string(),
+        message: "Waiting for worker agent to complete fix tasks...".to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    });
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
+
+        let mut completed = 0usize;
+        let mut failed = 0usize;
+        let mut still_pending = 0usize;
+
+        for id in task_ids {
+            match db.get_task(id) {
+                Ok(task) => match task.status {
+                    TaskStatus::Completed => completed += 1,
+                    TaskStatus::Failed => failed += 1,
+                    _ => still_pending += 1,
+                },
+                Err(_) => completed += 1,
+            }
+        }
+
+        if still_pending == 0 {
+            break;
+        }
+
+        if start.elapsed() > timeout {
+            tracing::warn!(
+                "Timed out waiting for fix tasks in session {} ({} still pending)",
+                session_id, still_pending
+            );
+            break;
+        }
+
+        let _ = event_tx.send(LiveEvent::ValidationLogEntry {
+            session_id: session_id.to_string(),
+            stream: "stdout".to_string(),
+            message: format!(
+                "Fix tasks: {} completed, {} failed, {} in progress",
+                completed, failed, still_pending
+            ),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        });
+    }
+}
+
+/// After fix tasks finish, post a system message summarizing the outcome
+/// and asking the user about next steps (without auto-starting the app).
+fn post_fix_tasks_completion_message(
+    task_ids: &[String],
+    db: &Arc<Database>,
+    event_tx: &broadcast::Sender<LiveEvent>,
+    session_id: &str,
+) -> Option<ValidationMessage> {
+    if task_ids.is_empty() {
+        return None;
+    }
+
+    let mut completed = 0usize;
+    let mut failed = 0usize;
+    for id in task_ids {
+        if let Ok(task) = db.get_task(id) {
+            match task.status {
+                TaskStatus::Completed => completed += 1,
+                TaskStatus::Failed => failed += 1,
+                _ => {}
+            }
+        }
+    }
+
+    let content = if failed == 0 && completed > 0 {
+        format!(
+            "All {} fix task(s) completed successfully. Would you like to re-validate the changes, or is there anything else to check?",
+            completed
+        )
+    } else if completed == 0 && failed > 0 {
+        format!(
+            "All {} fix task(s) failed. Would you like to review what went wrong and try again?",
+            failed
+        )
+    } else {
+        format!(
+            "{} fix task(s) completed and {} failed. Would you like to review the results?",
+            completed, failed
+        )
+    };
+
+    let msg = db
+        .create_validation_message(&CreateValidationMessage {
+            session_id: session_id.to_string(),
+            role: ValidationMessageRole::System,
+            content,
+            metadata: Some(serde_json::json!({ "type": "fix_tasks_completed" })),
+        })
+        .ok()?;
+
+    let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+        session_id: session_id.to_string(),
+        message_id: msg.id.clone(),
+        role: "system".to_string(),
+    });
+
+    Some(msg)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -454,6 +582,7 @@ pub async fn send_validation_message(
     // so the agent can freely chain: run_command -> start_app -> (fail) -> run_command -> start_app
     let mut current_response = response_text.clone();
     let mut last_assistant_msg = assistant_msg;
+    let mut all_fix_task_ids: Vec<String> = Vec::new();
     const MAX_ROUNDS: usize = 10;
 
     for _round in 0..MAX_ROUNDS {
@@ -501,9 +630,10 @@ pub async fn send_validation_message(
                 metadata: None,
             });
 
-            let (next_response, next_msg) = send_agent_followup(
+            let (next_response, next_msg, fix_ids) = send_agent_followup(
                 &agent, &db, &event_tx, &session_id, &session, &ticket,
             ).await?;
+            all_fix_task_ids.extend(fix_ids);
             current_response = next_response;
             last_assistant_msg = next_msg;
             continue;
@@ -538,9 +668,10 @@ pub async fn send_validation_message(
                         metadata: None,
                     });
 
-                    let (next_response, next_msg) = send_agent_followup(
+                    let (next_response, next_msg, fix_ids) = send_agent_followup(
                         &agent, &db, &event_tx, &session_id, &session, &ticket,
                     ).await?;
+                    all_fix_task_ids.extend(fix_ids);
                     current_response = next_response;
                     last_assistant_msg = next_msg;
                     continue; // agent may respond with run_command or start_app
@@ -613,14 +744,16 @@ pub async fn send_validation_message(
             // Process fix tasks from both the initial response and the follow-up
             // before returning. Without this, fix tasks in a response that also
             // contains a start_app block would be silently dropped by the early return.
-            process_fix_tasks_in_response(
+            let fix_ids_1 = process_fix_tasks_in_response(
                 &response_text, db.inner(), &session_id, &session.ticket_id,
                 &ticket.title, &ticket.board_id, event_tx.inner(),
             );
-            process_fix_tasks_in_response(
+            let fix_ids_2 = process_fix_tasks_in_response(
                 &follow_up_response, db.inner(), &session_id, &session.ticket_id,
                 &ticket.title, &ticket.board_id, event_tx.inner(),
             );
+            all_fix_task_ids.extend(fix_ids_1);
+            all_fix_task_ids.extend(fix_ids_2);
 
             let follow_up_has_fix_task =
                 parse_create_fix_tasks_from_response(&follow_up_response).is_some();
@@ -644,6 +777,16 @@ pub async fn send_validation_message(
                 role: "assistant".to_string(),
             });
 
+            // Wait for any fix tasks to finish before returning to the user
+            if !all_fix_task_ids.is_empty() {
+                wait_for_fix_tasks(&all_fix_task_ids, db.inner(), event_tx.inner(), &session_id).await;
+                if let Some(completion_msg) = post_fix_tasks_completion_message(
+                    &all_fix_task_ids, db.inner(), event_tx.inner(), &session_id,
+                ) {
+                    return Ok(completion_msg);
+                }
+            }
+
             return Ok(second_assistant);
             }
         }
@@ -662,10 +805,21 @@ pub async fn send_validation_message(
     }
 
     // If the agent requested to create fix tasks, create them automatically
-    process_fix_tasks_in_response(
+    let fix_ids = process_fix_tasks_in_response(
         &current_response, db.inner(), &session_id, &session.ticket_id,
         &ticket.title, &ticket.board_id, event_tx.inner(),
     );
+    all_fix_task_ids.extend(fix_ids);
+
+    // Wait for any fix tasks to finish before returning to the user
+    if !all_fix_task_ids.is_empty() {
+        wait_for_fix_tasks(&all_fix_task_ids, db.inner(), event_tx.inner(), &session_id).await;
+        if let Some(completion_msg) = post_fix_tasks_completion_message(
+            &all_fix_task_ids, db.inner(), event_tx.inner(), &session_id,
+        ) {
+            return Ok(completion_msg);
+        }
+    }
 
     Ok(last_assistant_msg)
 }

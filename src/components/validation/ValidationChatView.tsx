@@ -20,7 +20,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     appLogs,
     loadMessages,
     sendMessage,
-    updateSessionStatus,
     stopApp,
   } = useValidationStore();
 
@@ -79,10 +78,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
     } catch {
       // Error handled in store
     }
-  };
-
-  const handlePassValidation = async () => {
-    await updateSessionStatus(session.id, 'passed');
   };
 
   const statusLabel = {
@@ -144,15 +139,6 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
           >
             Logs
           </button>
-
-          {session.status !== 'passed' && session.status !== 'failed' && (
-            <button
-              onClick={handlePassValidation}
-              className="px-3 py-1 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
-            >
-              Pass Validation
-            </button>
-          )}
         </div>
       </div>
 
