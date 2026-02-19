@@ -358,9 +358,9 @@ fn manager_multiple_agents_independent() {
     let claude = manager.agent_config_for("claude");
     let cursor = manager.agent_config_for("cursor");
     assert_eq!(claude.get("auth_token").and_then(|v| v.as_str()), Some("claude-tok"));
-    assert!(claude.get("custom_key").is_none());
+    assert!(!claude.contains_key("custom_key"));
     assert_eq!(cursor.get("custom_key").and_then(|v| v.as_str()), Some("cursor-val"));
-    assert!(cursor.get("auth_token").is_none());
+    assert!(!cursor.contains_key("auth_token"));
 }
 
 #[test]
@@ -377,7 +377,7 @@ fn manager_set_agent_config_replaces_entire_map() {
     manager.set_agent_config("agent", config2);
 
     let loaded = manager.agent_config_for("agent");
-    assert!(loaded.get("key_a").is_none(), "old keys should be replaced");
+    assert!(!loaded.contains_key("key_a"), "old keys should be replaced");
     assert_eq!(loaded.get("key_c").and_then(|v| v.as_str()), Some("val_c"));
 }
 
