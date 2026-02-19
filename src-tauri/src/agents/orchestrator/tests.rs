@@ -419,3 +419,55 @@ fn build_full_stage_order_respects_custom_ordering() {
         "cleanup should come before code-review in custom order"
     );
 }
+
+#[test]
+fn build_full_stage_order_filters_required_keys_from_frontend() {
+    let frontend_order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "codeReview".to_string(),
+        "cleanup".to_string(),
+        "unitTests".to_string(),
+        "finalReview".to_string(),
+        "deslop".to_string(),
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&frontend_order);
+
+    let mut seen = std::collections::HashSet::new();
+    for stage in &full {
+        assert!(
+            seen.insert(stage),
+            "Duplicate stage found in full_execution_order: {}",
+            stage
+        );
+    }
+    assert_eq!(*full.last().unwrap(), "add-and-commit");
+    let commit_count = full.iter().filter(|&&s| s == "add-and-commit").count();
+    assert_eq!(commit_count, 1, "add-and-commit should appear exactly once");
+}
+
+#[test]
+fn build_full_stage_order_frontend_input_matches_optional_only_input() {
+    let optional_only: Vec<String> = DEFAULT_OPTIONAL_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full_from_optional = build_full_stage_order(&optional_only);
+
+    let frontend_all = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "codeReview".to_string(),
+        "cleanup".to_string(),
+        "unitTests".to_string(),
+        "finalReview".to_string(),
+        "deslop".to_string(),
+        "commit".to_string(),
+    ];
+    let full_from_frontend = build_full_stage_order(&frontend_all);
+
+    assert_eq!(full_from_optional, full_from_frontend);
+}

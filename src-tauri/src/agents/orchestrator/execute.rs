@@ -239,7 +239,8 @@ impl WorkflowOrchestrator {
     /// Run the optional stages in the user-configured order, followed by commit.
     async fn run_ordered_stages(&self) -> Result<(), String> {
         for stage_key in &self.stage_order {
-            if matches!(stage_key.as_str(), "branchGen" | "plan" | "implement") {
+            // Required stages: branchGen/plan/implement handled by execute(), commit runs after loop
+            if matches!(stage_key.as_str(), "branchGen" | "plan" | "implement" | "commit") {
                 continue;
             }
 
@@ -271,6 +272,19 @@ impl WorkflowOrchestrator {
                 self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
                     .await?;
             }
+        }
+
+        // Commit always runs last (required stage with fixed position)
+        let cmd = "add-and-commit";
+        if self.should_skip_stage(cmd) {
+            tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+        } else if !self.is_stage_enabled(cmd) {
+            tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
+        } else if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        } else {
+            self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
+                .await?;
         }
 
         Ok(())

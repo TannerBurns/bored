@@ -76,12 +76,16 @@ pub fn expand_stage_key(key: &str) -> &'static [&'static str] {
 }
 
 /// Build the full execution-order list of backend stage names from a frontend stage order.
+/// The input may contain all 9 frontend keys (including required ones like branchGen, plan,
+/// implement, commit); required keys are filtered out since they occupy fixed positions.
 pub fn build_full_stage_order(optional_order: &[String]) -> Vec<&'static str> {
     let mut order: Vec<&'static str> = vec![
         "branch-gen", "branch", "plan", "plan-validation", "implement",
     ];
     for key in optional_order {
-        // code-review also includes code-review-fix for resume ordering
+        if matches!(key.as_str(), "branchGen" | "plan" | "implement" | "commit") {
+            continue;
+        }
         if key == "codeReview" {
             order.push("code-review");
             order.push("code-review-fix");
