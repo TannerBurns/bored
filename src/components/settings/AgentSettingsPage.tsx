@@ -100,7 +100,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
   const updateSetting = useCallback((key: string, value: unknown) => {
     setAgentSetting(agentId, key, value);
     const current = useSettingsStore.getState().getAgentSettings(agentId);
-    setAgentSettingsBackend(agentId, { ...current, [key]: value } as Record<string, unknown>)
+    setAgentSettingsBackend(agentId, { ...current, [key]: value })
       .catch((err) => console.warn('[codex] Failed to sync settings to backend:', err));
   }, [agentId, setAgentSetting]);
 
