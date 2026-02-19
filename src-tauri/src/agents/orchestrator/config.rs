@@ -52,19 +52,64 @@ pub struct OrchestratorConfig {
     pub stage_max_retries: u32,
 }
 
-/// The stages in a multi-stage workflow.
+/// Default ordering of optional stages (using frontend stage keys).
+/// The orchestrator expands these into backend execution stage names.
+pub const DEFAULT_OPTIONAL_STAGE_ORDER: &[&str] = &[
+    "codeReview",
+    "cleanup",
+    "unitTests",
+    "finalReview",
+    "deslop",
+];
+
+/// Expand a frontend stage key into its backend execution stage names.
+pub fn expand_stage_key(key: &str) -> &'static [&'static str] {
+    match key {
+        "codeReview" => &["code-review"],
+        "cleanup" => &["cleanup"],
+        "unitTests" => &["unit-tests", "cleanup-post-tests"],
+        "finalReview" => &["review-changes", "cleanup-post-review", "review-changes-final"],
+        "deslop" => &["deslop"],
+        "commit" => &["add-and-commit"],
+        _ => &[],
+    }
+}
+
+/// Build the full execution-order list of backend stage names from a frontend stage order.
+/// The input may contain all 9 frontend keys (including required ones like branchGen, plan,
+/// implement, commit); required keys are filtered out since they occupy fixed positions.
+pub fn build_full_stage_order(optional_order: &[String]) -> Vec<&'static str> {
+    let mut order: Vec<&'static str> = vec![
+        "branch-gen", "branch", "plan", "plan-validation", "implement",
+    ];
+    for key in optional_order {
+        if matches!(key.as_str(), "branchGen" | "plan" | "implement" | "commit") {
+            continue;
+        }
+        if key == "codeReview" {
+            order.push("code-review");
+            order.push("code-review-fix");
+        } else {
+            order.extend_from_slice(expand_stage_key(key));
+        }
+    }
+    order.push("add-and-commit");
+    order
+}
+
+/// The stages in a multi-stage workflow (default order for backward compat).
 /// The code-review loop runs dynamically after implement (not listed here).
 pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "branch",
     "plan",
     "implement",
-    "deslop",
     "cleanup",
     "unit-tests",
     "cleanup-post-tests",
     "review-changes",
     "cleanup-post-review",
     "review-changes-final",
+    "deslop",
     "add-and-commit",
 ];
 

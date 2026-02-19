@@ -30,6 +30,16 @@ export type WorkflowStageKey =
 
 export type WorkflowStages = Record<WorkflowStageKey, WorkflowStageConfig>;
 
+export const DEFAULT_STAGE_ORDER: WorkflowStageKey[] = [
+  'branchGen', 'plan', 'implement',
+  'codeReview', 'cleanup', 'unitTests', 'finalReview', 'deslop',
+  'commit',
+];
+
+export const OPTIONAL_STAGE_KEYS: ReadonlySet<WorkflowStageKey> = new Set<WorkflowStageKey>([
+  'codeReview', 'cleanup', 'unitTests', 'finalReview', 'deslop',
+]);
+
 export type WorkflowPreset =
   | 'comprehensive'
   | 'balanced'
@@ -51,17 +61,25 @@ export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
   { key: 'plan', label: 'Plan', description: 'Explore the codebase and generate an implementation plan', required: true },
   { key: 'implement', label: 'Implement', description: 'Write the code changes based on the plan', required: true },
   { key: 'codeReview', label: 'Code Review', description: 'Iterative review loop to find and fix issues', required: false },
-  { key: 'deslop', label: 'De-slop', description: 'Remove AI-generated slop and improve code taste', required: false },
   { key: 'cleanup', label: 'Cleanup', description: 'Run linters, fix build warnings, and clean up code', required: false },
   { key: 'unitTests', label: 'Unit Tests', description: 'Generate and run unit tests for the changes', required: false },
   { key: 'finalReview', label: 'Final Review', description: 'Senior code review for correctness and security', required: false },
+  { key: 'deslop', label: 'De-slop', description: 'Remove AI-generated slop and improve code taste', required: false },
   { key: 'commit', label: 'Commit', description: 'Stage changes and create a git commit', required: true },
 ];
 
-export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label: string; description: string; stages: WorkflowStages }> = {
+interface WorkflowPresetDef {
+  label: string;
+  description: string;
+  stages: WorkflowStages;
+  stageOrder: WorkflowStageKey[];
+}
+
+export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, WorkflowPresetDef> = {
   comprehensive: {
     label: 'Most Comprehensive',
     description: 'Maximum quality, highest cost — all stages with Opus 4.6',
+    stageOrder: [...DEFAULT_STAGE_ORDER],
     stages: {
       branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'opus-4.6' },
@@ -77,6 +95,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
   balanced: {
     label: 'Balanced',
     description: 'Smart cost/quality tradeoff — all stages, mixed models',
+    stageOrder: [...DEFAULT_STAGE_ORDER],
     stages: {
       branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'opus-4.6' },
@@ -92,6 +111,11 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
   vibe: {
     label: 'Vibe',
     description: 'Trust the implementation, light QA — creative core with Opus 4.6',
+    stageOrder: [
+      'branchGen', 'plan', 'implement',
+      'codeReview', 'deslop', 'cleanup', 'unitTests', 'finalReview',
+      'commit',
+    ],
     stages: {
       branchGen:   { enabled: true,  model: 'sonnet-4.6' },
       plan:        { enabled: true,  model: 'opus-4.6' },
@@ -107,6 +131,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
   standard: {
     label: 'Standard',
     description: 'Core workflow without polish — skips deslop and final review',
+    stageOrder: [...DEFAULT_STAGE_ORDER],
     stages: {
       branchGen:   { enabled: true,  model: 'sonnet-4.6' },
       plan:        { enabled: true,  model: 'opus-4.5' },
@@ -122,6 +147,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
   'quick-fix': {
     label: 'Quick Fix',
     description: 'Minimal stages for small changes — plan, implement, cleanup, commit',
+    stageOrder: [...DEFAULT_STAGE_ORDER],
     stages: {
       branchGen:   { enabled: true,  model: 'sonnet-4.6' },
       plan:        { enabled: true,  model: 'sonnet-4.6' },
@@ -137,6 +163,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
   fastest: {
     label: 'Fastest',
     description: 'Maximum speed — all stages with Sonnet 4.6',
+    stageOrder: [...DEFAULT_STAGE_ORDER],
     stages: {
       branchGen:   { enabled: true, model: 'sonnet-4.6' },
       plan:        { enabled: true, model: 'sonnet-4.6' },
@@ -154,6 +181,7 @@ export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, { label
 export interface AgentConfig {
   workflowPreset: WorkflowPreset;
   workflowStages: WorkflowStages;
+  stageOrder: WorkflowStageKey[];
   stageTimeoutHours: number;
   stageMaxRetries: number;
   codeReviewMaxIterations: number;
@@ -192,6 +220,7 @@ export function mapStagesForCodex(stages: WorkflowStages): WorkflowStages {
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   workflowPreset: DEFAULT_WORKFLOW_PRESET,
   workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
+  stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
@@ -222,6 +251,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   workflowPreset: DEFAULT_WORKFLOW_PRESET,
   workflowStages: mapStagesForCodex(DEFAULT_WORKFLOW_STAGES),
+  stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
@@ -252,6 +282,7 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
   return {
     ...base,
     workflowStages: deepCopyStages(base.workflowStages),
+    stageOrder: [...base.stageOrder],
     settings: { ...(settingsOverride ?? base.settings) },
   };
 }
@@ -272,4 +303,10 @@ export function getPresetStagesForAgent(
   const stages = deepCopyStages(WORKFLOW_PRESETS[preset].stages);
   if (agentId === 'codex') return mapStagesForCodex(stages);
   return stages;
+}
+
+export function getPresetStageOrder(
+  preset: Exclude<WorkflowPreset, 'custom'>,
+): WorkflowStageKey[] {
+  return [...WORKFLOW_PRESETS[preset].stageOrder];
 }

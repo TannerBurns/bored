@@ -4,12 +4,16 @@ import {
   mapStagesForCodex,
   getDefaultConfigForAgent,
   getPresetStagesForAgent,
+  getPresetStageOrder,
   WORKFLOW_PRESETS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   DEFAULT_WORKFLOW_PRESET,
   DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_STAGE_ORDER,
+  OPTIONAL_STAGE_KEYS,
   type WorkflowStages,
+  type WorkflowStageKey,
 } from './settingsStore.types';
 
 describe('mapModelForCodex', () => {
@@ -100,7 +104,7 @@ describe('getDefaultConfigForAgent', () => {
     expect(config.diagnosticModel).toBe('gpt-5.2-codex');
     expect(config.workflowStages.plan.model).toBe('gpt-5.3-codex');
     expect(config.workflowStages.branchGen.model).toBe('gpt-5.2-codex');
-    expect(config.settings).toEqual({});
+    expect(config.settings).toEqual({ ossEnabled: false, localProvider: 'ollama', modelOverride: '' });
   });
 
   it('returns claude-based defaults for unknown agent', () => {
@@ -177,5 +181,91 @@ describe('constants', () => {
 
   it('DEFAULT_WORKFLOW_STAGES matches balanced preset', () => {
     expect(DEFAULT_WORKFLOW_STAGES).toEqual(WORKFLOW_PRESETS.balanced.stages);
+  });
+
+  it('DEFAULT_STAGE_ORDER contains all 9 stage keys', () => {
+    expect(DEFAULT_STAGE_ORDER).toHaveLength(9);
+    expect(DEFAULT_STAGE_ORDER[0]).toBe('branchGen');
+    expect(DEFAULT_STAGE_ORDER[1]).toBe('plan');
+    expect(DEFAULT_STAGE_ORDER[2]).toBe('implement');
+    expect(DEFAULT_STAGE_ORDER[DEFAULT_STAGE_ORDER.length - 1]).toBe('commit');
+  });
+
+  it('DEFAULT_STAGE_ORDER has required stages pinned at start and end', () => {
+    const requiredStart = DEFAULT_STAGE_ORDER.slice(0, 3);
+    expect(requiredStart).toEqual(['branchGen', 'plan', 'implement']);
+    expect(DEFAULT_STAGE_ORDER[DEFAULT_STAGE_ORDER.length - 1]).toBe('commit');
+  });
+
+  it('OPTIONAL_STAGE_KEYS has exactly 5 optional stages', () => {
+    expect(OPTIONAL_STAGE_KEYS.size).toBe(5);
+    expect(OPTIONAL_STAGE_KEYS.has('codeReview')).toBe(true);
+    expect(OPTIONAL_STAGE_KEYS.has('cleanup')).toBe(true);
+    expect(OPTIONAL_STAGE_KEYS.has('unitTests')).toBe(true);
+    expect(OPTIONAL_STAGE_KEYS.has('finalReview')).toBe(true);
+    expect(OPTIONAL_STAGE_KEYS.has('deslop')).toBe(true);
+  });
+
+  it('OPTIONAL_STAGE_KEYS does not contain required stages', () => {
+    expect(OPTIONAL_STAGE_KEYS.has('branchGen')).toBe(false);
+    expect(OPTIONAL_STAGE_KEYS.has('plan')).toBe(false);
+    expect(OPTIONAL_STAGE_KEYS.has('implement')).toBe(false);
+    expect(OPTIONAL_STAGE_KEYS.has('commit')).toBe(false);
+  });
+});
+
+describe('getPresetStageOrder', () => {
+  it('returns the default order for balanced preset', () => {
+    const order = getPresetStageOrder('balanced');
+    expect(order).toEqual(DEFAULT_STAGE_ORDER);
+  });
+
+  it('vibe preset puts deslop before cleanup', () => {
+    const order = getPresetStageOrder('vibe');
+    const deslopIdx = order.indexOf('deslop');
+    const cleanupIdx = order.indexOf('cleanup');
+    expect(deslopIdx).toBeLessThan(cleanupIdx);
+  });
+
+  it.each(['comprehensive', 'balanced', 'standard', 'quick-fix', 'fastest'] as const)(
+    '%s preset uses default stage order',
+    (preset) => {
+      expect(getPresetStageOrder(preset)).toEqual(DEFAULT_STAGE_ORDER);
+    },
+  );
+
+  it('returns independent copy (not shared reference)', () => {
+    const a = getPresetStageOrder('balanced');
+    const b = getPresetStageOrder('balanced');
+    a[0] = 'modified' as WorkflowStageKey;
+    expect(b[0]).toBe('branchGen');
+  });
+
+  it('every preset stageOrder contains all 9 stage keys', () => {
+    const allKeys = new Set(DEFAULT_STAGE_ORDER);
+    for (const [name, preset] of Object.entries(WORKFLOW_PRESETS)) {
+      const orderSet = new Set(preset.stageOrder);
+      for (const key of allKeys) {
+        expect(orderSet.has(key), `${name} stageOrder missing ${key}`).toBe(true);
+      }
+      expect(preset.stageOrder.length, `${name} stageOrder has wrong length`).toBe(9);
+    }
+  });
+});
+
+describe('stageOrder in AgentConfig', () => {
+  it('default configs include stageOrder', () => {
+    for (const agentId of ['claude', 'cursor', 'codex']) {
+      const config = getDefaultConfigForAgent(agentId);
+      expect(config.stageOrder).toBeDefined();
+      expect(config.stageOrder).toHaveLength(9);
+    }
+  });
+
+  it('cloneConfig produces independent stageOrder copy', () => {
+    const a = getDefaultConfigForAgent('claude');
+    const b = getDefaultConfigForAgent('claude');
+    a.stageOrder[3] = 'deslop';
+    expect(b.stageOrder[3]).toBe('codeReview');
   });
 });

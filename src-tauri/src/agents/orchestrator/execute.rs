@@ -8,6 +8,7 @@ use crate::agents::prompt::{
     generate_command_prompt_with_providers, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
 };
+use super::config::expand_stage_key;
 use crate::db::models::TaskType;
 
 impl WorkflowOrchestrator {
@@ -27,20 +28,11 @@ impl WorkflowOrchestrator {
         // Stage 2: Implement
         self.run_implement_stage(&plan).await?;
 
-        // Code review loop
-        if self.should_skip_stage("code-review") {
-            tracing::info!("Skipping code-review loop (resuming from later stage)");
-        } else if !self.is_stage_enabled("code-review") {
-            tracing::info!("Skipping code-review loop (disabled in workflow settings)");
-        } else {
-            self.run_code_review_loop().await?;
-        }
-
         // Move ticket to "Review" when entering QA phase
         self.move_ticket_to_column("Review");
 
-        // Stage 3+: QA Commands
-        self.run_qa_stages().await?;
+        // Run optional stages in the user-configured order, then commit
+        self.run_ordered_stages().await?;
 
         // Move ticket to "Done" when workflow completes successfully
         self.move_ticket_to_column("Done");
@@ -244,35 +236,53 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
-    /// Run the QA command stages.
-    async fn run_qa_stages(&self) -> Result<(), String> {
-        let qa_commands = &[
-            "deslop",
-            "cleanup",
-            "unit-tests",
-            "cleanup-post-tests",
-            "review-changes",
-            "cleanup-post-review",
-            "review-changes-final",
-            "add-and-commit",
-        ];
-
-        for cmd in qa_commands {
-            // Skip commands that come before the resume point
-            if self.should_skip_stage(cmd) {
-                tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+    /// Run the optional stages in the user-configured order, followed by commit.
+    async fn run_ordered_stages(&self) -> Result<(), String> {
+        for stage_key in &self.stage_order {
+            // Required stages: branchGen/plan/implement handled by execute(), commit runs after loop
+            if matches!(stage_key.as_str(), "branchGen" | "plan" | "implement" | "commit") {
                 continue;
             }
 
-            // Skip commands that are disabled in workflow settings
-            if !self.is_stage_enabled(cmd) {
-                tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
+            if stage_key == "codeReview" {
+                if self.should_skip_stage("code-review") {
+                    tracing::info!("Skipping code-review loop (resuming from later stage)");
+                } else if !self.is_stage_enabled("code-review") {
+                    tracing::info!("Skipping code-review loop (disabled in workflow settings)");
+                } else if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                } else {
+                    self.run_code_review_loop().await?;
+                }
                 continue;
             }
 
-            if self.is_cancelled() {
-                return Err("Workflow cancelled".to_string());
+            for cmd in expand_stage_key(stage_key) {
+                if self.should_skip_stage(cmd) {
+                    tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+                    continue;
+                }
+                if !self.is_stage_enabled(cmd) {
+                    tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
+                    continue;
+                }
+                if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                }
+                self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
+                    .await?;
             }
+        }
+
+        // Commit always runs last (required stage with fixed position)
+        let cmd = "add-and-commit";
+        if self.should_skip_stage(cmd) {
+            tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+        } else if !self.is_stage_enabled(cmd) {
+            tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
+        } else if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        } else {
             self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
                 .await?;
         }

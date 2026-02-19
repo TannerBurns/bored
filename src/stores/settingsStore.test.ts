@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSettingsStore, WORKFLOW_PRESETS, WORKFLOW_STAGE_INFO, MODEL_OPTIONS } from './settingsStore';
+import { useSettingsStore, WORKFLOW_PRESETS, WORKFLOW_STAGE_INFO, MODEL_OPTIONS, DEFAULT_STAGE_ORDER } from './settingsStore';
 import type { WorkflowPreset, WorkflowStageKey } from './settingsStore';
 
 describe('useSettingsStore', () => {
@@ -399,12 +399,15 @@ describe('useSettingsStore', () => {
       const required = WORKFLOW_STAGE_INFO.filter(s => s.required).map(s => s.key);
       const optional = WORKFLOW_STAGE_INFO.filter(s => !s.required).map(s => s.key);
       expect(required).toEqual(['branchGen', 'plan', 'implement', 'commit']);
-      expect(optional).toEqual(['codeReview', 'deslop', 'cleanup', 'unitTests', 'finalReview']);
+      expect(optional).toEqual(['codeReview', 'cleanup', 'unitTests', 'finalReview', 'deslop']);
     });
 
     it('WORKFLOW_STAGE_INFO covers all stage keys', () => {
-      const infoKeys = WORKFLOW_STAGE_INFO.map(s => s.key);
-      expect(infoKeys).toEqual(allStageKeys);
+      const infoKeys = new Set(WORKFLOW_STAGE_INFO.map(s => s.key));
+      for (const key of allStageKeys) {
+        expect(infoKeys.has(key), `Missing stage key: ${key}`).toBe(true);
+      }
+      expect(infoKeys.size).toBe(allStageKeys.length);
     });
   });
 
@@ -713,11 +716,135 @@ describe('useSettingsStore', () => {
     });
   });
 
-  describe('persist config', () => {
-    it('uses version 12', () => {
+  describe('setAgentConfigStageOrder', () => {
+    beforeEach(() => {
+      useSettingsStore.getState().setAgentConfigWorkflowPreset('claude', 'balanced');
+    });
+
+    it('updates stage order and switches to custom', () => {
+      const newOrder: WorkflowStageKey[] = [
+        'branchGen', 'plan', 'implement',
+        'deslop', 'cleanup', 'codeReview', 'unitTests', 'finalReview',
+        'commit',
+      ];
+      useSettingsStore.getState().setAgentConfigStageOrder('claude', newOrder);
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.workflowPreset).toBe('custom');
+      expect(config.stageOrder).toEqual(newOrder);
+    });
+
+    it('does not affect other agents', () => {
+      useSettingsStore.getState().setAgentConfigWorkflowPreset('cursor', 'balanced');
+      const newOrder: WorkflowStageKey[] = [
+        'branchGen', 'plan', 'implement',
+        'deslop', 'codeReview', 'cleanup', 'unitTests', 'finalReview',
+        'commit',
+      ];
+      useSettingsStore.getState().setAgentConfigStageOrder('claude', newOrder);
+      const cursorConfig = useSettingsStore.getState().getAgentConfig('cursor');
+      expect(cursorConfig.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+      expect(cursorConfig.workflowPreset).toBe('balanced');
+    });
+
+    it('stores a copy (not a reference)', () => {
+      const order: WorkflowStageKey[] = [...DEFAULT_STAGE_ORDER];
+      useSettingsStore.getState().setAgentConfigStageOrder('claude', order);
+      order[3] = 'deslop';
+      expect(useSettingsStore.getState().getAgentConfig('claude').stageOrder[3]).toBe('codeReview');
+    });
+  });
+
+  describe('setAgentConfigWorkflowPreset sets stageOrder', () => {
+    it('preset sets stageOrder from preset definition', () => {
+      useSettingsStore.getState().setAgentConfigWorkflowPreset('claude', 'vibe');
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.stageOrder).toEqual(WORKFLOW_PRESETS.vibe.stageOrder);
+    });
+
+    it('switching to custom preserves existing stageOrder', () => {
+      useSettingsStore.getState().setAgentConfigWorkflowPreset('claude', 'vibe');
+      const orderBefore = [...useSettingsStore.getState().getAgentConfig('claude').stageOrder];
+      useSettingsStore.getState().setAgentConfigWorkflowPreset('claude', 'custom');
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.stageOrder).toEqual(orderBefore);
+    });
+  });
+
+  describe('workflow preset stageOrder data', () => {
+    it('every preset defines a stageOrder with all 9 stages', () => {
+      const allKeys = new Set(DEFAULT_STAGE_ORDER);
+      for (const [name, preset] of Object.entries(WORKFLOW_PRESETS)) {
+        expect(preset.stageOrder, `${name} stageOrder`).toHaveLength(9);
+        for (const key of allKeys) {
+          expect(preset.stageOrder.includes(key), `${name} missing ${key}`).toBe(true);
+        }
+      }
+    });
+
+    it('every preset stageOrder starts with branchGen/plan/implement and ends with commit', () => {
+      for (const [name, preset] of Object.entries(WORKFLOW_PRESETS)) {
+        expect(preset.stageOrder.slice(0, 3), `${name} start`).toEqual(['branchGen', 'plan', 'implement']);
+        expect(preset.stageOrder[preset.stageOrder.length - 1], `${name} end`).toBe('commit');
+      }
+    });
+  });
+
+  describe('workflow migration v12->v13 (stageOrder)', () => {
+    it('adds stageOrder to existing agentConfigs', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(12);
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: { workflowPreset: 'balanced', workflowStages: {} },
+            cursor: { workflowPreset: 'custom', workflowStages: {} },
+          },
+        } as unknown,
+        12
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { stageOrder: unknown }>;
+      expect(configs.claude.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+      expect(configs.cursor.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+    });
+
+    it('does not overwrite existing stageOrder', () => {
+      const customOrder = ['branchGen', 'plan', 'implement', 'deslop', 'codeReview', 'cleanup', 'unitTests', 'finalReview', 'commit'];
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: { stageOrder: customOrder },
+          },
+        } as unknown,
+        12
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { stageOrder: unknown }>;
+      expect(configs.claude.stageOrder).toEqual(customOrder);
+    });
+
+    it('full migration from v0 includes stageOrder', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { plannerModel: 'default' } as unknown,
+        0
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { stageOrder: unknown }>;
+      expect(configs.claude.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+      expect(configs.cursor.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+      expect(configs.codex.stageOrder).toEqual(DEFAULT_STAGE_ORDER);
+    });
+  });
+
+  describe('persist config', () => {
+    it('uses version 13', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      expect(options.version).toBe(13);
     });
   });
 

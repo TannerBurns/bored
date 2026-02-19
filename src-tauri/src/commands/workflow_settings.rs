@@ -33,6 +33,10 @@ pub struct WorkflowSettings {
     /// Model for the diagnostic agent (defaults to sonnet-4.6).
     #[serde(default = "default_diagnostic_model")]
     pub diagnostic_model: String,
+    /// Custom stage ordering (frontend stage keys, e.g. "codeReview", "cleanup").
+    /// Only contains the optional (reorderable) stage keys; required stages are fixed.
+    #[serde(default)]
+    pub stage_order: Option<Vec<String>>,
     /// Whether the frontend has synced settings at least once.
     /// This is `false` on the default-constructed value and set to `true`
     /// by `sync_workflow_settings`. The orchestrator uses this flag (not
@@ -53,6 +57,7 @@ impl Default for WorkflowSettings {
             stage_timeout_hours: 1,
             stage_max_retries: 2,
             diagnostic_model: default_diagnostic_model(),
+            stage_order: None,
             synced: false,
         }
     }
@@ -450,5 +455,53 @@ mod tests {
 
         assert!(!state.get_for_agent("old-agent").synced);
         assert_eq!(state.get_for_agent("old-agent").code_review_max_iterations, 3);
+    }
+
+    #[test]
+    fn workflow_settings_default_has_no_stage_order() {
+        let settings = WorkflowSettings::default();
+        assert!(settings.stage_order.is_none());
+    }
+
+    #[test]
+    fn workflow_settings_serializes_stage_order() {
+        let settings = WorkflowSettings {
+            stage_order: Some(vec![
+                "codeReview".to_string(),
+                "deslop".to_string(),
+                "cleanup".to_string(),
+            ]),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("stageOrder"));
+        assert!(json.contains("codeReview"));
+        assert!(json.contains("deslop"));
+    }
+
+    #[test]
+    fn workflow_settings_deserializes_stage_order() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2,
+            "stageOrder":["deslop","cleanup","codeReview"]
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        let order = settings.stage_order.unwrap();
+        assert_eq!(order, vec!["deslop", "cleanup", "codeReview"]);
+    }
+
+    #[test]
+    fn workflow_settings_deserializes_without_stage_order() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.stage_order.is_none());
     }
 }
