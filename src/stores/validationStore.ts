@@ -7,7 +7,6 @@ import {
   getValidationMessages as apiGetMessages,
   sendValidationMessage as apiSendMessage,
   stopValidationApp as apiStopValidationApp,
-  updateValidationSessionStatus as apiUpdateStatus,
   deleteValidationSession as apiDeleteSession,
   pushBranch as apiPushBranch,
   createPullRequest as apiCreatePR,
@@ -54,7 +53,6 @@ interface ValidationState {
     agentType?: string;
   }) => Promise<ValidationSession>;
   selectSession: (session: ValidationSession | null) => void;
-  updateSessionStatus: (sessionId: string, status: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   refreshSession: (sessionId: string) => Promise<void>;
 
@@ -128,23 +126,6 @@ export const useValidationStore = create<ValidationState>((set) => ({
       isAgentThinking: false,
       error: null,
     });
-  },
-
-  updateSessionStatus: async (sessionId, status) => {
-    try {
-      await apiUpdateStatus(sessionId, status);
-      const session = await apiGetSession(sessionId);
-      set((state) => ({
-        currentSession:
-          state.currentSession?.id === sessionId ? session : state.currentSession,
-        sessions: state.sessions.map((s) =>
-          s.id === sessionId ? session : s
-        ),
-      }));
-    } catch (e) {
-      logger.error('Failed to update validation session status', e);
-      set({ error: String(e) });
-    }
   },
 
   deleteSession: async (sessionId) => {

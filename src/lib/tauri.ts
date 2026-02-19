@@ -345,13 +345,6 @@ export async function getValidationSessions(
   return invoke('get_validation_sessions', { ticketId });
 }
 
-export async function updateValidationSessionStatus(
-  sessionId: string,
-  status: string
-): Promise<void> {
-  return invoke('update_validation_session_status', { sessionId, status });
-}
-
 export async function deleteValidationSession(
   sessionId: string
 ): Promise<void> {
