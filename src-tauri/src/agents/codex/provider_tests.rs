@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::provider::*;
 use crate::agents::provider::AgentProvider;
 
@@ -168,4 +170,75 @@ fn extract_cost_empty_output_returns_none() {
     let p = CodexProvider::new();
     let cost = p.extract_cost("", "gpt-5.3-codex", 0.0);
     assert!(cost.is_none());
+}
+
+// ── CodexApiConfig tests ───────────────────────────────────────────
+
+#[test]
+fn api_config_empty_map_returns_all_none() {
+    let map = HashMap::new();
+    let config = CodexApiConfig::from_agent_config(&map);
+    assert!(config.oss_enabled.is_none());
+    assert!(config.local_provider.is_none());
+    assert!(config.model_override.is_none());
+}
+
+#[test]
+fn api_config_reads_snake_case_keys() {
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(true));
+    map.insert("local_provider".into(), serde_json::json!("ollama"));
+    map.insert("model_override".into(), serde_json::json!("llama3.2"));
+
+    let config = CodexApiConfig::from_agent_config(&map);
+    assert_eq!(config.oss_enabled, Some(true));
+    assert_eq!(config.local_provider.as_deref(), Some("ollama"));
+    assert_eq!(config.model_override.as_deref(), Some("llama3.2"));
+}
+
+#[test]
+fn api_config_reads_camel_case_keys() {
+    let mut map = HashMap::new();
+    map.insert("ossEnabled".into(), serde_json::json!(false));
+    map.insert("localProvider".into(), serde_json::json!("lmstudio"));
+    map.insert("modelOverride".into(), serde_json::json!("codestral"));
+
+    let config = CodexApiConfig::from_agent_config(&map);
+    assert_eq!(config.oss_enabled, Some(false));
+    assert_eq!(config.local_provider.as_deref(), Some("lmstudio"));
+    assert_eq!(config.model_override.as_deref(), Some("codestral"));
+}
+
+#[test]
+fn api_config_snake_case_takes_precedence() {
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(true));
+    map.insert("ossEnabled".into(), serde_json::json!(false));
+    map.insert("local_provider".into(), serde_json::json!("ollama"));
+    map.insert("localProvider".into(), serde_json::json!("lmstudio"));
+
+    let config = CodexApiConfig::from_agent_config(&map);
+    assert_eq!(config.oss_enabled, Some(true));
+    assert_eq!(config.local_provider.as_deref(), Some("ollama"));
+}
+
+#[test]
+fn api_config_wrong_type_returns_none() {
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!("not-a-bool"));
+    map.insert("local_provider".into(), serde_json::json!(42));
+    map.insert("model_override".into(), serde_json::json!(true));
+
+    let config = CodexApiConfig::from_agent_config(&map);
+    assert!(config.oss_enabled.is_none());
+    assert!(config.local_provider.is_none());
+    assert!(config.model_override.is_none());
+}
+
+#[test]
+fn api_config_default_trait() {
+    let config = CodexApiConfig::default();
+    assert!(config.oss_enabled.is_none());
+    assert!(config.local_provider.is_none());
+    assert!(config.model_override.is_none());
 }

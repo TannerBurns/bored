@@ -169,4 +169,14 @@ mod tests {
         assert!(args.contains(&"--oss".to_string()));
         assert!(!args.contains(&"--local-provider".to_string()));
     }
+
+    #[test]
+    fn build_command_oss_with_empty_local_provider() {
+        let mut config = create_test_config();
+        config.agent_config.insert("ossEnabled".into(), serde_json::json!(true));
+        config.agent_config.insert("localProvider".into(), serde_json::json!(""));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--oss".to_string()));
+        assert!(!args.contains(&"--local-provider".to_string()));
+    }
 }
