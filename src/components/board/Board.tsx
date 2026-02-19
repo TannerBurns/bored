@@ -1,14 +1,18 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   DndContext,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
+  MeasuringStrategy,
   PointerSensor,
   useSensor,
   useSensors,
-  closestCorners,
+  pointerWithin,
+  rectIntersection,
+  closestCenter,
 } from '@dnd-kit/core';
+import type { CollisionDetection } from '@dnd-kit/core';
 import { Column } from './Column';
 import { TicketPreview } from './TicketPreview';
 import { TransitionErrorToast, validateTransition } from './TransitionGuard';
@@ -30,6 +34,33 @@ export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClic
     useSensor(PointerSensor, {
       activationConstraint: { distance: 8 },
     })
+  );
+
+  const columnIds = useMemo(() => new Set(columns.map((c) => c.id)), [columns]);
+
+  // Prioritize column droppables over ticket sortables so the correct
+  // target column is always identified regardless of ticket geometry.
+  const collisionDetection: CollisionDetection = useCallback(
+    (args) => {
+      const pointerCollisions = pointerWithin(args);
+      const columnHits = pointerCollisions.filter((c) => columnIds.has(c.id as string));
+      if (columnHits.length > 0) return columnHits;
+
+      const rectCollisions = rectIntersection(args);
+      const rectColumnHits = rectCollisions.filter((c) => columnIds.has(c.id as string));
+      if (rectColumnHits.length > 0) return rectColumnHits;
+      if (rectCollisions.length > 0) return rectCollisions;
+
+      const centerCollisions = closestCenter(args);
+      const centerColumnHits = centerCollisions.filter((c) => columnIds.has(c.id as string));
+      return centerColumnHits.length > 0 ? centerColumnHits : centerCollisions;
+    },
+    [columnIds],
+  );
+
+  const measuring = useMemo(
+    () => ({ droppable: { strategy: MeasuringStrategy.Always } }),
+    [],
   );
 
   const showError = useCallback((message: string) => {
@@ -84,7 +115,8 @@ export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClic
     <>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={collisionDetection}
+        measuring={measuring}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
