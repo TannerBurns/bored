@@ -1,7 +1,10 @@
 //! Tests for the orchestrator module.
 
 use super::code_review::{extract_issues_section, parse_code_review_issues};
-use super::config::{StageEvent, MULTI_STAGE_WORKFLOW};
+use super::config::{
+    build_full_stage_order, expand_stage_key, StageEvent, DEFAULT_OPTIONAL_STAGE_ORDER,
+    MULTI_STAGE_WORKFLOW,
+};
 
 #[test]
 fn module_reexports_are_accessible() {
@@ -97,13 +100,13 @@ fn multi_stage_workflow_has_expected_stages() {
 #[test]
 fn multi_stage_workflow_correct_order() {
     let expected_qa_order = [
-        "deslop",
         "cleanup",
         "unit-tests",
         "cleanup-post-tests",
         "review-changes",
         "cleanup-post-review",
         "review-changes-final",
+        "deslop",
         "add-and-commit",
     ];
 
@@ -345,5 +348,74 @@ fn stage_config_key_passes_through_unknown() {
     assert_eq!(
         WorkflowOrchestrator::stage_config_key("unknown-stage"),
         "unknown-stage"
+    );
+}
+
+// --- expand_stage_key tests ---
+
+#[test]
+fn expand_stage_key_maps_all_known_keys() {
+    assert_eq!(expand_stage_key("codeReview"), &["code-review"]);
+    assert_eq!(expand_stage_key("cleanup"), &["cleanup"]);
+    assert_eq!(
+        expand_stage_key("unitTests"),
+        &["unit-tests", "cleanup-post-tests"]
+    );
+    assert_eq!(
+        expand_stage_key("finalReview"),
+        &["review-changes", "cleanup-post-review", "review-changes-final"]
+    );
+    assert_eq!(expand_stage_key("deslop"), &["deslop"]);
+    assert_eq!(expand_stage_key("commit"), &["add-and-commit"]);
+}
+
+#[test]
+fn expand_stage_key_returns_empty_for_unknown() {
+    assert!(expand_stage_key("unknown").is_empty());
+    assert!(expand_stage_key("branchGen").is_empty());
+}
+
+// --- build_full_stage_order tests ---
+
+#[test]
+fn build_full_stage_order_default_includes_all_stages() {
+    let order: Vec<String> = DEFAULT_OPTIONAL_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    assert_eq!(full[0], "branch-gen");
+    assert_eq!(full[1], "branch");
+    assert_eq!(full[2], "plan");
+    assert_eq!(full[3], "plan-validation");
+    assert_eq!(full[4], "implement");
+    assert!(full.contains(&"code-review"));
+    assert!(full.contains(&"cleanup"));
+    assert!(full.contains(&"unit-tests"));
+    assert!(full.contains(&"deslop"));
+    assert_eq!(*full.last().unwrap(), "add-and-commit");
+}
+
+#[test]
+fn build_full_stage_order_respects_custom_ordering() {
+    let custom = vec![
+        "deslop".to_string(),
+        "cleanup".to_string(),
+        "codeReview".to_string(),
+    ];
+    let full = build_full_stage_order(&custom);
+
+    let deslop_pos = full.iter().position(|&s| s == "deslop").unwrap();
+    let cleanup_pos = full.iter().position(|&s| s == "cleanup").unwrap();
+    let review_pos = full.iter().position(|&s| s == "code-review").unwrap();
+
+    assert!(
+        deslop_pos < cleanup_pos,
+        "deslop should come before cleanup in custom order"
+    );
+    assert!(
+        cleanup_pos < review_pos,
+        "cleanup should come before code-review in custom order"
     );
 }

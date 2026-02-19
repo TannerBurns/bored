@@ -81,6 +81,10 @@ pub struct WorkflowOrchestrator {
     previous_stage_outputs: std::collections::HashMap<String, String>,
     /// Per-stage configuration (enabled/disabled + model selection)
     stage_configs: std::collections::HashMap<String, StageConfig>,
+    /// Custom ordering of optional stages (frontend keys like "codeReview", "cleanup", etc.)
+    stage_order: Vec<String>,
+    /// Full execution order (backend stage names), built once from `stage_order` for resume logic.
+    full_execution_order: Vec<&'static str>,
 }
 
 impl WorkflowOrchestrator {
@@ -142,13 +146,17 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
+                let order = ws.stage_order.clone().unwrap_or_else(|| {
+                    config::DEFAULT_OPTIONAL_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
+                });
                 (
                     ws.stage_configs.clone(),
                     ws.code_review_max_iterations,
                     ws.stage_timeout_hours as u64 * 3600,
                     ws.stage_max_retries,
+                    order,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -157,10 +165,13 @@ impl WorkflowOrchestrator {
                     config.code_review_max_iterations,
                     config.stage_timeout_secs,
                     config.stage_max_retries,
+                    config::DEFAULT_OPTIONAL_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                 )
             };
 
         drop(per_agent);
+
+        let full_execution_order = config::build_full_stage_order(&stage_order);
 
         Self {
             db: config.db,
@@ -186,6 +197,8 @@ impl WorkflowOrchestrator {
             resume_from_stage: config.resume_from_stage,
             previous_stage_outputs,
             stage_configs,
+            stage_order,
+            full_execution_order,
         }
     }
 
@@ -194,26 +207,8 @@ impl WorkflowOrchestrator {
         match &self.resume_from_stage {
             None => false,
             Some(resume_stage) => {
-                let stage_order = [
-                    "branch-gen",
-                    "branch",
-                    "plan",
-                    "plan-validation",
-                    "implement",
-                    "code-review",
-                    "code-review-fix",
-                    "deslop",
-                    "cleanup",
-                    "unit-tests",
-                    "cleanup-post-tests",
-                    "review-changes",
-                    "cleanup-post-review",
-                    "review-changes-final",
-                    "add-and-commit",
-                ];
-
-                let resume_idx = stage_order.iter().position(|&s| s == resume_stage);
-                let current_idx = stage_order.iter().position(|&s| s == stage);
+                let resume_idx = self.full_execution_order.iter().position(|&s| s == resume_stage.as_str());
+                let current_idx = self.full_execution_order.iter().position(|&s| s == stage);
 
                 match (resume_idx, current_idx) {
                     (Some(resume), Some(current)) => current < resume,

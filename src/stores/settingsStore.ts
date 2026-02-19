@@ -5,8 +5,10 @@ import { syncAgentConfigs } from '../lib/tauri';
 import {
   DEFAULT_WORKFLOW_PRESET,
   DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_STAGE_ORDER,
   getDefaultConfigForAgent,
   getPresetStagesForAgent,
+  getPresetStageOrder,
   mapModelForCodex,
   mapStagesForCodex,
   type AgentConfig,
@@ -18,7 +20,7 @@ import {
 } from './settingsStore.types';
 
 export type { AIModel, WorkflowStageConfig, WorkflowStageKey, WorkflowStages, WorkflowPreset, AgentConfig };
-export { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, WORKFLOW_STAGE_INFO, WORKFLOW_PRESETS, getPresetStagesForAgent } from './settingsStore.types';
+export { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, WORKFLOW_STAGE_INFO, WORKFLOW_PRESETS, DEFAULT_STAGE_ORDER, OPTIONAL_STAGE_KEYS, getPresetStagesForAgent, getPresetStageOrder } from './settingsStore.types';
 
 interface SettingsState {
   theme: 'light' | 'dark' | 'system';
@@ -30,6 +32,7 @@ interface SettingsState {
   updateAgentConfig: (agentId: string, partial: Partial<AgentConfig>) => void;
   setAgentConfigWorkflowPreset: (agentId: string, preset: WorkflowPreset) => void;
   setAgentConfigStage: (agentId: string, key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
+  setAgentConfigStageOrder: (agentId: string, stageOrder: WorkflowStageKey[]) => void;
   getAgentSettings: (agentId: string) => Record<string, unknown>;
   setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
   setAgentSetting: (agentId: string, key: string, value: unknown) => void;
@@ -81,6 +84,7 @@ export const useSettingsStore = create<SettingsState>()(
                 ...current,
                 workflowPreset: preset,
                 workflowStages: getPresetStagesForAgent(preset, agentId),
+                stageOrder: getPresetStageOrder(preset),
               },
             },
           });
@@ -100,6 +104,21 @@ export const useSettingsStore = create<SettingsState>()(
                 ...current.workflowStages,
                 [key]: { ...current.workflowStages[key], ...config },
               },
+            },
+          },
+        });
+      },
+
+      setAgentConfigStageOrder: (agentId, stageOrder) => {
+        const configs = get().agentConfigs;
+        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
+        set({
+          agentConfigs: {
+            ...configs,
+            [agentId]: {
+              ...current,
+              workflowPreset: 'custom',
+              stageOrder: [...stageOrder],
             },
           },
         });
@@ -139,7 +158,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 12,
+      version: 13,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
 
@@ -221,6 +240,7 @@ export const useSettingsStore = create<SettingsState>()(
             return {
               workflowPreset: (state.workflowPreset as WorkflowPreset) ?? base.workflowPreset,
               workflowStages,
+              stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
               stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
               codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
@@ -244,6 +264,17 @@ export const useSettingsStore = create<SettingsState>()(
           delete state.diagnosticModel; delete state.agentSettings;
         }
 
+        if (version < 13) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (!cfg.stageOrder) {
+                cfg.stageOrder = [...DEFAULT_STAGE_ORDER];
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -257,6 +288,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     stageTimeoutHours: number;
     stageMaxRetries: number;
     diagnosticModel: string;
+    stageOrder: string[];
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
@@ -265,6 +297,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       stageTimeoutHours: config.stageTimeoutHours,
       stageMaxRetries: config.stageMaxRetries,
       diagnosticModel: config.diagnosticModel,
+      stageOrder: config.stageOrder,
     };
   }
   return payload;

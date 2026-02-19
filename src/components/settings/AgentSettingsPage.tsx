@@ -1,4 +1,8 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { StatusSection, AlertMessages, useAgentSettings } from './shared';
 import { ToggleRow, AGENT_SPECIFIC_SECTIONS } from './AgentSpecificSettings';
@@ -7,11 +11,13 @@ import {
   useSettingsStore,
   WORKFLOW_PRESETS,
   WORKFLOW_STAGE_INFO,
+  OPTIONAL_STAGE_KEYS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   type AIModel,
   type WorkflowPreset,
   type AgentConfig,
+  type WorkflowStageKey,
 } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { cn } from '../../lib/utils';
@@ -37,10 +43,132 @@ function getModelOptions(agentId: string, availableModels?: AgentModelOption[]):
   return MODEL_OPTIONS;
 }
 
+const STAGE_INFO_MAP = new Map(WORKFLOW_STAGE_INFO.map((s) => [s.key, s]));
+
+function GripIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+      <circle cx="4" cy="2" r="1" /><circle cx="8" cy="2" r="1" />
+      <circle cx="4" cy="6" r="1" /><circle cx="8" cy="6" r="1" />
+      <circle cx="4" cy="10" r="1" /><circle cx="8" cy="10" r="1" />
+    </svg>
+  );
+}
+
+function SortableStageRow({
+  stageKey, agentId, config, models,
+}: {
+  stageKey: WorkflowStageKey;
+  agentId: string;
+  config: AgentConfig;
+  models: { value: AIModel; label: string }[];
+}) {
+  const setStage = useSettingsStore((s) => s.setAgentConfigStage);
+  const stage = STAGE_INFO_MAP.get(stageKey)!;
+  const stageConfig = config.workflowStages[stageKey];
+  const isOptional = OPTIONAL_STAGE_KEYS.has(stageKey);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: stageKey, disabled: !isOptional });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'grid grid-cols-[20px_40px_1fr_130px] gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
+        stageConfig.enabled ? 'glass-subtle' : 'opacity-50',
+        isDragging && 'opacity-70 ring-1 ring-board-accent z-10',
+      )}
+    >
+      {isOptional ? (
+        <button
+          {...attributes}
+          {...listeners}
+          className="flex items-center justify-center cursor-grab active:cursor-grabbing text-board-text-muted hover:text-board-text transition-colors"
+          title="Drag to reorder"
+          tabIndex={-1}
+        >
+          <GripIcon />
+        </button>
+      ) : (
+        <div />
+      )}
+      <button
+        onClick={() => { if (!stage.required) setStage(agentId, stageKey, { enabled: !stageConfig.enabled }); }}
+        disabled={stage.required}
+        className={cn(
+          'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200',
+          stage.required ? 'cursor-not-allowed' : 'cursor-pointer',
+          stageConfig.enabled ? 'bg-board-accent' : 'glass'
+        )}
+        title={stage.required ? 'Required stage' : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${stage.label}`}
+      >
+        <span className={cn(
+          'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
+          stageConfig.enabled ? 'translate-x-4' : 'translate-x-0.5'
+        )} style={{ marginTop: '2px' }} />
+      </button>
+      <div className="min-w-0">
+        <span className="text-sm font-medium text-board-text">{stage.label}</span>
+        {stage.required && (
+          <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">required</span>
+        )}
+        <p className="text-[11px] text-board-text-muted truncate">{stage.description}</p>
+      </div>
+      <select
+        value={stageConfig.model}
+        onChange={(e) => setStage(agentId, stageKey, { model: e.target.value as AIModel })}
+        disabled={!stageConfig.enabled}
+        className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {models.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function WorkflowSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
   const setPreset = useSettingsStore((s) => s.setAgentConfigWorkflowPreset);
-  const setStage = useSettingsStore((s) => s.setAgentConfigStage);
+  const setStageOrder = useSettingsStore((s) => s.setAgentConfigStageOrder);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldOrder = config.stageOrder;
+    const oldIdx = oldOrder.indexOf(active.id as WorkflowStageKey);
+    const newIdx = oldOrder.indexOf(over.id as WorkflowStageKey);
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    const newOrder = [...oldOrder];
+    newOrder.splice(oldIdx, 1);
+    newOrder.splice(newIdx, 0, active.id as WorkflowStageKey);
+    setStageOrder(agentId, newOrder);
+  }, [config.stageOrder, agentId, setStageOrder]);
+
+  const optionalKeys = useMemo(
+    () => config.stageOrder.filter((k) => OPTIONAL_STAGE_KEYS.has(k)),
+    [config.stageOrder],
+  );
 
   return (
     <div className="space-y-4">
@@ -88,56 +216,33 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
-          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Required stages cannot be disabled.</p>
+          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Drag optional stages to reorder.</p>
         </div>
         <div className="space-y-1">
-          <div className="grid grid-cols-[40px_1fr_130px] gap-2 px-2 py-1">
+          <div className="grid grid-cols-[20px_40px_1fr_130px] gap-2 px-2 py-1">
+            <span />
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">On</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Stage</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Model</span>
           </div>
-          {WORKFLOW_STAGE_INFO.map((stage) => {
-            const stageConfig = config.workflowStages[stage.key];
-            return (
-              <div key={stage.key} className={cn(
-                'grid grid-cols-[40px_1fr_130px] gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
-                stageConfig.enabled ? 'glass-subtle' : 'opacity-50'
-              )}>
-                <button
-                  onClick={() => { if (!stage.required) setStage(agentId, stage.key, { enabled: !stageConfig.enabled }); }}
-                  disabled={stage.required}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200',
-                    stage.required ? 'cursor-not-allowed' : 'cursor-pointer',
-                    stageConfig.enabled ? 'bg-board-accent' : 'glass'
-                  )}
-                  title={stage.required ? 'Required stage' : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${stage.label}`}
-                >
-                  <span className={cn(
-                    'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
-                    stageConfig.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                  )} style={{ marginTop: '2px' }} />
-                </button>
-                <div className="min-w-0">
-                  <span className="text-sm font-medium text-board-text">{stage.label}</span>
-                  {stage.required && (
-                    <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">required</span>
-                  )}
-                  <p className="text-[11px] text-board-text-muted truncate">{stage.description}</p>
-                </div>
-                <select
-                  value={stageConfig.model}
-                  onChange={(e) => setStage(agentId, stage.key, { model: e.target.value as AIModel })}
-                  disabled={!stageConfig.enabled}
-                  className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {models.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-            );
-          })}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={optionalKeys} strategy={verticalListSortingStrategy}>
+              {config.stageOrder.map((key) => (
+                <SortableStageRow
+                  key={key}
+                  stageKey={key}
+                  agentId={agentId}
+                  config={config}
+                  models={models}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       </div>
 
