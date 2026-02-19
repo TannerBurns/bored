@@ -242,3 +242,135 @@ fn api_config_default_trait() {
     assert!(config.local_provider.is_none());
     assert!(config.model_override.is_none());
 }
+
+// ── Local provider override tests ─────────────────────────────────
+
+#[test]
+fn is_local_override_false_when_empty_config() {
+    let p = CodexProvider::new();
+    let map = HashMap::new();
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_oss_disabled() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(false));
+    map.insert("local_provider".into(), serde_json::json!("ollama"));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_no_local_provider() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(true));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_local_provider_empty() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("ossEnabled".into(), serde_json::json!(true));
+    map.insert("localProvider".into(), serde_json::json!(""));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_true_when_oss_and_local_provider_set() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(true));
+    map.insert("local_provider".into(), serde_json::json!("ollama"));
+    assert!(p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_true_with_camel_case_keys() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("ossEnabled".into(), serde_json::json!(true));
+    map.insert("localProvider".into(), serde_json::json!("lmstudio"));
+    assert!(p.is_local_override(&map));
+}
+
+#[test]
+fn effective_cost_model_returns_stage_model_when_no_override() {
+    let p = CodexProvider::new();
+    let map = HashMap::new();
+    assert_eq!(p.effective_cost_model("gpt-5.3-codex", &map), "gpt-5.3-codex");
+}
+
+#[test]
+fn effective_cost_model_returns_override_when_set() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("model_override".into(), serde_json::json!("llama3.2"));
+    assert_eq!(p.effective_cost_model("gpt-5.3-codex", &map), "llama3.2");
+}
+
+#[test]
+fn effective_cost_model_falls_back_when_override_empty() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("modelOverride".into(), serde_json::json!(""));
+    assert_eq!(p.effective_cost_model("gpt-5.3-codex", &map), "gpt-5.3-codex");
+}
+
+#[test]
+fn extract_cost_with_local_override_tracks_override_model_name() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("ossEnabled".into(), serde_json::json!(true));
+    map.insert("localProvider".into(), serde_json::json!("ollama"));
+    map.insert("modelOverride".into(), serde_json::json!("llama3.2"));
+
+    let effective = p.effective_cost_model("gpt-5.3-codex", &map);
+    assert_eq!(effective, "llama3.2");
+
+    let output = r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":100,"output_tokens":50}}"#;
+    let mut cost = p.extract_cost(output, &effective, 5.0).unwrap();
+    assert_eq!(cost.input_tokens, 500);
+    assert_eq!(cost.output_tokens, 50);
+    assert!(cost.model_usage.contains_key("llama3.2"));
+
+    cost.zero_out_costs();
+    assert_eq!(cost.total_cost_usd, 0.0);
+    assert_eq!(cost.model_usage["llama3.2"].cost_usd, 0.0);
+    assert_eq!(cost.model_usage["llama3.2"].input_tokens, 500);
+    assert_eq!(cost.model_usage["llama3.2"].output_tokens, 50);
+}
+
+#[test]
+fn extract_cost_estimation_fallback_uses_override_model_name() {
+    let p = CodexProvider::new();
+    let effective = p.effective_cost_model(
+        "gpt-5.3-codex",
+        &{
+            let mut m = HashMap::new();
+            m.insert("modelOverride".into(), serde_json::json!("deepseek-coder"));
+            m
+        },
+    );
+    assert_eq!(effective, "deepseek-coder");
+
+    let mut cost = p.extract_cost("plain text without ndjson", &effective, 10.0).unwrap();
+    assert!(cost.is_estimated);
+    assert!(cost.model_usage.contains_key("deepseek-coder"));
+    assert!(cost.input_tokens > 0 || cost.output_tokens > 0);
+
+    cost.zero_out_costs();
+    assert_eq!(cost.total_cost_usd, 0.0);
+    assert!(cost.model_usage["deepseek-coder"].input_tokens > 0);
+}
+
+#[test]
+fn is_local_override_oss_only_without_provider_is_false() {
+    let p = CodexProvider::new();
+    let mut map = HashMap::new();
+    map.insert("oss_enabled".into(), serde_json::json!(true));
+    map.insert("model_override".into(), serde_json::json!("local-model"));
+    assert!(!p.is_local_override(&map), "oss without local_provider is not a local override");
+}

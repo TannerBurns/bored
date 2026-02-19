@@ -81,7 +81,13 @@ pub async fn validate_plan_for_clarification(
             };
 
             let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
-            let cost_data = config.provider.extract_cost(stdout, &model_for_cost, duration_secs);
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*config.provider,
+                stdout,
+                &model_for_cost,
+                &config.agent_config,
+                duration_secs,
+            );
             let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
             if let Some(ref cost) = cost_data {
                 metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();

@@ -119,6 +119,24 @@ impl AgentProvider for CodexProvider {
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]
     }
+
+    fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+        let api_config = CodexApiConfig::from_agent_config(agent_config);
+        api_config.oss_enabled.unwrap_or(false)
+            && api_config.local_provider.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        agent_config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> String {
+        let api_config = CodexApiConfig::from_agent_config(agent_config);
+        api_config
+            .model_override
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| stage_model.to_string())
+    }
 }
 
 /// Extract text from Codex NDJSON output.

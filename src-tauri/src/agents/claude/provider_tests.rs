@@ -295,4 +295,119 @@ fn available_models_returns_claude_models() {
     }
 }
 
+// ── Local provider override tests ─────────────────────────────────
+
+#[test]
+fn is_local_override_false_when_empty_config() {
+    let p = ClaudeProvider::new();
+    let map = HashMap::new();
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_no_base_url() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("api_key".into(), serde_json::json!("key"));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_false_when_base_url_empty() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("base_url".into(), serde_json::json!(""));
+    assert!(!p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_true_when_base_url_set() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
+    assert!(p.is_local_override(&map));
+}
+
+#[test]
+fn is_local_override_true_with_camel_case_base_url() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("baseUrl".into(), serde_json::json!("http://192.168.1.10:5000"));
+    assert!(p.is_local_override(&map));
+}
+
+#[test]
+fn effective_cost_model_returns_stage_model_when_no_override() {
+    let p = ClaudeProvider::new();
+    let map = HashMap::new();
+    assert_eq!(p.effective_cost_model("opus-4.6", &map), "opus-4.6");
+}
+
+#[test]
+fn effective_cost_model_returns_override_when_set() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("model_override".into(), serde_json::json!("my-local-llama"));
+    assert_eq!(p.effective_cost_model("opus-4.6", &map), "my-local-llama");
+}
+
+#[test]
+fn effective_cost_model_falls_back_when_override_empty() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("modelOverride".into(), serde_json::json!(""));
+    assert_eq!(p.effective_cost_model("sonnet-4.5", &map), "sonnet-4.5");
+}
+
+#[test]
+fn extract_cost_with_local_override_tracks_override_model_and_zero_cost() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
+    map.insert("model_override".into(), serde_json::json!("my-local-model"));
+
+    let effective = p.effective_cost_model("opus-4.6", &map);
+    assert_eq!(effective, "my-local-model");
+    assert!(p.is_local_override(&map));
+
+    let stream = r#"{"type":"result","result":"text","usage":{"input_tokens":200,"output_tokens":100,"total_cost_usd":0.05}}"#;
+    let mut cost = p.extract_cost(stream, &effective, 5.0).unwrap();
+    assert_eq!(cost.input_tokens, 200);
+    assert_eq!(cost.output_tokens, 100);
+    assert!(cost.model_usage.contains_key("my-local-model"));
+
+    cost.zero_out_costs();
+    assert_eq!(cost.total_cost_usd, 0.0);
+    assert_eq!(cost.model_usage["my-local-model"].cost_usd, 0.0);
+    assert_eq!(cost.model_usage["my-local-model"].input_tokens, 200);
+    assert_eq!(cost.model_usage["my-local-model"].output_tokens, 100);
+}
+
+#[test]
+fn extract_cost_estimation_fallback_uses_override_model_name() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("baseUrl".into(), serde_json::json!("http://localhost:11434"));
+    map.insert("modelOverride".into(), serde_json::json!("mistral-nemo"));
+
+    let effective = p.effective_cost_model("sonnet-4.5", &map);
+    assert_eq!(effective, "mistral-nemo");
+
+    let mut cost = p.extract_cost("plain text without stream-json", &effective, 8.0).unwrap();
+    assert!(cost.is_estimated);
+    assert!(cost.model_usage.contains_key("mistral-nemo"));
+
+    cost.zero_out_costs();
+    assert_eq!(cost.total_cost_usd, 0.0);
+    assert!(cost.model_usage["mistral-nemo"].input_tokens > 0);
+}
+
+#[test]
+fn effective_cost_model_with_camel_case_override() {
+    let p = ClaudeProvider::new();
+    let mut map = HashMap::new();
+    map.insert("modelOverride".into(), serde_json::json!("qwen2.5-coder"));
+    assert_eq!(p.effective_cost_model("opus-4.6", &map), "qwen2.5-coder");
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests

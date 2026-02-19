@@ -200,6 +200,23 @@ impl AgentProvider for ClaudeProvider {
         ]
     }
 
+    fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+        let api_config = ClaudeApiConfig::from_agent_config(agent_config);
+        api_config.base_url.as_ref().is_some_and(|s| !s.is_empty())
+    }
+
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        agent_config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> String {
+        let api_config = ClaudeApiConfig::from_agent_config(agent_config);
+        api_config
+            .model_override
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| stage_model.to_string())
+    }
+
     fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
         command_templates::check_project_commands_installed(repo_path, self.config_dir_name())
     }

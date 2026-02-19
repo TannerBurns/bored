@@ -4,6 +4,8 @@ mod estimation;
 mod extraction;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_zero_cost;
 
 pub use estimation::{compute_cost_from_tokens, estimate_cost};
 pub use extraction::extract_cost_from_stream_json;
@@ -60,6 +62,19 @@ pub struct ModelCostData {
     pub cache_read_tokens: u64,
     pub cache_creation_tokens: u64,
     pub cost_usd: f64,
+}
+
+impl RunCostData {
+    /// Zero out all USD cost fields while preserving token counts.
+    ///
+    /// Used for local/self-hosted provider runs where token usage is still
+    /// meaningful but there is no per-token API charge.
+    pub fn zero_out_costs(&mut self) {
+        self.total_cost_usd = 0.0;
+        for data in self.model_usage.values_mut() {
+            data.cost_usd = 0.0;
+        }
+    }
 }
 
 /// Aggregated cost across multiple runs (for ticket or board summaries).

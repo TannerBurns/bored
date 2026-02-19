@@ -103,6 +103,29 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         vec![]
     }
 
+    // ── Local provider overrides ──────────────────────────────────────
+
+    /// Whether the agent_config indicates a local/self-hosted provider override.
+    ///
+    /// When true, cost tracking will record token counts but zero out USD cost
+    /// since self-hosted inference has no per-token API charge.
+    fn is_local_override(&self, _agent_config: &HashMap<String, serde_json::Value>) -> bool {
+        false
+    }
+
+    /// Resolve the model name to use for cost/usage tracking.
+    ///
+    /// When a local provider override supplies a `model_override`, this returns
+    /// that name so usage reports attribute tokens to the actual model rather
+    /// than the workflow-settings stage model.
+    fn effective_cost_model(
+        &self,
+        stage_model: &str,
+        _agent_config: &HashMap<String, serde_json::Value>,
+    ) -> String {
+        stage_model.to_string()
+    }
+
     // ── Commands checking and installation ───────────────────────────
 
     /// Check whether command templates are installed in a project.
@@ -145,6 +168,26 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     }
 }
 
+/// Extract cost with local-provider-aware model resolution and zero-cost handling.
+///
+/// Composes [`AgentProvider::effective_cost_model`], [`AgentProvider::extract_cost`],
+/// and [`AgentProvider::is_local_override`] into a single call. All cost extraction
+/// call sites should use this to ensure consistent handling of local overrides.
+pub fn extract_cost_with_overrides(
+    provider: &dyn AgentProvider,
+    stdout: &str,
+    stage_model: &str,
+    agent_config: &HashMap<String, serde_json::Value>,
+    duration_secs: f64,
+) -> Option<RunCostData> {
+    let effective_model = provider.effective_cost_model(stage_model, agent_config);
+    let mut cost = provider.extract_cost(stdout, &effective_model, duration_secs)?;
+    if provider.is_local_override(agent_config) {
+        cost.zero_out_costs();
+    }
+    Some(cost)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +215,31 @@ mod tests {
     fn stub_provider_has_correct_id() {
         let stub = StubProvider;
         assert_eq!(stub.id(), "stub");
+    }
+
+    #[test]
+    fn default_is_local_override_returns_false() {
+        let stub = StubProvider;
+        let empty = HashMap::new();
+        assert!(!stub.is_local_override(&empty));
+
+        let mut with_values = HashMap::new();
+        with_values.insert("base_url".to_string(), serde_json::json!("http://localhost"));
+        assert!(!stub.is_local_override(&with_values));
+    }
+
+    #[test]
+    fn default_effective_cost_model_passes_through_stage_model() {
+        let stub = StubProvider;
+        let empty = HashMap::new();
+        assert_eq!(stub.effective_cost_model("opus-4.6", &empty), "opus-4.6");
+
+        let mut with_override = HashMap::new();
+        with_override.insert("model_override".to_string(), serde_json::json!("custom"));
+        assert_eq!(
+            stub.effective_cost_model("opus-4.6", &with_override),
+            "opus-4.6",
+            "default impl ignores agent_config"
+        );
     }
 }

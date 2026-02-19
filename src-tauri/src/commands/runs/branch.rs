@@ -104,7 +104,13 @@ pub(super) async fn generate_ai_branch_name(
                 duration_secs,
             );
 
-            let cost_data = provider_for_extract.extract_cost(stdout, &model_for_cost, duration_secs);
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*provider_for_extract,
+                stdout,
+                &model_for_cost,
+                &std::collections::HashMap::new(),
+                duration_secs,
+            );
             if let Ok(ref sr) = sub_run {
                 let mut metadata = serde_json::json!({
                     "duration_secs": duration_secs,
