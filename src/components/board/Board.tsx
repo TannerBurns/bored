@@ -47,9 +47,13 @@ export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClic
       if (columnHits.length > 0) return columnHits;
 
       const rectCollisions = rectIntersection(args);
+      const rectColumnHits = rectCollisions.filter((c) => columnIds.has(c.id as string));
+      if (rectColumnHits.length > 0) return rectColumnHits;
       if (rectCollisions.length > 0) return rectCollisions;
 
-      return closestCenter(args);
+      const centerCollisions = closestCenter(args);
+      const centerColumnHits = centerCollisions.filter((c) => columnIds.has(c.id as string));
+      return centerColumnHits.length > 0 ? centerColumnHits : centerCollisions;
     },
     [columnIds],
   );
