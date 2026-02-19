@@ -233,7 +233,11 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   validationModel: 'gpt-5.2-codex',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'gpt-5.2-codex',
-  settings: {},
+  settings: {
+    ossEnabled: false,
+    localProvider: 'ollama',
+    modelOverride: '',
+  },
 };
 
 function deepCopyStages(stages: WorkflowStages): WorkflowStages {
