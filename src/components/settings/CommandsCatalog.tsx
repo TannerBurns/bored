@@ -251,6 +251,7 @@ export function CommandsCatalog() {
       await saveCustomCommand(id, filename, content);
     } catch (err) {
       console.warn('Failed to save custom command file:', err);
+      return;
     }
 
     addCommand({

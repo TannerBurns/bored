@@ -1,7 +1,7 @@
 //! Tauri commands for worker management.
 
 use once_cell::sync::Lazy;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
 
@@ -38,6 +38,18 @@ fn get_custom_commands_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("Failed to create custom commands dir: {}", e))?;
     Ok(dir)
+}
+
+/// Reject filenames containing path separators or `..` components so that
+/// callers cannot traverse outside the intended directory.
+fn safe_join(dir: &Path, filename: &str) -> Result<PathBuf, String> {
+    if Path::new(filename).file_name() != Some(std::ffi::OsStr::new(filename)) {
+        return Err(format!(
+            "Invalid filename '{}': path traversal detected",
+            filename
+        ));
+    }
+    Ok(dir.join(filename))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -318,7 +330,7 @@ pub async fn read_command_content(
     registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
     if let Ok(custom_dir) = get_custom_commands_dir(&app) {
-        let file_path = custom_dir.join(&filename);
+        let file_path = safe_join(&custom_dir, &filename)?;
         if file_path.exists() {
             return std::fs::read_to_string(&file_path)
                 .map_err(|e| format!("Failed to read command file: {}", e));
@@ -329,7 +341,7 @@ pub async fn read_command_content(
         .find_map(|p| resolve_commands_source(&**p, &app));
 
     if let Some(path) = commands_source {
-        let file_path = path.join(&filename);
+        let file_path = safe_join(&path, &filename)?;
         if file_path.exists() {
             return std::fs::read_to_string(&file_path)
                 .map_err(|e| format!("Failed to read command file: {}", e));
@@ -347,7 +359,7 @@ pub async fn save_custom_command(
     content: String,
 ) -> Result<(), String> {
     let custom_dir = get_custom_commands_dir(&app)?;
-    let file_path = custom_dir.join(&filename);
+    let file_path = safe_join(&custom_dir, &filename)?;
     std::fs::write(&file_path, &content)
         .map_err(|e| format!("Failed to save command file: {}", e))?;
     Ok(())
@@ -359,7 +371,7 @@ pub async fn delete_custom_command(
     filename: String,
 ) -> Result<(), String> {
     let custom_dir = get_custom_commands_dir(&app)?;
-    let file_path = custom_dir.join(&filename);
+    let file_path = safe_join(&custom_dir, &filename)?;
     if file_path.exists() {
         std::fs::remove_file(&file_path)
             .map_err(|e| format!("Failed to delete command file: {}", e))?;
@@ -394,23 +406,33 @@ pub async fn install_catalog_commands_to_all_projects(
             let _ = std::fs::create_dir_all(&commands_dir);
 
             for filename in &filenames {
-                let dest = commands_dir.join(filename);
+                let dest = match safe_join(&commands_dir, filename) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
                 let copied = custom_source.as_ref().is_some_and(|d| {
-                    let src = d.join(filename);
-                    src.exists() && std::fs::copy(&src, &dest).is_ok()
+                    safe_join(d, filename)
+                        .ok()
+                        .filter(|src| src.exists())
+                        .and_then(|src| std::fs::copy(&src, &dest).ok())
+                        .is_some()
                 });
                 if !copied {
                     if let Some(ref bundled) = bundled_source {
-                        let src = bundled.join(filename);
-                        if src.exists() {
-                            let _ = std::fs::copy(&src, &dest);
+                        if let Ok(src) = safe_join(bundled, filename) {
+                            if src.exists() {
+                                let _ = std::fs::copy(&src, &dest);
+                            }
                         }
                     }
                 }
             }
 
             for filename in &remove_filenames {
-                let dest = commands_dir.join(filename);
+                let dest = match safe_join(&commands_dir, filename) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
                 if dest.exists() {
                     let _ = std::fs::remove_file(&dest);
                 }
@@ -462,5 +484,35 @@ mod tests {
         assert!(json.contains("\"readyCount\":5"));
         assert!(json.contains("\"inProgressCount\":2"));
         assert!(json.contains("\"workerCount\":1"));
+    }
+
+    #[test]
+    fn safe_join_allows_plain_filenames() {
+        let dir = PathBuf::from("/tmp/commands");
+        assert_eq!(
+            safe_join(&dir, "cleanup.md").unwrap(),
+            dir.join("cleanup.md")
+        );
+    }
+
+    #[test]
+    fn safe_join_rejects_parent_traversal() {
+        let dir = PathBuf::from("/tmp/commands");
+        assert!(safe_join(&dir, "../../../.bashrc").is_err());
+        assert!(safe_join(&dir, "..").is_err());
+        assert!(safe_join(&dir, "../secret.md").is_err());
+    }
+
+    #[test]
+    fn safe_join_rejects_subdirectory_paths() {
+        let dir = PathBuf::from("/tmp/commands");
+        assert!(safe_join(&dir, "subdir/file.md").is_err());
+    }
+
+    #[test]
+    fn safe_join_rejects_empty_and_absolute() {
+        let dir = PathBuf::from("/tmp/commands");
+        assert!(safe_join(&dir, "").is_err());
+        assert!(safe_join(&dir, "/etc/passwd").is_err());
     }
 }
