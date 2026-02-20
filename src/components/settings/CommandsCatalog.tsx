@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
-import { useSettingsStore, type CatalogCommand } from '../../stores/settingsStore';
+import { useSettingsStore, REQUIRED_STAGE_KEYS, type CatalogCommand } from '../../stores/settingsStore';
 import {
   readCommandContent,
   saveCustomCommand,
@@ -144,9 +144,10 @@ function CommandCard({
   );
 }
 
-function AddCommandForm({ onSave, onCancel }: {
+function AddCommandForm({ onSave, onCancel, error }: {
   onSave: (name: string, description: string, content: string) => void;
   onCancel: () => void;
+  error?: string | null;
 }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -189,6 +190,9 @@ function AddCommandForm({ onSave, onCancel }: {
           className="w-full px-2.5 py-1.5 text-sm glass rounded-lg text-board-text placeholder:text-board-text-muted/50 focus:ring-1 focus:ring-board-accent resize-y font-mono"
         />
       </div>
+      {error && (
+        <p className="text-xs text-red-400">{error}</p>
+      )}
       <div className="flex gap-2 justify-end">
         <button
           onClick={onCancel}
@@ -243,8 +247,20 @@ export function CommandsCatalog() {
     removeCommand(id);
   }, [catalog, removeCommand]);
 
+  const [addError, setAddError] = useState<string | null>(null);
+
   const handleAddCommand = useCallback(async (name: string, description: string, content: string) => {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    if (REQUIRED_STAGE_KEYS.has(id)) {
+      setAddError(`"${name}" conflicts with a required workflow stage. Please choose a different name.`);
+      return;
+    }
+    if (catalog.some((c) => c.id === id)) {
+      setAddError(`A command with the ID "${id}" already exists. Please choose a different name.`);
+      return;
+    }
+
     const filename = `${id}.md`;
 
     try {
@@ -262,9 +278,10 @@ export function CommandsCatalog() {
       source: 'custom',
       filename,
     });
+    setAddError(null);
     setShowAddForm(false);
     setEnabledToast(name);
-  }, [addCommand]);
+  }, [addCommand, catalog]);
 
   return (
     <div className="space-y-4">
@@ -336,7 +353,8 @@ export function CommandsCatalog() {
         {showAddForm && (
           <AddCommandForm
             onSave={handleAddCommand}
-            onCancel={() => setShowAddForm(false)}
+            onCancel={() => { setShowAddForm(false); setAddError(null); }}
+            error={addError}
           />
         )}
       </div>

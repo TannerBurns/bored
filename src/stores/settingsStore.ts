@@ -65,6 +65,7 @@ function addCommandToAllAgents(
   configs: Record<string, AgentConfig>,
   commandId: string,
 ): Record<string, AgentConfig> {
+  if (REQUIRED_STAGE_KEYS.has(commandId)) return configs;
   const updated = { ...configs };
   for (const [agentId, config] of Object.entries(updated)) {
     updated[agentId] = {
@@ -83,6 +84,7 @@ function removeCommandFromAllAgents(
   configs: Record<string, AgentConfig>,
   commandId: string,
 ): Record<string, AgentConfig> {
+  if (REQUIRED_STAGE_KEYS.has(commandId)) return configs;
   const updated = { ...configs };
   for (const [agentId, config] of Object.entries(updated)) {
     const { [commandId]: _, ...rest } = config.workflowStages;
@@ -223,6 +225,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       addCustomCommand: (command) => {
         const { commandsCatalog, agentConfigs } = get();
+        if (REQUIRED_STAGE_KEYS.has(command.id)) return;
         if (commandsCatalog.some((c) => c.id === command.id)) return;
 
         const newCatalog = [...commandsCatalog, { ...command, source: 'custom' as const }];
