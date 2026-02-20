@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
@@ -180,9 +180,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
     const newIdx = oldOrder.indexOf(over.id as string);
     if (oldIdx === -1 || newIdx === -1) return;
 
-    const newOrder = [...oldOrder];
-    newOrder.splice(oldIdx, 1);
-    newOrder.splice(newIdx, 0, active.id as string);
+    const newOrder = arrayMove(oldOrder, oldIdx, newIdx);
 
     if (!validateStageOrder(newOrder)) return;
 
