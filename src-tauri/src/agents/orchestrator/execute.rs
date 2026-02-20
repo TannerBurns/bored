@@ -11,9 +11,7 @@ use crate::agents::prompt::{
 use crate::db::models::TaskType;
 
 impl WorkflowOrchestrator {
-    /// Execute the full multi-stage workflow using a data-driven pipeline.
-    /// Iterates over the user-configured stage order and dispatches each stage
-    /// to its appropriate handler.
+    /// Execute the full multi-stage workflow.
     pub async fn execute(&self) -> Result<(), String> {
         self.log_workflow_start();
 
@@ -239,7 +237,6 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
-    /// Run the commit stage (always the last required stage).
     async fn run_commit_stage(&self) -> Result<(), String> {
         let cmd = "add-and-commit";
         if self.should_skip_stage(cmd) {
@@ -262,7 +259,6 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
-    /// Run a generic command stage (any catalog command).
     async fn run_command_stage(&self, cmd: &str) -> Result<(), String> {
         if self.should_skip_stage(cmd) {
             tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);

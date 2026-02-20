@@ -90,28 +90,63 @@ Set up workers to continuously process tickets from the queue. Workers automatic
 When an agent works on a ticket, it goes through a structured multi-stage workflow designed to produce high-quality, well-tested code:
 
 ```
-Branch → Plan → Validate → Implement → Review → QA → Commit
+Branch → Plan → Implement → [Catalog Commands] → Commit
 ```
+
+Every workflow has four **required stages** that always run:
 
 | Stage | What Happens |
 |-------|--------------|
 | **Branch** | Creates a dedicated git branch for the work |
 | **Plan** | AI generates a detailed implementation plan based on the ticket |
-| **Validate** | Checks if the plan needs clarification (moves to Blocked if so) |
 | **Implement** | Executes the implementation following the plan |
-| **Code Review** | Iterative loop: reviews code, fixes issues, repeats until clean |
-| **QA** | Runs cleanup, removes debug code, executes tests, reviews changes |
 | **Commit** | Stages and commits all changes with a detailed message |
+
+Between Implement and Commit, the workflow runs whichever **catalog commands** you've enabled — Code Review, Cleanup, Unit Tests, De-slop, and more. Each agent can have its own set of enabled commands, stage ordering, and per-stage model selection. See [Command Catalog](#command-catalog) below.
+
+<p align="center">
+  <img src="docs/images/screenshot-workflow.png" alt="Agent Workflow Settings" width="700">
+</p>
 
 **Automatic ticket transitions:** Tickets move through columns as work progresses:
 - **Ready → In Progress** when the workflow starts
-- **In Progress → Review** when entering QA
+- **In Progress → Review** when entering the review stages
 - **Review → Done** on successful completion
 - **Any → Blocked** if clarification is needed
 
 **Pause & Resume:** Workflows can be paused at any stage and resumed later. The agent picks up exactly where it left off, with full context from previous stages preserved.
 
 **Retries & Timeouts:** Each stage has configurable retry limits and timeouts to handle transient failures gracefully.
+
+### Command Catalog
+
+The Command Catalog is where you manage the optional stages that run between Implement and Commit. Bored ships with a set of built-in commands, and you can create your own custom commands written in Markdown.
+
+**Built-in commands** include:
+
+| Command | Description |
+|---------|-------------|
+| Code Review | Iterative review loop to find and fix issues |
+| Cleanup | Run linters, fix build warnings, and clean up code |
+| Unit Tests | Generate and run unit tests for the changes |
+| Review Changes | Senior code review for correctness and security |
+| De-slop | Remove AI-generated slop and improve code taste |
+| Add Tests | Add comprehensive tests for the changes |
+| Fix Lint | Fix linting errors and warnings |
+| Sync with Main | Sync the working branch with the main branch |
+| Review & Polish | Final review and polishing pass |
+| Patch Security | Security review and fix pass scoped to branch diff |
+| API Contract Check | Verify and fix public contract consistency across call sites |
+| Observability Pass | Align logs, metrics, and tracing with repo standards |
+| Integration Test | Add minimal integration tests for boundary-spanning changes |
+
+Toggle commands on or off from the **Commands** settings tab. When a command is enabled, it becomes available as a workflow stage for all agents. Each agent can independently reorder stages and choose which model to use per stage.
+
+**Custom commands** let you define your own workflow stages as Markdown instruction files, giving you full control over what the agent does at each step.
+
+<p align="center">
+  <img src="docs/images/screenshot-commands.png" alt="Command Catalog" width="700">
+</p>
 
 ### Work Hierarchy
 
@@ -139,13 +174,15 @@ Each ticket has a **Task Queue** for additional work that should happen in the s
 
 Tasks can be added in two ways:
 
-**Preset Tasks** — One-click common operations:
+**Preset Tasks** — One-click common operations powered by commands from the catalog:
 - `Sync with Main` — Merge latest changes from main branch
 - `Add Tests` — Generate additional test coverage
 - `Review & Polish` — Code cleanup and improvements
 - `Fix Lint` — Resolve linting issues
 
 **Custom Tasks** — Freeform instructions written in Markdown for any follow-up work.
+
+> **Note:** Preset tasks and catalog commands share the same underlying command definitions but serve different purposes. Catalog commands run as **workflow stages** during the initial build. Preset tasks run as **follow-up work** in the task queue after the main workflow completes.
 
 Tasks have their own status (`Pending` → `In Progress` → `Completed` / `Failed`) and are processed in order. Failed tasks can be reset and retried.
 
@@ -266,9 +303,10 @@ Agents are invoked via their CLIs. The Tauri backend spawns agent processes, str
 
 Access settings through the sidebar:
 - **General** — Theme (light/dark/system)
-- **Claude Code** — Claude agent config, workflow, spec/validation/diagnostic settings
-- **Cursor** — Cursor agent config, workflow, spec/validation/diagnostic settings
-- **Codex** — Codex agent config, workflow, spec/validation/diagnostic settings
+- **Commands** — Browse and manage the command catalog, create custom commands
+- **Claude Code** — Claude agent config, per-agent workflow stage ordering and model selection, spec/validation/diagnostic settings
+- **Cursor** — Cursor agent config, per-agent workflow stage ordering and model selection, spec/validation/diagnostic settings
+- **Codex** — Codex agent config, per-agent workflow stage ordering and model selection, spec/validation/diagnostic settings
 - **Data** — Database management
 
 ---

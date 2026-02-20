@@ -181,6 +181,24 @@ describe('constants', () => {
       expect(typeof DEFAULT_WORKFLOW_STAGES[key].enabled).toBe('boolean');
     }
   });
+
+  it('DEFAULT_WORKFLOW_STAGES uses kebab-case for command keys', () => {
+    expect(DEFAULT_WORKFLOW_STAGES['code-review']).toBeDefined();
+    expect(DEFAULT_WORKFLOW_STAGES['unit-tests']).toBeDefined();
+    expect(DEFAULT_WORKFLOW_STAGES['review-changes']).toBeDefined();
+    expect(DEFAULT_WORKFLOW_STAGES['codeReview' as string]).toBeUndefined();
+    expect(DEFAULT_WORKFLOW_STAGES['unitTests' as string]).toBeUndefined();
+    expect(DEFAULT_WORKFLOW_STAGES['finalReview' as string]).toBeUndefined();
+  });
+
+  it('DEFAULT_STAGE_ORDER uses kebab-case for command keys', () => {
+    expect(DEFAULT_STAGE_ORDER).toContain('code-review');
+    expect(DEFAULT_STAGE_ORDER).toContain('unit-tests');
+    expect(DEFAULT_STAGE_ORDER).toContain('review-changes');
+    expect(DEFAULT_STAGE_ORDER).not.toContain('codeReview');
+    expect(DEFAULT_STAGE_ORDER).not.toContain('unitTests');
+    expect(DEFAULT_STAGE_ORDER).not.toContain('finalReview');
+  });
 });
 
 describe('BUILTIN_CATALOG_COMMANDS', () => {
@@ -195,6 +213,10 @@ describe('BUILTIN_CATALOG_COMMANDS', () => {
     expect(ids).toContain('fix-lint');
     expect(ids).toContain('sync-with-main');
     expect(ids).toContain('review-polish');
+    expect(ids).toContain('patch-security');
+    expect(ids).toContain('api-contract-check');
+    expect(ids).toContain('observability-pass');
+    expect(ids).toContain('integration-test');
   });
 
   it('all builtins have source "builtin"', () => {
@@ -218,11 +240,22 @@ describe('BUILTIN_CATALOG_COMMANDS', () => {
 
   it('new commands are disabled by default', () => {
     const newCmds = BUILTIN_CATALOG_COMMANDS.filter((c) =>
-      ['add-tests', 'fix-lint', 'sync-with-main', 'review-polish'].includes(c.id)
+      ['add-tests', 'fix-lint', 'sync-with-main', 'review-polish', 'patch-security', 'api-contract-check', 'observability-pass', 'integration-test'].includes(c.id)
     );
     for (const cmd of newCmds) {
       expect(cmd.enabled).toBe(false);
     }
+  });
+
+  it('each builtin has filename matching id', () => {
+    for (const cmd of BUILTIN_CATALOG_COMMANDS) {
+      expect(cmd.filename).toBe(`${cmd.id}.md`);
+    }
+  });
+
+  it('has no duplicate IDs', () => {
+    const ids = BUILTIN_CATALOG_COMMANDS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
@@ -251,6 +284,22 @@ describe('validateStageOrder', () => {
     expect(validateStageOrder([
       'branchGen', 'plan', 'my-custom', 'implement', 'cleanup', 'commit',
     ])).toBe(true);
+  });
+
+  it('rejects order missing plan', () => {
+    expect(validateStageOrder(['branchGen', 'implement', 'commit'])).toBe(false);
+  });
+
+  it('rejects order missing implement', () => {
+    expect(validateStageOrder(['branchGen', 'plan', 'commit'])).toBe(false);
+  });
+
+  it('rejects single-element order', () => {
+    expect(validateStageOrder(['branchGen'])).toBe(false);
+  });
+
+  it('accepts order with only required stages', () => {
+    expect(validateStageOrder(['branchGen', 'plan', 'implement', 'commit'])).toBe(true);
   });
 });
 

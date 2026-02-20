@@ -6,8 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// The core set of command templates bundled with the application.
-/// Used as a baseline for backward-compatible `install_commands` and checks.
+/// The set of command templates bundled with the application.
 pub const COMMAND_TEMPLATES: &[&str] = &[
     "add-and-commit.md",
     "cleanup.md",
@@ -20,6 +19,10 @@ pub const COMMAND_TEMPLATES: &[&str] = &[
     "fix-lint.md",
     "sync-with-main.md",
     "review-polish.md",
+    "patch-security.md",
+    "api-contract-check.md",
+    "observability-pass.md",
+    "integration-test.md",
 ];
 
 /// Discover all `.md` command files from a source directory.
@@ -115,28 +118,6 @@ pub fn install_commands(
     Ok(installed)
 }
 
-/// Install only the specified command files from a source directory into a project.
-pub fn install_specific_commands(
-    project: &Path,
-    config_dir: &str,
-    commands_source: &Path,
-    filenames: &[String],
-) -> std::io::Result<Vec<String>> {
-    let commands_dir = project.join(config_dir).join("commands");
-    std::fs::create_dir_all(&commands_dir)?;
-
-    let mut installed = Vec::new();
-    for name in filenames {
-        let source = commands_source.join(name);
-        let dest = commands_dir.join(name);
-        if source.exists() {
-            std::fs::copy(&source, &dest)?;
-            installed.push(name.to_string());
-        }
-    }
-    Ok(installed)
-}
-
 /// Install command templates to the user-level directory.
 pub fn install_user_commands(
     config_dir: &str,
@@ -184,6 +165,10 @@ mod tests {
         assert!(COMMAND_TEMPLATES.contains(&"fix-lint.md"));
         assert!(COMMAND_TEMPLATES.contains(&"sync-with-main.md"));
         assert!(COMMAND_TEMPLATES.contains(&"review-polish.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"patch-security.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"api-contract-check.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"observability-pass.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"integration-test.md"));
     }
 
     #[test]
@@ -238,33 +223,6 @@ mod tests {
         }
 
         assert!(check_project_commands_installed(&project_dir, ".test"));
-
-        std::fs::remove_dir_all(&temp_dir).ok();
-    }
-
-    #[test]
-    fn install_specific_commands_installs_only_requested() {
-        let temp_dir =
-            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
-        let source_dir = temp_dir.join("source");
-        std::fs::create_dir_all(&source_dir).unwrap();
-
-        for name in COMMAND_TEMPLATES {
-            std::fs::write(source_dir.join(name), format!("# {}", name)).unwrap();
-        }
-
-        let project_dir = temp_dir.join("project");
-        std::fs::create_dir_all(&project_dir).unwrap();
-
-        let filenames = vec!["cleanup.md".to_string(), "deslop.md".to_string()];
-        let installed =
-            install_specific_commands(&project_dir, ".test", &source_dir, &filenames).unwrap();
-        assert_eq!(installed.len(), 2);
-
-        let commands_dir = project_dir.join(".test").join("commands");
-        assert!(commands_dir.join("cleanup.md").exists());
-        assert!(commands_dir.join("deslop.md").exists());
-        assert!(!commands_dir.join("unit-tests.md").exists());
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

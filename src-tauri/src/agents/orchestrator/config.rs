@@ -90,7 +90,7 @@ pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "add-and-commit",
 ];
 
-/// Default stage order using the new catalog-based keys.
+/// Default stage order (frontend catalog keys).
 pub const DEFAULT_STAGE_ORDER: &[&str] = &[
     "branchGen", "plan", "implement",
     "code-review", "cleanup", "unit-tests", "review-changes", "deslop",

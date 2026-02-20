@@ -26,8 +26,7 @@ export interface CatalogCommand {
   filename: string;
 }
 
-export type RequiredStageKey = 'branchGen' | 'plan' | 'implement' | 'commit';
-export type WorkflowStageKey = RequiredStageKey | (string & {});
+export type WorkflowStageKey = 'branchGen' | 'plan' | 'implement' | 'commit' | (string & {});
 
 export type WorkflowStages = Record<string, WorkflowStageConfig>;
 
@@ -65,6 +64,10 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
   { id: 'fix-lint', name: 'Fix Lint', description: 'Fix linting errors and warnings', enabled: false, source: 'builtin', filename: 'fix-lint.md' },
   { id: 'sync-with-main', name: 'Sync with Main', description: 'Sync the working branch with the main branch', enabled: false, source: 'builtin', filename: 'sync-with-main.md' },
   { id: 'review-polish', name: 'Review & Polish', description: 'Final review and polishing pass', enabled: false, source: 'builtin', filename: 'review-polish.md' },
+  { id: 'patch-security', name: 'Patch Security', description: 'Security review and fix pass scoped to branch diff', enabled: false, source: 'builtin', filename: 'patch-security.md' },
+  { id: 'api-contract-check', name: 'API Contract Check', description: 'Verify and fix public contract consistency across call sites', enabled: false, source: 'builtin', filename: 'api-contract-check.md' },
+  { id: 'observability-pass', name: 'Observability Pass', description: 'Align logs, metrics, and tracing with repo standards', enabled: false, source: 'builtin', filename: 'observability-pass.md' },
+  { id: 'integration-test', name: 'Integration Test', description: 'Add minimal integration tests for boundary-spanning changes', enabled: false, source: 'builtin', filename: 'integration-test.md' },
 ];
 
 export interface AgentConfig {

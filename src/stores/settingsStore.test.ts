@@ -249,6 +249,73 @@ describe('useSettingsStore', () => {
       const catalog = useSettingsStore.getState().commandsCatalog;
       expect(catalog.find((c) => c.id === 'cleanup')).toBeDefined();
     });
+
+    it('toggleCatalogCommand is a no-op for unknown command ID', () => {
+      const catalogBefore = useSettingsStore.getState().commandsCatalog;
+      const configBefore = useSettingsStore.getState().getAgentConfig('claude');
+      useSettingsStore.getState().toggleCatalogCommand('nonexistent-cmd');
+      const catalogAfter = useSettingsStore.getState().commandsCatalog;
+      const configAfter = useSettingsStore.getState().getAgentConfig('claude');
+      expect(catalogAfter).toEqual(catalogBefore);
+      expect(configAfter.stageOrder).toEqual(configBefore.stageOrder);
+    });
+
+    it('addCustomCommand is a no-op for duplicate ID', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'dup-cmd', name: 'Dup', description: 'First', enabled: true, source: 'custom', filename: 'dup.md',
+      });
+      const countBefore = useSettingsStore.getState().commandsCatalog.length;
+      useSettingsStore.getState().addCustomCommand({
+        id: 'dup-cmd', name: 'Dup2', description: 'Second', enabled: true, source: 'custom', filename: 'dup2.md',
+      });
+      expect(useSettingsStore.getState().commandsCatalog.length).toBe(countBefore);
+      expect(useSettingsStore.getState().commandsCatalog.find((c) => c.id === 'dup-cmd')!.name).toBe('Dup');
+    });
+
+    it('addCustomCommand with enabled:false does not add to agent configs', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'disabled-cmd', name: 'Disabled', description: 'Off', enabled: false, source: 'custom', filename: 'disabled-cmd.md',
+      });
+      const catalog = useSettingsStore.getState().commandsCatalog;
+      expect(catalog.find((c) => c.id === 'disabled-cmd')).toBeDefined();
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.workflowStages['disabled-cmd']).toBeUndefined();
+      expect(config.stageOrder).not.toContain('disabled-cmd');
+    });
+
+    it('toggling ON inserts new stage before commit in stageOrder', () => {
+      useSettingsStore.getState().toggleCatalogCommand('add-tests');
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      const addTestsIdx = config.stageOrder.indexOf('add-tests');
+      const commitIdx = config.stageOrder.indexOf('commit');
+      expect(addTestsIdx).toBeGreaterThan(-1);
+      expect(commitIdx).toBeGreaterThan(-1);
+      expect(addTestsIdx).toBeLessThan(commitIdx);
+    });
+
+    it('removeCustomCommand also cleans up all agent stageOrder and workflowStages', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'cleanup-test', name: 'Cleanup Test', description: 'T', enabled: true, source: 'custom', filename: 'cleanup-test.md',
+      });
+      expect(useSettingsStore.getState().getAgentConfig('claude').stageOrder).toContain('cleanup-test');
+      expect(useSettingsStore.getState().getAgentConfig('cursor').stageOrder).toContain('cleanup-test');
+
+      useSettingsStore.getState().removeCustomCommand('cleanup-test');
+      expect(useSettingsStore.getState().getAgentConfig('claude').stageOrder).not.toContain('cleanup-test');
+      expect(useSettingsStore.getState().getAgentConfig('claude').workflowStages['cleanup-test']).toBeUndefined();
+      expect(useSettingsStore.getState().getAgentConfig('cursor').stageOrder).not.toContain('cleanup-test');
+    });
+
+    it('toggleCatalogCommand affects all agents including codex', () => {
+      const cmd = useSettingsStore.getState().commandsCatalog.find((c) => c.id === 'fix-lint');
+      if (cmd?.enabled) {
+        useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      }
+      useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      const codexConfig = useSettingsStore.getState().getAgentConfig('codex');
+      expect(codexConfig.workflowStages['fix-lint']).toBeDefined();
+      expect(codexConfig.stageOrder).toContain('fix-lint');
+    });
   });
 
   describe('generic agent settings', () => {
@@ -388,6 +455,96 @@ describe('useSettingsStore', () => {
 
       const unitTests = catalog.find((c) => c.id === 'unit-tests');
       expect(unitTests?.enabled).toBe(true);
+    });
+
+    it('preserves stages that do not need remapping', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowPreset: 'balanced',
+              workflowStages: {
+                branchGen: { enabled: true, model: 'sonnet-4.6' },
+                plan: { enabled: true, model: 'opus-4.6' },
+                implement: { enabled: true, model: 'opus-4.6' },
+                codeReview: { enabled: true, model: 'opus-4.6' },
+                cleanup: { enabled: true, model: 'sonnet-4.6' },
+                deslop: { enabled: true, model: 'opus-4.5' },
+                commit: { enabled: true, model: 'sonnet-4.6' },
+              },
+              stageOrder: ['branchGen', 'plan', 'implement', 'codeReview', 'cleanup', 'deslop', 'commit'],
+            },
+          },
+        } as unknown,
+        13
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, any>;
+      expect(configs.claude.workflowStages.branchGen).toBeDefined();
+      expect(configs.claude.workflowStages.plan).toBeDefined();
+      expect(configs.claude.workflowStages.cleanup).toBeDefined();
+      expect(configs.claude.workflowStages.deslop).toBeDefined();
+      expect(configs.claude.workflowStages.commit).toBeDefined();
+    });
+
+    it('handles missing agentConfigs gracefully', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {} as unknown,
+        13
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.commandsCatalog).toBeDefined();
+      expect((migrated.commandsCatalog as any[]).length).toBe(BUILTIN_CATALOG_COMMANDS.length);
+    });
+
+    it('handles multiple agents in migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowPreset: 'balanced',
+              workflowStages: {
+                codeReview: { enabled: true, model: 'opus-4.6' },
+                unitTests: { enabled: false, model: 'opus-4.5' },
+              },
+              stageOrder: ['branchGen', 'plan', 'implement', 'codeReview', 'unitTests', 'commit'],
+            },
+            cursor: {
+              workflowPreset: 'balanced',
+              workflowStages: {
+                codeReview: { enabled: true, model: 'opus-4.5' },
+                finalReview: { enabled: true, model: 'opus-4.5' },
+              },
+              stageOrder: ['branchGen', 'plan', 'implement', 'codeReview', 'finalReview', 'commit'],
+            },
+          },
+        } as unknown,
+        13
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, any>;
+
+      expect(configs.claude.workflowStages['code-review']).toBeDefined();
+      expect(configs.claude.workflowStages['unit-tests']).toBeDefined();
+      expect(configs.claude.stageOrder).toContain('code-review');
+      expect(configs.claude.stageOrder).toContain('unit-tests');
+
+      expect(configs.cursor.workflowStages['code-review']).toBeDefined();
+      expect(configs.cursor.workflowStages['review-changes']).toBeDefined();
+      expect(configs.cursor.stageOrder).toContain('code-review');
+      expect(configs.cursor.stageOrder).toContain('review-changes');
+
+      const catalog = migrated.commandsCatalog as Array<{ id: string; enabled: boolean }>;
+      const codeReview = catalog.find((c) => c.id === 'code-review');
+      expect(codeReview?.enabled).toBe(true);
+      const reviewChanges = catalog.find((c) => c.id === 'review-changes');
+      expect(reviewChanges?.enabled).toBe(true);
     });
   });
 

@@ -4,6 +4,7 @@ import { syncAgentConfigs } from '../lib/tauri';
 
 import {
   DEFAULT_STAGE_ORDER,
+  DEFAULT_WORKFLOW_STAGES,
   BUILTIN_CATALOG_COMMANDS,
   REQUIRED_STAGE_KEYS,
   getDefaultConfigForAgent,
@@ -46,6 +47,52 @@ interface SettingsState {
   toggleCatalogCommand: (commandId: string) => void;
   addCustomCommand: (command: CatalogCommand) => void;
   removeCustomCommand: (commandId: string) => void;
+}
+
+function insertStageBeforeCommit(order: string[], key: string): string[] {
+  const newOrder = [...order];
+  if (newOrder.includes(key)) return newOrder;
+  const commitIdx = newOrder.indexOf('commit');
+  if (commitIdx !== -1) {
+    newOrder.splice(commitIdx, 0, key);
+  } else {
+    newOrder.push(key);
+  }
+  return newOrder;
+}
+
+function addCommandToAllAgents(
+  configs: Record<string, AgentConfig>,
+  commandId: string,
+): Record<string, AgentConfig> {
+  const updated = { ...configs };
+  for (const [agentId, config] of Object.entries(updated)) {
+    updated[agentId] = {
+      ...config,
+      workflowStages: {
+        ...config.workflowStages,
+        [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
+      },
+      stageOrder: insertStageBeforeCommit(config.stageOrder, commandId),
+    };
+  }
+  return updated;
+}
+
+function removeCommandFromAllAgents(
+  configs: Record<string, AgentConfig>,
+  commandId: string,
+): Record<string, AgentConfig> {
+  const updated = { ...configs };
+  for (const [agentId, config] of Object.entries(updated)) {
+    const { [commandId]: _, ...rest } = config.workflowStages;
+    updated[agentId] = {
+      ...config,
+      workflowStages: rest,
+      stageOrder: config.stageOrder.filter((k) => k !== commandId),
+    };
+  }
+  return updated;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -167,31 +214,9 @@ export const useSettingsStore = create<SettingsState>()(
         cmd.enabled = !cmd.enabled;
         newCatalog[cmdIdx] = cmd;
 
-        const newConfigs = { ...agentConfigs };
-        for (const [agentId, config] of Object.entries(newConfigs)) {
-          const newConfig = { ...config };
-          if (cmd.enabled) {
-            newConfig.workflowStages = {
-              ...newConfig.workflowStages,
-              [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
-            };
-            const order = [...newConfig.stageOrder];
-            if (!order.includes(commandId)) {
-              const commitIdx = order.indexOf('commit');
-              if (commitIdx !== -1) {
-                order.splice(commitIdx, 0, commandId);
-              } else {
-                order.push(commandId);
-              }
-            }
-            newConfig.stageOrder = order;
-          } else {
-            const { [commandId]: _, ...rest } = newConfig.workflowStages;
-            newConfig.workflowStages = rest;
-            newConfig.stageOrder = newConfig.stageOrder.filter((k) => k !== commandId);
-          }
-          newConfigs[agentId] = newConfig;
-        }
+        const newConfigs = cmd.enabled
+          ? addCommandToAllAgents(agentConfigs, commandId)
+          : removeCommandFromAllAgents(agentConfigs, commandId);
 
         set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
       },
@@ -201,28 +226,9 @@ export const useSettingsStore = create<SettingsState>()(
         if (commandsCatalog.some((c) => c.id === command.id)) return;
 
         const newCatalog = [...commandsCatalog, { ...command, source: 'custom' as const }];
-
-        const newConfigs = { ...agentConfigs };
-        if (command.enabled) {
-          for (const [agentId, config] of Object.entries(newConfigs)) {
-            const newConfig = { ...config };
-            newConfig.workflowStages = {
-              ...newConfig.workflowStages,
-              [command.id]: { enabled: true, model: 'sonnet-4.6' as AIModel },
-            };
-            const order = [...newConfig.stageOrder];
-            if (!order.includes(command.id)) {
-              const commitIdx = order.indexOf('commit');
-              if (commitIdx !== -1) {
-                order.splice(commitIdx, 0, command.id);
-              } else {
-                order.push(command.id);
-              }
-            }
-            newConfig.stageOrder = order;
-            newConfigs[agentId] = newConfig;
-          }
-        }
+        const newConfigs = command.enabled
+          ? addCommandToAllAgents(agentConfigs, command.id)
+          : { ...agentConfigs };
 
         set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
       },
@@ -233,17 +239,7 @@ export const useSettingsStore = create<SettingsState>()(
         if (!cmd || cmd.source !== 'custom') return;
 
         const newCatalog = commandsCatalog.filter((c) => c.id !== commandId);
-        const newConfigs = { ...agentConfigs };
-        for (const [agentId, config] of Object.entries(newConfigs)) {
-          const { [commandId]: _, ...rest } = config.workflowStages;
-          newConfigs[agentId] = {
-            ...config,
-            workflowStages: rest,
-            stageOrder: config.stageOrder.filter((k) => k !== commandId),
-          };
-        }
-
-        set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
+        set({ commandsCatalog: newCatalog, agentConfigs: removeCommandFromAllAgents(agentConfigs, commandId) });
       },
     }),
     {
@@ -310,7 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.plannerModel === 'sonnet') state.plannerModel = 'sonnet-4.5';
         }
         if (version < 5) {
-          state.workflowStages = { ...DEFAULT_STAGE_ORDER };
+          state.workflowStages = { ...DEFAULT_WORKFLOW_STAGES };
         }
 
         if (version < 12) {

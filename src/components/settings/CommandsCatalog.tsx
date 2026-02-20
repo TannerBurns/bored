@@ -220,16 +220,9 @@ export function CommandsCatalog() {
   const customCommands = catalog.filter((c) => c.source === 'custom');
 
   useEffect(() => {
-    const enabledFilenames = catalog
-      .filter((c) => c.enabled)
-      .map((c) => c.filename);
-    const disabledFilenames = catalog
-      .filter((c) => !c.enabled)
-      .map((c) => c.filename);
-
-    if (enabledFilenames.length > 0 || disabledFilenames.length > 0) {
-      installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
-    }
+    const enabledFilenames = catalog.filter((c) => c.enabled).map((c) => c.filename);
+    const disabledFilenames = catalog.filter((c) => !c.enabled).map((c) => c.filename);
+    installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
   }, [catalog]);
 
   const handleToggle = useCallback((id: string) => {
