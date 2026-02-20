@@ -9,21 +9,17 @@ import { ToggleRow, AGENT_SPECIFIC_SECTIONS } from './AgentSpecificSettings';
 import { getAgentStatus } from '../../lib/tauri';
 import {
   useSettingsStore,
-  WORKFLOW_PRESETS,
   WORKFLOW_STAGE_INFO,
-  OPTIONAL_STAGE_KEYS,
+  REQUIRED_STAGE_KEYS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   type AIModel,
-  type WorkflowPreset,
   type AgentConfig,
-  type WorkflowStageKey,
+  type CatalogCommand,
 } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { cn } from '../../lib/utils';
 import type { AgentModelOption } from '../../types';
-
-const PRESET_KEYS = Object.keys(WORKFLOW_PRESETS) as Exclude<WorkflowPreset, 'custom'>[];
 
 function fetchAgentStatus(agentId: string) {
   return async () => {
@@ -43,7 +39,7 @@ function getModelOptions(agentId: string, availableModels?: AgentModelOption[]):
   return MODEL_OPTIONS;
 }
 
-const STAGE_INFO_MAP = new Map(WORKFLOW_STAGE_INFO.map((s) => [s.key, s]));
+const REQUIRED_STAGE_INFO = new Map(WORKFLOW_STAGE_INFO.map((s) => [s.key, s]));
 
 function GripIcon({ className }: { className?: string }) {
   return (
@@ -56,17 +52,21 @@ function GripIcon({ className }: { className?: string }) {
 }
 
 function SortableStageRow({
-  stageKey, agentId, config, models,
+  stageKey, agentId, config, models, catalogInfo,
 }: {
-  stageKey: WorkflowStageKey;
+  stageKey: string;
   agentId: string;
   config: AgentConfig;
   models: { value: AIModel; label: string }[];
+  catalogInfo?: CatalogCommand;
 }) {
   const setStage = useSettingsStore((s) => s.setAgentConfigStage);
-  const stage = STAGE_INFO_MAP.get(stageKey)!;
+  const isRequired = REQUIRED_STAGE_KEYS.has(stageKey);
+  const requiredInfo = REQUIRED_STAGE_INFO.get(stageKey);
+
+  const label = requiredInfo?.label ?? catalogInfo?.name ?? stageKey;
+  const description = requiredInfo?.description ?? catalogInfo?.description ?? '';
   const stageConfig = config.workflowStages[stageKey];
-  const isOptional = OPTIONAL_STAGE_KEYS.has(stageKey);
 
   const {
     attributes,
@@ -75,12 +75,14 @@ function SortableStageRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: stageKey, disabled: !isOptional });
+  } = useSortable({ id: stageKey, disabled: isRequired });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  if (!stageConfig) return null;
 
   return (
     <div
@@ -92,7 +94,7 @@ function SortableStageRow({
         isDragging && 'opacity-70 ring-1 ring-board-accent z-10',
       )}
     >
-      {isOptional ? (
+      {!isRequired ? (
         <button
           {...attributes}
           {...listeners}
@@ -106,14 +108,14 @@ function SortableStageRow({
         <div />
       )}
       <button
-        onClick={() => { if (!stage.required) setStage(agentId, stageKey, { enabled: !stageConfig.enabled }); }}
-        disabled={stage.required}
+        onClick={() => { if (!isRequired) setStage(agentId, stageKey, { enabled: !stageConfig.enabled }); }}
+        disabled={isRequired}
         className={cn(
           'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200',
-          stage.required ? 'cursor-not-allowed' : 'cursor-pointer',
+          isRequired ? 'cursor-not-allowed' : 'cursor-pointer',
           stageConfig.enabled ? 'bg-board-accent' : 'glass'
         )}
-        title={stage.required ? 'Required stage' : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${stage.label}`}
+        title={isRequired ? 'Required stage' : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${label}`}
       >
         <span className={cn(
           'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
@@ -121,11 +123,14 @@ function SortableStageRow({
         )} style={{ marginTop: '2px' }} />
       </button>
       <div className="min-w-0">
-        <span className="text-sm font-medium text-board-text">{stage.label}</span>
-        {stage.required && (
+        <span className="text-sm font-medium text-board-text">{label}</span>
+        {isRequired && (
           <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">required</span>
         )}
-        <p className="text-[11px] text-board-text-muted truncate">{stage.description}</p>
+        {catalogInfo && stageKey === 'code-review' && (
+          <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-purple-500/15 text-purple-400 leading-relaxed">composite</span>
+        )}
+        <p className="text-[11px] text-board-text-muted truncate">{description}</p>
       </div>
       <select
         value={stageConfig.model}
@@ -141,10 +146,25 @@ function SortableStageRow({
   );
 }
 
+function ZoneSeparator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-2 py-0.5">
+      <div className="flex-1 border-t border-dashed border-board-border/30" />
+      <span className="text-[9px] font-medium text-board-text-muted/60 uppercase tracking-widest">{label}</span>
+      <div className="flex-1 border-t border-dashed border-board-border/30" />
+    </div>
+  );
+}
+
 function WorkflowSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
-  const setPreset = useSettingsStore((s) => s.setAgentConfigWorkflowPreset);
   const setStageOrder = useSettingsStore((s) => s.setAgentConfigStageOrder);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+  const catalog = useSettingsStore((s) => s.commandsCatalog);
+
+  const catalogMap = useMemo(
+    () => new Map(catalog.map((c) => [c.id, c])),
+    [catalog],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -155,68 +175,80 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
     if (!over || active.id === over.id) return;
 
     const oldOrder = config.stageOrder;
-    const oldIdx = oldOrder.indexOf(active.id as WorkflowStageKey);
-    const newIdx = oldOrder.indexOf(over.id as WorkflowStageKey);
+    const oldIdx = oldOrder.indexOf(active.id as string);
+    const newIdx = oldOrder.indexOf(over.id as string);
     if (oldIdx === -1 || newIdx === -1) return;
 
     const newOrder = [...oldOrder];
     newOrder.splice(oldIdx, 1);
-    newOrder.splice(newIdx, 0, active.id as WorkflowStageKey);
+    newOrder.splice(newIdx, 0, active.id as string);
+
+    if (newOrder[0] !== 'branchGen') return;
+    if (newOrder[newOrder.length - 1] !== 'commit') return;
+    const planIdx = newOrder.indexOf('plan');
+    const implIdx = newOrder.indexOf('implement');
+    if (planIdx >= implIdx) return;
+
     setStageOrder(agentId, newOrder);
   }, [config.stageOrder, agentId, setStageOrder]);
 
-  const optionalKeys = useMemo(
-    () => config.stageOrder.filter((k) => OPTIONAL_STAGE_KEYS.has(k)),
+  const sortableKeys = useMemo(
+    () => config.stageOrder.filter((k) => !REQUIRED_STAGE_KEYS.has(k)),
     [config.stageOrder],
   );
+
+  const renderStagesWithZones = () => {
+    const elements: React.ReactNode[] = [];
+    let lastRequiredKey: string | null = null;
+
+    for (const key of config.stageOrder) {
+      const isRequired = REQUIRED_STAGE_KEYS.has(key);
+
+      if (!isRequired && lastRequiredKey) {
+        const zoneLabels: Record<string, string> = {
+          branchGen: 'pre-plan',
+          plan: 'post-plan',
+          implement: 'post-implement',
+        };
+        if (zoneLabels[lastRequiredKey] && elements.length > 0) {
+          const zoneKey = `zone-${lastRequiredKey}-${key}`;
+          if (!elements.some((el) => el && typeof el === 'object' && 'key' in el && (el as React.ReactElement).key === zoneKey)) {
+            elements.push(<ZoneSeparator key={zoneKey} label={zoneLabels[lastRequiredKey]} />);
+          }
+        }
+        lastRequiredKey = null;
+      }
+
+      elements.push(
+        <SortableStageRow
+          key={key}
+          stageKey={key}
+          agentId={agentId}
+          config={config}
+          models={models}
+          catalogInfo={catalogMap.get(key)}
+        />
+      );
+
+      if (isRequired) {
+        lastRequiredKey = key;
+      }
+    }
+
+    return elements;
+  };
 
   return (
     <div className="space-y-4">
       <div>
         <h3 className="text-base font-semibold text-board-text">Workflow</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">Configure workflow stages and models.</p>
+        <p className="text-xs text-board-text-muted mt-0.5">Configure workflow stages and models. Manage available commands in the Commands tab.</p>
       </div>
 
-      {/* Preset selector */}
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div>
-          <h4 className="text-sm font-medium text-board-text">Preset</h4>
-          <p className="text-xs text-board-text-muted mt-0.5">Manual changes switch to Custom.</p>
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {PRESET_KEYS.map((key) => {
-            const preset = WORKFLOW_PRESETS[key];
-            const isSelected = config.workflowPreset === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setPreset(agentId, key)}
-                className={cn(
-                  'flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-lg transition-all duration-200 text-left',
-                  isSelected ? 'glass-intense ring-1 ring-board-accent' : 'glass hover:glass-intense'
-                )}
-              >
-                <span className={cn('text-xs font-medium', isSelected ? 'text-board-accent' : 'text-board-text')}>
-                  {preset.label}
-                </span>
-                <span className="text-[11px] text-board-text-muted leading-snug">{preset.description}</span>
-              </button>
-            );
-          })}
-          {config.workflowPreset === 'custom' && (
-            <div className="flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-lg glass-intense ring-1 ring-board-accent text-left">
-              <span className="text-xs font-medium text-board-accent">Custom</span>
-              <span className="text-[11px] text-board-text-muted leading-snug">Manually configured stages and models</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Per-stage table */}
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
-          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Drag optional stages to reorder.</p>
+          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Drag command stages to reorder.</p>
         </div>
         <div className="space-y-1">
           <div className="grid grid-cols-[20px_40px_1fr_130px] gap-2 px-2 py-1">
@@ -231,22 +263,13 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
             modifiers={[restrictToVerticalAxis, restrictToParentElement]}
             onDragEnd={handleDragEnd}
           >
-            <SortableContext items={optionalKeys} strategy={verticalListSortingStrategy}>
-              {config.stageOrder.map((key) => (
-                <SortableStageRow
-                  key={key}
-                  stageKey={key}
-                  agentId={agentId}
-                  config={config}
-                  models={models}
-                />
-              ))}
+            <SortableContext items={sortableKeys} strategy={verticalListSortingStrategy}>
+              {renderStagesWithZones()}
             </SortableContext>
           </DndContext>
         </div>
       </div>
 
-      {/* Timeouts / retries */}
       <div className="glass rounded-lg p-3 space-y-3">
         <div className="grid grid-cols-3 gap-2">
           <div className="glass-subtle rounded-lg px-3 py-2">

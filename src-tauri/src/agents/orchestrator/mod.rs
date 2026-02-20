@@ -81,10 +81,10 @@ pub struct WorkflowOrchestrator {
     previous_stage_outputs: std::collections::HashMap<String, String>,
     /// Per-stage configuration (enabled/disabled + model selection)
     stage_configs: std::collections::HashMap<String, StageConfig>,
-    /// Custom ordering of optional stages (frontend keys like "codeReview", "cleanup", etc.)
+    /// Full stage ordering (frontend keys like "code-review", "cleanup", etc.)
     stage_order: Vec<String>,
     /// Full execution order (backend stage names), built once from `stage_order` for resume logic.
-    full_execution_order: Vec<&'static str>,
+    full_execution_order: Vec<String>,
 }
 
 impl WorkflowOrchestrator {
@@ -149,7 +149,7 @@ impl WorkflowOrchestrator {
         let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
-                    config::DEFAULT_OPTIONAL_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
+                    config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
                 });
                 (
                     ws.stage_configs.clone(),
@@ -165,7 +165,7 @@ impl WorkflowOrchestrator {
                     config.code_review_max_iterations,
                     config.stage_timeout_secs,
                     config.stage_max_retries,
-                    config::DEFAULT_OPTIONAL_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
+                    config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                 )
             };
 
@@ -207,8 +207,8 @@ impl WorkflowOrchestrator {
         match &self.resume_from_stage {
             None => false,
             Some(resume_stage) => {
-                let resume_idx = self.full_execution_order.iter().position(|&s| s == resume_stage.as_str());
-                let current_idx = self.full_execution_order.iter().position(|&s| s == stage);
+                let resume_idx = self.full_execution_order.iter().position(|s| s == resume_stage.as_str());
+                let current_idx = self.full_execution_order.iter().position(|s| s == stage);
 
                 match (resume_idx, current_idx) {
                     (Some(resume), Some(current)) => current < resume,
@@ -264,14 +264,10 @@ impl WorkflowOrchestrator {
 
     fn stage_config_key(stage: &str) -> &str {
         match stage {
-            "branch-gen" => "branchGen",
+            "branch-gen" | "branch" => "branchGen",
             "plan" | "plan-validation" => "plan",
             "implement" => "implement",
-            "code-review" | "code-review-fix" => "codeReview",
-            "deslop" => "deslop",
-            "cleanup" => "cleanup",
-            "unit-tests" | "cleanup-post-tests" => "unitTests",
-            "review-changes" | "cleanup-post-review" | "review-changes-final" => "finalReview",
+            "code-review" | "code-review-fix" => "code-review",
             "add-and-commit" => "commit",
             _ => stage,
         }

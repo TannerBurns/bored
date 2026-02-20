@@ -299,6 +299,88 @@ pub async fn check_user_commands_installed(
     Ok(provider.check_commands_installed_user())
 }
 
+#[tauri::command]
+pub async fn read_command_content(
+    app: tauri::AppHandle,
+    filename: String,
+    registry: State<'_, AgentRegistry>,
+) -> Result<String, String> {
+    let commands_source = registry.providers().iter()
+        .find_map(|p| resolve_commands_source(&**p, &app));
+
+    if let Some(path) = commands_source {
+        let file_path = path.join(&filename);
+        if file_path.exists() {
+            return std::fs::read_to_string(&file_path)
+                .map_err(|e| format!("Failed to read command file: {}", e));
+        }
+    }
+
+    Err(format!("Command file not found: {}", filename))
+}
+
+#[tauri::command]
+pub async fn save_custom_command(
+    app: tauri::AppHandle,
+    id: String,
+    filename: String,
+    content: String,
+    registry: State<'_, AgentRegistry>,
+) -> Result<(), String> {
+    let _ = &id;
+    let commands_source = registry.providers().iter()
+        .find_map(|p| resolve_commands_source(&**p, &app));
+
+    if let Some(path) = commands_source {
+        let file_path = path.join(&filename);
+        std::fs::write(&file_path, &content)
+            .map_err(|e| format!("Failed to save command file: {}", e))?;
+        return Ok(());
+    }
+
+    Err("Could not determine commands directory".to_string())
+}
+
+#[tauri::command]
+pub async fn install_catalog_commands_to_all_projects(
+    app: tauri::AppHandle,
+    filenames: Vec<String>,
+    db: State<'_, Arc<Database>>,
+    registry: State<'_, AgentRegistry>,
+) -> Result<(), String> {
+    let providers = registry.providers();
+    let commands_source = providers.iter()
+        .find_map(|p| resolve_commands_source(&**p, &app));
+
+    let source = commands_source
+        .ok_or_else(|| "Command templates not found".to_string())?;
+
+    let projects = db.get_projects().map_err(|e| e.to_string())?;
+
+    for project in &projects {
+        let repo_path = PathBuf::from(&project.path);
+        if !repo_path.exists() {
+            continue;
+        }
+        for provider in &providers {
+            let commands_dir = repo_path
+                .join(provider.config_dir_name())
+                .join(provider.command_instructions_subdir());
+            let _ = std::fs::create_dir_all(&commands_dir);
+
+            for filename in &filenames {
+                let src = source.join(filename);
+                if src.exists() {
+                    let dest = commands_dir.join(filename);
+                    let _ = std::fs::copy(&src, &dest);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

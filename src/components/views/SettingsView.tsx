@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { GeneralSettings, DataSettings } from '../settings';
+import { GeneralSettings, DataSettings, CommandsCatalog } from '../settings';
 import { AgentSettingsPage } from '../settings/AgentSettingsPage';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 
 const CORE_TABS = [
   { id: 'general', label: 'General' },
+  { id: 'commands', label: 'Commands' },
 ] as const;
 
 const TRAILING_TABS = [
@@ -69,6 +70,7 @@ export function SettingsView({ onShowReleaseNotes }: SettingsViewProps) {
       
       <div className="flex-1 overflow-auto glass rounded-lg p-4">
         {settingsTab === 'general' && <GeneralSettings onShowReleaseNotes={onShowReleaseNotes} />}
+        {settingsTab === 'commands' && <CommandsCatalog />}
         {isAgentTab && <AgentSettingsPage agentId={settingsTab} />}
         {settingsTab === 'data' && <DataSettings />}
       </div>

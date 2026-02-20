@@ -22,7 +22,7 @@ use crate::commands::runs::StageConfig;
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowSettings {
     /// Per-stage configuration (enabled/disabled + model selection).
-    /// Keys are stage names (e.g. "plan", "implement", "codeReview", "deslop", etc.).
+    /// Keys are stage names (e.g. "plan", "implement", "code-review", "deslop", etc.).
     pub stage_configs: HashMap<String, StageConfig>,
     /// Maximum iterations for the code review loop.
     pub code_review_max_iterations: usize,
@@ -33,8 +33,8 @@ pub struct WorkflowSettings {
     /// Model for the diagnostic agent (defaults to sonnet-4.6).
     #[serde(default = "default_diagnostic_model")]
     pub diagnostic_model: String,
-    /// Custom stage ordering (frontend stage keys, e.g. "codeReview", "cleanup").
-    /// Only contains the optional (reorderable) stage keys; required stages are fixed.
+    /// Full stage ordering (frontend stage keys, e.g. "code-review", "cleanup").
+    /// Contains all stage keys including required stages.
     #[serde(default)]
     pub stage_order: Option<Vec<String>>,
     /// Whether the frontend has synced settings at least once.

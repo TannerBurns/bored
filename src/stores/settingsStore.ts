@@ -3,39 +3,49 @@ import { persist } from 'zustand/middleware';
 import { syncAgentConfigs } from '../lib/tauri';
 
 import {
-  DEFAULT_WORKFLOW_PRESET,
-  DEFAULT_WORKFLOW_STAGES,
   DEFAULT_STAGE_ORDER,
+  BUILTIN_CATALOG_COMMANDS,
+  REQUIRED_STAGE_KEYS,
   getDefaultConfigForAgent,
-  getPresetStagesForAgent,
-  getPresetStageOrder,
   mapModelForCodex,
   mapStagesForCodex,
   type AgentConfig,
   type AIModel,
-  type WorkflowPreset,
+  type CatalogCommand,
   type WorkflowStageConfig,
-  type WorkflowStageKey,
   type WorkflowStages,
 } from './settingsStore.types';
 
-export type { AIModel, WorkflowStageConfig, WorkflowStageKey, WorkflowStages, WorkflowPreset, AgentConfig };
-export { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, WORKFLOW_STAGE_INFO, WORKFLOW_PRESETS, DEFAULT_STAGE_ORDER, OPTIONAL_STAGE_KEYS, getPresetStagesForAgent, getPresetStageOrder } from './settingsStore.types';
+export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, CatalogCommand };
+export type { WorkflowStageKey } from './settingsStore.types';
+export {
+  MODEL_OPTIONS,
+  CODEX_MODEL_OPTIONS,
+  WORKFLOW_STAGE_INFO,
+  DEFAULT_STAGE_ORDER,
+  REQUIRED_STAGE_KEYS,
+  BUILTIN_CATALOG_COMMANDS,
+  validateStageOrder,
+} from './settingsStore.types';
 
 interface SettingsState {
   theme: 'light' | 'dark' | 'system';
   agentConfigs: Record<string, AgentConfig>;
+  commandsCatalog: CatalogCommand[];
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
 
   getAgentConfig: (agentId: string) => AgentConfig;
   updateAgentConfig: (agentId: string, partial: Partial<AgentConfig>) => void;
-  setAgentConfigWorkflowPreset: (agentId: string, preset: WorkflowPreset) => void;
-  setAgentConfigStage: (agentId: string, key: WorkflowStageKey, config: Partial<WorkflowStageConfig>) => void;
-  setAgentConfigStageOrder: (agentId: string, stageOrder: WorkflowStageKey[]) => void;
+  setAgentConfigStage: (agentId: string, key: string, config: Partial<WorkflowStageConfig>) => void;
+  setAgentConfigStageOrder: (agentId: string, stageOrder: string[]) => void;
   getAgentSettings: (agentId: string) => Record<string, unknown>;
   setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
   setAgentSetting: (agentId: string, key: string, value: unknown) => void;
+
+  toggleCatalogCommand: (commandId: string) => void;
+  addCustomCommand: (command: CatalogCommand) => void;
+  removeCustomCommand: (commandId: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -48,6 +58,8 @@ export const useSettingsStore = create<SettingsState>()(
         cursor: getDefaultConfigForAgent('cursor'),
         codex: getDefaultConfigForAgent('codex'),
       },
+
+      commandsCatalog: BUILTIN_CATALOG_COMMANDS.map((c) => ({ ...c })),
 
       setTheme: (theme) => set({ theme }),
 
@@ -66,31 +78,6 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
-      setAgentConfigWorkflowPreset: (agentId, preset) => {
-        const configs = get().agentConfigs;
-        const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
-        if (preset === 'custom') {
-          set({
-            agentConfigs: {
-              ...configs,
-              [agentId]: { ...current, workflowPreset: 'custom' },
-            },
-          });
-        } else {
-          set({
-            agentConfigs: {
-              ...configs,
-              [agentId]: {
-                ...current,
-                workflowPreset: preset,
-                workflowStages: getPresetStagesForAgent(preset, agentId),
-                stageOrder: getPresetStageOrder(preset),
-              },
-            },
-          });
-        }
-      },
-
       setAgentConfigStage: (agentId, key, config) => {
         const configs = get().agentConfigs;
         const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
@@ -99,7 +86,6 @@ export const useSettingsStore = create<SettingsState>()(
             ...configs,
             [agentId]: {
               ...current,
-              workflowPreset: 'custom',
               workflowStages: {
                 ...current.workflowStages,
                 [key]: { ...current.workflowStages[key], ...config },
@@ -117,7 +103,6 @@ export const useSettingsStore = create<SettingsState>()(
             ...configs,
             [agentId]: {
               ...current,
-              workflowPreset: 'custom',
               stageOrder: [...stageOrder],
             },
           },
@@ -155,10 +140,91 @@ export const useSettingsStore = create<SettingsState>()(
           },
         });
       },
+
+      toggleCatalogCommand: (commandId) => {
+        const { commandsCatalog, agentConfigs } = get();
+        const cmdIdx = commandsCatalog.findIndex((c) => c.id === commandId);
+        if (cmdIdx === -1) return;
+
+        const newCatalog = [...commandsCatalog];
+        const cmd = { ...newCatalog[cmdIdx] };
+        cmd.enabled = !cmd.enabled;
+        newCatalog[cmdIdx] = cmd;
+
+        const newConfigs = { ...agentConfigs };
+        for (const [agentId, config] of Object.entries(newConfigs)) {
+          const newConfig = { ...config };
+          if (cmd.enabled) {
+            newConfig.workflowStages = {
+              ...newConfig.workflowStages,
+              [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
+            };
+            const order = [...newConfig.stageOrder];
+            const commitIdx = order.indexOf('commit');
+            if (commitIdx !== -1 && !order.includes(commandId)) {
+              order.splice(commitIdx, 0, commandId);
+            }
+            newConfig.stageOrder = order;
+          } else {
+            const { [commandId]: _, ...rest } = newConfig.workflowStages;
+            newConfig.workflowStages = rest;
+            newConfig.stageOrder = newConfig.stageOrder.filter((k) => k !== commandId);
+          }
+          newConfigs[agentId] = newConfig;
+        }
+
+        set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
+      },
+
+      addCustomCommand: (command) => {
+        const { commandsCatalog, agentConfigs } = get();
+        if (commandsCatalog.some((c) => c.id === command.id)) return;
+
+        const newCatalog = [...commandsCatalog, { ...command, source: 'custom' as const }];
+
+        const newConfigs = { ...agentConfigs };
+        if (command.enabled) {
+          for (const [agentId, config] of Object.entries(newConfigs)) {
+            const newConfig = { ...config };
+            newConfig.workflowStages = {
+              ...newConfig.workflowStages,
+              [command.id]: { enabled: true, model: 'sonnet-4.6' as AIModel },
+            };
+            const order = [...newConfig.stageOrder];
+            const commitIdx = order.indexOf('commit');
+            if (commitIdx !== -1 && !order.includes(command.id)) {
+              order.splice(commitIdx, 0, command.id);
+            }
+            newConfig.stageOrder = order;
+            newConfigs[agentId] = newConfig;
+          }
+        }
+
+        set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
+      },
+
+      removeCustomCommand: (commandId) => {
+        const { commandsCatalog, agentConfigs } = get();
+        const cmd = commandsCatalog.find((c) => c.id === commandId);
+        if (!cmd || cmd.source !== 'custom') return;
+
+        const newCatalog = commandsCatalog.filter((c) => c.id !== commandId);
+        const newConfigs = { ...agentConfigs };
+        for (const [agentId, config] of Object.entries(newConfigs)) {
+          const { [commandId]: _, ...rest } = config.workflowStages;
+          newConfigs[agentId] = {
+            ...config,
+            workflowStages: rest,
+            stageOrder: config.stageOrder.filter((k) => k !== commandId),
+          };
+        }
+
+        set({ commandsCatalog: newCatalog, agentConfigs: newConfigs });
+      },
     }),
     {
       name: 'agent-kanban-settings',
-      version: 13,
+      version: 14,
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
 
@@ -220,8 +286,7 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.plannerModel === 'sonnet') state.plannerModel = 'sonnet-4.5';
         }
         if (version < 5) {
-          state.workflowPreset = DEFAULT_WORKFLOW_PRESET;
-          state.workflowStages = { ...DEFAULT_WORKFLOW_STAGES };
+          state.workflowStages = { ...DEFAULT_STAGE_ORDER };
         }
 
         if (version < 12) {
@@ -238,13 +303,12 @@ export const useSettingsStore = create<SettingsState>()(
               ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
               : base.workflowStages;
             return {
-              workflowPreset: (state.workflowPreset as WorkflowPreset) ?? base.workflowPreset,
               workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
               stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
               codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
-              plannerModel: mapModel(state.plannerModel),
+              plannerModel: mapModel(state.plannerModel) as AIModel,
               plannerAutoApprove: (state.plannerAutoApprove as boolean) ?? base.plannerAutoApprove,
               plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
@@ -273,6 +337,49 @@ export const useSettingsStore = create<SettingsState>()(
               }
             }
           }
+        }
+
+        if (version < 14) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+
+          const keyMap: Record<string, string> = {
+            codeReview: 'code-review',
+            unitTests: 'unit-tests',
+            finalReview: 'review-changes',
+          };
+
+          const enabledCommandIds = new Set<string>();
+
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              delete cfg.workflowPreset;
+
+              const stages = cfg.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
+              if (stages) {
+                for (const [oldKey, newKey] of Object.entries(keyMap)) {
+                  if (stages[oldKey]) {
+                    stages[newKey] = stages[oldKey];
+                    delete stages[oldKey];
+                  }
+                }
+                for (const [key, val] of Object.entries(stages)) {
+                  if (val.enabled && !REQUIRED_STAGE_KEYS.has(key)) {
+                    enabledCommandIds.add(key);
+                  }
+                }
+              }
+
+              const order = cfg.stageOrder as string[] | undefined;
+              if (order) {
+                cfg.stageOrder = order.map((k: string) => keyMap[k] ?? k);
+              }
+            }
+          }
+
+          state.commandsCatalog = BUILTIN_CATALOG_COMMANDS.map((cmd) => ({
+            ...cmd,
+            enabled: enabledCommandIds.has(cmd.id),
+          }));
         }
 
         return state as unknown as SettingsState;
@@ -309,10 +416,6 @@ function syncCurrentAgentConfigs(state: SettingsState) {
     .catch((err) => { console.warn('[settings] Failed to sync agent configs to backend:', err); });
 }
 
-/**
- * Ensure the backend has the latest per-agent configs.
- * Call before every agent run / worker start.
- */
 export async function ensureAgentConfigsSynced(): Promise<void> {
   const state = useSettingsStore.getState();
   try {
