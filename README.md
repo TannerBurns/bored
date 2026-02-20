@@ -110,8 +110,8 @@ Between Implement and Commit, the workflow runs whichever **catalog commands** y
 
 **Automatic ticket transitions:** Tickets move through columns as work progresses:
 - **Ready → In Progress** when the workflow starts
-- **In Progress → Review** when entering the review stages
-- **Review → Done** on successful completion
+- **In Progress → Review** on successful workflow completion (ready for human review)
+- **Review → Done** manually by the user after reviewing the work
 - **Any → Blocked** if clarification is needed
 
 **Pause & Resume:** Workflows can be paused at any stage and resumed later. The agent picks up exactly where it left off, with full context from previous stages preserved.

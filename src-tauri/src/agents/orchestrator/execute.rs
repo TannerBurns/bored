@@ -28,14 +28,16 @@ impl WorkflowOrchestrator {
                     plan = self.run_plan_stage().await?;
                 }
                 "implement" => {
-                    self.move_ticket_to_column("Review");
                     self.run_implement_stage(&plan).await?;
                 }
                 "commit" => {
                     self.run_commit_stage().await?;
                 }
                 "code-review" => {
-                    if self.should_skip_stage("code-review") {
+                    // Check "code-review-fix" (the last sub-stage of the loop) so that
+                    // resuming mid-loop (e.g. paused during code-review-fix) re-enters
+                    // the loop instead of incorrectly skipping it.
+                    if self.should_skip_stage("code-review-fix") {
                         tracing::info!("Skipping code-review loop (resuming from later stage)");
                     } else if !self.is_stage_enabled("code-review") {
                         tracing::info!("Skipping code-review loop (disabled in workflow settings)");
@@ -51,7 +53,7 @@ impl WorkflowOrchestrator {
             }
         }
 
-        self.move_ticket_to_column("Done");
+        self.move_ticket_to_column("Review");
         self.add_workflow_summary_comment();
 
         tracing::info!(

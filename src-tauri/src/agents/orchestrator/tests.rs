@@ -369,3 +369,107 @@ fn build_full_stage_order_no_duplicates() {
     let commit_count = full.iter().filter(|s| s.as_str() == "add-and-commit").count();
     assert_eq!(commit_count, 1, "add-and-commit should appear exactly once");
 }
+
+/// Regression test: resuming from "code-review-fix" must NOT cause the
+/// code-review loop to be skipped.  The execute loop checks
+/// `should_skip_stage("code-review-fix")` (the last sub-stage of the group)
+/// so that pausing mid-loop re-enters the loop on resume.
+#[test]
+fn resume_from_code_review_fix_does_not_skip_loop() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    let resume_stage = "code-review-fix";
+    let resume_idx = full.iter().position(|s| s == resume_stage).unwrap();
+    let cr_fix_idx = full.iter().position(|s| s == "code-review-fix").unwrap();
+    let cr_idx = full.iter().position(|s| s == "code-review").unwrap();
+
+    assert_eq!(
+        cr_fix_idx, resume_idx,
+        "code-review-fix IS the resume point so it must not be skipped"
+    );
+    assert!(
+        cr_idx < resume_idx,
+        "code-review (first sub-stage) IS before the resume point — \
+         this is why the skip check must use code-review-fix, not code-review"
+    );
+}
+
+#[test]
+fn default_stage_order_has_correct_structure() {
+    assert_eq!(DEFAULT_STAGE_ORDER.len(), 9);
+    assert_eq!(DEFAULT_STAGE_ORDER[0], "branchGen");
+    assert_eq!(DEFAULT_STAGE_ORDER[1], "plan");
+    assert_eq!(DEFAULT_STAGE_ORDER[2], "implement");
+    assert_eq!(*DEFAULT_STAGE_ORDER.last().unwrap(), "commit");
+
+    let required = &DEFAULT_STAGE_ORDER[..3];
+    assert_eq!(required, &["branchGen", "plan", "implement"]);
+}
+
+#[test]
+fn default_stage_order_expansion_covers_multi_stage_workflow() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let expanded = build_full_stage_order(&order);
+    let expanded_strs: Vec<&str> = expanded.iter().map(|s| s.as_str()).collect();
+
+    for stage in MULTI_STAGE_WORKFLOW {
+        assert!(
+            expanded_strs.contains(stage),
+            "MULTI_STAGE_WORKFLOW stage '{}' missing from expanded DEFAULT_STAGE_ORDER",
+            stage
+        );
+    }
+}
+
+#[test]
+fn build_full_stage_order_includes_custom_commands() {
+    let order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "my-custom-lint".to_string(),
+        "another-check".to_string(),
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&order);
+
+    assert!(full.contains(&"my-custom-lint".to_string()));
+    assert!(full.contains(&"another-check".to_string()));
+
+    let custom_pos = full.iter().position(|s| s == "my-custom-lint").unwrap();
+    let another_pos = full.iter().position(|s| s == "another-check").unwrap();
+    let commit_pos = full.iter().position(|s| s == "add-and-commit").unwrap();
+    assert!(custom_pos < another_pos);
+    assert!(another_pos < commit_pos);
+}
+
+#[test]
+fn build_full_stage_order_empty_input() {
+    let full = build_full_stage_order(&[]);
+    assert!(full.is_empty());
+}
+
+#[test]
+fn resume_past_code_review_group_skips_loop() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    let resume_stage = "cleanup";
+    let resume_idx = full.iter().position(|s| s == resume_stage).unwrap();
+    let cr_fix_idx = full.iter().position(|s| s == "code-review-fix").unwrap();
+
+    assert!(
+        cr_fix_idx < resume_idx,
+        "code-review-fix should be skipped when resuming from a later stage"
+    );
+}

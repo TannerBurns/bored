@@ -22,9 +22,10 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
-  const isDone = currentColumn?.name === 'Done';
+  const columnName = currentColumn?.name;
+  const isReviewOrDone = columnName === 'Review' || columnName === 'Done';
   const hasBranch = !!ticket.branchName;
-  const shouldShow = isDone && hasBranch;
+  const shouldShow = isReviewOrDone && hasBranch;
 
   useEffect(() => {
     if (!shouldShow) return;
@@ -84,7 +85,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           <polyline points="22 4 12 14.01 9 11.01" />
         </svg>
         <span className="text-sm font-medium text-emerald-400">
-          Work Complete
+          {columnName === 'Done' ? 'Work Complete' : 'Ready for Review'}
         </span>
         <span className="text-xs text-board-text-muted ml-auto">
           Branch: <code className="text-board-text-secondary">{ticket.branchName}</code>
