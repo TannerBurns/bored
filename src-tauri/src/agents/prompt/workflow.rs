@@ -4,16 +4,8 @@ use std::path::Path;
 
 use crate::agents::provider::AgentProvider;
 
-/// Extract the base command name from a contextual stage name.
-/// e.g., "cleanup-post-tests" -> "cleanup", "review-changes-final" -> "review-changes"
 fn get_base_command(stage: &str) -> &str {
-    if stage.starts_with("cleanup") {
-        "cleanup"
-    } else if stage.starts_with("review-changes") {
-        "review-changes"
-    } else {
-        stage
-    }
+    stage
 }
 
 /// Build the list of command file search locations from registered providers.
@@ -139,12 +131,11 @@ Make any necessary improvements.
 Stage and commit all changes:
 1. Review what will be committed
 2. Stage all relevant files
-3. Create a detailed commit message describing:
-   - What was changed
-   - Why it was changed
-   - Any notable implementation decisions
-
-Use conventional commit format if the project uses it.
+3. Create a commit message in Conventional Commits (commitizen) format:
+   - Subject: `<type>(<scope>): <description>` (e.g., `feat(auth): add OAuth2 flow`)
+   - Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+   - Body: what changed, why, and how
+   - Footer: BREAKING CHANGE (if any), Refs
 "#
         .to_string(),
 
@@ -246,86 +237,66 @@ mod tests {
     }
 
     #[test]
-    fn get_base_command_returns_cleanup_for_cleanup_variants() {
+    fn get_base_command_is_identity() {
         assert_eq!(get_base_command("cleanup"), "cleanup");
-        assert_eq!(get_base_command("cleanup-post-tests"), "cleanup");
-        assert_eq!(get_base_command("cleanup-post-review"), "cleanup");
-    }
-
-    #[test]
-    fn get_base_command_returns_review_changes_for_variants() {
         assert_eq!(get_base_command("review-changes"), "review-changes");
-        assert_eq!(get_base_command("review-changes-final"), "review-changes");
-    }
-
-    #[test]
-    fn get_base_command_returns_unchanged_for_other_commands() {
         assert_eq!(get_base_command("deslop"), "deslop");
         assert_eq!(get_base_command("unit-tests"), "unit-tests");
         assert_eq!(get_base_command("add-and-commit"), "add-and-commit");
         assert_eq!(get_base_command("implement"), "implement");
         assert_eq!(get_base_command("plan"), "plan");
+        assert_eq!(get_base_command("cleanup-advanced"), "cleanup-advanced");
+        assert_eq!(get_base_command("review-changes-detailed"), "review-changes-detailed");
     }
 
     #[test]
-    fn contextual_cleanup_stages_use_cleanup_prompt() {
-        // All cleanup variants should get the cleanup prompt (bundled or fallback)
-        let cleanup_prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
-        let post_tests_prompt = generate_command_prompt("cleanup-post-tests", Path::new("/nonexistent"));
-        let post_review_prompt = generate_command_prompt("cleanup-post-review", Path::new("/nonexistent"));
-
-        // They should all contain cleanup-specific content (bundled file uses "lint", fallback uses "linting")
-        assert!(
-            cleanup_prompt.contains("lint") || cleanup_prompt.contains("cleanup"),
-            "cleanup prompt missing expected content"
-        );
-        assert!(
-            post_tests_prompt.contains("lint") || post_tests_prompt.contains("cleanup"),
-            "cleanup-post-tests prompt missing expected content"
-        );
-        assert!(
-            post_review_prompt.contains("lint") || post_review_prompt.contains("cleanup"),
-            "cleanup-post-review prompt missing expected content"
-        );
+    fn get_base_command_passes_through_new_catalog_commands() {
+        assert_eq!(get_base_command("code-review"), "code-review");
+        assert_eq!(get_base_command("code-review-fix"), "code-review-fix");
+        assert_eq!(get_base_command("add-tests"), "add-tests");
+        assert_eq!(get_base_command("fix-lint"), "fix-lint");
+        assert_eq!(get_base_command("sync-with-main"), "sync-with-main");
+        assert_eq!(get_base_command("review-polish"), "review-polish");
+        assert_eq!(get_base_command("patch-security"), "patch-security");
+        assert_eq!(get_base_command("api-contract-check"), "api-contract-check");
+        assert_eq!(get_base_command("observability-pass"), "observability-pass");
+        assert_eq!(get_base_command("integration-test"), "integration-test");
     }
 
     #[test]
-    fn contextual_review_stages_use_review_changes_prompt() {
-        // All review-changes variants should get the review-changes fallback prompt
-        let review_prompt = generate_command_prompt("review-changes", Path::new("/nonexistent"));
-        let final_prompt = generate_command_prompt("review-changes-final", Path::new("/nonexistent"));
-
-        // They should all contain review-specific content
-        assert!(review_prompt.contains("Review") || review_prompt.contains("review"));
-        assert!(final_prompt.contains("Review") || final_prompt.contains("review"));
+    fn get_base_command_passes_through_arbitrary_custom_commands() {
+        assert_eq!(get_base_command("my-custom-lint"), "my-custom-lint");
+        assert_eq!(get_base_command("deploy-preview"), "deploy-preview");
     }
 
     #[test]
-    fn contextual_stages_show_base_command_in_prompt_header() {
-        // Verify that the prompt header shows the base command, not the contextual stage name
-        let post_tests_prompt =
-            generate_command_prompt("cleanup-post-tests", Path::new("/nonexistent"));
-        let post_review_prompt =
-            generate_command_prompt("cleanup-post-review", Path::new("/nonexistent"));
-        let review_final_prompt =
-            generate_command_prompt("review-changes-final", Path::new("/nonexistent"));
+    fn new_catalog_commands_generate_prompts() {
+        let new_commands = [
+            "code-review", "code-review-fix", "add-tests", "fix-lint",
+            "sync-with-main", "review-polish", "patch-security",
+            "api-contract-check", "observability-pass", "integration-test",
+        ];
+        for cmd in &new_commands {
+            let prompt = generate_command_prompt(cmd, Path::new("/nonexistent"));
+            assert!(
+                !prompt.is_empty(),
+                "Prompt for '{}' should not be empty",
+                cmd
+            );
+            assert!(
+                prompt.contains(cmd) || prompt.contains("Execute"),
+                "Prompt for '{}' should reference the command",
+                cmd
+            );
+        }
+    }
 
-        // Should show "/cleanup" not "/cleanup-post-tests"
+    #[test]
+    fn custom_command_name_is_not_remapped() {
+        let prompt = generate_command_prompt("cleanup-advanced", Path::new("/nonexistent"));
         assert!(
-            post_tests_prompt.contains("/cleanup") && !post_tests_prompt.contains("/cleanup-post"),
-            "cleanup-post-tests should show /cleanup in header, not /cleanup-post-tests"
-        );
-        assert!(
-            post_review_prompt.contains("/cleanup")
-                && !post_review_prompt.contains("/cleanup-post"),
-            "cleanup-post-review should show /cleanup in header, not /cleanup-post-review"
-        );
-
-        // Should show "/review-changes" not "/review-changes-final"
-        assert!(
-            review_final_prompt.contains("/review-changes")
-                && !review_final_prompt.contains("/review-changes-final"),
-            "review-changes-final should show /review-changes in header, not /review-changes-final"
+            prompt.contains("/cleanup-advanced"),
+            "Custom command should use its own name, not be remapped to 'cleanup'"
         );
     }
 

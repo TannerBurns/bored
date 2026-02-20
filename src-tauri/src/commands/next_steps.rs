@@ -85,6 +85,26 @@ pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String,
     Ok((working_dir, branch))
 }
 
+/// Extract a conventional commit type from the branch name prefix.
+/// Falls back to "chore" when the prefix isn't a recognized commitizen type.
+fn infer_commit_type_from_branch(branch: &str) -> &'static str {
+    let prefix = branch.split('/').next().unwrap_or("");
+    match prefix {
+        "feat" => "feat",
+        "fix" => "fix",
+        "docs" => "docs",
+        "style" => "style",
+        "refactor" => "refactor",
+        "perf" => "perf",
+        "test" => "test",
+        "build" => "build",
+        "ci" => "ci",
+        "chore" => "chore",
+        "revert" => "revert",
+        _ => "chore",
+    }
+}
+
 #[tauri::command]
 pub async fn push_branch(
     ticket_id: String,
@@ -92,10 +112,10 @@ pub async fn push_branch(
 ) -> Result<PushResult, String> {
     let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
 
-    // Commit any uncommitted changes before pushing
     if has_uncommitted_changes(&working_dir) {
         let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
-        let commit_msg = format!("feat: {}", ticket.title);
+        let commit_type = infer_commit_type_from_branch(&branch);
+        let commit_msg = format!("{}: {}", commit_type, ticket.title);
         if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
             return Ok(PushResult {
                 success: false,
@@ -187,9 +207,9 @@ pub async fn create_pull_request(
     let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
-    // Commit any uncommitted changes so they are included in the push
     if has_uncommitted_changes(&working_dir) {
-        let commit_msg = format!("feat: {}", ticket.title);
+        let commit_type = infer_commit_type_from_branch(&branch);
+        let commit_msg = format!("{}: {}", commit_type, ticket.title);
         if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
             return Ok(PullRequestResult {
                 success: false,
@@ -492,5 +512,46 @@ mod tests {
     fn commit_all_changes_invalid_dir_returns_err() {
         let result = commit_all_changes("/nonexistent/path/that/does/not/exist", "msg");
         assert!(result.is_err());
+    }
+
+    // --- infer_commit_type_from_branch ---
+
+    #[test]
+    fn infer_commit_type_recognizes_all_conventional_types() {
+        assert_eq!(infer_commit_type_from_branch("feat/add-feature"), "feat");
+        assert_eq!(infer_commit_type_from_branch("fix/login-bug"), "fix");
+        assert_eq!(infer_commit_type_from_branch("docs/update-readme"), "docs");
+        assert_eq!(infer_commit_type_from_branch("style/formatting"), "style");
+        assert_eq!(infer_commit_type_from_branch("refactor/auth-service"), "refactor");
+        assert_eq!(infer_commit_type_from_branch("perf/query-opt"), "perf");
+        assert_eq!(infer_commit_type_from_branch("test/add-tests"), "test");
+        assert_eq!(infer_commit_type_from_branch("build/webpack"), "build");
+        assert_eq!(infer_commit_type_from_branch("ci/github-actions"), "ci");
+        assert_eq!(infer_commit_type_from_branch("chore/deps"), "chore");
+        assert_eq!(infer_commit_type_from_branch("revert/bad-merge"), "revert");
+    }
+
+    #[test]
+    fn infer_commit_type_falls_back_to_chore() {
+        assert_eq!(infer_commit_type_from_branch("ticket/abc123/something"), "chore");
+        assert_eq!(infer_commit_type_from_branch("feature/not-a-type"), "chore");
+        assert_eq!(infer_commit_type_from_branch("hotfix/urgent"), "chore");
+    }
+
+    #[test]
+    fn infer_commit_type_no_slash_returns_chore() {
+        assert_eq!(infer_commit_type_from_branch("main"), "chore");
+        assert_eq!(infer_commit_type_from_branch("develop"), "chore");
+    }
+
+    #[test]
+    fn infer_commit_type_nested_path() {
+        assert_eq!(infer_commit_type_from_branch("feat/JIRA-123/add-oauth"), "feat");
+        assert_eq!(infer_commit_type_from_branch("fix/abc12345/user-login-error"), "fix");
+    }
+
+    #[test]
+    fn infer_commit_type_empty_string() {
+        assert_eq!(infer_commit_type_from_branch(""), "chore");
     }
 }

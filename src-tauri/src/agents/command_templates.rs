@@ -286,4 +286,62 @@ mod tests {
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
+
+    #[test]
+    fn discover_commands_returns_empty_for_nonexistent_dir() {
+        let found = discover_commands(std::path::Path::new("/nonexistent/dir/that/does/not/exist"));
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn discover_commands_returns_empty_for_empty_dir() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_empty_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let found = discover_commands(&temp_dir);
+        assert!(found.is_empty());
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn discover_commands_returns_sorted_results() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_sort_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("z-last.md"), "# z").unwrap();
+        std::fs::write(temp_dir.join("a-first.md"), "# a").unwrap();
+        std::fs::write(temp_dir.join("m-middle.md"), "# m").unwrap();
+
+        let found = discover_commands(&temp_dir);
+        assert_eq!(found, vec!["a-first.md", "m-middle.md", "z-last.md"]);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn get_available_commands_discovers_non_template_md_files() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_custom_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
+        std::fs::write(temp_dir.join("my-custom-command.md"), "# custom").unwrap();
+        std::fs::write(temp_dir.join("not-markdown.txt"), "nope").unwrap();
+
+        let available = get_available_commands(&temp_dir);
+        assert_eq!(available.len(), 2);
+        assert!(available.contains(&"cleanup.md".to_string()));
+        assert!(available.contains(&"my-custom-command.md".to_string()));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn get_available_commands_returns_empty_for_nonexistent_dir() {
+        let available = get_available_commands(std::path::Path::new("/nonexistent"));
+        assert!(available.is_empty());
+    }
 }

@@ -128,7 +128,7 @@ pub fn generate_system_prompt(api_url: &str, ticket_id: &str, run_id: &str) -> S
 ## Guidelines
 1. Focus on completing the task as described
 2. Make incremental changes and test frequently
-3. Write clear commit messages
+3. Write commit messages in Conventional Commits (commitizen) format: `<type>(<scope>): <description>`
 4. If you encounter blockers, document them clearly
 
 ## Communication

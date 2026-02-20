@@ -96,7 +96,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>. Choose your next step:
       </p>
 
-      {/* First row: Validate with, Push, Create PR */}
       <div className="flex flex-wrap items-center gap-2">
         {onValidate && (
           <BuildWithDropdown
@@ -132,7 +131,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         </button>
       </div>
 
-      {/* Second row: View Diff as expandable section */}
       <div className="rounded-lg border border-board-border overflow-hidden bg-board-bg/30">
         <button
           type="button"
@@ -183,7 +181,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         )}
       </div>
 
-      {/* Status messages */}
       {pushStatus && (
         <div className={`text-xs p-2 rounded ${pushStatus.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
           {pushStatus.message}

@@ -101,54 +101,71 @@ If unrelated changes are staged:
 
 ---
 
-## Step 5 — Write a detailed commit message (no code fences)
-Follow repo conventions. If the repo uses a prefix/scope, use it (e.g., `ui:`, `api:`, `scanner:`). Otherwise, use a concise imperative subject.
+## Step 5 — Write a commit message in Conventional Commits (commitizen) format (no code fences)
 
-Commit message format:
+Use the **Conventional Commits** specification (commitizen-compatible).
 
-Subject line:
-- Imperative, present tense
-- ~50–72 chars preferred
-- Include scope/prefix if used by this repo
+### Subject line (required)
 
-Body (required):
+```
+<type>(<scope>): <short imperative description>
+```
+
+- **type** (required) — one of:
+  - `feat` — new feature or functionality
+  - `fix` — bug fix
+  - `docs` — documentation only
+  - `style` — formatting, whitespace, semicolons (no logic change)
+  - `refactor` — code restructuring without behavior change
+  - `perf` — performance improvement
+  - `test` — adding or updating tests
+  - `build` — build system or external dependency changes
+  - `ci` — CI configuration changes
+  - `chore` — maintenance, tooling, config (no production code change)
+  - `revert` — reverts a previous commit
+- **scope** (optional) — module, component, or area affected (e.g., `api`, `ui`, `db`, `auth`)
+- **description** — imperative, present tense, lowercase, no period, ≤72 chars total
+
+### Body (required)
+
+Separated from subject by a blank line. Include:
 - What changed (bullets)
 - Why (motivation/bug/requirement)
 - How (high-level approach)
 - Impact (user-facing changes, migrations, flags)
 - Risk + rollback notes (if relevant)
-- Testing (commands run)
+- Testing (commands run and results)
 
-Footer (optional):
-- Refs: tickets, PRs
+### Footer (optional)
 
-Example structure (do not include backticks):
-Subject
+- `BREAKING CHANGE: <description>` if the commit introduces a breaking change
+- `Refs: <ticket IDs, PR numbers>`
+
+### Example (do not include backticks)
+
+feat(auth): add OAuth2 login flow
 
 What:
-- ...
-- ...
+- Add OAuth2 authorization code flow with PKCE
+- Add token refresh middleware
 
 Why:
-- ...
+- Users need SSO login via corporate identity provider
 
 How:
-- ...
+- Integrated oauth2 crate with PKCE extension
+- Added refresh token rotation in middleware layer
 
 Impact:
-- ...
-
-Risk:
-- ...
-Rollback:
-- ...
+- New `/auth/oauth/callback` endpoint
+- LOGIN_PROVIDER env var required in production
 
 Testing:
-- <command>
-- <command>
+- cargo test
+- cargo clippy -- -D warnings
 
 Refs:
-- ...
+- JIRA-1234
 
 ---
 

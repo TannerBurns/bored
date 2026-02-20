@@ -319,3 +319,32 @@ describe('stageOrder in AgentConfig', () => {
     expect(b.stageOrder[3]).toBe('code-review');
   });
 });
+
+describe('BUILTIN_CATALOG_COMMANDS / DEFAULT_WORKFLOW_STAGES consistency', () => {
+  it('every enabled builtin has a matching entry in DEFAULT_WORKFLOW_STAGES', () => {
+    const enabledBuiltins = BUILTIN_CATALOG_COMMANDS.filter((c) => c.enabled);
+    for (const cmd of enabledBuiltins) {
+      expect(DEFAULT_WORKFLOW_STAGES[cmd.id]).toBeDefined();
+    }
+  });
+
+  it('every enabled builtin appears in DEFAULT_STAGE_ORDER', () => {
+    const enabledBuiltins = BUILTIN_CATALOG_COMMANDS.filter((c) => c.enabled);
+    for (const cmd of enabledBuiltins) {
+      expect(DEFAULT_STAGE_ORDER).toContain(cmd.id);
+    }
+  });
+
+  it('disabled builtins do NOT appear in DEFAULT_STAGE_ORDER', () => {
+    const disabledBuiltins = BUILTIN_CATALOG_COMMANDS.filter((c) => !c.enabled);
+    for (const cmd of disabledBuiltins) {
+      expect(DEFAULT_STAGE_ORDER).not.toContain(cmd.id);
+    }
+  });
+
+  it('BUILTIN_CATALOG_COMMANDS IDs are all kebab-case', () => {
+    for (const cmd of BUILTIN_CATALOG_COMMANDS) {
+      expect(cmd.id).toMatch(/^[a-z][a-z0-9-]*$/);
+    }
+  });
+});

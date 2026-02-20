@@ -316,6 +316,51 @@ describe('useSettingsStore', () => {
       expect(codexConfig.workflowStages['fix-lint']).toBeDefined();
       expect(codexConfig.stageOrder).toContain('fix-lint');
     });
+
+    it('toggling ON never inserts command after commit', () => {
+      const disabledCmds = useSettingsStore.getState().commandsCatalog.filter(
+        (c) => !c.enabled && c.id !== 'sync-with-main',
+      );
+      for (const cmd of disabledCmds) {
+        useSettingsStore.getState().toggleCatalogCommand(cmd.id);
+        const config = useSettingsStore.getState().getAgentConfig('claude');
+        const cmdIdx = config.stageOrder.indexOf(cmd.id);
+        const commitIdx = config.stageOrder.indexOf('commit');
+        expect(cmdIdx).toBeGreaterThan(-1);
+        expect(commitIdx).toBeGreaterThan(-1);
+        expect(cmdIdx).toBeLessThan(commitIdx);
+      }
+    });
+
+    it('toggling ON twice is idempotent for stageOrder position', () => {
+      const cmd = useSettingsStore.getState().commandsCatalog.find((c) => c.id === 'fix-lint');
+      if (cmd?.enabled) {
+        useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      }
+      useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      const orderAfterFirst = [...useSettingsStore.getState().getAgentConfig('claude').stageOrder];
+
+      useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      useSettingsStore.getState().toggleCatalogCommand('fix-lint');
+      const orderAfterSecond = useSettingsStore.getState().getAgentConfig('claude').stageOrder;
+      expect(orderAfterSecond).toEqual(orderAfterFirst);
+    });
+
+    it('addCustomCommand with enabled:true inserts before commit', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'custom-before-commit',
+        name: 'Custom',
+        description: 'Test placement',
+        enabled: true,
+        source: 'custom',
+        filename: 'custom-before-commit.md',
+      });
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      const customIdx = config.stageOrder.indexOf('custom-before-commit');
+      const commitIdx = config.stageOrder.indexOf('commit');
+      expect(customIdx).toBeGreaterThan(-1);
+      expect(customIdx).toBeLessThan(commitIdx);
+    });
   });
 
   describe('generic agent settings', () => {

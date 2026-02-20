@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
 
+use crate::agents::command_templates::discover_commands;
 use crate::agents::validation::{validate_worker_environment, ValidationResult};
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::AgentRegistry;
@@ -116,7 +117,6 @@ pub async fn start_worker(
 
     let agent_config = agent_settings.agent_config_for(&agent_id);
 
-    // Pass the shared workflow settings so workers read the latest values at task time
     let workflow_settings = Some(workflow_settings_state.shared());
 
     let config = WorkerConfig {
@@ -137,7 +137,6 @@ pub async fn start_worker(
         workflow_settings,
     };
 
-    // Pass the shared cancel handles so worker runs can be cancelled via the API
     let cancel_handles = Some(running_agents.handles.clone());
     let worker_id = WORKER_MANAGER.start_worker(config, db.inner().clone(), cancel_handles);
 
@@ -184,7 +183,6 @@ pub async fn get_worker_queue_status(
     for board in &boards {
         let columns = db.get_columns(&board.id).map_err(|e| e.to_string())?;
 
-        // Count tickets in Ready column that are not locked (or have expired locks)
         if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
             let tickets = db
                 .get_tickets(&board.id, Some(&ready_col.id))
@@ -195,8 +193,7 @@ pub async fn get_worker_queue_status(
                 .count();
         }
 
-        // Count tickets that are actively being worked on by workers
-        // This is any ticket with a valid (non-expired) lock, regardless of which column it's in
+        // In-progress = valid lock, regardless of column
         let all_tickets = db.get_tickets(&board.id, None).map_err(|e| e.to_string())?;
         in_progress_count += all_tickets
             .iter()
@@ -248,19 +245,10 @@ pub async fn get_available_commands(
 ) -> Result<Vec<String>, String> {
     let commands_source = registry.providers().iter()
         .find_map(|p| resolve_commands_source(&**p, &app));
-    if let Some(path) = commands_source {
-        let names: Vec<String> = std::fs::read_dir(&path)
-            .into_iter()
-            .flatten()
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path().extension().and_then(|e| e.to_str()) == Some("md")
-            })
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .collect();
-        return Ok(names);
+    match commands_source {
+        Some(path) => Ok(discover_commands(&path)),
+        None => Ok(vec![]),
     }
-    Ok(vec![])
 }
 
 #[tauri::command]

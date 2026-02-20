@@ -64,13 +64,18 @@ pub fn generate_branch_name_generation_prompt(ticket: &Ticket) -> String {
 
 1. **Extract external ticket IDs**: Look for patterns like JIRA-123, GH-123, ISSUE-123, or similar ticket/issue references in the title or description. If found, include it in the branch name.
 
-2. **Determine the type prefix** based on the nature of the work:
+2. **Determine the type prefix** using Conventional Commits (commitizen) types:
    - `feat/` - New features or functionality
    - `fix/` - Bug fixes
-   - `chore/` - Maintenance tasks, dependency updates, config changes
-   - `refactor/` - Code restructuring without changing behavior
    - `docs/` - Documentation only changes
+   - `style/` - Formatting, whitespace (no logic change)
+   - `refactor/` - Code restructuring without changing behavior
+   - `perf/` - Performance improvements
    - `test/` - Adding or updating tests
+   - `build/` - Build system or external dependency changes
+   - `ci/` - CI configuration changes
+   - `chore/` - Maintenance tasks, dependency updates, config changes
+   - `revert/` - Reverts a previous change
 
 3. **Create a concise slug** from the main task (2-5 words, lowercase, hyphen-separated)
 
