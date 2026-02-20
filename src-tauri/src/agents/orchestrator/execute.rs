@@ -53,6 +53,7 @@ impl WorkflowOrchestrator {
             }
         }
 
+        // Terminal state for automated workflows; "Review → Done" is a manual user action.
         self.move_ticket_to_column("Review");
         self.add_workflow_summary_comment();
 
