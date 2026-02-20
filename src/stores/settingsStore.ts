@@ -245,6 +245,22 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'agent-kanban-settings',
       version: 14,
+      merge: (persistedState, currentState) => {
+        const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
+        const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
+        const existingIds = new Set(merged.commandsCatalog.map((c) => c.id));
+        merged.commandsCatalog = merged.commandsCatalog.map((c) => {
+          if (c.source !== 'builtin') return c;
+          const latest = builtinById.get(c.id);
+          if (!latest) return c;
+          return { ...c, name: latest.name, description: latest.description, filename: latest.filename };
+        });
+        const missing = BUILTIN_CATALOG_COMMANDS.filter((c) => !existingIds.has(c.id));
+        if (missing.length > 0) {
+          merged.commandsCatalog = [...merged.commandsCatalog, ...missing.map((c) => ({ ...c }))];
+        }
+        return merged;
+      },
       migrate(persistedState, version) {
         const state = persistedState as Record<string, unknown>;
 
