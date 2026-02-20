@@ -4,6 +4,38 @@ import { useSettingsStore, type CatalogCommand } from '../../stores/settingsStor
 import { readCommandContent, saveCustomCommand } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 
+function EnabledToast({ commandName, onDismiss }: { commandName: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
+
+  return (
+    <div className="glass-intense rounded-lg border border-board-accent/30 px-3 py-2.5 flex items-start gap-2.5 animate-in slide-in-from-top-1 fade-in-0 duration-200">
+      <svg className="w-4 h-4 text-board-accent flex-shrink-0 mt-0.5" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm-.75 3.75a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0v-4ZM8 11.5A.75.75 0 1 1 8 10a.75.75 0 0 1 0 1.5Z" />
+      </svg>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-board-text">
+          <span className="font-medium">{commandName}</span> has been added to all agent workflows.
+        </p>
+        <p className="text-[11px] text-board-text-muted mt-0.5">
+          Go to each agent tab to configure stage ordering and model selection.
+        </p>
+      </div>
+      <button
+        onClick={onDismiss}
+        className="p-0.5 text-board-text-muted hover:text-board-text transition-colors flex-shrink-0"
+        aria-label="Dismiss"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 3l6 6M9 3l-6 6" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function CommandCard({
   command,
   onToggle,
@@ -177,6 +209,7 @@ export function CommandsCatalog() {
   const addCommand = useSettingsStore((s) => s.addCustomCommand);
   const removeCommand = useSettingsStore((s) => s.removeCustomCommand);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [enabledToast, setEnabledToast] = useState<string | null>(null);
 
   const builtinCommands = catalog.filter((c) => c.source === 'builtin');
   const customCommands = catalog.filter((c) => c.source === 'custom');
@@ -192,6 +225,15 @@ export function CommandsCatalog() {
       });
     }
   }, [catalog]);
+
+  const handleToggle = useCallback((id: string) => {
+    const cmd = catalog.find((c) => c.id === id);
+    const wasEnabled = cmd?.enabled ?? false;
+    toggleCommand(id);
+    if (!wasEnabled) {
+      setEnabledToast(cmd?.name ?? id);
+    }
+  }, [catalog, toggleCommand]);
 
   const handleAddCommand = useCallback(async (name: string, description: string, content: string) => {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -212,6 +254,7 @@ export function CommandsCatalog() {
       filename,
     });
     setShowAddForm(false);
+    setEnabledToast(name);
   }, [addCommand]);
 
   return (
@@ -223,6 +266,13 @@ export function CommandsCatalog() {
         </p>
       </div>
 
+      {enabledToast && (
+        <EnabledToast
+          commandName={enabledToast}
+          onDismiss={() => setEnabledToast(null)}
+        />
+      )}
+
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h3 className="text-sm font-medium text-board-text">Built-in Commands</h3>
@@ -232,7 +282,7 @@ export function CommandsCatalog() {
         </div>
         <div className="space-y-1.5">
           {builtinCommands.map((cmd) => (
-            <CommandCard key={cmd.id} command={cmd} onToggle={toggleCommand} />
+            <CommandCard key={cmd.id} command={cmd} onToggle={handleToggle} />
           ))}
         </div>
       </div>
@@ -261,7 +311,7 @@ export function CommandsCatalog() {
               <CommandCard
                 key={cmd.id}
                 command={cmd}
-                onToggle={toggleCommand}
+                onToggle={handleToggle}
                 onDelete={removeCommand}
               />
             ))}
