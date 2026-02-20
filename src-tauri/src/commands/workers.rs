@@ -345,6 +345,7 @@ pub async fn save_custom_command(
 pub async fn install_catalog_commands_to_all_projects(
     app: tauri::AppHandle,
     filenames: Vec<String>,
+    remove_filenames: Vec<String>,
     db: State<'_, Arc<Database>>,
     registry: State<'_, AgentRegistry>,
 ) -> Result<(), String> {
@@ -373,6 +374,13 @@ pub async fn install_catalog_commands_to_all_projects(
                 if src.exists() {
                     let dest = commands_dir.join(filename);
                     let _ = std::fs::copy(&src, &dest);
+                }
+            }
+
+            for filename in &remove_filenames {
+                let dest = commands_dir.join(filename);
+                if dest.exists() {
+                    let _ = std::fs::remove_file(&dest);
                 }
             }
         }

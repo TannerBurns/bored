@@ -13,6 +13,7 @@ import {
   REQUIRED_STAGE_KEYS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
+  validateStageOrder,
   type AIModel,
   type AgentConfig,
   type CatalogCommand,
@@ -183,11 +184,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
     newOrder.splice(oldIdx, 1);
     newOrder.splice(newIdx, 0, active.id as string);
 
-    if (newOrder[0] !== 'branchGen') return;
-    if (newOrder[newOrder.length - 1] !== 'commit') return;
-    const planIdx = newOrder.indexOf('plan');
-    const implIdx = newOrder.indexOf('implement');
-    if (planIdx >= implIdx) return;
+    if (!validateStageOrder(newOrder)) return;
 
     setStageOrder(agentId, newOrder);
   }, [config.stageOrder, agentId, setStageOrder]);

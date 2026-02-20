@@ -176,9 +176,13 @@ export const useSettingsStore = create<SettingsState>()(
               [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
             };
             const order = [...newConfig.stageOrder];
-            const commitIdx = order.indexOf('commit');
-            if (commitIdx !== -1 && !order.includes(commandId)) {
-              order.splice(commitIdx, 0, commandId);
+            if (!order.includes(commandId)) {
+              const commitIdx = order.indexOf('commit');
+              if (commitIdx !== -1) {
+                order.splice(commitIdx, 0, commandId);
+              } else {
+                order.push(commandId);
+              }
             }
             newConfig.stageOrder = order;
           } else {
@@ -207,9 +211,13 @@ export const useSettingsStore = create<SettingsState>()(
               [command.id]: { enabled: true, model: 'sonnet-4.6' as AIModel },
             };
             const order = [...newConfig.stageOrder];
-            const commitIdx = order.indexOf('commit');
-            if (commitIdx !== -1 && !order.includes(command.id)) {
-              order.splice(commitIdx, 0, command.id);
+            if (!order.includes(command.id)) {
+              const commitIdx = order.indexOf('commit');
+              if (commitIdx !== -1) {
+                order.splice(commitIdx, 0, command.id);
+              } else {
+                order.push(command.id);
+              }
             }
             newConfig.stageOrder = order;
             newConfigs[agentId] = newConfig;

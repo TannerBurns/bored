@@ -218,10 +218,13 @@ export function CommandsCatalog() {
     const enabledFilenames = catalog
       .filter((c) => c.enabled)
       .map((c) => c.filename);
+    const disabledFilenames = catalog
+      .filter((c) => !c.enabled)
+      .map((c) => c.filename);
 
-    if (enabledFilenames.length > 0) {
+    if (enabledFilenames.length > 0 || disabledFilenames.length > 0) {
       import('../../lib/tauri').then(({ installCatalogCommandsToAllProjects }) => {
-        installCatalogCommandsToAllProjects(enabledFilenames).catch(() => {});
+        installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
       });
     }
   }, [catalog]);
