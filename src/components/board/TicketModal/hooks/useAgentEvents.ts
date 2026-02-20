@@ -426,16 +426,16 @@ export function useAgentEvents({
         .filter(r => r.parentRunId === runId && r.stage)
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
       
-      // Must match the order in orchestrator/mod.rs should_skip_stage()
+      // Known backend execution-stage names used to compute the next resume
+      // point. Custom/catalog commands won't appear here; the fallback
+      // (resumeStage = latestStage) handles them correctly.
       const stageOrder = [
-        'branch-gen', 'branch', 
+        'branch-gen', 'branch',
         'plan', 'plan-validation',
-        'implement', 
+        'implement',
         'code-review', 'code-review-fix',
-        'deslop', 'cleanup', 'unit-tests', 
-        'cleanup-post-tests', 'review-changes',
-        'cleanup-post-review', 'review-changes-final',
-        'add-and-commit'
+        'cleanup', 'unit-tests', 'review-changes', 'deslop',
+        'add-and-commit',
       ];
       
       const latestSubRun = subRuns[0];

@@ -173,6 +173,19 @@ impl WorkflowOrchestrator {
 
         let full_execution_order = config::build_full_stage_order(&stage_order);
 
+        let resume_from_stage = config.resume_from_stage.map(|s| {
+            match config::normalize_legacy_stage_name(&s) {
+                Some(normalized) => {
+                    tracing::warn!(
+                        "Normalized legacy resume stage '{}' → '{}' (pre-catalog-refactor migration)",
+                        s, normalized
+                    );
+                    normalized.to_string()
+                }
+                None => s,
+            }
+        });
+
         Self {
             db: config.db,
             window: config.window,
@@ -194,7 +207,7 @@ impl WorkflowOrchestrator {
             code_review_max_iterations,
             stage_timeout_secs,
             stage_max_retries,
-            resume_from_stage: config.resume_from_stage,
+            resume_from_stage,
             previous_stage_outputs,
             stage_configs,
             stage_order,
@@ -203,20 +216,57 @@ impl WorkflowOrchestrator {
     }
 
     /// Check if a stage should be skipped due to resumption.
+    ///
+    /// Normal case: both resume and current stages are in `full_execution_order`;
+    /// skip the current stage if it comes before the resume point.
+    ///
+    /// Fallback: if the resume stage is not in the execution order (e.g. the
+    /// workflow configuration changed between pause and resume, or a custom
+    /// command was removed), core stages (branch through implement) are still
+    /// skipped — they must have already completed for the workflow to have
+    /// reached a post-implement pause point.
     fn should_skip_stage(&self, stage: &str) -> bool {
         match &self.resume_from_stage {
             None => false,
             Some(resume_stage) => {
-                let resume_idx = self.full_execution_order.iter().position(|s| s == resume_stage.as_str());
-                let current_idx = self.full_execution_order.iter().position(|s| s == stage);
+                let resume_idx = self
+                    .full_execution_order
+                    .iter()
+                    .position(|s| s == resume_stage.as_str());
+                let current_idx = self
+                    .full_execution_order
+                    .iter()
+                    .position(|s| s == stage);
 
                 match (resume_idx, current_idx) {
                     (Some(resume), Some(current)) => current < resume,
+                    (None, Some(current)) => {
+                        // Resume stage not in current execution order (config changed
+                        // between pause and resume, or legacy name not covered by
+                        // normalization). Core stages are always present, so an unknown
+                        // resume stage must be post-implement. Skip core stages to
+                        // avoid expensive re-execution of plan/implement.
+                        let implement_idx = self
+                            .full_execution_order
+                            .iter()
+                            .position(|s| s == "implement");
+                        let skip = implement_idx
+                            .map(|impl_idx| current <= impl_idx)
+                            .unwrap_or(false);
+                        tracing::warn!(
+                            "Resume stage '{}' not in execution order; {} core stage '{}'",
+                            resume_stage,
+                            if skip { "skipping" } else { "running" },
+                            stage,
+                        );
+                        skip
+                    }
                     _ => {
                         tracing::warn!(
-                            "Unknown stage for resumption check: stage={}, resume_from={}",
+                            "Stage '{}' not in execution order during resume check \
+                             (resume_from='{}')",
                             stage,
-                            resume_stage
+                            resume_stage,
                         );
                         false
                     }

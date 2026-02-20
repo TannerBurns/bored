@@ -2,8 +2,8 @@
 
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
-    build_full_stage_order, expand_stage_key, StageEvent, DEFAULT_STAGE_ORDER,
-    MULTI_STAGE_WORKFLOW,
+    build_full_stage_order, expand_stage_key, normalize_legacy_stage_name, StageEvent,
+    DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW,
 };
 
 #[test]
@@ -472,4 +472,97 @@ fn resume_past_code_review_group_skips_loop() {
         cr_fix_idx < resume_idx,
         "code-review-fix should be skipped when resuming from a later stage"
     );
+}
+
+// --- normalize_legacy_stage_name tests ---
+
+#[test]
+fn normalize_legacy_cleanup_post_tests() {
+    assert_eq!(
+        normalize_legacy_stage_name("cleanup-post-tests"),
+        Some("unit-tests"),
+    );
+}
+
+#[test]
+fn normalize_legacy_cleanup_post_review() {
+    assert_eq!(
+        normalize_legacy_stage_name("cleanup-post-review"),
+        Some("review-changes"),
+    );
+}
+
+#[test]
+fn normalize_legacy_review_changes_final() {
+    assert_eq!(
+        normalize_legacy_stage_name("review-changes-final"),
+        Some("review-changes"),
+    );
+}
+
+#[test]
+fn normalize_returns_none_for_current_names() {
+    for name in &[
+        "branch-gen", "branch", "plan", "plan-validation", "implement",
+        "code-review", "code-review-fix", "cleanup", "unit-tests",
+        "review-changes", "deslop", "add-and-commit",
+    ] {
+        assert_eq!(
+            normalize_legacy_stage_name(name),
+            None,
+            "'{}' should not be normalized (it is already current)",
+            name,
+        );
+    }
+}
+
+#[test]
+fn normalize_returns_none_for_custom_commands() {
+    assert_eq!(normalize_legacy_stage_name("my-custom-lint"), None);
+    assert_eq!(normalize_legacy_stage_name("security-scan"), None);
+}
+
+/// Regression: a ticket paused at a legacy stage name must map to a stage
+/// that exists in the default execution order so should_skip_stage can find it.
+#[test]
+fn normalized_legacy_names_exist_in_default_execution_order() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    for legacy in &["cleanup-post-tests", "cleanup-post-review", "review-changes-final"] {
+        let normalized = normalize_legacy_stage_name(legacy)
+            .unwrap_or_else(|| panic!("legacy name '{}' should normalize", legacy));
+        assert!(
+            full.iter().any(|s| s == normalized),
+            "Normalized name '{}' (from '{}') must appear in the default execution order",
+            normalized,
+            legacy,
+        );
+    }
+}
+
+/// When resuming from a normalized legacy stage, all stages before it should
+/// be skippable based on position in the execution order.
+#[test]
+fn normalized_legacy_resume_skips_core_stages() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    let resume = normalize_legacy_stage_name("cleanup-post-tests").unwrap();
+    let resume_idx = full.iter().position(|s| s == resume).unwrap();
+
+    for core in &["branch-gen", "branch", "plan", "plan-validation", "implement"] {
+        let core_idx = full.iter().position(|s| s == *core).unwrap();
+        assert!(
+            core_idx < resume_idx,
+            "Core stage '{}' (idx {}) should come before resume stage '{}' (idx {})",
+            core, core_idx, resume, resume_idx,
+        );
+    }
 }

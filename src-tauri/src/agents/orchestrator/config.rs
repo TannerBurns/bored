@@ -52,6 +52,17 @@ pub struct OrchestratorConfig {
     pub stage_max_retries: u32,
 }
 
+/// Map stage names from the pre-catalog-refactor workflow to their current
+/// equivalents. Returns `Some(new_name)` when the input is a legacy name,
+/// `None` when it is already current.
+pub fn normalize_legacy_stage_name(stage: &str) -> Option<&'static str> {
+    match stage {
+        "cleanup-post-tests" => Some("unit-tests"),
+        "cleanup-post-review" | "review-changes-final" => Some("review-changes"),
+        _ => None,
+    }
+}
+
 /// Expand a frontend stage key into its backend execution stage names.
 /// Required stages and code-review have special mappings; all other commands
 /// map 1:1 (the command ID is the backend stage name).
