@@ -193,8 +193,8 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
   }, [config.stageOrder, agentId, setStageOrder]);
 
   const sortableKeys = useMemo(
-    () => config.stageOrder.filter((k) => !REQUIRED_STAGE_KEYS.has(k)),
-    [config.stageOrder],
+    () => config.stageOrder.filter((k) => !REQUIRED_STAGE_KEYS.has(k) && config.workflowStages[k]),
+    [config.stageOrder, config.workflowStages],
   );
 
   const renderStagesWithZones = () => {
@@ -202,6 +202,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
     let lastRequiredKey: string | null = null;
 
     for (const key of config.stageOrder) {
+      if (!REQUIRED_STAGE_KEYS.has(key) && !config.workflowStages[key]) continue;
       const isRequired = REQUIRED_STAGE_KEYS.has(key);
 
       if (!isRequired && lastRequiredKey) {

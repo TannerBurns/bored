@@ -81,6 +81,22 @@ export const useSettingsStore = create<SettingsState>()(
       setAgentConfigStage: (agentId, key, config) => {
         const configs = get().agentConfigs;
         const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
+
+        if (config.enabled === false && !REQUIRED_STAGE_KEYS.has(key)) {
+          const { [key]: _, ...remainingStages } = current.workflowStages;
+          set({
+            agentConfigs: {
+              ...configs,
+              [agentId]: {
+                ...current,
+                workflowStages: remainingStages,
+                stageOrder: current.stageOrder.filter((k) => k !== key),
+              },
+            },
+          });
+          return;
+        }
+
         set({
           agentConfigs: {
             ...configs,

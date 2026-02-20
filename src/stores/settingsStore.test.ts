@@ -83,11 +83,23 @@ describe('useSettingsStore', () => {
         expect(config.workflowStages.plan.enabled).toBe(true);
       });
 
-      it('toggles a stage enabled state', () => {
+      it('disabling a non-required stage removes it from stageOrder and workflowStages', () => {
+        const before = useSettingsStore.getState().getAgentConfig('claude');
+        expect(before.workflowStages.deslop).toBeDefined();
+        expect(before.stageOrder).toContain('deslop');
+
         useSettingsStore.getState().setAgentConfigStage('claude', 'deslop', { enabled: false });
-        expect(useSettingsStore.getState().getAgentConfig('claude').workflowStages.deslop.enabled).toBe(false);
-        useSettingsStore.getState().setAgentConfigStage('claude', 'deslop', { enabled: true });
-        expect(useSettingsStore.getState().getAgentConfig('claude').workflowStages.deslop.enabled).toBe(true);
+
+        const after = useSettingsStore.getState().getAgentConfig('claude');
+        expect(after.workflowStages.deslop).toBeUndefined();
+        expect(after.stageOrder).not.toContain('deslop');
+      });
+
+      it('disabling a required stage does NOT remove it', () => {
+        useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { enabled: false });
+        const config = useSettingsStore.getState().getAgentConfig('claude');
+        expect(config.workflowStages.plan).toBeDefined();
+        expect(config.stageOrder).toContain('plan');
       });
 
       it('preserves other stages when updating one', () => {
@@ -97,6 +109,13 @@ describe('useSettingsStore', () => {
         expect(after.plan).toEqual(before.plan);
         expect(after.implement).toEqual(before.implement);
         expect(after.commit.model).toBe('sonnet-4.5');
+      });
+
+      it('disabling per-agent does not affect other agents', () => {
+        useSettingsStore.getState().setAgentConfigStage('claude', 'cleanup', { enabled: false });
+        const cursorConfig = useSettingsStore.getState().getAgentConfig('cursor');
+        expect(cursorConfig.workflowStages.cleanup).toBeDefined();
+        expect(cursorConfig.stageOrder).toContain('cleanup');
       });
     });
   });
@@ -159,6 +178,43 @@ describe('useSettingsStore', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
       expect(config.workflowStages['add-tests']).toBeUndefined();
       expect(config.stageOrder).not.toContain('add-tests');
+    });
+
+    it('catalog toggle OFF removes command from all agents', () => {
+      const catalog = useSettingsStore.getState().commandsCatalog;
+      const cmd = catalog.find((c) => c.id === 'code-review');
+      if (!cmd?.enabled) {
+        useSettingsStore.getState().toggleCatalogCommand('code-review');
+      }
+      expect(useSettingsStore.getState().getAgentConfig('claude').workflowStages['code-review']).toBeDefined();
+
+      useSettingsStore.getState().toggleCatalogCommand('code-review');
+
+      const afterCatalog = useSettingsStore.getState().commandsCatalog.find((c) => c.id === 'code-review');
+      expect(afterCatalog?.enabled).toBe(false);
+
+      const claudeConfig = useSettingsStore.getState().getAgentConfig('claude');
+      expect(claudeConfig.workflowStages['code-review']).toBeUndefined();
+      expect(claudeConfig.stageOrder).not.toContain('code-review');
+
+      const cursorConfig = useSettingsStore.getState().getAgentConfig('cursor');
+      expect(cursorConfig.workflowStages['code-review']).toBeUndefined();
+      expect(cursorConfig.stageOrder).not.toContain('code-review');
+    });
+
+    it('catalog toggle OFF then ON restores command to all agents', () => {
+      const catalog = useSettingsStore.getState().commandsCatalog;
+      const cmd = catalog.find((c) => c.id === 'code-review');
+      if (cmd?.enabled) {
+        useSettingsStore.getState().toggleCatalogCommand('code-review');
+      }
+      expect(useSettingsStore.getState().commandsCatalog.find((c) => c.id === 'code-review')?.enabled).toBe(false);
+
+      useSettingsStore.getState().toggleCatalogCommand('code-review');
+
+      const afterConfig = useSettingsStore.getState().getAgentConfig('claude');
+      expect(afterConfig.workflowStages['code-review']).toBeDefined();
+      expect(afterConfig.stageOrder).toContain('code-review');
     });
 
     it('addCustomCommand adds a new command', () => {
