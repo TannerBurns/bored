@@ -256,6 +256,10 @@ export async function saveCustomCommand(
   return invoke('save_custom_command', { id, filename, content });
 }
 
+export async function deleteCustomCommand(filename: string): Promise<void> {
+  return invoke('delete_custom_command', { filename });
+}
+
 export async function installCatalogCommandsToAllProjects(filenames: string[], removeFilenames: string[]): Promise<void> {
   return invoke('install_catalog_commands_to_all_projects', { filenames, removeFilenames });
 }

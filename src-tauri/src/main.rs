@@ -305,6 +305,7 @@ fn main() {
             commands::workers::check_user_commands_installed,
             commands::workers::read_command_content,
             commands::workers::save_custom_command,
+            commands::workers::delete_custom_command,
             commands::workers::install_catalog_commands_to_all_projects,
             // API configuration
             commands::get_api_config,

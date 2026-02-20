@@ -28,6 +28,18 @@ fn resolve_commands_source(
     })
 }
 
+fn get_custom_commands_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("custom-commands");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create custom commands dir: {}", e))?;
+    Ok(dir)
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartWorkerRequest {
@@ -305,6 +317,14 @@ pub async fn read_command_content(
     filename: String,
     registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
+    if let Ok(custom_dir) = get_custom_commands_dir(&app) {
+        let file_path = custom_dir.join(&filename);
+        if file_path.exists() {
+            return std::fs::read_to_string(&file_path)
+                .map_err(|e| format!("Failed to read command file: {}", e));
+        }
+    }
+
     let commands_source = registry.providers().iter()
         .find_map(|p| resolve_commands_source(&**p, &app));
 
@@ -322,23 +342,29 @@ pub async fn read_command_content(
 #[tauri::command]
 pub async fn save_custom_command(
     app: tauri::AppHandle,
-    id: String,
+    _id: String,
     filename: String,
     content: String,
-    registry: State<'_, AgentRegistry>,
 ) -> Result<(), String> {
-    let _ = &id;
-    let commands_source = registry.providers().iter()
-        .find_map(|p| resolve_commands_source(&**p, &app));
+    let custom_dir = get_custom_commands_dir(&app)?;
+    let file_path = custom_dir.join(&filename);
+    std::fs::write(&file_path, &content)
+        .map_err(|e| format!("Failed to save command file: {}", e))?;
+    Ok(())
+}
 
-    if let Some(path) = commands_source {
-        let file_path = path.join(&filename);
-        std::fs::write(&file_path, &content)
-            .map_err(|e| format!("Failed to save command file: {}", e))?;
-        return Ok(());
+#[tauri::command]
+pub async fn delete_custom_command(
+    app: tauri::AppHandle,
+    filename: String,
+) -> Result<(), String> {
+    let custom_dir = get_custom_commands_dir(&app)?;
+    let file_path = custom_dir.join(&filename);
+    if file_path.exists() {
+        std::fs::remove_file(&file_path)
+            .map_err(|e| format!("Failed to delete command file: {}", e))?;
     }
-
-    Err("Could not determine commands directory".to_string())
+    Ok(())
 }
 
 #[tauri::command]
@@ -350,11 +376,9 @@ pub async fn install_catalog_commands_to_all_projects(
     registry: State<'_, AgentRegistry>,
 ) -> Result<(), String> {
     let providers = registry.providers();
-    let commands_source = providers.iter()
+    let bundled_source = providers.iter()
         .find_map(|p| resolve_commands_source(&**p, &app));
-
-    let source = commands_source
-        .ok_or_else(|| "Command templates not found".to_string())?;
+    let custom_source = get_custom_commands_dir(&app).ok();
 
     let projects = db.get_projects().map_err(|e| e.to_string())?;
 
@@ -370,10 +394,18 @@ pub async fn install_catalog_commands_to_all_projects(
             let _ = std::fs::create_dir_all(&commands_dir);
 
             for filename in &filenames {
-                let src = source.join(filename);
-                if src.exists() {
-                    let dest = commands_dir.join(filename);
-                    let _ = std::fs::copy(&src, &dest);
+                let dest = commands_dir.join(filename);
+                let copied = custom_source.as_ref().is_some_and(|d| {
+                    let src = d.join(filename);
+                    src.exists() && std::fs::copy(&src, &dest).is_ok()
+                });
+                if !copied {
+                    if let Some(ref bundled) = bundled_source {
+                        let src = bundled.join(filename);
+                        if src.exists() {
+                            let _ = std::fs::copy(&src, &dest);
+                        }
+                    }
                 }
             }
 

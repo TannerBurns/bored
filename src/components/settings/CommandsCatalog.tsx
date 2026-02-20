@@ -1,7 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useSettingsStore, type CatalogCommand } from '../../stores/settingsStore';
-import { readCommandContent, saveCustomCommand } from '../../lib/tauri';
+import {
+  readCommandContent,
+  saveCustomCommand,
+  deleteCustomCommand,
+  installCatalogCommandsToAllProjects,
+} from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 
 function EnabledToast({ commandName, onDismiss }: { commandName: string; onDismiss: () => void }) {
@@ -223,9 +228,7 @@ export function CommandsCatalog() {
       .map((c) => c.filename);
 
     if (enabledFilenames.length > 0 || disabledFilenames.length > 0) {
-      import('../../lib/tauri').then(({ installCatalogCommandsToAllProjects }) => {
-        installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
-      });
+      installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
     }
   }, [catalog]);
 
@@ -237,6 +240,15 @@ export function CommandsCatalog() {
       setEnabledToast(cmd?.name ?? id);
     }
   }, [catalog, toggleCommand]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    const cmd = catalog.find((c) => c.id === id);
+    if (!cmd) return;
+
+    installCatalogCommandsToAllProjects([], [cmd.filename]).catch(() => {});
+    deleteCustomCommand(cmd.filename).catch(() => {});
+    removeCommand(id);
+  }, [catalog, removeCommand]);
 
   const handleAddCommand = useCallback(async (name: string, description: string, content: string) => {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -315,7 +327,7 @@ export function CommandsCatalog() {
                 key={cmd.id}
                 command={cmd}
                 onToggle={handleToggle}
-                onDelete={removeCommand}
+                onDelete={handleDelete}
               />
             ))}
           </div>
