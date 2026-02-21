@@ -25,6 +25,7 @@ struct FileReleaseNote {
     published_at: String,
     summary: Option<String>,
     notes: Vec<ReleaseNoteCategory>,
+    previous_versions: Option<Vec<PreviousVersionHighlight>>,
 }
 
 /// Serializable release note returned to the frontend.
@@ -35,12 +36,19 @@ pub struct ReleaseNote {
     pub published_at: String,
     pub summary: Option<String>,
     pub notes: Vec<ReleaseNoteCategory>,
+    pub previous_versions: Option<Vec<PreviousVersionHighlight>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ReleaseNoteCategory {
     pub category: String,
     pub items: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreviousVersionHighlight {
+    pub version: String,
+    pub highlight: String,
 }
 
 impl Database {
@@ -54,16 +62,26 @@ impl Database {
 
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "INSERT OR IGNORE INTO release_notes (version, published_at, summary, notes_json) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO release_notes (version, published_at, summary, notes_json, previous_versions_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(version) DO UPDATE SET
+                     published_at = excluded.published_at,
+                     summary = excluded.summary,
+                     notes_json = excluded.notes_json,
+                     previous_versions_json = excluded.previous_versions_json",
             )?;
 
             for entry in &entries {
                 let notes_json = serde_json::to_string(&entry.notes).unwrap_or_else(|_| "[]".to_string());
+                let prev_json = entry.previous_versions.as_ref().map(|pv| {
+                    serde_json::to_string(pv).unwrap_or_else(|_| "[]".to_string())
+                });
                 stmt.execute(rusqlite::params![
                     entry.version,
                     entry.published_at,
                     entry.summary,
                     notes_json,
+                    prev_json,
                 ])?;
             }
 
@@ -75,7 +93,7 @@ impl Database {
     pub fn get_release_notes(&self, version: &str) -> Result<Option<ReleaseNote>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT version, published_at, summary, notes_json FROM release_notes WHERE version = ?1",
+                "SELECT version, published_at, summary, notes_json, previous_versions_json FROM release_notes WHERE version = ?1",
             )?;
 
             let result = stmt
@@ -84,19 +102,23 @@ impl Database {
                     let published_at: String = row.get(1)?;
                     let summary: Option<String> = row.get(2)?;
                     let notes_json: String = row.get(3)?;
-                    Ok((version, published_at, summary, notes_json))
+                    let prev_json: Option<String> = row.get(4)?;
+                    Ok((version, published_at, summary, notes_json, prev_json))
                 })
                 .ok();
 
             match result {
-                Some((version, published_at, summary, notes_json)) => {
+                Some((version, published_at, summary, notes_json, prev_json)) => {
                     let notes: Vec<ReleaseNoteCategory> =
                         serde_json::from_str(&notes_json).unwrap_or_default();
+                    let previous_versions: Option<Vec<PreviousVersionHighlight>> =
+                        prev_json.and_then(|j| serde_json::from_str(&j).ok());
                     Ok(Some(ReleaseNote {
                         version,
                         published_at,
                         summary,
                         notes,
+                        previous_versions,
                     }))
                 }
                 None => Ok(None),
@@ -108,7 +130,7 @@ impl Database {
     pub fn get_all_release_notes(&self) -> Result<Vec<ReleaseNote>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT version, published_at, summary, notes_json FROM release_notes ORDER BY published_at DESC, version DESC",
+                "SELECT version, published_at, summary, notes_json, previous_versions_json FROM release_notes ORDER BY published_at DESC, version DESC",
             )?;
 
             let rows = stmt
@@ -117,20 +139,24 @@ impl Database {
                     let published_at: String = row.get(1)?;
                     let summary: Option<String> = row.get(2)?;
                     let notes_json: String = row.get(3)?;
-                    Ok((version, published_at, summary, notes_json))
+                    let prev_json: Option<String> = row.get(4)?;
+                    Ok((version, published_at, summary, notes_json, prev_json))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
             let notes = rows
                 .into_iter()
-                .map(|(version, published_at, summary, notes_json)| {
+                .map(|(version, published_at, summary, notes_json, prev_json)| {
                     let notes: Vec<ReleaseNoteCategory> =
                         serde_json::from_str(&notes_json).unwrap_or_default();
+                    let previous_versions: Option<Vec<PreviousVersionHighlight>> =
+                        prev_json.and_then(|j| serde_json::from_str(&j).ok());
                     ReleaseNote {
                         version,
                         published_at,
                         summary,
                         notes,
+                        previous_versions,
                     }
                 })
                 .collect();

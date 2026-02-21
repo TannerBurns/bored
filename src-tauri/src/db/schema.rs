@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 13;
+pub const SCHEMA_VERSION: i32 = 14;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -231,7 +231,8 @@ CREATE TABLE IF NOT EXISTS release_notes (
     version TEXT PRIMARY KEY NOT NULL,
     published_at TEXT NOT NULL,
     summary TEXT,
-    notes_json TEXT NOT NULL DEFAULT '[]'
+    notes_json TEXT NOT NULL DEFAULT '[]',
+    previous_versions_json TEXT
 );
 
 -- Validation sessions table (post-completion validation chat)

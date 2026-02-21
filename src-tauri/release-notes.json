@@ -26,6 +26,24 @@
           "Fixed app_handle: None in orchestrate.rs that was preventing tray refresh and notifications for UI-initiated runs"
         ]
       }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.23",
+        "highlight": "Catalog-driven command architecture with custom workflow commands per agent"
+      },
+      {
+        "version": "0.1.0-beta.22",
+        "highlight": "Drag-and-drop per-agent workflow stage ordering with preset management"
+      },
+      {
+        "version": "0.1.0-beta.21",
+        "highlight": "Local provider support (Ollama / LM Studio) for Codex and Claude Code"
+      },
+      {
+        "version": "0.1.0-beta.20",
+        "highlight": "Codex CLI agent, per-agent settings architecture, and Sonnet 4.6 support"
+      }
     ]
   },
   {
