@@ -1,6 +1,7 @@
 mod crud_tests;
 mod epics_tests;
 mod lock_tests;
+mod query_tests;
 mod reserve_tests;
 mod state_tests;
 

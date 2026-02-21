@@ -111,6 +111,17 @@ pub fn get_available_agents(
         .collect()
 }
 
+#[tauri::command]
+pub fn set_notifications_enabled(
+    enabled: bool,
+    state: tauri::State<'_, crate::tray::NotificationsEnabled>,
+) {
+    state
+        .0
+        .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!("Notifications {}", if enabled { "enabled" } else { "disabled" });
+}
+
 /// Get the current API configuration (port, URL, token)
 #[tauri::command]
 pub fn get_api_config() -> Result<ApiConfigResponse, String> {

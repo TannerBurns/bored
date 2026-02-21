@@ -111,7 +111,7 @@ export function GeneralSettings({ onShowReleaseNotes }: GeneralSettingsProps) {
     getVersion().then(setAppVersion).catch(() => setAppVersion('unknown'));
   }, []);
 
-  const { theme, setTheme } = useSettingsStore();
+  const { theme, setTheme, notificationsEnabled, setNotificationsEnabled } = useSettingsStore();
 
   return (
     <div className="space-y-4">
@@ -120,6 +120,32 @@ export function GeneralSettings({ onShowReleaseNotes }: GeneralSettingsProps) {
         <p className="text-xs text-board-text-muted mt-0.5">
           Configure general application settings.
         </p>
+      </div>
+
+      {/* Notifications Section */}
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-board-text">Notifications</h3>
+            <p className="text-xs text-board-text-muted mt-0.5">
+              Get notified when tickets move to Review or Blocked.
+            </p>
+          </div>
+          <button
+            onClick={() => setNotificationsEnabled(!notificationsEnabled)}
+            className={cn(
+              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200',
+              notificationsEnabled ? 'bg-board-accent' : 'glass-intense'
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200',
+                notificationsEnabled ? 'translate-x-4.5' : 'translate-x-0.5'
+              )}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Theme Section */}

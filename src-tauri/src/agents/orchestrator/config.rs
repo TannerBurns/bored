@@ -66,6 +66,7 @@ pub fn normalize_legacy_stage_name(stage: &str) -> Option<&'static str> {
 /// Backend stage names produced by expanding required/special frontend keys.
 /// Custom command IDs must never collide with these or `should_skip_stage`
 /// resume logic breaks due to duplicate positions in `full_execution_order`.
+#[cfg(test)]
 pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
     "branch-gen", "branch", "plan-validation",
     "code-review-fix", "add-and-commit",
@@ -73,6 +74,7 @@ pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
 
 /// Returns true when `id` must not be used as a custom command identifier
 /// because it collides with an internally expanded stage name.
+#[cfg(test)]
 pub fn is_reserved_stage_id(id: &str) -> bool {
     RESERVED_INTERNAL_STAGES.contains(&id)
 }

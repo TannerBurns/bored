@@ -12,7 +12,7 @@ use agent_kanban::commands::AgentSettingsManager;
 use agent_kanban::commands::runs::RunningAgents;
 use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
 use agent_kanban::commands::ApiConnState;
-use agent_kanban::{api, commands, db, logging};
+use agent_kanban::{api, commands, db, logging, tray};
 
 /// Check if a URL is allowed for navigation within the app
 fn is_allowed_url(url: &url::Url) -> bool {
@@ -51,6 +51,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -138,6 +139,9 @@ fn main() {
             app.manage(database.clone());
             app.manage(RunningAgents::new());
             app.manage(AppProcessManager::new());
+            app.manage(tray::NotificationsEnabled(
+                std::sync::atomic::AtomicBool::new(true),
+            ));
 
             let agent_settings = AgentSettingsManager::new();
             let claude_settings_path = app_data_dir.join("claude_api_settings.json");
@@ -228,6 +232,10 @@ fn main() {
                 api::start_spool_processor(db_for_spool, spool_dir).await;
             });
 
+            if let Err(e) = tray::setup_tray(app) {
+                tracing::error!("Failed to setup system tray: {}", e);
+            }
+
             tracing::info!("Agent Kanban initialized successfully");
 
             Ok(())
@@ -309,6 +317,7 @@ fn main() {
             commands::workers::install_catalog_commands_to_all_projects,
             // API configuration
             commands::get_api_config,
+            commands::set_notifications_enabled,
             // Agent registry
             commands::get_available_agents,
             // Task queue management

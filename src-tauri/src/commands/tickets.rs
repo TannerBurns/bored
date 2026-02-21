@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::db::{
     AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
@@ -100,6 +100,7 @@ pub async fn create_ticket(
 pub async fn move_ticket(
     ticket_id: String,
     column_id: String,
+    app_handle: AppHandle,
     db: State<'_, Arc<Database>>,
 ) -> Result<(), String> {
     tracing::info!("Moving ticket {} to column {}", ticket_id, column_id);
@@ -125,7 +126,6 @@ pub async fn move_ticket(
     if ticket.is_epic && target_column_name.eq_ignore_ascii_case("Ready") {
         if let Err(e) = crate::lifecycle::epic::on_epic_moved_to_ready(&db, &updated_ticket) {
             tracing::warn!("Failed to advance epic children: {}", e);
-            // Don't fail the move, just log the warning
         }
     }
 
@@ -156,6 +156,8 @@ pub async fn move_ticket(
             tracing::warn!("Failed to handle child blocked: {}", e);
         }
     }
+
+    crate::tray::refresh_tray(&app_handle);
 
     Ok(())
 }
@@ -297,9 +299,15 @@ pub async fn update_ticket(
 }
 
 #[tauri::command]
-pub async fn delete_ticket(ticket_id: String, db: State<'_, Arc<Database>>) -> Result<(), String> {
+pub async fn delete_ticket(
+    ticket_id: String,
+    app_handle: AppHandle,
+    db: State<'_, Arc<Database>>,
+) -> Result<(), String> {
     tracing::info!("Deleting ticket: {}", ticket_id);
-    db.delete_ticket(&ticket_id).map_err(|e| e.to_string())
+    db.delete_ticket(&ticket_id).map_err(|e| e.to_string())?;
+    crate::tray::refresh_tray(&app_handle);
+    Ok(())
 }
 
 #[tauri::command]

@@ -51,6 +51,12 @@ impl WorkflowOrchestrator {
                         tracing::info!("Emitted ticket-moved event for ticket {}", self.ticket.id);
                     }
 
+                    self.send_status_notification(column_name);
+
+                    if let Some(ref app_handle) = self.app_handle {
+                        crate::tray::refresh_tray(app_handle);
+                    }
+
                     // Epic lifecycle hooks: when a child ticket moves to Done or Blocked,
                     // trigger epic advancement or blocking
                     if self.ticket.epic_id.is_some() {
@@ -87,6 +93,47 @@ impl WorkflowOrchestrator {
             Err(e) => {
                 tracing::error!("Error finding column '{}': {}", column_name, e);
             }
+        }
+    }
+
+    fn send_status_notification(&self, column_name: &str) {
+        let app_handle = match self.app_handle {
+            Some(ref h) if crate::tray::are_notifications_enabled(h) => h,
+            _ => return,
+        };
+
+        let (title, body) = match column_name {
+            "Review" => (
+                "Ready for Review",
+                format!(
+                    "\"{}\" has completed work and is ready for your review.",
+                    self.ticket.title
+                ),
+            ),
+            "Blocked" => (
+                "Ticket Blocked",
+                format!(
+                    "\"{}\" needs your attention — clarification or action required.",
+                    self.ticket.title
+                ),
+            ),
+            _ => return,
+        };
+
+        tracing::info!(
+            "Sending notification: {} — {}",
+            title,
+            self.ticket.title
+        );
+        use tauri_plugin_notification::NotificationExt;
+        if let Err(e) = app_handle
+            .notification()
+            .builder()
+            .title(title)
+            .body(&body)
+            .show()
+        {
+            tracing::warn!("Failed to send notification: {}", e);
         }
     }
 }

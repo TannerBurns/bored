@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::{Emitter, Window};
+use tauri::{Emitter, Manager, Window};
 
 use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::spawner::CancelHandle;
@@ -139,7 +139,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     let orchestrator = WorkflowOrchestrator::new(OrchestratorConfig {
         db: db.clone(),
         window: Some(window.clone()),
-        app_handle: None,
+        app_handle: Some(window.app_handle().clone()),
         parent_run_id: run_id.clone(),
         ticket: ticket.clone(),
         task: task.clone(),

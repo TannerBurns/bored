@@ -24,6 +24,10 @@ export async function getApiConfig(): Promise<ApiConfig> {
   return invoke('get_api_config');
 }
 
+export async function setNotificationsEnabled(enabled: boolean): Promise<void> {
+  return invoke('set_notifications_enabled', { enabled });
+}
+
 // Agent registry
 export async function getAvailableAgents(): Promise<AgentInfo[]> {
   return invoke('get_available_agents');
