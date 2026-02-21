@@ -1,5 +1,52 @@
 [
   {
+    "version": "0.1.0-beta.24",
+    "published_at": "2026-02-21",
+    "summary": "System tray integration and native OS notifications for background ticket monitoring",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "System tray with recent tickets list — shows the 3 most recent tickets directly in the menu with 5 more in a submenu, plus Open Bored, Open Settings, and Quit actions",
+          "Native OS notifications when tickets move to Review or Blocked, so you're alerted to transitions requiring attention without keeping the app in the foreground",
+          "Notification toggle in General Settings — enable or disable notifications with a single click",
+          "Branded B tray icon for macOS menu bar"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Tray menu rebuilds automatically on ticket move, create, and delete operations for live status updates",
+          "Tray menu items navigate directly to settings or open specific tickets in the app"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed app_handle: None in orchestrate.rs that was preventing tray refresh and notifications for UI-initiated runs"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.23",
+        "highlight": "Catalog-driven command architecture with custom workflow commands per agent"
+      },
+      {
+        "version": "0.1.0-beta.22",
+        "highlight": "Drag-and-drop per-agent workflow stage ordering with preset management"
+      },
+      {
+        "version": "0.1.0-beta.21",
+        "highlight": "Local provider support (Ollama / LM Studio) for Codex and Claude Code"
+      },
+      {
+        "version": "0.1.0-beta.20",
+        "highlight": "Codex CLI agent, per-agent settings architecture, and Sonnet 4.6 support"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.23",
     "published_at": "2026-02-21",
     "summary": "Catalog-driven command architecture replacing hardcoded workflow stages, with custom command support and orchestrator fixes",

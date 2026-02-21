@@ -471,11 +471,17 @@ export interface ReleaseNoteCategory {
   items: string[];
 }
 
+export interface PreviousVersionHighlight {
+  version: string;
+  highlight: string;
+}
+
 export interface ReleaseNote {
   version: string;
   publishedAt: string;
   summary: string | null;
   notes: ReleaseNoteCategory[];
+  previousVersions?: PreviousVersionHighlight[] | null;
 }
 
 export type ConversationRole = 'user' | 'assistant' | 'system';

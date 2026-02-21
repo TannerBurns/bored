@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Modal } from './Modal';
 import type { ReleaseNote } from '../../types';
 
@@ -54,6 +55,60 @@ function BugIcon({ className }: { className?: string }) {
       <path d="M22 13h-4" />
       <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />
     </svg>
+  );
+}
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
+function PreviousVersionsSection({ versions }: { versions: { version: string; highlight: string }[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="glass-subtle rounded-lg p-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left"
+      >
+        <HistoryIcon className="w-4 h-4 text-board-text-tertiary" />
+        <h3 className="text-sm font-semibold text-board-text-tertiary">
+          Previous Versions
+        </h3>
+        <svg
+          className={`w-3.5 h-3.5 text-board-text-tertiary ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="mt-2 space-y-2 ml-6">
+          <p className="text-xs text-board-text-tertiary mb-2">
+            Major features from recent releases you may have missed:
+          </p>
+          {versions.map((pv) => (
+            <div key={pv.version} className="flex gap-2 text-sm">
+              <span className="font-mono text-xs text-board-accent whitespace-nowrap mt-0.5">
+                {pv.version.replace('0.1.0-', '')}
+              </span>
+              <span className="text-board-text-secondary">{pv.highlight}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -115,6 +170,10 @@ export function ReleaseNotesModal({
             </div>
           );
         })}
+
+        {releaseNote.previousVersions && releaseNote.previousVersions.length > 0 && (
+          <PreviousVersionsSection versions={releaseNote.previousVersions} />
+        )}
 
         {/* Dismiss button */}
         <div className="flex justify-end pt-2">

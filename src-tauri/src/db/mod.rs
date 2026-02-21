@@ -952,6 +952,17 @@ impl Database {
                 tracing::info!("Migration to version 13 complete: hooks_installed_json column removed");
             }
 
+            // Migration from version 13 to 14: Add previous_versions_json to release_notes
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has the column
+            if current_version > 0 && current_version < 14 {
+                tracing::info!("Running migration to version 14: release_notes.previous_versions_json");
+                conn.execute(
+                    "ALTER TABLE release_notes ADD COLUMN previous_versions_json TEXT",
+                    [],
+                )?;
+                tracing::info!("Migration to version 14 complete: previous_versions_json added");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
