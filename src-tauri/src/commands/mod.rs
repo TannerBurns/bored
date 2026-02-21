@@ -42,9 +42,11 @@ pub use tasks::{
 };
 pub use tickets::*;
 pub use workers::{
-    check_commands_installed, check_user_commands_installed, get_available_commands,
-    get_commands_path, get_worker_queue_status, get_workers, install_commands_to_project,
-    install_commands_to_user, start_worker, stop_all_workers, stop_worker, validate_worker,
+    check_commands_installed, check_user_commands_installed, delete_custom_command,
+    get_available_commands, get_commands_path, get_worker_queue_status, get_workers,
+    install_commands_to_project, install_commands_to_user,
+    install_catalog_commands_to_all_projects, read_command_content, save_custom_command,
+    start_worker, stop_all_workers, stop_worker, validate_worker,
 };
 
 /// API connection state shared across Tauri commands via managed state.

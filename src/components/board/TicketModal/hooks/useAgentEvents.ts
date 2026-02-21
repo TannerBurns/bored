@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { logger } from '../../../../lib/logger';
 import { useBoardStore } from '../../../../stores/boardStore';
+import { useSettingsStore } from '../../../../stores/settingsStore';
+import { buildFullExecutionOrder } from '../../../../stores/settingsStore.types';
 import type { AgentRun, Ticket } from '../../../../types';
 import type { 
   AgentLogEvent, 
@@ -426,17 +428,10 @@ export function useAgentEvents({
         .filter(r => r.parentRunId === runId && r.stage)
         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
       
-      // Must match the order in orchestrator/mod.rs should_skip_stage()
-      const stageOrder = [
-        'branch-gen', 'branch', 
-        'plan', 'plan-validation',
-        'implement', 
-        'code-review', 'code-review-fix',
-        'deslop', 'cleanup', 'unit-tests', 
-        'cleanup-post-tests', 'review-changes',
-        'cleanup-post-review', 'review-changes-final',
-        'add-and-commit'
-      ];
+      const parentRun = agentRuns.find(r => r.id === runId);
+      const agentType = parentRun?.agentType ?? 'claude';
+      const agentConfig = useSettingsStore.getState().getAgentConfig(agentType);
+      const stageOrder = buildFullExecutionOrder(agentConfig.stageOrder);
       
       const latestSubRun = subRuns[0];
       const latestStage = latestSubRun?.stage;

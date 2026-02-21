@@ -244,6 +244,26 @@ export async function checkUserCommandsInstalled(agentType: string): Promise<boo
   return invoke('check_user_commands_installed', { agentType });
 }
 
+export async function readCommandContent(filename: string): Promise<string> {
+  return invoke('read_command_content', { filename });
+}
+
+export async function saveCustomCommand(
+  id: string,
+  filename: string,
+  content: string
+): Promise<void> {
+  return invoke('save_custom_command', { id, filename, content });
+}
+
+export async function deleteCustomCommand(filename: string): Promise<void> {
+  return invoke('delete_custom_command', { filename });
+}
+
+export async function installCatalogCommandsToAllProjects(filenames: string[], removeFilenames: string[]): Promise<void> {
+  return invoke('install_catalog_commands_to_all_projects', { filenames, removeFilenames });
+}
+
 // Factory reset - clears all data from the database
 export async function factoryReset(): Promise<void> {
   return invoke('factory_reset');

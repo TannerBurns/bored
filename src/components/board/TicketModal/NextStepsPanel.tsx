@@ -22,9 +22,10 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
-  const isDone = currentColumn?.name === 'Done';
+  const columnName = currentColumn?.name;
+  const isReviewOrDone = columnName === 'Review' || columnName === 'Done';
   const hasBranch = !!ticket.branchName;
-  const shouldShow = isDone && hasBranch;
+  const shouldShow = isReviewOrDone && hasBranch;
 
   useEffect(() => {
     if (!shouldShow) return;
@@ -84,7 +85,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
           <polyline points="22 4 12 14.01 9 11.01" />
         </svg>
         <span className="text-sm font-medium text-emerald-400">
-          Work Complete
+          {columnName === 'Done' ? 'Work Complete' : 'Ready for Review'}
         </span>
         <span className="text-xs text-board-text-muted ml-auto">
           Branch: <code className="text-board-text-secondary">{ticket.branchName}</code>
@@ -95,7 +96,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>. Choose your next step:
       </p>
 
-      {/* First row: Validate with, Push, Create PR */}
       <div className="flex flex-wrap items-center gap-2">
         {onValidate && (
           <BuildWithDropdown
@@ -131,7 +131,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         </button>
       </div>
 
-      {/* Second row: View Diff as expandable section */}
       <div className="rounded-lg border border-board-border overflow-hidden bg-board-bg/30">
         <button
           type="button"
@@ -182,7 +181,6 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
         )}
       </div>
 
-      {/* Status messages */}
       {pushStatus && (
         <div className={`text-xs p-2 rounded ${pushStatus.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
           {pushStatus.message}

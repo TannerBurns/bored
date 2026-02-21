@@ -8,36 +8,53 @@ use crate::agents::prompt::{
     generate_command_prompt_with_providers, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
 };
-use super::config::expand_stage_key;
 use crate::db::models::TaskType;
 
 impl WorkflowOrchestrator {
-    /// Execute the full multi-stage workflow
+    /// Execute the full multi-stage workflow.
     pub async fn execute(&self) -> Result<(), String> {
         self.log_workflow_start();
 
-        // Move ticket to "In Progress" when workflow starts
         self.move_ticket_to_column("In Progress");
 
-        // Handle branch creation
-        self.handle_branch_creation().await?;
+        let mut plan = String::new();
 
-        // Stage 1: Plan
-        let plan = self.run_plan_stage().await?;
+        for stage_key in &self.stage_order {
+            match stage_key.as_str() {
+                "branchGen" => {
+                    self.handle_branch_creation().await?;
+                }
+                "plan" => {
+                    plan = self.run_plan_stage().await?;
+                }
+                "implement" => {
+                    self.run_implement_stage(&plan).await?;
+                }
+                "commit" => {
+                    self.run_commit_stage().await?;
+                }
+                "code-review" => {
+                    // Check "code-review-fix" (the last sub-stage of the loop) so that
+                    // resuming mid-loop (e.g. paused during code-review-fix) re-enters
+                    // the loop instead of incorrectly skipping it.
+                    if self.should_skip_stage("code-review-fix") {
+                        tracing::info!("Skipping code-review loop (resuming from later stage)");
+                    } else if !self.is_stage_enabled("code-review") {
+                        tracing::info!("Skipping code-review loop (disabled in workflow settings)");
+                    } else if self.is_cancelled() {
+                        return Err("Workflow cancelled".to_string());
+                    } else {
+                        self.run_code_review_loop().await?;
+                    }
+                }
+                cmd => {
+                    self.run_command_stage(cmd).await?;
+                }
+            }
+        }
 
-        // Stage 2: Implement
-        self.run_implement_stage(&plan).await?;
-
-        // Move ticket to "Review" when entering QA phase
+        // Terminal state for automated workflows; "Review → Done" is a manual user action.
         self.move_ticket_to_column("Review");
-
-        // Run optional stages in the user-configured order, then commit
-        self.run_ordered_stages().await?;
-
-        // Move ticket to "Done" when workflow completes successfully
-        self.move_ticket_to_column("Done");
-
-        // Add workflow completion summary comment
         self.add_workflow_summary_comment();
 
         tracing::info!(
@@ -55,10 +72,8 @@ impl WorkflowOrchestrator {
                 self.ticket.id,
                 resume_stage
             );
-            // Clear the paused_at_stage from the database now that we're resuming
             if let Err(e) = self.db.clear_ticket_pause(&self.ticket.id) {
                 tracing::warn!("Failed to clear ticket pause state: {}", e);
-                // Continue anyway - the important thing is we have the resume stage
             }
         } else {
             tracing::info!(
@@ -75,10 +90,8 @@ impl WorkflowOrchestrator {
 
     /// Run the plan stage and return the extracted plan.
     async fn run_plan_stage(&self) -> Result<String, String> {
-        // Skip if we're resuming past the plan stage, but retrieve the saved plan
         if self.should_skip_stage("plan") {
             tracing::info!("Skipping plan stage (resuming from later stage)");
-            // Try to retrieve the saved plan from previous comments for use in implementation
             return Ok(self.get_saved_plan().unwrap_or_else(|| {
                 tracing::warn!(
                     "No saved plan found - implementation will proceed without plan context"
@@ -91,11 +104,8 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
 
-        // Use task-based prompts if we have a task, otherwise fall back to ticket-based
         let plan_prompt = if let Some(ref task) = self.task {
-            // For preset tasks, we skip the plan stage and go directly to execution
             if task.task_type != TaskType::Custom {
-                // Skip plan for preset tasks - they have their own instructions
                 tracing::info!(
                     "Skipping plan stage for preset task type: {:?}",
                     task.task_type
@@ -113,9 +123,6 @@ impl WorkflowOrchestrator {
         }
 
         let plan_result = self.run_stage("plan", &plan_prompt).await?;
-        // Extract only the text content from stream-json output.
-        // The raw captured_stdout contains all tool calls, file reads, grep results, etc.
-        // which can be 100K+ tokens. We only need the final plan text.
         let raw_output = plan_result.captured_stdout.unwrap_or_default();
         let plan = self.extract_text(&raw_output);
 
@@ -130,7 +137,6 @@ impl WorkflowOrchestrator {
             }
         );
 
-        // Run plan validation
         self.validate_and_process_plan(&plan).await?;
 
         Ok(plan)
@@ -210,7 +216,6 @@ impl WorkflowOrchestrator {
 
     /// Run the implement stage.
     async fn run_implement_stage(&self, plan: &str) -> Result<(), String> {
-        // Skip if we're resuming past the implement stage
         if self.should_skip_stage("implement") {
             tracing::info!("Skipping implement stage (resuming from later stage)");
             return Ok(());
@@ -221,7 +226,6 @@ impl WorkflowOrchestrator {
         }
 
         let implement_prompt = if let Some(ref task) = self.task {
-            // For preset tasks, use the preset-specific prompt
             if task.task_type != TaskType::Custom {
                 generate_task_prompt(task, &self.ticket, &self.repo_path, &[self.provider.as_ref()])
             } else {
@@ -236,45 +240,7 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
-    /// Run the optional stages in the user-configured order, followed by commit.
-    async fn run_ordered_stages(&self) -> Result<(), String> {
-        for stage_key in &self.stage_order {
-            // Required stages: branchGen/plan/implement handled by execute(), commit runs after loop
-            if matches!(stage_key.as_str(), "branchGen" | "plan" | "implement" | "commit") {
-                continue;
-            }
-
-            if stage_key == "codeReview" {
-                if self.should_skip_stage("code-review") {
-                    tracing::info!("Skipping code-review loop (resuming from later stage)");
-                } else if !self.is_stage_enabled("code-review") {
-                    tracing::info!("Skipping code-review loop (disabled in workflow settings)");
-                } else if self.is_cancelled() {
-                    return Err("Workflow cancelled".to_string());
-                } else {
-                    self.run_code_review_loop().await?;
-                }
-                continue;
-            }
-
-            for cmd in expand_stage_key(stage_key) {
-                if self.should_skip_stage(cmd) {
-                    tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
-                    continue;
-                }
-                if !self.is_stage_enabled(cmd) {
-                    tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
-                    continue;
-                }
-                if self.is_cancelled() {
-                    return Err("Workflow cancelled".to_string());
-                }
-                self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
-                    .await?;
-            }
-        }
-
-        // Commit always runs last (required stage with fixed position)
+    async fn run_commit_stage(&self) -> Result<(), String> {
         let cmd = "add-and-commit";
         if self.should_skip_stage(cmd) {
             tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
@@ -283,10 +249,40 @@ impl WorkflowOrchestrator {
         } else if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
         } else {
-            self.run_stage(cmd, &generate_command_prompt_with_providers(cmd, &self.repo_path, &[self.provider.as_ref()]))
-                .await?;
+            self.run_stage(
+                cmd,
+                &generate_command_prompt_with_providers(
+                    cmd,
+                    &self.repo_path,
+                    &[self.provider.as_ref()],
+                ),
+            )
+            .await?;
         }
+        Ok(())
+    }
 
+    async fn run_command_stage(&self, cmd: &str) -> Result<(), String> {
+        if self.should_skip_stage(cmd) {
+            tracing::info!("Skipping '{}' stage (resuming from later stage)", cmd);
+            return Ok(());
+        }
+        if !self.is_stage_enabled(cmd) {
+            tracing::info!("Skipping '{}' stage (disabled in workflow settings)", cmd);
+            return Ok(());
+        }
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+        self.run_stage(
+            cmd,
+            &generate_command_prompt_with_providers(
+                cmd,
+                &self.repo_path,
+                &[self.provider.as_ref()],
+            ),
+        )
+        .await?;
         Ok(())
     }
 }

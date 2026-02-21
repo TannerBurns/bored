@@ -1,26 +1,34 @@
 import {
   useSettingsStore,
   MODEL_OPTIONS,
-  WORKFLOW_PRESETS,
   WORKFLOW_STAGE_INFO,
+  REQUIRED_STAGE_KEYS,
   type AIModel,
-  type WorkflowPreset,
 } from '../../stores/settingsStore';
 import { cn } from '../../lib/utils';
 
-const PRESET_KEYS = Object.keys(WORKFLOW_PRESETS) as Exclude<WorkflowPreset, 'custom'>[];
-
 export function AgentWorkflowSettings() {
   const config = useSettingsStore((s) => s.agentConfigs['claude']);
-  const setPreset = useSettingsStore((s) => s.setAgentConfigWorkflowPreset);
+  const catalog = useSettingsStore((s) => s.commandsCatalog);
   const setStage = useSettingsStore((s) => s.setAgentConfigStage);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
-  const workflowPreset = config.workflowPreset;
   const workflowStages = config.workflowStages;
   const codeReviewMaxIterations = config.codeReviewMaxIterations;
   const stageTimeoutHours = config.stageTimeoutHours;
   const stageMaxRetries = config.stageMaxRetries;
+
+  const allStageInfo = [
+    ...WORKFLOW_STAGE_INFO,
+    ...catalog
+      .filter((c) => c.enabled)
+      .map((c) => ({
+        key: c.id,
+        label: c.name,
+        description: c.description,
+        required: false,
+      })),
+  ];
 
   return (
     <div className="space-y-4">
@@ -31,56 +39,6 @@ export function AgentWorkflowSettings() {
         </p>
       </div>
 
-      {/* Preset Selector */}
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-board-text">Workflow Preset</h3>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Choose a preset to quickly configure stages and models. Manual changes switch to Custom.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-1.5">
-          {PRESET_KEYS.map((key) => {
-            const preset = WORKFLOW_PRESETS[key];
-            const isSelected = workflowPreset === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setPreset('claude', key)}
-                className={cn(
-                  'flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-lg transition-all duration-200 text-left',
-                  isSelected
-                    ? 'glass-intense ring-1 ring-board-accent'
-                    : 'glass hover:glass-intense'
-                )}
-              >
-                <span className={cn(
-                  'text-xs font-medium',
-                  isSelected ? 'text-board-accent' : 'text-board-text'
-                )}>
-                  {preset.label}
-                </span>
-                <span className="text-[11px] text-board-text-muted leading-snug">
-                  {preset.description}
-                </span>
-              </button>
-            );
-          })}
-
-          {/* Custom indicator */}
-          {workflowPreset === 'custom' && (
-            <div className="flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-lg glass-intense ring-1 ring-board-accent text-left">
-              <span className="text-xs font-medium text-board-accent">Custom</span>
-              <span className="text-[11px] text-board-text-muted leading-snug">
-                Manually configured stages and models
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Per-Stage Configuration Table */}
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h3 className="text-sm font-medium text-board-text">Stage Configuration</h3>
@@ -90,31 +48,32 @@ export function AgentWorkflowSettings() {
         </div>
 
         <div className="space-y-1">
-          {/* Header */}
           <div className="grid grid-cols-[40px_1fr_130px] gap-2 px-2 py-1">
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">On</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Stage</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Model</span>
           </div>
 
-          {WORKFLOW_STAGE_INFO.map((stage) => {
-            const stageConfig = workflowStages[stage.key];
+          {config.stageOrder.map((key) => {
+            const stage = allStageInfo.find((s) => s.key === key);
+            if (!stage) return null;
+            const stageConfig = workflowStages[key];
+            if (!stageConfig) return null;
             const isEnabled = stageConfig.enabled;
-            const isRequired = stage.required;
+            const isRequired = REQUIRED_STAGE_KEYS.has(key);
 
             return (
               <div
-                key={stage.key}
+                key={key}
                 className={cn(
                   'grid grid-cols-[40px_1fr_130px] gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
                   isEnabled ? 'glass-subtle' : 'opacity-50'
                 )}
               >
-                {/* Toggle */}
                 <button
                   onClick={() => {
                     if (!isRequired) {
-                      setStage('claude', stage.key, { enabled: !isEnabled });
+                      setStage('claude', key, { enabled: !isEnabled });
                     }
                   }}
                   disabled={isRequired}
@@ -134,7 +93,6 @@ export function AgentWorkflowSettings() {
                   />
                 </button>
 
-                {/* Stage name + description */}
                 <div className="min-w-0">
                   <span className="text-sm font-medium text-board-text">{stage.label}</span>
                   {isRequired && (
@@ -145,10 +103,9 @@ export function AgentWorkflowSettings() {
                   <p className="text-[11px] text-board-text-muted truncate">{stage.description}</p>
                 </div>
 
-                {/* Model dropdown */}
                 <select
                   value={stageConfig.model}
-                  onChange={(e) => setStage('claude', stage.key, { model: e.target.value as AIModel })}
+                  onChange={(e) => setStage('claude', key, { model: e.target.value as AIModel })}
                   disabled={!isEnabled}
                   className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -164,7 +121,6 @@ export function AgentWorkflowSettings() {
         </div>
       </div>
 
-      {/* Workflow Stage Settings */}
       <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h3 className="text-sm font-medium text-board-text">Workflow Stage Settings</h3>
@@ -173,7 +129,6 @@ export function AgentWorkflowSettings() {
           </p>
         </div>
 
-        {/* Stage timeout and retries */}
         <div className="grid grid-cols-2 gap-2">
           <div className="glass-subtle rounded-lg px-3 py-2">
             <label className="block text-sm font-medium text-board-text mb-1">
@@ -203,7 +158,6 @@ export function AgentWorkflowSettings() {
           </div>
         </div>
 
-        {/* Code Review Max Iterations */}
         <div className="glass-subtle rounded-lg px-3 py-2">
           <label className="block text-sm font-medium text-board-text mb-1">
             Code Review Max Iterations

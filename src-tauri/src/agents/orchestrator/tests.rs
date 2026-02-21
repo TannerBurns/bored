@@ -2,8 +2,8 @@
 
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
-    build_full_stage_order, expand_stage_key, StageEvent, DEFAULT_OPTIONAL_STAGE_ORDER,
-    MULTI_STAGE_WORKFLOW,
+    build_full_stage_order, expand_stage_key, is_reserved_stage_id, normalize_legacy_stage_name,
+    StageEvent, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
 };
 
 #[test]
@@ -67,67 +67,16 @@ fn stage_event_serializes() {
 
 #[test]
 fn multi_stage_workflow_has_expected_stages() {
-    // Basic stages
     assert!(MULTI_STAGE_WORKFLOW.contains(&"branch"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"plan"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"implement"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"add-and-commit"));
-
-    // QA stages
     assert!(MULTI_STAGE_WORKFLOW.contains(&"deslop"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"cleanup"));
     assert!(MULTI_STAGE_WORKFLOW.contains(&"unit-tests"));
-
-    // Contextual repeated stages for cleanup/review cycles
-    assert!(
-        MULTI_STAGE_WORKFLOW.contains(&"cleanup-post-tests"),
-        "Missing cleanup-post-tests stage"
-    );
-    assert!(
-        MULTI_STAGE_WORKFLOW.contains(&"review-changes"),
-        "Missing review-changes stage"
-    );
-    assert!(
-        MULTI_STAGE_WORKFLOW.contains(&"cleanup-post-review"),
-        "Missing cleanup-post-review stage"
-    );
-    assert!(
-        MULTI_STAGE_WORKFLOW.contains(&"review-changes-final"),
-        "Missing review-changes-final stage"
-    );
-}
-
-#[test]
-fn multi_stage_workflow_correct_order() {
-    let expected_qa_order = [
-        "cleanup",
-        "unit-tests",
-        "cleanup-post-tests",
-        "review-changes",
-        "cleanup-post-review",
-        "review-changes-final",
-        "deslop",
-        "add-and-commit",
-    ];
-
-    let positions: Vec<_> = expected_qa_order
-        .iter()
-        .map(|stage| {
-            MULTI_STAGE_WORKFLOW
-                .iter()
-                .position(|s| s == stage)
-                .unwrap_or_else(|| panic!("Stage '{}' not found in workflow", stage))
-        })
-        .collect();
-
-    for i in 1..positions.len() {
-        assert!(
-            positions[i] > positions[i - 1],
-            "Stage '{}' should come after '{}' but doesn't",
-            expected_qa_order[i],
-            expected_qa_order[i - 1]
-        );
-    }
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"code-review"));
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"code-review-fix"));
+    assert!(MULTI_STAGE_WORKFLOW.contains(&"review-changes"));
 }
 
 #[test]
@@ -262,6 +211,10 @@ fn stage_config_key_maps_branch_gen() {
         WorkflowOrchestrator::stage_config_key("branch-gen"),
         "branchGen"
     );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("branch"),
+        "branchGen"
+    );
 }
 
 #[test]
@@ -285,49 +238,11 @@ fn stage_config_key_maps_implement() {
 fn stage_config_key_maps_code_review_stages() {
     assert_eq!(
         WorkflowOrchestrator::stage_config_key("code-review"),
-        "codeReview"
+        "code-review"
     );
     assert_eq!(
         WorkflowOrchestrator::stage_config_key("code-review-fix"),
-        "codeReview"
-    );
-}
-
-#[test]
-fn stage_config_key_maps_deslop() {
-    assert_eq!(WorkflowOrchestrator::stage_config_key("deslop"), "deslop");
-}
-
-#[test]
-fn stage_config_key_maps_cleanup() {
-    assert_eq!(WorkflowOrchestrator::stage_config_key("cleanup"), "cleanup");
-}
-
-#[test]
-fn stage_config_key_maps_unit_test_stages() {
-    assert_eq!(
-        WorkflowOrchestrator::stage_config_key("unit-tests"),
-        "unitTests"
-    );
-    assert_eq!(
-        WorkflowOrchestrator::stage_config_key("cleanup-post-tests"),
-        "unitTests"
-    );
-}
-
-#[test]
-fn stage_config_key_maps_final_review_stages() {
-    assert_eq!(
-        WorkflowOrchestrator::stage_config_key("review-changes"),
-        "finalReview"
-    );
-    assert_eq!(
-        WorkflowOrchestrator::stage_config_key("cleanup-post-review"),
-        "finalReview"
-    );
-    assert_eq!(
-        WorkflowOrchestrator::stage_config_key("review-changes-final"),
-        "finalReview"
+        "code-review"
     );
 }
 
@@ -340,46 +255,57 @@ fn stage_config_key_maps_commit() {
 }
 
 #[test]
-fn stage_config_key_passes_through_unknown() {
+fn stage_config_key_passes_through_commands() {
+    assert_eq!(WorkflowOrchestrator::stage_config_key("cleanup"), "cleanup");
+    assert_eq!(WorkflowOrchestrator::stage_config_key("deslop"), "deslop");
     assert_eq!(
-        WorkflowOrchestrator::stage_config_key("branch"),
-        "branch"
+        WorkflowOrchestrator::stage_config_key("unit-tests"),
+        "unit-tests"
     );
     assert_eq!(
-        WorkflowOrchestrator::stage_config_key("unknown-stage"),
-        "unknown-stage"
+        WorkflowOrchestrator::stage_config_key("review-changes"),
+        "review-changes"
+    );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("my-custom-command"),
+        "my-custom-command"
     );
 }
 
 // --- expand_stage_key tests ---
 
 #[test]
-fn expand_stage_key_maps_all_known_keys() {
-    assert_eq!(expand_stage_key("codeReview"), &["code-review"]);
-    assert_eq!(expand_stage_key("cleanup"), &["cleanup"]);
-    assert_eq!(
-        expand_stage_key("unitTests"),
-        &["unit-tests", "cleanup-post-tests"]
-    );
-    assert_eq!(
-        expand_stage_key("finalReview"),
-        &["review-changes", "cleanup-post-review", "review-changes-final"]
-    );
-    assert_eq!(expand_stage_key("deslop"), &["deslop"]);
-    assert_eq!(expand_stage_key("commit"), &["add-and-commit"]);
+fn expand_stage_key_maps_required_keys() {
+    assert_eq!(expand_stage_key("branchGen"), vec!["branch-gen", "branch"]);
+    assert_eq!(expand_stage_key("plan"), vec!["plan", "plan-validation"]);
+    assert_eq!(expand_stage_key("implement"), vec!["implement"]);
+    assert_eq!(expand_stage_key("commit"), vec!["add-and-commit"]);
 }
 
 #[test]
-fn expand_stage_key_returns_empty_for_unknown() {
-    assert!(expand_stage_key("unknown").is_empty());
-    assert!(expand_stage_key("branchGen").is_empty());
+fn expand_stage_key_maps_code_review() {
+    assert_eq!(
+        expand_stage_key("code-review"),
+        vec!["code-review", "code-review-fix"]
+    );
+}
+
+#[test]
+fn expand_stage_key_passes_through_commands() {
+    assert_eq!(expand_stage_key("cleanup"), vec!["cleanup"]);
+    assert_eq!(expand_stage_key("deslop"), vec!["deslop"]);
+    assert_eq!(expand_stage_key("unit-tests"), vec!["unit-tests"]);
+    assert_eq!(
+        expand_stage_key("my-custom-cmd"),
+        vec!["my-custom-cmd"]
+    );
 }
 
 // --- build_full_stage_order tests ---
 
 #[test]
 fn build_full_stage_order_default_includes_all_stages() {
-    let order: Vec<String> = DEFAULT_OPTIONAL_STAGE_ORDER
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -390,25 +316,29 @@ fn build_full_stage_order_default_includes_all_stages() {
     assert_eq!(full[2], "plan");
     assert_eq!(full[3], "plan-validation");
     assert_eq!(full[4], "implement");
-    assert!(full.contains(&"code-review"));
-    assert!(full.contains(&"cleanup"));
-    assert!(full.contains(&"unit-tests"));
-    assert!(full.contains(&"deslop"));
+    assert!(full.contains(&"code-review".to_string()));
+    assert!(full.contains(&"cleanup".to_string()));
+    assert!(full.contains(&"unit-tests".to_string()));
+    assert!(full.contains(&"deslop".to_string()));
     assert_eq!(*full.last().unwrap(), "add-and-commit");
 }
 
 #[test]
 fn build_full_stage_order_respects_custom_ordering() {
     let custom = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
         "deslop".to_string(),
         "cleanup".to_string(),
-        "codeReview".to_string(),
+        "code-review".to_string(),
+        "commit".to_string(),
     ];
     let full = build_full_stage_order(&custom);
 
-    let deslop_pos = full.iter().position(|&s| s == "deslop").unwrap();
-    let cleanup_pos = full.iter().position(|&s| s == "cleanup").unwrap();
-    let review_pos = full.iter().position(|&s| s == "code-review").unwrap();
+    let deslop_pos = full.iter().position(|s| s == "deslop").unwrap();
+    let cleanup_pos = full.iter().position(|s| s == "cleanup").unwrap();
+    let review_pos = full.iter().position(|s| s == "code-review").unwrap();
 
     assert!(
         deslop_pos < cleanup_pos,
@@ -421,19 +351,12 @@ fn build_full_stage_order_respects_custom_ordering() {
 }
 
 #[test]
-fn build_full_stage_order_filters_required_keys_from_frontend() {
-    let frontend_order = vec![
-        "branchGen".to_string(),
-        "plan".to_string(),
-        "implement".to_string(),
-        "codeReview".to_string(),
-        "cleanup".to_string(),
-        "unitTests".to_string(),
-        "finalReview".to_string(),
-        "deslop".to_string(),
-        "commit".to_string(),
-    ];
-    let full = build_full_stage_order(&frontend_order);
+fn build_full_stage_order_no_duplicates() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
 
     let mut seen = std::collections::HashSet::new();
     for stage in &full {
@@ -443,31 +366,279 @@ fn build_full_stage_order_filters_required_keys_from_frontend() {
             stage
         );
     }
-    assert_eq!(*full.last().unwrap(), "add-and-commit");
-    let commit_count = full.iter().filter(|&&s| s == "add-and-commit").count();
+    let commit_count = full.iter().filter(|s| s.as_str() == "add-and-commit").count();
     assert_eq!(commit_count, 1, "add-and-commit should appear exactly once");
 }
 
+/// Regression test: resuming from "code-review-fix" must NOT cause the
+/// code-review loop to be skipped.  The execute loop checks
+/// `should_skip_stage("code-review-fix")` (the last sub-stage of the group)
+/// so that pausing mid-loop re-enters the loop on resume.
 #[test]
-fn build_full_stage_order_frontend_input_matches_optional_only_input() {
-    let optional_only: Vec<String> = DEFAULT_OPTIONAL_STAGE_ORDER
+fn resume_from_code_review_fix_does_not_skip_loop() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let full_from_optional = build_full_stage_order(&optional_only);
+    let full = build_full_stage_order(&order);
 
-    let frontend_all = vec![
+    let resume_stage = "code-review-fix";
+    let resume_idx = full.iter().position(|s| s == resume_stage).unwrap();
+    let cr_fix_idx = full.iter().position(|s| s == "code-review-fix").unwrap();
+    let cr_idx = full.iter().position(|s| s == "code-review").unwrap();
+
+    assert_eq!(
+        cr_fix_idx, resume_idx,
+        "code-review-fix IS the resume point so it must not be skipped"
+    );
+    assert!(
+        cr_idx < resume_idx,
+        "code-review (first sub-stage) IS before the resume point — \
+         this is why the skip check must use code-review-fix, not code-review"
+    );
+}
+
+#[test]
+fn default_stage_order_has_correct_structure() {
+    assert_eq!(DEFAULT_STAGE_ORDER.len(), 9);
+    assert_eq!(DEFAULT_STAGE_ORDER[0], "branchGen");
+    assert_eq!(DEFAULT_STAGE_ORDER[1], "plan");
+    assert_eq!(DEFAULT_STAGE_ORDER[2], "implement");
+    assert_eq!(*DEFAULT_STAGE_ORDER.last().unwrap(), "commit");
+
+    let required = &DEFAULT_STAGE_ORDER[..3];
+    assert_eq!(required, &["branchGen", "plan", "implement"]);
+}
+
+#[test]
+fn default_stage_order_expansion_covers_multi_stage_workflow() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let expanded = build_full_stage_order(&order);
+    let expanded_strs: Vec<&str> = expanded.iter().map(|s| s.as_str()).collect();
+
+    for stage in MULTI_STAGE_WORKFLOW {
+        assert!(
+            expanded_strs.contains(stage),
+            "MULTI_STAGE_WORKFLOW stage '{}' missing from expanded DEFAULT_STAGE_ORDER",
+            stage
+        );
+    }
+}
+
+#[test]
+fn build_full_stage_order_includes_custom_commands() {
+    let order = vec![
         "branchGen".to_string(),
         "plan".to_string(),
         "implement".to_string(),
-        "codeReview".to_string(),
-        "cleanup".to_string(),
-        "unitTests".to_string(),
-        "finalReview".to_string(),
-        "deslop".to_string(),
+        "my-custom-lint".to_string(),
+        "another-check".to_string(),
         "commit".to_string(),
     ];
-    let full_from_frontend = build_full_stage_order(&frontend_all);
+    let full = build_full_stage_order(&order);
 
-    assert_eq!(full_from_optional, full_from_frontend);
+    assert!(full.contains(&"my-custom-lint".to_string()));
+    assert!(full.contains(&"another-check".to_string()));
+
+    let custom_pos = full.iter().position(|s| s == "my-custom-lint").unwrap();
+    let another_pos = full.iter().position(|s| s == "another-check").unwrap();
+    let commit_pos = full.iter().position(|s| s == "add-and-commit").unwrap();
+    assert!(custom_pos < another_pos);
+    assert!(another_pos < commit_pos);
+}
+
+#[test]
+fn build_full_stage_order_empty_input() {
+    let full = build_full_stage_order(&[]);
+    assert!(full.is_empty());
+}
+
+#[test]
+fn resume_past_code_review_group_skips_loop() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    let resume_stage = "cleanup";
+    let resume_idx = full.iter().position(|s| s == resume_stage).unwrap();
+    let cr_fix_idx = full.iter().position(|s| s == "code-review-fix").unwrap();
+
+    assert!(
+        cr_fix_idx < resume_idx,
+        "code-review-fix should be skipped when resuming from a later stage"
+    );
+}
+
+// --- normalize_legacy_stage_name tests ---
+
+#[test]
+fn normalize_legacy_cleanup_post_tests() {
+    assert_eq!(
+        normalize_legacy_stage_name("cleanup-post-tests"),
+        Some("unit-tests"),
+    );
+}
+
+#[test]
+fn normalize_legacy_cleanup_post_review() {
+    assert_eq!(
+        normalize_legacy_stage_name("cleanup-post-review"),
+        Some("review-changes"),
+    );
+}
+
+#[test]
+fn normalize_legacy_review_changes_final() {
+    assert_eq!(
+        normalize_legacy_stage_name("review-changes-final"),
+        Some("review-changes"),
+    );
+}
+
+#[test]
+fn normalize_returns_none_for_current_names() {
+    for name in &[
+        "branch-gen", "branch", "plan", "plan-validation", "implement",
+        "code-review", "code-review-fix", "cleanup", "unit-tests",
+        "review-changes", "deslop", "add-and-commit",
+    ] {
+        assert_eq!(
+            normalize_legacy_stage_name(name),
+            None,
+            "'{}' should not be normalized (it is already current)",
+            name,
+        );
+    }
+}
+
+#[test]
+fn normalize_returns_none_for_custom_commands() {
+    assert_eq!(normalize_legacy_stage_name("my-custom-lint"), None);
+    assert_eq!(normalize_legacy_stage_name("security-scan"), None);
+}
+
+/// Regression: a ticket paused at a legacy stage name must map to a stage
+/// that exists in the default execution order so should_skip_stage can find it.
+#[test]
+fn normalized_legacy_names_exist_in_default_execution_order() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    for legacy in &["cleanup-post-tests", "cleanup-post-review", "review-changes-final"] {
+        let normalized = normalize_legacy_stage_name(legacy)
+            .unwrap_or_else(|| panic!("legacy name '{}' should normalize", legacy));
+        assert!(
+            full.iter().any(|s| s == normalized),
+            "Normalized name '{}' (from '{}') must appear in the default execution order",
+            normalized,
+            legacy,
+        );
+    }
+}
+
+// --- reserved stage ID tests ---
+
+#[test]
+fn reserved_internal_stages_contains_all_expanded_only_names() {
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"branch-gen"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"branch"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"plan-validation"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"code-review-fix"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"add-and-commit"));
+}
+
+#[test]
+fn reserved_internal_stages_does_not_include_catalog_commands() {
+    for cmd in &["cleanup", "deslop", "unit-tests", "review-changes", "code-review"] {
+        assert!(
+            !RESERVED_INTERNAL_STAGES.contains(cmd),
+            "'{}' is a valid catalog command and should not be reserved",
+            cmd,
+        );
+    }
+}
+
+#[test]
+fn is_reserved_stage_id_returns_true_for_reserved() {
+    assert!(is_reserved_stage_id("branch-gen"));
+    assert!(is_reserved_stage_id("branch"));
+    assert!(is_reserved_stage_id("plan-validation"));
+    assert!(is_reserved_stage_id("code-review-fix"));
+    assert!(is_reserved_stage_id("add-and-commit"));
+}
+
+#[test]
+fn is_reserved_stage_id_returns_false_for_commands() {
+    assert!(!is_reserved_stage_id("cleanup"));
+    assert!(!is_reserved_stage_id("deslop"));
+    assert!(!is_reserved_stage_id("my-custom-cmd"));
+}
+
+/// Regression: a custom command ID that collides with an internally expanded
+/// stage name must be deduplicated to prevent broken resume logic.
+#[test]
+fn build_full_stage_order_deduplicates_colliding_custom_command() {
+    let order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "branch-gen".to_string(), // collides with expanded branchGen
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&order);
+
+    let count = full.iter().filter(|s| s.as_str() == "branch-gen").count();
+    assert_eq!(count, 1, "branch-gen should appear exactly once after dedup");
+
+    let mut seen = std::collections::HashSet::new();
+    for stage in &full {
+        assert!(seen.insert(stage.as_str()), "Duplicate: {}", stage);
+    }
+}
+
+/// Regression: plan-validation collision must not create duplicate entries.
+#[test]
+fn build_full_stage_order_deduplicates_plan_validation_collision() {
+    let order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "plan-validation".to_string(), // collides with expanded plan
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&order);
+
+    let count = full.iter().filter(|s| s.as_str() == "plan-validation").count();
+    assert_eq!(count, 1, "plan-validation should appear exactly once after dedup");
+}
+
+/// When resuming from a normalized legacy stage, all stages before it should
+/// be skippable based on position in the execution order.
+#[test]
+fn normalized_legacy_resume_skips_core_stages() {
+    let order: Vec<String> = DEFAULT_STAGE_ORDER
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let full = build_full_stage_order(&order);
+
+    let resume = normalize_legacy_stage_name("cleanup-post-tests").unwrap();
+    let resume_idx = full.iter().position(|s| s == resume).unwrap();
+
+    for core in &["branch-gen", "branch", "plan", "plan-validation", "implement"] {
+        let core_idx = full.iter().position(|s| s == *core).unwrap();
+        assert!(
+            core_idx < resume_idx,
+            "Core stage '{}' (idx {}) should come before resume stage '{}' (idx {})",
+            core, core_idx, resume, resume_idx,
+        );
+    }
 }

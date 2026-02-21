@@ -3,30 +3,39 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { AgentWorkflowSettings } from './AgentWorkflowSettings';
 
 const mockUpdateConfig = vi.fn();
-const mockSetPreset = vi.fn();
 const mockSetStage = vi.fn();
 
 const storeState = {
   agentConfigs: {
     claude: {
-      workflowPreset: 'balanced' as const,
       workflowStages: {
-        branchGen:   { enabled: true, model: 'sonnet-4.6' },
-        plan:        { enabled: true, model: 'opus-4.6' },
-        implement:   { enabled: true, model: 'opus-4.6' },
-        codeReview:  { enabled: true, model: 'opus-4.6' },
-        deslop:      { enabled: true, model: 'opus-4.5' },
-        cleanup:     { enabled: true, model: 'sonnet-4.6' },
-        unitTests:   { enabled: true, model: 'opus-4.5' },
-        finalReview: { enabled: true, model: 'opus-4.5' },
-        commit:      { enabled: true, model: 'sonnet-4.6' },
+        branchGen:        { enabled: true, model: 'sonnet-4.6' },
+        plan:             { enabled: true, model: 'opus-4.6' },
+        implement:        { enabled: true, model: 'opus-4.6' },
+        'code-review':    { enabled: true, model: 'opus-4.6' },
+        cleanup:          { enabled: true, model: 'sonnet-4.6' },
+        'unit-tests':     { enabled: true, model: 'opus-4.5' },
+        'review-changes': { enabled: true, model: 'opus-4.5' },
+        deslop:           { enabled: true, model: 'opus-4.5' },
+        commit:           { enabled: true, model: 'sonnet-4.6' },
       },
+      stageOrder: [
+        'branchGen', 'plan', 'implement',
+        'code-review', 'cleanup', 'unit-tests', 'review-changes', 'deslop',
+        'commit',
+      ],
       codeReviewMaxIterations: 3,
       stageTimeoutHours: 1,
       stageMaxRetries: 2,
     },
   },
-  setAgentConfigWorkflowPreset: mockSetPreset,
+  commandsCatalog: [
+    { id: 'code-review', name: 'Code Review', description: 'Iterative review loop', enabled: true, source: 'builtin', filename: 'code-review.md' },
+    { id: 'cleanup', name: 'Cleanup', description: 'Run linters', enabled: true, source: 'builtin', filename: 'cleanup.md' },
+    { id: 'unit-tests', name: 'Unit Tests', description: 'Generate tests', enabled: true, source: 'builtin', filename: 'unit-tests.md' },
+    { id: 'review-changes', name: 'Review Changes', description: 'Senior review', enabled: true, source: 'builtin', filename: 'review-changes.md' },
+    { id: 'deslop', name: 'De-slop', description: 'Remove slop', enabled: true, source: 'builtin', filename: 'deslop.md' },
+  ],
   setAgentConfigStage: mockSetStage,
   updateAgentConfig: mockUpdateConfig,
 };
@@ -34,14 +43,6 @@ const storeState = {
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: (selector?: (s: typeof storeState) => unknown) =>
     selector ? selector(storeState) : storeState,
-  WORKFLOW_PRESETS: {
-    comprehensive: { label: 'Most Comprehensive', description: 'All stages with Opus 4.6', stages: {} },
-    balanced: { label: 'Balanced', description: 'Mixed models', stages: {} },
-    vibe: { label: 'Vibe', description: 'Light QA', stages: {} },
-    standard: { label: 'Standard', description: 'Core workflow', stages: {} },
-    'quick-fix': { label: 'Quick Fix', description: 'Minimal stages', stages: {} },
-    fastest: { label: 'Fastest', description: 'All Sonnet', stages: {} },
-  },
   MODEL_OPTIONS: [
     { value: 'opus-4.6', label: 'Opus 4.6' },
     { value: 'opus-4.5', label: 'Opus 4.5' },
@@ -52,13 +53,9 @@ vi.mock('../../stores/settingsStore', () => ({
     { key: 'branchGen', label: 'Branch Name', description: 'Generate branch name', required: true },
     { key: 'plan', label: 'Plan', description: 'Generate a plan', required: true },
     { key: 'implement', label: 'Implement', description: 'Write code', required: true },
-    { key: 'codeReview', label: 'Code Review', description: 'Review loop', required: false },
-    { key: 'deslop', label: 'De-slop', description: 'Remove slop', required: false },
-    { key: 'cleanup', label: 'Cleanup', description: 'Run linters', required: false },
-    { key: 'unitTests', label: 'Unit Tests', description: 'Generate tests', required: false },
-    { key: 'finalReview', label: 'Final Review', description: 'Senior review', required: false },
     { key: 'commit', label: 'Commit', description: 'Create commit', required: true },
   ],
+  REQUIRED_STAGE_KEYS: new Set(['branchGen', 'plan', 'implement', 'commit']),
 }));
 
 describe('AgentWorkflowSettings', () => {

@@ -17,40 +17,39 @@ export interface WorkflowStageConfig {
   model: AIModel;
 }
 
-export type WorkflowStageKey =
-  | 'branchGen'
-  | 'plan'
-  | 'implement'
-  | 'codeReview'
-  | 'deslop'
-  | 'cleanup'
-  | 'unitTests'
-  | 'finalReview'
-  | 'commit';
+export interface CatalogCommand {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  source: 'builtin' | 'custom';
+  filename: string;
+}
 
-export type WorkflowStages = Record<WorkflowStageKey, WorkflowStageConfig>;
+export type WorkflowStageKey = 'branchGen' | 'plan' | 'implement' | 'commit' | (string & {});
 
-export const DEFAULT_STAGE_ORDER: WorkflowStageKey[] = [
+export type WorkflowStages = Record<string, WorkflowStageConfig>;
+
+export const REQUIRED_STAGE_KEYS: ReadonlySet<string> = new Set([
+  'branchGen', 'plan', 'implement', 'commit',
+]);
+
+/** Backend stage names produced by expanding required/special frontend keys.
+ *  Custom command IDs must not collide with these or `should_skip_stage`
+ *  resume logic breaks due to duplicate positions in `full_execution_order`. */
+export const RESERVED_INTERNAL_STAGE_IDS: ReadonlySet<string> = new Set([
+  'branch-gen', 'branch', 'plan-validation',
+  'code-review-fix', 'add-and-commit',
+]);
+
+export const DEFAULT_STAGE_ORDER: string[] = [
   'branchGen', 'plan', 'implement',
-  'codeReview', 'cleanup', 'unitTests', 'finalReview', 'deslop',
+  'code-review', 'cleanup', 'unit-tests', 'review-changes', 'deslop',
   'commit',
 ];
 
-export const OPTIONAL_STAGE_KEYS: ReadonlySet<WorkflowStageKey> = new Set<WorkflowStageKey>([
-  'codeReview', 'cleanup', 'unitTests', 'finalReview', 'deslop',
-]);
-
-export type WorkflowPreset =
-  | 'comprehensive'
-  | 'balanced'
-  | 'vibe'
-  | 'standard'
-  | 'quick-fix'
-  | 'fastest'
-  | 'custom';
-
 interface WorkflowStageInfo {
-  key: WorkflowStageKey;
+  key: string;
   label: string;
   description: string;
   required: boolean;
@@ -60,128 +59,57 @@ export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
   { key: 'branchGen', label: 'Branch Name', description: 'Generate a descriptive branch name for the changes', required: true },
   { key: 'plan', label: 'Plan', description: 'Explore the codebase and generate an implementation plan', required: true },
   { key: 'implement', label: 'Implement', description: 'Write the code changes based on the plan', required: true },
-  { key: 'codeReview', label: 'Code Review', description: 'Iterative review loop to find and fix issues', required: false },
-  { key: 'cleanup', label: 'Cleanup', description: 'Run linters, fix build warnings, and clean up code', required: false },
-  { key: 'unitTests', label: 'Unit Tests', description: 'Generate and run unit tests for the changes', required: false },
-  { key: 'finalReview', label: 'Final Review', description: 'Senior code review for correctness and security', required: false },
-  { key: 'deslop', label: 'De-slop', description: 'Remove AI-generated slop and improve code taste', required: false },
   { key: 'commit', label: 'Commit', description: 'Stage changes and create a git commit', required: true },
 ];
 
-interface WorkflowPresetDef {
-  label: string;
-  description: string;
-  stages: WorkflowStages;
-  stageOrder: WorkflowStageKey[];
+/** Expand a frontend stage key into backend execution stage names.
+ *  Mirrors the backend `expand_stage_key` in orchestrator/config.rs. */
+export function expandStageKey(key: string): string[] {
+  switch (key) {
+    case 'branchGen': return ['branch-gen', 'branch'];
+    case 'plan': return ['plan', 'plan-validation'];
+    case 'implement': return ['implement'];
+    case 'code-review': return ['code-review', 'code-review-fix'];
+    case 'commit': return ['add-and-commit'];
+    default: return [key];
+  }
 }
 
-export const WORKFLOW_PRESETS: Record<Exclude<WorkflowPreset, 'custom'>, WorkflowPresetDef> = {
-  comprehensive: {
-    label: 'Most Comprehensive',
-    description: 'Maximum quality, highest cost — all stages with Opus 4.6',
-    stageOrder: [...DEFAULT_STAGE_ORDER],
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'opus-4.6' },
-      implement:   { enabled: true, model: 'opus-4.6' },
-      codeReview:  { enabled: true, model: 'opus-4.6' },
-      deslop:      { enabled: true, model: 'opus-4.6' },
-      cleanup:     { enabled: true, model: 'opus-4.6' },
-      unitTests:   { enabled: true, model: 'opus-4.6' },
-      finalReview: { enabled: true, model: 'opus-4.6' },
-      commit:      { enabled: true, model: 'opus-4.6' },
-    },
-  },
-  balanced: {
-    label: 'Balanced',
-    description: 'Smart cost/quality tradeoff — all stages, mixed models',
-    stageOrder: [...DEFAULT_STAGE_ORDER],
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'opus-4.6' },
-      implement:   { enabled: true, model: 'opus-4.6' },
-      codeReview:  { enabled: true, model: 'opus-4.6' },
-      deslop:      { enabled: true, model: 'opus-4.5' },
-      cleanup:     { enabled: true, model: 'sonnet-4.6' },
-      unitTests:   { enabled: true, model: 'opus-4.5' },
-      finalReview: { enabled: true, model: 'opus-4.5' },
-      commit:      { enabled: true, model: 'sonnet-4.6' },
-    },
-  },
-  vibe: {
-    label: 'Vibe',
-    description: 'Trust the implementation, light QA — creative core with Opus 4.6',
-    stageOrder: [
-      'branchGen', 'plan', 'implement',
-      'codeReview', 'deslop', 'cleanup', 'unitTests', 'finalReview',
-      'commit',
-    ],
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'opus-4.6' },
-      implement:   { enabled: true,  model: 'opus-4.6' },
-      codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: true,  model: 'sonnet-4.6' },
-      cleanup:     { enabled: false, model: 'sonnet-4.6' },
-      unitTests:   { enabled: false, model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  standard: {
-    label: 'Standard',
-    description: 'Core workflow without polish — skips deslop and final review',
-    stageOrder: [...DEFAULT_STAGE_ORDER],
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'opus-4.5' },
-      implement:   { enabled: true,  model: 'opus-4.5' },
-      codeReview:  { enabled: true,  model: 'opus-4.5' },
-      deslop:      { enabled: false, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
-      unitTests:   { enabled: true,  model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  'quick-fix': {
-    label: 'Quick Fix',
-    description: 'Minimal stages for small changes — plan, implement, cleanup, commit',
-    stageOrder: [...DEFAULT_STAGE_ORDER],
-    stages: {
-      branchGen:   { enabled: true,  model: 'sonnet-4.6' },
-      plan:        { enabled: true,  model: 'sonnet-4.6' },
-      implement:   { enabled: true,  model: 'sonnet-4.6' },
-      codeReview:  { enabled: false, model: 'sonnet-4.6' },
-      deslop:      { enabled: false, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true,  model: 'sonnet-4.6' },
-      unitTests:   { enabled: false, model: 'sonnet-4.6' },
-      finalReview: { enabled: false, model: 'sonnet-4.6' },
-      commit:      { enabled: true,  model: 'sonnet-4.6' },
-    },
-  },
-  fastest: {
-    label: 'Fastest',
-    description: 'Maximum speed — all stages with Sonnet 4.6',
-    stageOrder: [...DEFAULT_STAGE_ORDER],
-    stages: {
-      branchGen:   { enabled: true, model: 'sonnet-4.6' },
-      plan:        { enabled: true, model: 'sonnet-4.6' },
-      implement:   { enabled: true, model: 'sonnet-4.6' },
-      codeReview:  { enabled: true, model: 'sonnet-4.6' },
-      deslop:      { enabled: true, model: 'sonnet-4.6' },
-      cleanup:     { enabled: true, model: 'sonnet-4.6' },
-      unitTests:   { enabled: true, model: 'sonnet-4.6' },
-      finalReview: { enabled: true, model: 'sonnet-4.6' },
-      commit:      { enabled: true, model: 'sonnet-4.6' },
-    },
-  },
-};
+/** Build the full backend execution-order list from a frontend stage order.
+ *  Mirrors the backend `build_full_stage_order` in orchestrator/config.rs. */
+export function buildFullExecutionOrder(stageOrder: string[]): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const key of stageOrder) {
+    for (const stage of expandStageKey(key)) {
+      if (!seen.has(stage)) {
+        seen.add(stage);
+        order.push(stage);
+      }
+    }
+  }
+  return order;
+}
+
+export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
+  { id: 'code-review', name: 'Code Review', description: 'Iterative review loop to find and fix issues', enabled: true, source: 'builtin', filename: 'code-review.md' },
+  { id: 'cleanup', name: 'Cleanup', description: 'Run linters, fix build warnings, and clean up code', enabled: true, source: 'builtin', filename: 'cleanup.md' },
+  { id: 'unit-tests', name: 'Unit Tests', description: 'Generate and run unit tests for the changes', enabled: true, source: 'builtin', filename: 'unit-tests.md' },
+  { id: 'review-changes', name: 'Review Changes', description: 'Senior code review for correctness and security', enabled: true, source: 'builtin', filename: 'review-changes.md' },
+  { id: 'deslop', name: 'De-slop', description: 'Remove AI-generated slop and improve code taste', enabled: true, source: 'builtin', filename: 'deslop.md' },
+  { id: 'add-tests', name: 'Add Tests', description: 'Add comprehensive tests for the changes', enabled: false, source: 'builtin', filename: 'add-tests.md' },
+  { id: 'fix-lint', name: 'Fix Lint', description: 'Fix linting errors and warnings', enabled: false, source: 'builtin', filename: 'fix-lint.md' },
+  { id: 'sync-with-main', name: 'Sync with Main', description: 'Sync the working branch with the main branch', enabled: false, source: 'builtin', filename: 'sync-with-main.md' },
+  { id: 'review-polish', name: 'Review & Polish', description: 'Final review and polishing pass', enabled: false, source: 'builtin', filename: 'review-polish.md' },
+  { id: 'patch-security', name: 'Patch Security', description: 'Security review and fix pass scoped to branch diff', enabled: false, source: 'builtin', filename: 'patch-security.md' },
+  { id: 'api-contract-check', name: 'API Contract Check', description: 'Verify and fix public contract consistency across call sites', enabled: false, source: 'builtin', filename: 'api-contract-check.md' },
+  { id: 'observability-pass', name: 'Observability Pass', description: 'Align logs, metrics, and tracing with repo standards', enabled: false, source: 'builtin', filename: 'observability-pass.md' },
+  { id: 'integration-test', name: 'Integration Test', description: 'Add minimal integration tests for boundary-spanning changes', enabled: false, source: 'builtin', filename: 'integration-test.md' },
+];
 
 export interface AgentConfig {
-  workflowPreset: WorkflowPreset;
   workflowStages: WorkflowStages;
-  stageOrder: WorkflowStageKey[];
+  stageOrder: string[];
   stageTimeoutHours: number;
   stageMaxRetries: number;
   codeReviewMaxIterations: number;
@@ -200,8 +128,17 @@ export interface AgentConfig {
   settings: Record<string, unknown>;
 }
 
-export const DEFAULT_WORKFLOW_PRESET: WorkflowPreset = 'balanced';
-export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = WORKFLOW_PRESETS.balanced.stages;
+export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = {
+  branchGen:         { enabled: true, model: 'sonnet-4.6' },
+  plan:              { enabled: true, model: 'opus-4.6' },
+  implement:         { enabled: true, model: 'opus-4.6' },
+  'code-review':     { enabled: true, model: 'opus-4.6' },
+  cleanup:           { enabled: true, model: 'sonnet-4.6' },
+  'unit-tests':      { enabled: true, model: 'opus-4.5' },
+  'review-changes':  { enabled: true, model: 'opus-4.5' },
+  deslop:            { enabled: true, model: 'opus-4.5' },
+  commit:            { enabled: true, model: 'sonnet-4.6' },
+};
 
 export function mapModelForCodex(model: string): string {
   if (model.startsWith('opus')) return 'gpt-5.3-codex';
@@ -210,15 +147,31 @@ export function mapModelForCodex(model: string): string {
 }
 
 export function mapStagesForCodex(stages: WorkflowStages): WorkflowStages {
-  const mapped = {} as WorkflowStages;
+  const mapped: WorkflowStages = {};
   for (const [key, val] of Object.entries(stages)) {
-    mapped[key as WorkflowStageKey] = { ...val, model: mapModelForCodex(val.model) };
+    mapped[key] = { ...val, model: mapModelForCodex(val.model) };
   }
   return mapped;
 }
 
+function deepCopyStages(stages: WorkflowStages): WorkflowStages {
+  const copy: WorkflowStages = {};
+  for (const [key, val] of Object.entries(stages)) {
+    copy[key] = { ...val };
+  }
+  return copy;
+}
+
+function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknown>): AgentConfig {
+  return {
+    ...base,
+    workflowStages: deepCopyStages(base.workflowStages),
+    stageOrder: [...base.stageOrder],
+    settings: { ...(settingsOverride ?? base.settings) },
+  };
+}
+
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
-  workflowPreset: DEFAULT_WORKFLOW_PRESET,
   workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -249,7 +202,6 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 };
 
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
-  workflowPreset: DEFAULT_WORKFLOW_PRESET,
   workflowStages: mapStagesForCodex(DEFAULT_WORKFLOW_STAGES),
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -270,23 +222,6 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   },
 };
 
-function deepCopyStages(stages: WorkflowStages): WorkflowStages {
-  const copy = {} as WorkflowStages;
-  for (const [key, val] of Object.entries(stages)) {
-    copy[key as WorkflowStageKey] = { ...val };
-  }
-  return copy;
-}
-
-function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknown>): AgentConfig {
-  return {
-    ...base,
-    workflowStages: deepCopyStages(base.workflowStages),
-    stageOrder: [...base.stageOrder],
-    settings: { ...(settingsOverride ?? base.settings) },
-  };
-}
-
 export function getDefaultConfigForAgent(agentId: string): AgentConfig {
   switch (agentId) {
     case 'claude': return cloneConfig(DEFAULT_CLAUDE_CONFIG);
@@ -296,17 +231,12 @@ export function getDefaultConfigForAgent(agentId: string): AgentConfig {
   }
 }
 
-export function getPresetStagesForAgent(
-  preset: Exclude<WorkflowPreset, 'custom'>,
-  agentId: string,
-): WorkflowStages {
-  const stages = deepCopyStages(WORKFLOW_PRESETS[preset].stages);
-  if (agentId === 'codex') return mapStagesForCodex(stages);
-  return stages;
-}
-
-export function getPresetStageOrder(
-  preset: Exclude<WorkflowPreset, 'custom'>,
-): WorkflowStageKey[] {
-  return [...WORKFLOW_PRESETS[preset].stageOrder];
+export function validateStageOrder(order: string[]): boolean {
+  if (order.length === 0) return false;
+  if (order[0] !== 'branchGen') return false;
+  if (order[order.length - 1] !== 'commit') return false;
+  const planIdx = order.indexOf('plan');
+  const implIdx = order.indexOf('implement');
+  if (planIdx === -1 || implIdx === -1) return false;
+  return planIdx < implIdx;
 }

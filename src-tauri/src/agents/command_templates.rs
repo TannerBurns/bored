@@ -10,10 +10,36 @@ use std::path::{Path, PathBuf};
 pub const COMMAND_TEMPLATES: &[&str] = &[
     "add-and-commit.md",
     "cleanup.md",
+    "code-review.md",
+    "code-review-fix.md",
     "deslop.md",
     "review-changes.md",
     "unit-tests.md",
+    "add-tests.md",
+    "fix-lint.md",
+    "sync-with-main.md",
+    "review-polish.md",
+    "patch-security.md",
+    "api-contract-check.md",
+    "observability-pass.md",
+    "integration-test.md",
 ];
+
+/// Discover all `.md` command files from a source directory.
+pub fn discover_commands(commands_source: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(commands_source) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.ends_with(".md") {
+                    names.push(name.to_string());
+                }
+            }
+        }
+    }
+    names.sort();
+    names
+}
 
 /// Check if all command templates are installed in a project's config directory.
 pub fn check_project_commands_installed(project: &Path, config_dir: &str) -> bool {
@@ -119,11 +145,7 @@ pub fn install_user_commands(
 
 /// Get available command templates from a source directory.
 pub fn get_available_commands(commands_source: &Path) -> Vec<String> {
-    COMMAND_TEMPLATES
-        .iter()
-        .filter(|name| commands_source.join(name).exists())
-        .map(|s| s.to_string())
-        .collect()
+    discover_commands(commands_source)
 }
 
 #[cfg(test)]
@@ -131,13 +153,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_templates_list_has_all_commands() {
-        assert_eq!(COMMAND_TEMPLATES.len(), 5);
+    fn command_templates_list_includes_all_known_commands() {
         assert!(COMMAND_TEMPLATES.contains(&"add-and-commit.md"));
         assert!(COMMAND_TEMPLATES.contains(&"cleanup.md"));
         assert!(COMMAND_TEMPLATES.contains(&"deslop.md"));
         assert!(COMMAND_TEMPLATES.contains(&"review-changes.md"));
         assert!(COMMAND_TEMPLATES.contains(&"unit-tests.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"code-review.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"code-review-fix.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"add-tests.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"fix-lint.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"sync-with-main.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"review-polish.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"patch-security.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"api-contract-check.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"observability-pass.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"integration-test.md"));
+    }
+
+    #[test]
+    fn discover_commands_finds_md_files() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
+        std::fs::write(temp_dir.join("deslop.md"), "# deslop").unwrap();
+        std::fs::write(temp_dir.join("not-a-command.txt"), "nope").unwrap();
+
+        let found = discover_commands(&temp_dir);
+        assert_eq!(found.len(), 2);
+        assert!(found.contains(&"cleanup.md".to_string()));
+        assert!(found.contains(&"deslop.md".to_string()));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
     }
 
     #[test]
@@ -166,7 +215,7 @@ mod tests {
         std::fs::create_dir_all(&project_dir).unwrap();
 
         let installed = install_commands(&project_dir, ".test", &source_dir).unwrap();
-        assert_eq!(installed.len(), 5);
+        assert_eq!(installed.len(), COMMAND_TEMPLATES.len());
 
         let commands_dir = project_dir.join(".test").join("commands");
         for name in COMMAND_TEMPLATES {
@@ -185,7 +234,6 @@ mod tests {
         let commands_dir = temp_dir.join(".test").join("commands");
         std::fs::create_dir_all(&commands_dir).unwrap();
 
-        // Install only 2 of 5 templates
         std::fs::write(commands_dir.join("cleanup.md"), "# cleanup").unwrap();
         std::fs::write(commands_dir.join("deslop.md"), "# deslop").unwrap();
 
@@ -210,7 +258,6 @@ mod tests {
         let source_dir = temp_dir.join("source");
         std::fs::create_dir_all(&source_dir).unwrap();
 
-        // Only create 1 source file
         std::fs::write(source_dir.join("cleanup.md"), "# cleanup").unwrap();
 
         let project_dir = temp_dir.join("project");
@@ -238,5 +285,63 @@ mod tests {
         assert!(available.contains(&"deslop.md".to_string()));
 
         std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn discover_commands_returns_empty_for_nonexistent_dir() {
+        let found = discover_commands(std::path::Path::new("/nonexistent/dir/that/does/not/exist"));
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn discover_commands_returns_empty_for_empty_dir() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_empty_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let found = discover_commands(&temp_dir);
+        assert!(found.is_empty());
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn discover_commands_returns_sorted_results() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_sort_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("z-last.md"), "# z").unwrap();
+        std::fs::write(temp_dir.join("a-first.md"), "# a").unwrap();
+        std::fs::write(temp_dir.join("m-middle.md"), "# m").unwrap();
+
+        let found = discover_commands(&temp_dir);
+        assert_eq!(found, vec!["a-first.md", "m-middle.md", "z-last.md"]);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn get_available_commands_discovers_non_template_md_files() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cmd_templates_custom_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("cleanup.md"), "# cleanup").unwrap();
+        std::fs::write(temp_dir.join("my-custom-command.md"), "# custom").unwrap();
+        std::fs::write(temp_dir.join("not-markdown.txt"), "nope").unwrap();
+
+        let available = get_available_commands(&temp_dir);
+        assert_eq!(available.len(), 2);
+        assert!(available.contains(&"cleanup.md".to_string()));
+        assert!(available.contains(&"my-custom-command.md".to_string()));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn get_available_commands_returns_empty_for_nonexistent_dir() {
+        let available = get_available_commands(std::path::Path::new("/nonexistent"));
+        assert!(available.is_empty());
     }
 }
