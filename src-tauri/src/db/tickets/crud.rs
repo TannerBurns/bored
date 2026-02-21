@@ -312,6 +312,36 @@ impl Database {
         Ok(created_ticket)
     }
 
+    /// Get most recently updated tickets across all boards, with their column name.
+    pub fn get_recent_tickets_with_columns(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<(Ticket, String)>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority,
+                          t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id,
+                          t.lock_expires_at, t.project_id, t.workflow_type, t.model, t.branch_name,
+                          t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id,
+                          t.depends_on_epic_ids_json, t.spec_version_id,
+                          t.paused_at, t.paused_at_stage, t.paused_run_id,
+                          c.name
+                   FROM tickets t
+                   JOIN columns c ON t.column_id = c.id
+                   ORDER BY t.updated_at DESC
+                   LIMIT ?"#,
+            )?;
+
+            let rows = stmt.query_map([limit], |row| {
+                let ticket = Self::map_ticket_row(row)?;
+                let column_name: String = row.get(24)?;
+                Ok((ticket, column_name))
+            })?;
+
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
     pub fn get_tickets(
         &self,
         board_id: &str,

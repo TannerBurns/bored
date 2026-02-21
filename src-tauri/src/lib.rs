@@ -4,3 +4,4 @@ pub mod commands;
 pub mod db;
 pub mod lifecycle;
 pub mod logging;
+pub mod tray;

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { TicketModal } from './components/board/TicketModal';
@@ -103,6 +104,7 @@ function App() {
     selectedTicket,
     comments,
     openCreateModal,
+    openTicketModal,
     closeTicketModal,
     closeCreateModal,
   } = useBoardStore();
@@ -137,6 +139,37 @@ function App() {
     setValidationAgentType(agentType);
     setActiveNav('validation');
   };
+
+  const openTicketById = useCallback(async (ticketId: string) => {
+    try {
+      const { getTicket } = await import('./lib/tauri');
+      const ticket = await getTicket(ticketId);
+      setActiveNav('boards');
+      openTicketModal(ticket);
+    } catch (e) {
+      console.warn('Failed to open ticket from tray:', e);
+    }
+  }, [setActiveNav, openTicketModal]);
+
+  useEffect(() => {
+    const unlisteners: Promise<() => void>[] = [];
+
+    unlisteners.push(
+      listen('navigate-to-settings', () => {
+        setActiveNav('settings');
+      })
+    );
+
+    unlisteners.push(
+      listen<string>('open-ticket', (event) => {
+        openTicketById(event.payload);
+      })
+    );
+
+    return () => {
+      unlisteners.forEach((p) => p.then((fn) => fn()));
+    };
+  }, [openTicketById]);
 
   return (
     <div className="flex h-screen app-gradient-bg text-board-text">

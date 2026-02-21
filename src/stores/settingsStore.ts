@@ -32,10 +32,12 @@ export {
 
 interface SettingsState {
   theme: 'light' | 'dark' | 'system';
+  notificationsEnabled: boolean;
   agentConfigs: Record<string, AgentConfig>;
   commandsCatalog: CatalogCommand[];
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
+  setNotificationsEnabled: (enabled: boolean) => void;
 
   getAgentConfig: (agentId: string) => AgentConfig;
   updateAgentConfig: (agentId: string, partial: Partial<AgentConfig>) => void;
@@ -102,6 +104,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       theme: 'dark',
+      notificationsEnabled: true,
 
       agentConfigs: {
         claude: getDefaultConfigForAgent('claude'),
@@ -112,6 +115,15 @@ export const useSettingsStore = create<SettingsState>()(
       commandsCatalog: BUILTIN_CATALOG_COMMANDS.map((c) => ({ ...c })),
 
       setTheme: (theme) => set({ theme }),
+
+      setNotificationsEnabled: (enabled) => {
+        set({ notificationsEnabled: enabled });
+        import('../lib/tauri').then(({ setNotificationsEnabled: sync }) => {
+          sync(enabled).catch((err) =>
+            console.warn('[settings] Failed to sync notification preference:', err)
+          );
+        });
+      },
 
       getAgentConfig: (agentId) => {
         return get().agentConfigs[agentId] ?? getDefaultConfigForAgent(agentId);
@@ -478,7 +490,11 @@ const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
   let attempt = 0;
   const trySync = () => {
     attempt++;
-    syncAgentConfigs(buildSyncPayload(state.agentConfigs))
+    const agentSync = syncAgentConfigs(buildSyncPayload(state.agentConfigs));
+    const notifSync = import('../lib/tauri').then(({ setNotificationsEnabled }) =>
+      setNotificationsEnabled(state.notificationsEnabled)
+    );
+    Promise.all([agentSync, notifSync])
       .then(() => { console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`); })
       .catch((err) => {
         if (attempt < maxRetries) {
