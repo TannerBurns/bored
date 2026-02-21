@@ -266,7 +266,8 @@ export function CommandsCatalog() {
     try {
       await saveCustomCommand(id, filename, content);
     } catch (err) {
-      console.warn('Failed to save custom command file:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setAddError(`Failed to save command file: ${msg}`);
       return;
     }
 
