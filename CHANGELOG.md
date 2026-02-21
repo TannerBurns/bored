@@ -2,6 +2,50 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.24] - 2026-02-21
+
+System tray integration and native OS notifications for background ticket monitoring.
+
+### New Features
+
+- System tray with recent tickets list — shows the 3 most recent tickets directly in the menu with 5 more in a submenu, plus Open Bored, Open Settings, and Quit actions
+- Native OS notifications when tickets move to Review or Blocked, so users are alerted to transitions requiring attention without keeping the app in the foreground
+- Notification toggle in General Settings — persisted and synced to the backend via managed atomic state
+- Branded B tray icon (template image for macOS menu bar)
+
+### Improvements
+
+- Tray menu rebuilds automatically on ticket move, create, and delete operations for live status updates
+- Tray event listeners in the frontend handle navigation to settings and opening specific tickets from menu clicks
+- Notification state gated by `NotificationsEnabled` atomic state in the backend, synced from the frontend toggle on hydration
+
+### Bug Fixes
+
+- Fixed `app_handle: None` in orchestrate.rs that was preventing tray refresh and notifications for UI-initiated runs
+
+### Testing
+
+- Added 6 unit tests for `truncate_title` edge cases
+- Added 6 unit tests for `get_recent_tickets_with_columns` DB query in `query_tests.rs`
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.23, here is a summary of the major features introduced in recent releases:
+
+**beta.23 — Catalog-Driven Commands**
+Custom and built-in workflow commands are now managed through a discoverable command catalog. Create, edit, and delete custom commands per agent with file-backed persistence. Built-in commands reconcile automatically on upgrade.
+
+**beta.22 — Drag-and-Drop Stage Ordering**
+Per-agent workflow stage ordering via drag-and-drop UI. Reorder optional stages (deslop, review, tests, cleanup) independently for each agent. Preset selection resets ordering; manual reorder switches to Custom preset.
+
+**beta.21 — Local Provider Support**
+Run Codex and Claude Code against self-hosted models via Ollama or LM Studio. Configurable base URL, model override, API key, and auth token fields. Zero-cost tracking for local provider runs.
+
+**beta.20 — Codex Agent & Per-Agent Settings**
+Codex CLI agent available alongside Claude Code and Cursor with NDJSON output parsing and token-based cost tracking. Each agent now has independent workflow configuration, model selections, and sub-agent settings. Sonnet 4.6 model support added.
+
+---
+
 ## [0.1.0-beta.23] - 2026-02-21
 
 Catalog-driven command architecture replacing hardcoded workflow stages, with custom command support and numerous orchestrator fixes.
