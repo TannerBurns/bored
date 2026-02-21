@@ -1,5 +1,50 @@
 [
   {
+    "version": "0.1.0-beta.23",
+    "published_at": "2026-02-21",
+    "summary": "Catalog-driven command architecture replacing hardcoded workflow stages, with custom command support and orchestrator fixes",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Catalog-driven command architecture — workflow stages are now powered by a discoverable command catalog with built-in and custom commands",
+          "Custom command support — create, edit, and delete custom workflow commands per agent with file-backed persistence",
+          "Built-in commands catalog reconciled on every store hydration so new built-in commands appear automatically on upgrade"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Toast notification reminds users to enable newly added commands in the catalog",
+          "Disabled command files automatically removed from project directories when toggled off",
+          "Drag-and-drop stage reordering refactored to use arrayMove for reliability",
+          "Save errors in custom command forms are now surfaced to the user instead of silently failing"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed per-agent stage toggle not removing disabled commands from the workflow execution list",
+          "Fixed custom command save triggering unnecessary app restart and delete not cleaning up project command files",
+          "Fixed ticket column transitions — tickets now stay In Progress during active workflow and land in Review on completion instead of Done",
+          "Prevented path traversal in command file read/write operations",
+          "Prevented custom command IDs from colliding with reserved required workflow stage IDs",
+          "Fixed legacy stage names not normalizing correctly, causing paused workflows to fail on resume",
+          "Fixed workflow pause resume-point now derived from agent config instead of a hardcoded stage list",
+          "Fixed unconfigured stages incorrectly defaulting to disabled — they now default to enabled",
+          "Fixed unknown/unrecognized stages correctly defaulting to disabled"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added patch coverage for command mapping and workflow stage resolution",
+          "Added orchestrator stage-enable/disable edge case tests"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.22",
     "published_at": "2026-02-19",
     "summary": "Customizable per-agent workflow stage ordering with drag-and-drop UI, and validation agent fix-task lifecycle improvements",
