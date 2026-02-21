@@ -328,7 +328,7 @@ impl WorkflowOrchestrator {
         self.stage_configs
             .get(key)
             .map(|c| c.enabled)
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 
     fn get_stage_model(&self, stage: &str) -> String {
