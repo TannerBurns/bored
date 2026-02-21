@@ -4,6 +4,8 @@ import {
   mapStagesForCodex,
   getDefaultConfigForAgent,
   validateStageOrder,
+  expandStageKey,
+  buildFullExecutionOrder,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   DEFAULT_WORKFLOW_STAGES,
@@ -338,6 +340,81 @@ describe('stageOrder in AgentConfig', () => {
     const b = getDefaultConfigForAgent('claude');
     a.stageOrder[3] = 'deslop';
     expect(b.stageOrder[3]).toBe('code-review');
+  });
+});
+
+describe('expandStageKey', () => {
+  it('expands branchGen into branch-gen and branch', () => {
+    expect(expandStageKey('branchGen')).toEqual(['branch-gen', 'branch']);
+  });
+
+  it('expands plan into plan and plan-validation', () => {
+    expect(expandStageKey('plan')).toEqual(['plan', 'plan-validation']);
+  });
+
+  it('expands implement to itself', () => {
+    expect(expandStageKey('implement')).toEqual(['implement']);
+  });
+
+  it('expands code-review into code-review and code-review-fix', () => {
+    expect(expandStageKey('code-review')).toEqual(['code-review', 'code-review-fix']);
+  });
+
+  it('expands commit into add-and-commit', () => {
+    expect(expandStageKey('commit')).toEqual(['add-and-commit']);
+  });
+
+  it('passes through catalog commands unchanged', () => {
+    expect(expandStageKey('cleanup')).toEqual(['cleanup']);
+    expect(expandStageKey('add-tests')).toEqual(['add-tests']);
+    expect(expandStageKey('my-custom-command')).toEqual(['my-custom-command']);
+  });
+});
+
+describe('buildFullExecutionOrder', () => {
+  it('builds correct order from DEFAULT_STAGE_ORDER', () => {
+    const order = buildFullExecutionOrder(DEFAULT_STAGE_ORDER);
+    expect(order).toEqual([
+      'branch-gen', 'branch',
+      'plan', 'plan-validation',
+      'implement',
+      'code-review', 'code-review-fix',
+      'cleanup', 'unit-tests', 'review-changes', 'deslop',
+      'add-and-commit',
+    ]);
+  });
+
+  it('includes catalog commands in correct position', () => {
+    const order = buildFullExecutionOrder([
+      'branchGen', 'plan', 'implement',
+      'code-review', 'add-tests', 'fix-lint', 'cleanup',
+      'commit',
+    ]);
+    expect(order).toEqual([
+      'branch-gen', 'branch',
+      'plan', 'plan-validation',
+      'implement',
+      'code-review', 'code-review-fix',
+      'add-tests', 'fix-lint', 'cleanup',
+      'add-and-commit',
+    ]);
+  });
+
+  it('deduplicates stages', () => {
+    const order = buildFullExecutionOrder([
+      'branchGen', 'plan', 'implement', 'implement', 'commit',
+    ]);
+    expect(order.filter(s => s === 'implement')).toHaveLength(1);
+  });
+
+  it('handles minimal required-only order', () => {
+    const order = buildFullExecutionOrder(['branchGen', 'plan', 'implement', 'commit']);
+    expect(order).toEqual([
+      'branch-gen', 'branch',
+      'plan', 'plan-validation',
+      'implement',
+      'add-and-commit',
+    ]);
   });
 });
 

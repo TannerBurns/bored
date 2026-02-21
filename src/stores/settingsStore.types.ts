@@ -62,6 +62,35 @@ export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
   { key: 'commit', label: 'Commit', description: 'Stage changes and create a git commit', required: true },
 ];
 
+/** Expand a frontend stage key into backend execution stage names.
+ *  Mirrors the backend `expand_stage_key` in orchestrator/config.rs. */
+export function expandStageKey(key: string): string[] {
+  switch (key) {
+    case 'branchGen': return ['branch-gen', 'branch'];
+    case 'plan': return ['plan', 'plan-validation'];
+    case 'implement': return ['implement'];
+    case 'code-review': return ['code-review', 'code-review-fix'];
+    case 'commit': return ['add-and-commit'];
+    default: return [key];
+  }
+}
+
+/** Build the full backend execution-order list from a frontend stage order.
+ *  Mirrors the backend `build_full_stage_order` in orchestrator/config.rs. */
+export function buildFullExecutionOrder(stageOrder: string[]): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const key of stageOrder) {
+    for (const stage of expandStageKey(key)) {
+      if (!seen.has(stage)) {
+        seen.add(stage);
+        order.push(stage);
+      }
+    }
+  }
+  return order;
+}
+
 export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
   { id: 'code-review', name: 'Code Review', description: 'Iterative review loop to find and fix issues', enabled: true, source: 'builtin', filename: 'code-review.md' },
   { id: 'cleanup', name: 'Cleanup', description: 'Run linters, fix build warnings, and clean up code', enabled: true, source: 'builtin', filename: 'cleanup.md' },
