@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
-import { useSettingsStore, REQUIRED_STAGE_KEYS, type CatalogCommand } from '../../stores/settingsStore';
+import { useSettingsStore, REQUIRED_STAGE_KEYS, RESERVED_INTERNAL_STAGE_IDS, type CatalogCommand } from '../../stores/settingsStore';
 import {
   readCommandContent,
   saveCustomCommand,
@@ -252,8 +252,8 @@ export function CommandsCatalog() {
   const handleAddCommand = useCallback(async (name: string, description: string, content: string) => {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    if (REQUIRED_STAGE_KEYS.has(id)) {
-      setAddError(`"${name}" conflicts with a required workflow stage. Please choose a different name.`);
+    if (REQUIRED_STAGE_KEYS.has(id) || RESERVED_INTERNAL_STAGE_IDS.has(id)) {
+      setAddError(`"${name}" conflicts with a reserved internal stage name. Please choose a different name.`);
       return;
     }
     if (catalog.some((c) => c.id === id)) {

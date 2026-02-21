@@ -2,8 +2,8 @@
 
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
-    build_full_stage_order, expand_stage_key, normalize_legacy_stage_name, StageEvent,
-    DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW,
+    build_full_stage_order, expand_stage_key, is_reserved_stage_id, normalize_legacy_stage_name,
+    StageEvent, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
 };
 
 #[test]
@@ -542,6 +542,82 @@ fn normalized_legacy_names_exist_in_default_execution_order() {
             legacy,
         );
     }
+}
+
+// --- reserved stage ID tests ---
+
+#[test]
+fn reserved_internal_stages_contains_all_expanded_only_names() {
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"branch-gen"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"branch"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"plan-validation"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"code-review-fix"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"add-and-commit"));
+}
+
+#[test]
+fn reserved_internal_stages_does_not_include_catalog_commands() {
+    for cmd in &["cleanup", "deslop", "unit-tests", "review-changes", "code-review"] {
+        assert!(
+            !RESERVED_INTERNAL_STAGES.contains(cmd),
+            "'{}' is a valid catalog command and should not be reserved",
+            cmd,
+        );
+    }
+}
+
+#[test]
+fn is_reserved_stage_id_returns_true_for_reserved() {
+    assert!(is_reserved_stage_id("branch-gen"));
+    assert!(is_reserved_stage_id("branch"));
+    assert!(is_reserved_stage_id("plan-validation"));
+    assert!(is_reserved_stage_id("code-review-fix"));
+    assert!(is_reserved_stage_id("add-and-commit"));
+}
+
+#[test]
+fn is_reserved_stage_id_returns_false_for_commands() {
+    assert!(!is_reserved_stage_id("cleanup"));
+    assert!(!is_reserved_stage_id("deslop"));
+    assert!(!is_reserved_stage_id("my-custom-cmd"));
+}
+
+/// Regression: a custom command ID that collides with an internally expanded
+/// stage name must be deduplicated to prevent broken resume logic.
+#[test]
+fn build_full_stage_order_deduplicates_colliding_custom_command() {
+    let order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "branch-gen".to_string(), // collides with expanded branchGen
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&order);
+
+    let count = full.iter().filter(|s| s.as_str() == "branch-gen").count();
+    assert_eq!(count, 1, "branch-gen should appear exactly once after dedup");
+
+    let mut seen = std::collections::HashSet::new();
+    for stage in &full {
+        assert!(seen.insert(stage.as_str()), "Duplicate: {}", stage);
+    }
+}
+
+/// Regression: plan-validation collision must not create duplicate entries.
+#[test]
+fn build_full_stage_order_deduplicates_plan_validation_collision() {
+    let order = vec![
+        "branchGen".to_string(),
+        "plan".to_string(),
+        "implement".to_string(),
+        "plan-validation".to_string(), // collides with expanded plan
+        "commit".to_string(),
+    ];
+    let full = build_full_stage_order(&order);
+
+    let count = full.iter().filter(|s| s.as_str() == "plan-validation").count();
+    assert_eq!(count, 1, "plan-validation should appear exactly once after dedup");
 }
 
 /// When resuming from a normalized legacy stage, all stages before it should

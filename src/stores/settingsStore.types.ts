@@ -34,6 +34,14 @@ export const REQUIRED_STAGE_KEYS: ReadonlySet<string> = new Set([
   'branchGen', 'plan', 'implement', 'commit',
 ]);
 
+/** Backend stage names produced by expanding required/special frontend keys.
+ *  Custom command IDs must not collide with these or `should_skip_stage`
+ *  resume logic breaks due to duplicate positions in `full_execution_order`. */
+export const RESERVED_INTERNAL_STAGE_IDS: ReadonlySet<string> = new Set([
+  'branch-gen', 'branch', 'plan-validation',
+  'code-review-fix', 'add-and-commit',
+]);
+
 export const DEFAULT_STAGE_ORDER: string[] = [
   'branchGen', 'plan', 'implement',
   'code-review', 'cleanup', 'unit-tests', 'review-changes', 'deslop',

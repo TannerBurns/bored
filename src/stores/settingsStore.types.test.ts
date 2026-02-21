@@ -9,6 +9,7 @@ import {
   DEFAULT_WORKFLOW_STAGES,
   DEFAULT_STAGE_ORDER,
   REQUIRED_STAGE_KEYS,
+  RESERVED_INTERNAL_STAGE_IDS,
   BUILTIN_CATALOG_COMMANDS,
   WORKFLOW_STAGE_INFO,
   type WorkflowStages,
@@ -161,6 +162,26 @@ describe('constants', () => {
     expect(REQUIRED_STAGE_KEYS.has('code-review')).toBe(false);
     expect(REQUIRED_STAGE_KEYS.has('cleanup')).toBe(false);
     expect(REQUIRED_STAGE_KEYS.has('deslop')).toBe(false);
+  });
+
+  it('RESERVED_INTERNAL_STAGE_IDS contains all expanded-only backend names', () => {
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('branch-gen')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('branch')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('plan-validation')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('code-review-fix')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('add-and-commit')).toBe(true);
+  });
+
+  it('RESERVED_INTERNAL_STAGE_IDS does not overlap with REQUIRED_STAGE_KEYS', () => {
+    for (const id of RESERVED_INTERNAL_STAGE_IDS) {
+      expect(REQUIRED_STAGE_KEYS.has(id)).toBe(false);
+    }
+  });
+
+  it('RESERVED_INTERNAL_STAGE_IDS does not contain catalog command IDs', () => {
+    for (const cmd of BUILTIN_CATALOG_COMMANDS) {
+      expect(RESERVED_INTERNAL_STAGE_IDS.has(cmd.id)).toBe(false);
+    }
   });
 
   it('WORKFLOW_STAGE_INFO has correct required flags', () => {

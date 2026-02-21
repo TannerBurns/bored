@@ -25,6 +25,7 @@ export {
   WORKFLOW_STAGE_INFO,
   DEFAULT_STAGE_ORDER,
   REQUIRED_STAGE_KEYS,
+  RESERVED_INTERNAL_STAGE_IDS,
   BUILTIN_CATALOG_COMMANDS,
   validateStageOrder,
 } from './settingsStore.types';

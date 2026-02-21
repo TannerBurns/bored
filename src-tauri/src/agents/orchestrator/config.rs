@@ -63,6 +63,20 @@ pub fn normalize_legacy_stage_name(stage: &str) -> Option<&'static str> {
     }
 }
 
+/// Backend stage names produced by expanding required/special frontend keys.
+/// Custom command IDs must never collide with these or `should_skip_stage`
+/// resume logic breaks due to duplicate positions in `full_execution_order`.
+pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
+    "branch-gen", "branch", "plan-validation",
+    "code-review-fix", "add-and-commit",
+];
+
+/// Returns true when `id` must not be used as a custom command identifier
+/// because it collides with an internally expanded stage name.
+pub fn is_reserved_stage_id(id: &str) -> bool {
+    RESERVED_INTERNAL_STAGES.contains(&id)
+}
+
 /// Expand a frontend stage key into its backend execution stage names.
 /// Required stages and code-review have special mappings; all other commands
 /// map 1:1 (the command ID is the backend stage name).
@@ -79,10 +93,25 @@ pub fn expand_stage_key(key: &str) -> Vec<String> {
 
 /// Build the full execution-order list of backend stage names from a frontend stage order.
 /// The frontend sends the complete stage order (required + commands).
+///
+/// Deduplicates entries to prevent broken resume logic: if a custom command ID
+/// somehow matches an internally expanded name, only the first occurrence is
+/// kept so that `position()` in `should_skip_stage` returns correct indices.
 pub fn build_full_stage_order(stage_order: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut order: Vec<String> = Vec::new();
     for key in stage_order {
-        order.extend(expand_stage_key(key));
+        for stage in expand_stage_key(key) {
+            if seen.insert(stage.clone()) {
+                order.push(stage);
+            } else {
+                tracing::warn!(
+                    "Duplicate stage '{}' in execution order (from key '{}'); \
+                     this usually means a custom command ID collides with a reserved name",
+                    stage, key,
+                );
+            }
+        }
     }
     order
 }
