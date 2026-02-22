@@ -157,7 +157,7 @@ fn find_balanced(text: &str, open: char, close: char) -> Option<String> {
         } else if c == close {
             depth -= 1;
             if depth == 0 {
-                return Some(text[start..start + i + 1].to_string());
+                return Some(text[start..start + i + c.len_utf8()].to_string());
             }
         }
     }
@@ -165,6 +165,9 @@ fn find_balanced(text: &str, open: char, close: char) -> Option<String> {
 }
 
 fn skip_newline(text: &str, pos: usize) -> usize {
+    if pos >= text.len() {
+        return pos;
+    }
     if text[pos..].starts_with("\r\n") {
         pos + 2
     } else if text[pos..].starts_with('\n') {
@@ -410,6 +413,44 @@ mod tests {
     #[test]
     fn find_balanced_unmatched_returns_none() {
         assert_eq!(extract_json_object("{"), None);
+    }
+
+    #[test]
+    fn find_balanced_with_multibyte_content() {
+        let text = r#"{"emoji":"🎉","text":"héllo"}"#;
+        let result = extract_json_object(text);
+        assert_eq!(result, Some(text.to_string()));
+    }
+
+    #[test]
+    fn find_balanced_multibyte_delimiters() {
+        let result = find_balanced("before «inner» after", '«', '»');
+        assert_eq!(result, Some("«inner»".to_string()));
+    }
+
+    #[test]
+    fn find_balanced_nested_multibyte_delimiters() {
+        let result = find_balanced("«outer «inner» end»", '«', '»');
+        assert_eq!(result, Some("«outer «inner» end»".to_string()));
+    }
+
+    #[test]
+    fn skip_newline_at_text_end() {
+        let text = "some text```json";
+        let pos = text.len();
+        assert_eq!(skip_newline(text, pos), pos);
+    }
+
+    #[test]
+    fn skip_newline_beyond_text_end() {
+        let text = "short";
+        assert_eq!(skip_newline(text, text.len() + 5), text.len() + 5);
+    }
+
+    #[test]
+    fn code_block_text_ending_at_json_fence() {
+        let text = "some text```json";
+        assert_eq!(extract_json_code_block(text), None);
     }
 
     #[test]
