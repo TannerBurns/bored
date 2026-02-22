@@ -219,6 +219,8 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
     ossEnabled: false,
     localProvider: 'ollama',
     modelOverride: '',
+    reasoningEffort: 'high',
+    multiAgentEnabled: true,
   },
 };
 

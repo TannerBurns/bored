@@ -15,6 +15,8 @@ pub struct CodexApiConfig {
     pub oss_enabled: Option<bool>,
     pub local_provider: Option<String>,
     pub model_override: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub multi_agent_enabled: Option<bool>,
 }
 
 impl CodexApiConfig {
@@ -32,6 +34,8 @@ impl CodexApiConfig {
             oss_enabled: Self::get_bool(map, "oss_enabled", "ossEnabled"),
             local_provider: Self::get_str(map, "local_provider", "localProvider"),
             model_override: Self::get_str(map, "model_override", "modelOverride"),
+            reasoning_effort: Self::get_str(map, "reasoning_effort", "reasoningEffort"),
+            multi_agent_enabled: Self::get_bool(map, "multi_agent_enabled", "multiAgentEnabled"),
         }
     }
 }
@@ -253,4 +257,73 @@ fn extract_cost_from_codex_json(output: &str, model: &str) -> Option<RunCostData
         model_usage,
         is_estimated: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn from_agent_config_reasoning_effort_camel_case() {
+        let mut map = HashMap::new();
+        map.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("xhigh".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_snake_case() {
+        let mut map = HashMap::new();
+        map.insert("reasoning_effort".into(), serde_json::json!("low"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("low".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_snake_case_takes_precedence() {
+        let mut map = HashMap::new();
+        map.insert("reasoning_effort".into(), serde_json::json!("low"));
+        map.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("low".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_missing() {
+        let map = HashMap::new();
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, None);
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_non_string_ignored() {
+        let mut map = HashMap::new();
+        map.insert("reasoningEffort".into(), serde_json::json!(42));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, None);
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_camel_case() {
+        let mut map = HashMap::new();
+        map.insert("multiAgentEnabled".into(), serde_json::json!(true));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, Some(true));
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_snake_case() {
+        let mut map = HashMap::new();
+        map.insert("multi_agent_enabled".into(), serde_json::json!(false));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, Some(false));
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_missing() {
+        let map = HashMap::new();
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, None);
+    }
 }

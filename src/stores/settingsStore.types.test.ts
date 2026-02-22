@@ -101,7 +101,7 @@ describe('getDefaultConfigForAgent', () => {
     expect(config.diagnosticModel).toBe('gpt-5.2-codex');
     expect(config.workflowStages.plan.model).toBe('gpt-5.3-codex');
     expect(config.workflowStages.branchGen.model).toBe('gpt-5.2-codex');
-    expect(config.settings).toEqual({ ossEnabled: false, localProvider: 'ollama', modelOverride: '' });
+    expect(config.settings).toEqual({ ossEnabled: false, localProvider: 'ollama', modelOverride: '', reasoningEffort: 'high', multiAgentEnabled: true });
   });
 
   it('returns claude-based defaults for unknown agent', () => {

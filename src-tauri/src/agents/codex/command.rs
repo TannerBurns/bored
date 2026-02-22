@@ -36,6 +36,19 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         args.push(model.clone());
     }
 
+    let effort = api_config
+        .reasoning_effort
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "high".to_string());
+    args.push("--config".to_string());
+    args.push(format!("model_reasoning_effort=\"{}\"", effort));
+
+    let multi_agent = api_config.multi_agent_enabled.unwrap_or(true);
+    args.push("--config".to_string());
+    args.push(format!("features.multi_agent={}", multi_agent));
+
     args.push(config.prompt.clone());
     (command, args)
 }
@@ -178,5 +191,86 @@ mod tests {
         let (_, args) = build_command_from_provider_config(&config);
         assert!(args.contains(&"--oss".to_string()));
         assert!(!args.contains(&"--local-provider".to_string()));
+    }
+
+    #[test]
+    fn build_command_default_reasoning_effort() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--config".to_string()));
+        assert!(args.contains(&r#"model_reasoning_effort="high""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_custom_reasoning_effort() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="xhigh""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_empty_reasoning_effort_falls_back_to_high() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!(""));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="high""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_reasoning_effort_snake_case_key() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoning_effort".into(), serde_json::json!("medium"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="medium""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_reasoning_effort_with_oss() {
+        let mut config = create_test_config();
+        config.agent_config.insert("ossEnabled".into(), serde_json::json!(true));
+        config.agent_config.insert("localProvider".into(), serde_json::json!("ollama"));
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("low"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--oss".to_string()));
+        assert!(args.contains(&"--config".to_string()));
+        assert!(args.contains(&r#"model_reasoning_effort="low""#.to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_reasoning_effort_before_prompt() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("low"));
+        let (_, args) = build_command_from_provider_config(&config);
+        let config_idx = args.iter().position(|a| a == "--config").unwrap();
+        let effort_idx = args.iter().position(|a| a == r#"model_reasoning_effort="low""#).unwrap();
+        assert_eq!(effort_idx, config_idx + 1);
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_multi_agent_enabled_by_default() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"features.multi_agent=true".to_string()));
+    }
+
+    #[test]
+    fn build_command_multi_agent_explicitly_disabled() {
+        let mut config = create_test_config();
+        config.agent_config.insert("multiAgentEnabled".into(), serde_json::json!(false));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"features.multi_agent=false".to_string()));
+        assert!(!args.contains(&"features.multi_agent=true".to_string()));
+    }
+
+    #[test]
+    fn build_command_multi_agent_explicitly_enabled() {
+        let mut config = create_test_config();
+        config.agent_config.insert("multiAgentEnabled".into(), serde_json::json!(true));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"features.multi_agent=true".to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
     }
 }
