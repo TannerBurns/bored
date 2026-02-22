@@ -2,6 +2,65 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.25] - 2026-02-22
+
+Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration options.
+
+### New Features
+
+- Auto-pilot workflow mode — the agent dynamically decides which commands (with model pairs) to run after implementation instead of following a static multi-stage pipeline; enabled via per-agent toggle in settings
+- Extensible command-based task system — fixed preset task types (SyncWithMain, AddTests, etc.) replaced with a command-driven model backed by the command catalog, including custom commands
+- Codex reasoning effort setting — configurable Low/Medium/High/xHigh selector in Codex CLI Options controlling how much reasoning the model performs before responding
+- Codex multi-agent toggle — enable or disable the `features.multi_agent` Codex CLI flag from the settings UI
+- Dynamic command discovery for auto-pilot — scans project-level and bundled command directories at runtime, deduplicates, and presents the full list to the agent for contextual selection
+- Doc-sync command template added to the built-in command catalog
+
+### Improvements
+
+- Shared JSON extraction module consolidating duplicated JSON-from-agent-response parsing across brainstorm, planner, plan-validation, and auto-pilot subsystems
+- StageRunner trait for dependency-injected agent spawning, enabling orchestrator integration testing without real child processes
+- Run history shows "(Auto-Pilot)" vs "(Multi-Stage)" label based on workflow mode
+- Stage configuration UI dims when auto-pilot is active
+- Intent-aware command selection prompt with six example workflows (quick fix, standard feature, comprehensive, API change, trivial, refactor)
+- DB migration v14→v15 automatically converts legacy preset task values to command format
+- Frontend task dropdown now sources from the command catalog instead of a hardcoded backend endpoint
+
+### Bug Fixes
+
+- Fixed brainstorm parsing when `spec_complete` JSON isn't the first object in an unfenced agent response — added targeted key search with backward brace walk
+- Fixed naive bracket extraction spanning across unrelated JSON objects — replaced with depth-counting `find_balanced` brace matching
+- Fixed multi-byte UTF-8 character handling in `find_balanced` and bounds check in `skip_newline` preventing potential panics
+- Fixed auto-pilot resume losing saved implementation output — now retrieves from `previous_stage_outputs` instead of returning an empty string
+- Fixed `multiAgentEnabled` state sync when backend omits value — replaced conditional spread with nullish coalescing
+- Fixed multi-agent toggle not actually disabling — now always sends the explicit `true`/`false` value to Codex CLI
+
+### Testing
+
+- Added 49 unit tests for shared JSON extraction module (code blocks, objects, arrays, multi-byte, balanced braces)
+- Added 34 orchestrator integration tests covering mode derivation, resume logic, stage skip/enable, model override, retry, and cancellation
+- Added 29 RunsHistory component tests and 26 AgentSettingsPage component tests
+- Added settingsStore tests for auto-pilot toggle, v15 migration, and sync payload shape
+- Added plan validation parsing tests for code-fence and bracket-finding fallback paths
+- Added dynamic command discovery and filtering tests
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.24, here is a summary of the major features introduced in recent releases:
+
+**beta.24 — System Tray & Notifications**
+System tray integration with recent tickets list and native OS notifications when tickets move to Review or Blocked. Notification toggle in General Settings.
+
+**beta.23 — Catalog-Driven Commands**
+Custom and built-in workflow commands are now managed through a discoverable command catalog. Create, edit, and delete custom commands per agent with file-backed persistence. Built-in commands reconcile automatically on upgrade.
+
+**beta.22 — Drag-and-Drop Stage Ordering**
+Per-agent workflow stage ordering via drag-and-drop UI. Reorder optional stages (deslop, review, tests, cleanup) independently for each agent. Preset selection resets ordering; manual reorder switches to Custom preset.
+
+**beta.21 — Local Provider Support**
+Run Codex and Claude Code against self-hosted models via Ollama or LM Studio. Configurable base URL, model override, API key, and auth token fields. Zero-cost tracking for local provider runs.
+
+---
+
 ## [0.1.0-beta.24] - 2026-02-21
 
 System tray integration and native OS notifications for background ticket monitoring.
