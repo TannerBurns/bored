@@ -3,8 +3,12 @@
 //! After plan + implement, the agent is asked which commands should be run
 //! and with which models. It returns a JSON array of `{command, model}` pairs.
 
+use std::path::Path;
+
 use super::WorkflowOrchestrator;
+use crate::agents::command_templates;
 use crate::agents::models::MODEL_ENTRIES;
+use crate::agents::provider::AgentProvider;
 
 /// A single command+model pair selected by the agent.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -20,23 +24,40 @@ const EXCLUDED_COMMANDS: &[&str] = &[
     "code-review-fix",
 ];
 
-/// Available command descriptions presented to the agent.
-const AVAILABLE_COMMANDS: &[(&str, &str)] = &[
-    ("code-review", "Iterative review loop to find and fix issues"),
-    ("cleanup", "Run linters, fix build warnings, and clean up code"),
-    ("unit-tests", "Generate and run unit tests for the changes"),
-    ("review-changes", "Senior code review for correctness and security"),
-    ("deslop", "Remove AI-generated slop and improve code taste"),
-    ("add-tests", "Add comprehensive tests for the changes"),
-    ("fix-lint", "Fix linting errors and warnings"),
-    ("sync-with-main", "Sync the working branch with the main branch"),
-    ("review-polish", "Final review and polishing pass"),
-    ("patch-security", "Security review and fix pass scoped to branch diff"),
-    ("api-contract-check", "Verify and fix public contract consistency across call sites"),
-    ("observability-pass", "Align logs, metrics, and tracing with repo standards"),
-    ("integration-test", "Add minimal integration tests for boundary-spanning changes"),
-    ("doc-sync", "Update or create documentation from branch changes"),
-];
+/// Discover available commands by scanning the provider's project-level
+/// command directory and the bundled commands directory, then merging
+/// and deduplicating. Returns sorted command IDs (without `.md` extension).
+fn discover_available_commands(
+    repo_path: &Path,
+    provider: &dyn AgentProvider,
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut commands = Vec::new();
+
+    // 1. Provider's project-level commands (e.g. <repo>/.claude/commands/)
+    let project_commands_dir = repo_path
+        .join(provider.config_dir_name())
+        .join(provider.command_instructions_subdir());
+    for filename in command_templates::discover_commands(&project_commands_dir) {
+        let id = filename.trim_end_matches(".md").to_string();
+        if !EXCLUDED_COMMANDS.contains(&id.as_str()) && seen.insert(id.clone()) {
+            commands.push(id);
+        }
+    }
+
+    // 2. Bundled commands
+    if let Some(bundled_dir) = command_templates::get_bundled_commands_path() {
+        for filename in command_templates::discover_commands(&bundled_dir) {
+            let id = filename.trim_end_matches(".md").to_string();
+            if !EXCLUDED_COMMANDS.contains(&id.as_str()) && seen.insert(id.clone()) {
+                commands.push(id);
+            }
+        }
+    }
+
+    commands.sort();
+    commands
+}
 
 impl WorkflowOrchestrator {
     /// Run the command-selection stage: ask the agent which commands to run.
@@ -45,11 +66,14 @@ impl WorkflowOrchestrator {
         plan: &str,
         impl_summary: &str,
     ) -> Result<Vec<CommandSelection>, String> {
+        let available = discover_available_commands(&self.repo_path, &*self.provider);
+
         let prompt = generate_command_selection_prompt(
             &self.ticket.title,
             &self.ticket.description_md,
             plan,
             impl_summary,
+            &available,
         );
 
         let result = self
@@ -64,7 +88,7 @@ impl WorkflowOrchestrator {
             Ok(run_result) => {
                 let raw = run_result.captured_stdout.unwrap_or_default();
                 let text = self.extract_text(&raw);
-                let selections = parse_command_selection_response(&text);
+                let selections = parse_command_selection_response(&text, &available);
                 Ok(selections)
             }
             Err(e) => {
@@ -83,10 +107,11 @@ fn generate_command_selection_prompt(
     ticket_description: &str,
     plan: &str,
     impl_summary: &str,
+    available_commands: &[String],
 ) -> String {
     let mut commands_list = String::new();
-    for (id, desc) in AVAILABLE_COMMANDS {
-        commands_list.push_str(&format!("- `{}`: {}\n", id, desc));
+    for id in available_commands {
+        commands_list.push_str(&format!("- `{}`\n", id));
     }
 
     let mut models_list = String::new();
@@ -110,7 +135,7 @@ fn generate_command_selection_prompt(
     };
 
     format!(
-        r#"You are a workflow orchestrator deciding which quality assurance commands should run after an implementation is complete.
+        r#"You are a workflow orchestrator deciding which quality assurance commands should run after an implementation is complete. Your job is to read the ticket, plan, and implementation, then build a tailored QA workflow.
 
 ## Ticket
 
@@ -123,28 +148,95 @@ fn generate_command_selection_prompt(
 ## Available Models
 
 {models_list}
-## Instructions
+## How to Reason About Workflow Selection
 
-Based on the ticket, plan, and implementation above, decide which commands should be run and in what order to ensure the implementation is high quality. For each command, choose an appropriate model.
+**Pay close attention to the user's intent in the ticket title and description.** The user's language signals how thorough the workflow should be:
 
-Guidelines:
-- Use more capable models (opus) for complex review tasks, cheaper models (sonnet) for mechanical tasks like linting or formatting.
-- You do NOT need to use all commands. Only select commands that are relevant to the changes.
-- If the implementation is simple or you believe no additional QA is needed, return an empty array.
-- Do NOT include `add-and-commit` — it always runs automatically at the end.
-- Order matters: put review/fix commands before final checks.
+- Words like "comprehensive", "production-ready", "thorough", "bulletproof", or "full review" mean the user wants a deep QA pipeline with multiple passes.
+- Words like "quick", "hotfix", "small fix", "typo", "minor", or "just do X" mean the user wants minimal overhead — only run commands that are truly necessary.
+- If the description mentions specific concerns (e.g., "make sure tests pass", "check for security issues", "update the docs"), target those areas directly.
+- If there's no strong signal, use your judgment based on the scope and risk of the implementation.
 
-Respond with ONLY a JSON array (no other text). Example:
+**Match workflow depth to implementation scope:**
+- A one-line config change needs little or no QA.
+- A new feature touching multiple files needs review, tests, and cleanup.
+- Changes to authentication, payments, or data handling need security review.
+- Public API changes need contract checks and documentation.
 
+**Model selection:**
+- Use more capable models (opus) for tasks requiring deep reasoning: code review, security review, complex test generation.
+- Use cheaper models (sonnet) for mechanical tasks: linting, cleanup, formatting, simple doc updates.
+
+## Example Workflows
+
+**Quick bug fix** — ticket says "Fix null pointer crash in user lookup":
 ```json
 [
   {{"command": "cleanup", "model": "sonnet-4.6"}},
+  {{"command": "unit-tests", "model": "sonnet-4.6"}}
+]
+```
+
+**Standard feature** — ticket says "Add email notification preferences to settings":
+```json
+[
   {{"command": "code-review", "model": "opus-4.6"}},
+  {{"command": "cleanup", "model": "sonnet-4.6"}},
+  {{"command": "unit-tests", "model": "opus-4.5"}},
   {{"command": "deslop", "model": "sonnet-4.5"}}
 ]
 ```
 
-If no commands are needed, respond with:
+**Comprehensive / production-ready** — ticket says "Implement OAuth2 login flow — needs to be thorough and production-ready":
+```json
+[
+  {{"command": "code-review", "model": "opus-4.6"}},
+  {{"command": "patch-security", "model": "opus-4.6"}},
+  {{"command": "unit-tests", "model": "opus-4.5"}},
+  {{"command": "integration-test", "model": "opus-4.5"}},
+  {{"command": "cleanup", "model": "sonnet-4.6"}},
+  {{"command": "deslop", "model": "sonnet-4.5"}},
+  {{"command": "review-changes", "model": "opus-4.5"}},
+  {{"command": "doc-sync", "model": "sonnet-4.5"}}
+]
+```
+
+**API change** — ticket says "Rename the /users endpoint to /accounts and update request schema":
+```json
+[
+  {{"command": "api-contract-check", "model": "opus-4.6"}},
+  {{"command": "code-review", "model": "opus-4.6"}},
+  {{"command": "unit-tests", "model": "opus-4.5"}},
+  {{"command": "doc-sync", "model": "sonnet-4.5"}}
+]
+```
+
+**Trivial change** — ticket says "Fix typo in README":
+```json
+[]
+```
+
+**Refactor with observability** — ticket says "Refactor database layer to use connection pooling, add proper logging":
+```json
+[
+  {{"command": "code-review", "model": "opus-4.6"}},
+  {{"command": "unit-tests", "model": "opus-4.5"}},
+  {{"command": "observability-pass", "model": "sonnet-4.6"}},
+  {{"command": "cleanup", "model": "sonnet-4.6"}},
+  {{"command": "review-polish", "model": "opus-4.5"}}
+]
+```
+
+## Instructions
+
+Based on the ticket, plan, and implementation, select which commands to run and in what order. Follow these rules:
+
+- Do NOT include `add-and-commit` — it always runs automatically at the end.
+- Only select commands that are relevant to the changes.
+- Order matters: put fix/review commands before final polish and documentation.
+- You may return an empty array if no QA commands are needed.
+
+Respond with ONLY a JSON array (no other text):
 
 ```json
 []
@@ -154,18 +246,24 @@ If no commands are needed, respond with:
 }
 
 /// Parse the agent's response to extract the command selection list.
-pub fn parse_command_selection_response(response: &str) -> Vec<CommandSelection> {
+pub fn parse_command_selection_response(
+    response: &str,
+    available_commands: &[String],
+) -> Vec<CommandSelection> {
     crate::agents::json_extraction::parse_json_response::<Vec<CommandSelection>>(response)
-        .map(filter_valid_selections)
+        .map(|s| filter_valid_selections(s, available_commands))
         .unwrap_or_else(|| {
             tracing::warn!("Could not parse command selection from agent response");
             Vec::new()
         })
 }
 
-fn filter_valid_selections(selections: Vec<CommandSelection>) -> Vec<CommandSelection> {
-    let valid_commands: std::collections::HashSet<&str> =
-        AVAILABLE_COMMANDS.iter().map(|(id, _)| *id).collect();
+fn filter_valid_selections(
+    selections: Vec<CommandSelection>,
+    available_commands: &[String],
+) -> Vec<CommandSelection> {
+    let valid: std::collections::HashSet<&str> =
+        available_commands.iter().map(|s| s.as_str()).collect();
 
     selections
         .into_iter()
@@ -177,7 +275,7 @@ fn filter_valid_selections(selections: Vec<CommandSelection>) -> Vec<CommandSele
                 );
                 return false;
             }
-            if !valid_commands.contains(s.command.as_str()) {
+            if !valid.contains(s.command.as_str()) {
                 tracing::warn!(
                     "Auto-pilot: filtering out unknown command '{}'",
                     s.command
@@ -200,6 +298,18 @@ fn truncate(s: &str, max_chars: usize) -> &str {
 mod tests {
     use super::*;
 
+    fn test_commands() -> Vec<String> {
+        vec![
+            "cleanup", "code-review", "deslop", "unit-tests", "review-changes",
+            "add-tests", "fix-lint", "sync-with-main", "review-polish",
+            "patch-security", "api-contract-check", "observability-pass",
+            "integration-test", "doc-sync",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
+    }
+
     #[test]
     fn parse_json_code_block() {
         let response = r#"Here are the commands:
@@ -211,7 +321,7 @@ mod tests {
 ]
 ```
 "#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].command, "cleanup");
         assert_eq!(result[0].model, "sonnet-4.6");
@@ -222,7 +332,7 @@ mod tests {
     #[test]
     fn parse_raw_json_array() {
         let response = r#"[{"command": "deslop", "model": "sonnet-4.5"}]"#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].command, "deslop");
     }
@@ -230,7 +340,7 @@ mod tests {
     #[test]
     fn parse_empty_array() {
         let response = "```json\n[]\n```";
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert!(result.is_empty());
     }
 
@@ -238,7 +348,7 @@ mod tests {
     fn filters_excluded_commands() {
         let response =
             r#"[{"command": "add-and-commit", "model": "sonnet-4.6"}, {"command": "cleanup", "model": "sonnet-4.6"}]"#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].command, "cleanup");
     }
@@ -247,14 +357,14 @@ mod tests {
     fn filters_unknown_commands() {
         let response =
             r#"[{"command": "nonexistent", "model": "opus-4.6"}, {"command": "deslop", "model": "opus-4.5"}]"#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].command, "deslop");
     }
 
     #[test]
     fn parse_unparseable_returns_empty() {
-        let result = parse_command_selection_response("I don't know what to do.");
+        let result = parse_command_selection_response("I don't know what to do.", &test_commands());
         assert!(result.is_empty());
     }
 
@@ -265,7 +375,7 @@ mod tests {
 [{"command": "unit-tests", "model": "opus-4.5"}, {"command": "review-changes", "model": "opus-4.5"}]
 
 These will ensure quality."#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].command, "unit-tests");
         assert_eq!(result[1].command, "review-changes");
@@ -275,7 +385,7 @@ These will ensure quality."#;
     fn filters_code_review_fix_command() {
         let response =
             r#"[{"command": "code-review-fix", "model": "opus-4.6"}, {"command": "cleanup", "model": "sonnet-4.6"}]"#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].command, "cleanup");
     }
@@ -293,11 +403,28 @@ These will ensure quality."#;
             {"command": "patch-security", "model": "opus-4.6"},
             {"command": "doc-sync", "model": "sonnet-4.5"}
         ]"#;
-        let result = parse_command_selection_response(response);
+        let result = parse_command_selection_response(response, &test_commands());
         assert_eq!(result.len(), 9);
     }
 
-    // -- truncate --
+    #[test]
+    fn accepts_custom_commands_when_in_available_list() {
+        let mut cmds = test_commands();
+        cmds.push("my-custom-lint".to_string());
+        let response = r#"[{"command": "my-custom-lint", "model": "sonnet-4.6"}]"#;
+        let result = parse_command_selection_response(response, &cmds);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].command, "my-custom-lint");
+    }
+
+    #[test]
+    fn rejects_custom_commands_not_in_available_list() {
+        let response = r#"[{"command": "my-custom-lint", "model": "sonnet-4.6"}]"#;
+        let result = parse_command_selection_response(response, &test_commands());
+        assert!(result.is_empty());
+    }
+
+    // ── truncate ──────────────────────────────────────────────
 
     #[test]
     fn truncate_short_string() {
@@ -326,53 +453,178 @@ These will ensure quality."#;
         assert_eq!(truncate(s, 2), "🎉🎊");
     }
 
-    // -- generate_command_selection_prompt --
+    // ── generate_command_selection_prompt ───────────────────────
 
     #[test]
     fn prompt_includes_ticket_info() {
+        let cmds = test_commands();
         let prompt =
-            generate_command_selection_prompt("Fix the bug", "There is a null pointer", "", "");
+            generate_command_selection_prompt("Fix the bug", "There is a null pointer", "", "", &cmds);
         assert!(prompt.contains("Fix the bug"));
         assert!(prompt.contains("There is a null pointer"));
     }
 
     #[test]
     fn prompt_includes_available_commands() {
-        let prompt = generate_command_selection_prompt("T", "D", "", "");
-        assert!(prompt.contains("- `cleanup`:"));
-        assert!(prompt.contains("- `code-review`:"));
-        assert!(prompt.contains("- `deslop`:"));
-        assert!(prompt.contains("- `unit-tests`:"));
-        // Excluded commands should not appear in the available commands list
-        assert!(!prompt.contains("- `add-and-commit`:"));
-        assert!(!prompt.contains("- `code-review-fix`:"));
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        assert!(prompt.contains("- `cleanup`"));
+        assert!(prompt.contains("- `code-review`"));
+        assert!(prompt.contains("- `deslop`"));
+        assert!(prompt.contains("- `unit-tests`"));
+    }
+
+    #[test]
+    fn prompt_includes_custom_commands() {
+        let cmds = vec!["cleanup".to_string(), "my-custom-deploy".to_string()];
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        assert!(prompt.contains("- `cleanup`"));
+        assert!(prompt.contains("- `my-custom-deploy`"));
+    }
+
+    #[test]
+    fn prompt_includes_example_workflows() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        assert!(prompt.contains("Quick bug fix"));
+        assert!(prompt.contains("Standard feature"));
+        assert!(prompt.contains("Comprehensive / production-ready"));
+        assert!(prompt.contains("API change"));
+        assert!(prompt.contains("Trivial change"));
+    }
+
+    #[test]
+    fn prompt_includes_user_intent_guidance() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        assert!(prompt.contains("Pay close attention to the user's intent"));
+        assert!(prompt.contains("comprehensive"));
+        assert!(prompt.contains("quick"));
+        assert!(prompt.contains("hotfix"));
     }
 
     #[test]
     fn prompt_includes_models() {
-        let prompt = generate_command_selection_prompt("T", "D", "", "");
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
         assert!(prompt.contains("`opus-4.6`"));
         assert!(prompt.contains("`sonnet-4.6`"));
     }
 
     #[test]
     fn prompt_omits_empty_plan_and_impl() {
-        let prompt = generate_command_selection_prompt("T", "D", "", "");
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
         assert!(!prompt.contains("## Plan"));
         assert!(!prompt.contains("## Implementation Summary"));
     }
 
     #[test]
     fn prompt_includes_plan_and_impl_when_provided() {
+        let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "T",
-            "D",
-            "Step 1: do X",
-            "Changed file Y",
+            "T", "D", "Step 1: do X", "Changed file Y", &cmds,
         );
         assert!(prompt.contains("## Plan"));
         assert!(prompt.contains("Step 1: do X"));
         assert!(prompt.contains("## Implementation Summary"));
         assert!(prompt.contains("Changed file Y"));
+    }
+
+    // ── discover_available_commands ──────────────────────────────
+
+    #[test]
+    fn discover_finds_bundled_commands() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        let provider = ClaudeProvider::new();
+        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        assert!(commands.contains(&"cleanup".to_string()));
+        assert!(commands.contains(&"code-review".to_string()));
+        assert!(commands.contains(&"deslop".to_string()));
+        assert!(!commands.contains(&"add-and-commit".to_string()));
+        assert!(!commands.contains(&"code-review-fix".to_string()));
+    }
+
+    #[test]
+    fn discover_excludes_orchestrator_internal_commands() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        let provider = ClaudeProvider::new();
+        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        for excluded in EXCLUDED_COMMANDS {
+            assert!(
+                !commands.contains(&excluded.to_string()),
+                "'{}' should be excluded from discovered commands",
+                excluded
+            );
+        }
+    }
+
+    #[test]
+    fn discover_returns_sorted_output() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        let provider = ClaudeProvider::new();
+        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        let mut sorted = commands.clone();
+        sorted.sort();
+        assert_eq!(commands, sorted);
+    }
+
+    #[test]
+    fn discover_picks_up_project_commands() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        let provider = ClaudeProvider::new();
+        let temp = std::env::temp_dir().join(format!("auto_pilot_test_{}", uuid::Uuid::new_v4()));
+        let cmd_dir = temp.join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        std::fs::write(cmd_dir.join("my-custom-deploy.md"), "# deploy").unwrap();
+
+        let commands = discover_available_commands(&temp, &provider);
+        assert!(
+            commands.contains(&"my-custom-deploy".to_string()),
+            "Project-level custom command should be discovered"
+        );
+        // Should also have bundled commands
+        assert!(commands.contains(&"cleanup".to_string()));
+
+        std::fs::remove_dir_all(&temp).ok();
+    }
+
+    #[test]
+    fn discover_deduplicates_across_sources() {
+        use crate::agents::claude::provider::ClaudeProvider;
+        let provider = ClaudeProvider::new();
+        let temp = std::env::temp_dir().join(format!("auto_pilot_dedup_{}", uuid::Uuid::new_v4()));
+        let cmd_dir = temp.join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        // Create a project-level command with the same name as a bundled one
+        std::fs::write(cmd_dir.join("cleanup.md"), "# custom cleanup").unwrap();
+
+        let commands = discover_available_commands(&temp, &provider);
+        let cleanup_count = commands.iter().filter(|c| c.as_str() == "cleanup").count();
+        assert_eq!(cleanup_count, 1, "Duplicate commands should be deduplicated");
+
+        std::fs::remove_dir_all(&temp).ok();
+    }
+
+    #[test]
+    fn filter_with_empty_available_list_rejects_everything() {
+        let response = r#"[{"command": "cleanup", "model": "sonnet-4.6"}]"#;
+        let result = parse_command_selection_response(response, &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn filter_mixed_valid_excluded_unknown() {
+        let cmds = vec!["cleanup".to_string(), "deslop".to_string()];
+        let response = r#"[
+            {"command": "cleanup", "model": "sonnet-4.6"},
+            {"command": "add-and-commit", "model": "sonnet-4.6"},
+            {"command": "nonexistent", "model": "opus-4.6"},
+            {"command": "deslop", "model": "sonnet-4.5"}
+        ]"#;
+        let result = parse_command_selection_response(response, &cmds);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].command, "cleanup");
+        assert_eq!(result[1].command, "deslop");
     }
 }

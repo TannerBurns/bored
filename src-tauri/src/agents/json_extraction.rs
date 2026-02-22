@@ -181,7 +181,7 @@ fn skip_newline(text: &str, pos: usize) -> usize {
 mod tests {
     use super::*;
 
-    // -- extract_json_code_block --
+    // ── extract_json_code_block ────────────────────────────────
 
     #[test]
     fn code_block_json_fence() {
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(extract_json_code_block(text), None);
     }
 
-    // -- extract_json_object --
+    // ── extract_json_object ────────────────────────────────────
 
     #[test]
     fn object_from_code_fence() {
@@ -250,7 +250,7 @@ mod tests {
         );
     }
 
-    // -- parse_json_response --
+    // ── parse_json_response ────────────────────────────────────
 
     #[test]
     fn parse_direct_json_object() {
@@ -336,11 +336,10 @@ mod tests {
         assert_eq!(result.unwrap().v, 1);
     }
 
-    // -- edge cases --
+    // ── edge cases ────────────────────────────────────────────
 
     #[test]
     fn object_falls_through_when_fence_has_array() {
-        // Code fence contains an array, but we want an object -- should use bracket-finding
         let text = "stray text {\"real\":true} more\n```json\n[1,2]\n```";
         assert_eq!(
             extract_json_object(text),
@@ -354,7 +353,6 @@ mod tests {
         struct S {
             ok: bool,
         }
-        // Code fence has invalid JSON, but bracket-finding finds the valid one
         let text = "```json\nnot json!\n```\nanyway {\"ok\":true} here";
         let result: Option<S> = parse_json_response(text);
         assert!(result.unwrap().ok);
@@ -480,7 +478,7 @@ mod tests {
         assert_eq!(extract_json_object("{}"), Some("{}".to_string()));
     }
 
-    // -- extract_all_json_code_blocks --
+    // ── extract_all_json_code_blocks ────────────────────────────
 
     #[test]
     fn all_blocks_single_fence() {
@@ -518,7 +516,7 @@ mod tests {
         assert!(blocks.is_empty());
     }
 
-    // -- parse_all_json_blocks --
+    // ── parse_all_json_blocks ──────────────────────────────────
 
     #[test]
     fn all_json_blocks_from_fenced() {
