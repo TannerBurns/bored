@@ -42,8 +42,8 @@ fn extract_json_code_block(text: &str) -> Option<String> {
 
 /// Extract the first JSON object (`{...}`) from agent text.
 ///
-/// Tries code-fence extraction first, then falls back to bracket-finding
-/// (first `{` to last `}`).
+/// Tries code-fence extraction first, then falls back to depth-counting
+/// brace matching starting from the first `{`.
 pub fn extract_json_object(text: &str) -> Option<String> {
     if let Some(block) = extract_json_code_block(text) {
         if block.starts_with('{') {
@@ -52,13 +52,7 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     }
 
     let trimmed = text.trim();
-    let start = trimmed.find('{')?;
-    let end = trimmed.rfind('}')?;
-    if end > start {
-        Some(trimmed[start..=end].to_string())
-    } else {
-        None
-    }
+    find_balanced(trimmed, '{', '}')
 }
 
 /// Parse a JSON response of type `T` from agent text.
@@ -82,12 +76,12 @@ pub fn parse_json_response<T: DeserializeOwned>(text: &str) -> Option<T> {
         }
     }
 
-    if let Some(obj) = bracket_extract(trimmed, '{', '}') {
+    if let Some(obj) = find_balanced(trimmed, '{', '}') {
         if let Ok(val) = serde_json::from_str::<T>(&obj) {
             return Some(val);
         }
     }
-    if let Some(arr) = bracket_extract(trimmed, '[', ']') {
+    if let Some(arr) = find_balanced(trimmed, '[', ']') {
         if let Ok(val) = serde_json::from_str::<T>(&arr) {
             return Some(val);
         }
@@ -149,14 +143,25 @@ pub fn parse_all_json_blocks(text: &str) -> Vec<serde_json::Value> {
     results
 }
 
-fn bracket_extract(text: &str, open: char, close: char) -> Option<String> {
+/// Find the first balanced pair of open/close characters using depth counting.
+///
+/// Starts from the first `open` character and walks forward, incrementing
+/// depth on `open` and decrementing on `close`. Returns the substring from
+/// the opening character to its matching close (inclusive).
+fn find_balanced(text: &str, open: char, close: char) -> Option<String> {
     let start = text.find(open)?;
-    let end = text.rfind(close)?;
-    if end > start {
-        Some(text[start..=end].to_string())
-    } else {
-        None
+    let mut depth = 0;
+    for (i, c) in text[start..].char_indices() {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(text[start..start + i + 1].to_string());
+            }
+        }
     }
+    None
 }
 
 fn skip_newline(text: &str, pos: usize) -> usize {
@@ -368,8 +373,42 @@ mod tests {
     }
 
     #[test]
-    fn bracket_extract_same_position_returns_none() {
-        // Only one brace character — start == end, so end > start is false
+    fn object_multiple_independent_objects() {
+        let text = r#"{"a":1} some text {"b":2}"#;
+        assert_eq!(
+            extract_json_object(text),
+            Some(r#"{"a":1}"#.to_string())
+        );
+    }
+
+    #[test]
+    fn object_multiple_objects_with_preamble() {
+        let text = "Here is the result:\n{\"spec_complete\":true} and also {\"other\":false}";
+        let result = extract_json_object(text).unwrap();
+        assert!(result.contains("spec_complete"));
+        assert!(!result.contains("other"));
+    }
+
+    #[test]
+    fn parse_multiple_objects_picks_first_valid() {
+        #[derive(serde::Deserialize)]
+        struct S {
+            x: i32,
+        }
+        let text = r#"preamble {"x":42} middle {"x":99} end"#;
+        let result: Option<S> = parse_json_response(text);
+        assert_eq!(result.unwrap().x, 42);
+    }
+
+    #[test]
+    fn parse_multiple_arrays_picks_first_valid() {
+        let text = "result: [1,2] and also [3,4]";
+        let result: Option<Vec<i32>> = parse_json_response(text);
+        assert_eq!(result.unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn find_balanced_unmatched_returns_none() {
         assert_eq!(extract_json_object("{"), None);
     }
 
