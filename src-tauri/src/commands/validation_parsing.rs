@@ -34,6 +34,15 @@ pub(super) fn parse_start_app_from_response(response_text: &str) -> Option<Start
     None
 }
 
+pub(super) fn parse_stop_app_from_response(response_text: &str) -> bool {
+    for v in parse_all_json_blocks(response_text) {
+        if v.get("stop_app").is_some() {
+            return true;
+        }
+    }
+    false
+}
+
 pub(super) fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
     for v in parse_all_json_blocks(response_text) {
         if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
@@ -127,6 +136,22 @@ mod tests {
     #[test]
     fn start_app_no_block_returns_none() {
         assert!(parse_start_app_from_response("Just text, no JSON.").is_none());
+    }
+
+    // --- parse_stop_app_from_response ---
+
+    #[test]
+    fn stop_app_detected() {
+        let text = r#"I'll stop the app now.
+```json
+{ "stop_app": {} }
+```"#;
+        assert!(parse_stop_app_from_response(text));
+    }
+
+    #[test]
+    fn stop_app_missing_returns_false() {
+        assert!(!parse_stop_app_from_response("Just text, no JSON."));
     }
 
     // --- parse_run_command_from_response ---

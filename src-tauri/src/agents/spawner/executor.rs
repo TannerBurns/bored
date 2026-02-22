@@ -54,12 +54,12 @@ pub fn run_agent_via_provider_with_cancel(
 
 fn build_base_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
     vec![
-        ("AGENT_KANBAN_TICKET_ID".to_string(), config.ticket_id.clone()),
-        ("AGENT_KANBAN_RUN_ID".to_string(), config.run_id.clone()),
-        ("AGENT_KANBAN_API_URL".to_string(), config.api_url.clone()),
-        ("AGENT_KANBAN_API_TOKEN".to_string(), config.api_token.clone()),
+        ("BORED_TICKET_ID".to_string(), config.ticket_id.clone()),
+        ("BORED_RUN_ID".to_string(), config.run_id.clone()),
+        ("BORED_API_URL".to_string(), config.api_url.clone()),
+        ("BORED_API_TOKEN".to_string(), config.api_token.clone()),
         (
-            "AGENT_KANBAN_REPO_PATH".to_string(),
+            "BORED_REPO_PATH".to_string(),
             config.repo_path.to_string_lossy().to_string(),
         ),
     ]

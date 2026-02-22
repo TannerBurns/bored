@@ -125,13 +125,13 @@ pub fn set_notifications_enabled(
 /// Get the current API configuration (port, URL, token)
 #[tauri::command]
 pub fn get_api_config() -> Result<ApiConfigResponse, String> {
-    let port_str = std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string());
+    let port_str = std::env::var("BORED_API_PORT").unwrap_or_else(|_| "7432".to_string());
     let port: u16 = port_str.parse().unwrap_or(7432);
 
-    let url = std::env::var("AGENT_KANBAN_API_URL")
+    let url = std::env::var("BORED_API_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{}", port));
 
-    let token = std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_default();
+    let token = std::env::var("BORED_API_TOKEN").unwrap_or_default();
 
     Ok(ApiConfigResponse { url, port, token })
 }

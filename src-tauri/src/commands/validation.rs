@@ -10,7 +10,7 @@ use super::validation_fix_tasks::{
 };
 use super::validation_parsing::{
     parse_create_fix_tasks_from_response, parse_run_command_from_response,
-    parse_start_app_from_response,
+    parse_start_app_from_response, parse_stop_app_from_response,
 };
 use crate::agents::validation_agent::{AppProcessManager, StartResult};
 use crate::agents::AgentRegistry;
@@ -161,25 +161,37 @@ pub async fn stop_validation_app(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     app_process_manager: State<'_, AppProcessManager>,
 ) -> Result<(), String> {
-    app_process_manager.stop(&session_id);
+    let was_running = app_process_manager.stop(&session_id);
 
-    let system_msg = db
-        .create_validation_message(&CreateValidationMessage {
+    // Always transition out of AppRunning status so the session doesn't get
+    // stuck when the process died on its own before the button was pressed.
+    let session = db.get_validation_session(&session_id).ok();
+    let is_app_running_status = session
+        .as_ref()
+        .map(|s| s.status == ValidationSessionStatus::AppRunning)
+        .unwrap_or(false);
+
+    if was_running || is_app_running_status {
+        if was_running {
+            let system_msg = db
+                .create_validation_message(&CreateValidationMessage {
+                    session_id: session_id.clone(),
+                    role: ValidationMessageRole::System,
+                    content: "App stopped.".to_string(),
+                    metadata: None,
+                })
+                .map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: system_msg.id,
+                role: "system".to_string(),
+            });
+        }
+        let _ = db.update_validation_session_status(&session_id, &ValidationSessionStatus::Chatting);
+        let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
             session_id: session_id.clone(),
-            role: ValidationMessageRole::System,
-            content: "App stopped.".to_string(),
-            metadata: None,
-        })
-        .map_err(|e| e.to_string())?;
-    let _ = db.update_validation_session_status(&session_id, &ValidationSessionStatus::Chatting);
-    let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
-        session_id: session_id.clone(),
-        message_id: system_msg.id,
-        role: "system".to_string(),
-    });
-    let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
-        session_id: session_id.clone(),
-    });
+        });
+    }
 
     Ok(())
 }
@@ -453,7 +465,56 @@ pub async fn send_validation_message(
             continue;
         }
 
-        // 2. Check for start_app
+        // 2. Check for stop_app (kill process only, keep worktree for potential restart)
+        if parse_stop_app_from_response(&current_response) {
+            let was_running = app_process_manager.kill_process(&session_id);
+            let stop_label = if was_running { "App stopped." } else { "No app was running." };
+
+            let system_msg = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::System,
+                content: stop_label.to_string(),
+                metadata: None,
+            }).map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ValidationMessageAdded {
+                session_id: session_id.clone(),
+                message_id: system_msg.id,
+                role: "system".to_string(),
+            });
+
+            if was_running {
+                let _ = db.update_validation_session_status(&session_id, &ValidationSessionStatus::Chatting);
+                let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
+                    session_id: session_id.clone(),
+                });
+            }
+
+            let _ = db.create_validation_message(&CreateValidationMessage {
+                session_id: session_id.clone(),
+                role: ValidationMessageRole::User,
+                content: stop_label.to_string(),
+                metadata: None,
+            }).map_err(|e| e.to_string())?;
+
+            if !fix_tasks_already_extracted {
+                let fix_ids_from_current = process_fix_tasks_in_response(
+                    &current_response, db.inner(), &session_id, &session.ticket_id,
+                    &ticket.title, &ticket.board_id, event_tx.inner(),
+                );
+                all_fix_task_ids.extend(fix_ids_from_current);
+            }
+
+            let (next_response, next_msg, fix_ids) = send_agent_followup(
+                &agent, &db, &event_tx, &session_id, &session, &ticket,
+            ).await?;
+            all_fix_task_ids.extend(fix_ids);
+            current_response = next_response;
+            last_assistant_msg = next_msg;
+            fix_tasks_already_extracted = true;
+            continue;
+        }
+
+        // 3. Check for start_app
         if let Some(start_app) = parse_start_app_from_response(&current_response) {
             let start_result = app_process_manager.start(
                 session_id.clone(),

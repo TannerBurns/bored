@@ -106,14 +106,14 @@ pub async fn start_worker(
         .get(&agent_id)
         .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
 
-    let api_url = std::env::var("AGENT_KANBAN_API_URL").unwrap_or_else(|_| {
+    let api_url = std::env::var("BORED_API_URL").unwrap_or_else(|_| {
         format!(
             "http://127.0.0.1:{}",
-            std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string())
+            std::env::var("BORED_API_PORT").unwrap_or_else(|_| "7432".to_string())
         )
     });
     let api_token =
-        std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
+        std::env::var("BORED_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
 
     let agent_config = agent_settings.agent_config_for(&agent_id);
 
@@ -221,7 +221,7 @@ pub async fn validate_worker(
         .get(&agent_type)
         .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
 
-    let api_url = std::env::var("AGENT_KANBAN_API_URL").ok();
+    let api_url = std::env::var("BORED_API_URL").ok();
     let result =
         validate_worker_environment(&*provider, &PathBuf::from(&repo_path), api_url.as_deref());
 

@@ -21,17 +21,17 @@ fn is_merge_dependencies_ticket(ticket: &Ticket) -> bool {
 
 /// Determine the base branch for a ticket based on epic chain branching rules.
 /// Merge-dependencies tickets branch from main; other epic children chain from siblings.
-pub fn get_base_branch_for_ticket(
+pub(crate) fn get_base_branch_for_ticket(
     db: &Arc<Database>,
     ticket: &Ticket,
-    worker_id: &str,
+    caller_id: &str,
 ) -> Option<String> {
     ticket.epic_id.as_ref()?;
 
     if is_merge_dependencies_ticket(ticket) {
         tracing::info!(
-            "Worker {} ticket {} is a merge-dependencies ticket, using default branch",
-            worker_id,
+            "{} ticket {} is a merge-dependencies ticket, using default branch",
+            caller_id,
             ticket.id
         );
         return None;
@@ -41,26 +41,25 @@ pub fn get_base_branch_for_ticket(
         Ok(Some(prev_sibling)) => {
             if let Some(ref branch) = prev_sibling.branch_name {
                 tracing::info!(
-                    "Worker {} using chain branching: basing {} on previous sibling's branch {}",
-                    worker_id, ticket.id, branch
+                    "{} using chain branching: basing {} on previous sibling's branch {}",
+                    caller_id, ticket.id, branch
                 );
                 Some(branch.clone())
             } else {
                 tracing::info!(
-                    "Worker {} previous sibling {} has no branch yet, using default branch",
-                    worker_id, prev_sibling.id
+                    "{} previous sibling {} has no branch yet, using default branch",
+                    caller_id, prev_sibling.id
                 );
                 None
             }
         }
         Ok(None) => {
-            // First child in epic - check for cross-epic dependency branching
-            get_cross_epic_base_branch(db, ticket, worker_id)
+            get_cross_epic_base_branch(db, ticket, caller_id)
         }
         Err(e) => {
             tracing::warn!(
-                "Worker {} failed to get previous sibling for {}: {}, using default branch",
-                worker_id, ticket.id, e
+                "{} failed to get previous sibling for {}: {}, using default branch",
+                caller_id, ticket.id, e
             );
             None
         }
@@ -71,29 +70,29 @@ pub fn get_base_branch_for_ticket(
 fn get_cross_epic_base_branch(
     db: &Arc<Database>,
     ticket: &Ticket,
-    worker_id: &str,
+    caller_id: &str,
 ) -> Option<String> {
     let epic_id = ticket.epic_id.as_ref()?;
 
     match db.get_dependency_base_branch(epic_id) {
         Ok(Some(ref branch)) => {
             tracing::info!(
-                "Worker {} using cross-epic branching: basing {} on dependency epic's last child branch {}",
-                worker_id, ticket.id, branch
+                "{} using cross-epic branching: basing {} on dependency epic's last child branch {}",
+                caller_id, ticket.id, branch
             );
             Some(branch.clone())
         }
         Ok(None) => {
             tracing::info!(
-                "Worker {} ticket {} is first child in epic with no dependency, using default branch",
-                worker_id, ticket.id
+                "{} ticket {} is first child in epic with no dependency, using default branch",
+                caller_id, ticket.id
             );
             None
         }
         Err(e) => {
             tracing::warn!(
-                "Worker {} failed to get dependency base branch for epic {}: {}, using default branch",
-                worker_id, epic_id, e
+                "{} failed to get dependency base branch for epic {}: {}, using default branch",
+                caller_id, epic_id, e
             );
             None
         }

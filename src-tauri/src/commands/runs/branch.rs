@@ -1,16 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::{Emitter, Window};
-
-use crate::agents::prompt::{
-    generate_branch_name_generation_prompt, parse_branch_name_from_output,
-};
+use crate::agents::worker::branching;
 use crate::agents::worktree::{
-    self, create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeInfo,
+    create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeInfo,
 };
-use crate::agents::{run_agent_via_provider, AgentProvider, AgentRunConfig};
-use crate::db::models::{CreateRun, RunStatus};
 use crate::db::{Database, Ticket};
 
 /// Context for setting up a worktree and branch for an agent run.
@@ -18,263 +12,104 @@ pub(super) struct WorktreeBranchSetup<'a> {
     pub ticket: &'a Ticket,
     pub run_id: &'a str,
     pub repo_path: &'a str,
-    pub agent_id: &'a str,
-    pub provider: Arc<dyn AgentProvider>,
     pub db: &'a Arc<Database>,
-    pub window: &'a Window,
-    pub branch_gen_model: Option<String>,
-    pub agent_config: &'a std::collections::HashMap<String, serde_json::Value>,
 }
 
-/// Generate a branch name using AI via a quick agent call
+/// Create a git worktree for isolated agent execution.
 ///
-/// This runs a quick Claude/Cursor agent call to generate a meaningful branch name
-/// based on the ticket's title and description.
-pub(super) async fn generate_ai_branch_name(
-    ticket: &Ticket,
-    repo_path: &std::path::Path,
-    agent_id: &str,
-    provider: Arc<dyn AgentProvider>,
-    db: Arc<Database>,
-    model: Option<String>,
-    agent_config: &std::collections::HashMap<String, serde_json::Value>,
-) -> Option<String> {
-    let prompt = generate_branch_name_generation_prompt(ticket);
-    let run_id = uuid::Uuid::new_v4().to_string();
-
-    tracing::info!(
-        "Generating AI branch name for ticket {} via quick agent call",
-        ticket.id
-    );
-
-    // Create a temporary sub-run for the branch generation stage
-    let sub_run = db.create_run(&CreateRun {
-        ticket_id: ticket.id.clone(),
-        agent_type: agent_id.to_string(),
-        repo_path: repo_path.to_string_lossy().to_string(),
-        parent_run_id: None,
-        stage: Some("branch-gen".to_string()),
-        ..Default::default()
-    });
-
-    if let Err(e) = &sub_run {
-        tracing::warn!("Failed to create branch-gen sub-run: {}", e);
-    }
-
-    let model_for_cost = model.clone().unwrap_or_default();
-
-    tracing::info!(
-        "Branch-gen config: agent={}, model={:?}, repo={}",
-        agent_id,
-        &model_for_cost,
-        repo_path.display(),
-    );
-
-    let config = AgentRunConfig {
-        agent_id: agent_id.to_string(),
-        ticket_id: ticket.id.clone(),
-        run_id: run_id.clone(),
-        repo_path: repo_path.to_path_buf(),
-        prompt: prompt.clone(),
-        timeout_secs: Some(60),
-        api_url: String::new(),
-        api_token: String::new(),
-        model,
-        agent_config: agent_config.clone(),
-    };
-
-    let start_time = std::time::Instant::now();
-
-    let provider_for_extract = provider.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        run_agent_via_provider(&*provider, &config, None)
-    })
-    .await;
-
-    match result {
-        Ok(Ok(agent_result)) => {
-            let duration_secs = start_time.elapsed().as_secs_f64();
-            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
-            let stdout_len = stdout.len();
-
-            tracing::info!(
-                "Branch-gen agent finished: exit_code={:?}, status={:?}, stdout_len={}, duration={:.1}s",
-                agent_result.exit_code,
-                agent_result.status,
-                stdout_len,
-                duration_secs,
-            );
-
-            let cost_data = crate::agents::provider::extract_cost_with_overrides(
-                &*provider_for_extract,
-                stdout,
-                &model_for_cost,
-                agent_config,
-                duration_secs,
-            );
-            if let Ok(ref sr) = sub_run {
-                let mut metadata = serde_json::json!({
-                    "duration_secs": duration_secs,
-                    "exit_code": agent_result.exit_code,
-                    "stdout_len": stdout_len,
-                });
-                if let Some(ref cost) = cost_data {
-                    metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
-                }
-                let _ = db.set_run_metadata(&sr.id, &metadata);
-            }
-
-            if stdout.is_empty() {
-                tracing::warn!(
-                    "Branch-gen produced no stdout (exit_code={:?})",
-                    agent_result.exit_code,
-                );
-            } else {
-                let text_content = provider_for_extract.extract_text(stdout);
-                let preview: String = text_content.chars().take(500).collect();
-                tracing::info!("Branch-gen extracted text ({} chars): {}", text_content.len(), preview);
-
-                if let Some(branch_name) = parse_branch_name_from_output(&text_content) {
-                    tracing::info!("AI generated branch name: {}", branch_name);
-                    if let Ok(ref sr) = sub_run {
-                        let _ = db.update_run_status(&sr.id, RunStatus::Finished, Some(0), None);
-                    }
-                    return Some(branch_name);
-                }
-
-                let raw_preview: String = stdout.chars().take(1000).collect();
-                tracing::warn!(
-                    "Could not parse branch_name JSON from extracted text. \
-                     Raw stdout preview: {}",
-                    raw_preview,
-                );
-            }
-        }
-        Ok(Err(e)) => {
-            tracing::error!("Branch-gen agent spawn/execution failed: {}", e);
-            if let Ok(ref sr) = sub_run {
-                let _ = db.set_run_metadata(&sr.id, &serde_json::json!({
-                    "error": format!("{}", e),
-                    "error_kind": "spawn_failed",
-                }));
-            }
-        }
-        Err(e) => {
-            tracing::error!("Branch-gen tokio task panicked or was cancelled: {}", e);
-            if let Ok(ref sr) = sub_run {
-                let _ = db.set_run_metadata(&sr.id, &serde_json::json!({
-                    "error": format!("{}", e),
-                    "error_kind": "task_join_failed",
-                }));
-            }
-        }
-    }
-
-    if let Ok(ref sr) = sub_run {
-        let _ = db.update_run_status(
-            &sr.id,
-            RunStatus::Error,
-            Some(1),
-            Some("Failed to generate branch name"),
-        );
-    }
-
-    None
-}
-
-/// Resolve the branch name and create a git worktree for isolated agent execution.
+/// Uses the same approach as the worker path:
+/// - First runs (no branch): creates a worktree with a temporary branch name
+///   (`agent-work/{ticket_id}/{run_id}`). The orchestrator's branch-gen stage
+///   will later rename it to an AI-generated name.
+/// - Subsequent runs (existing branch): creates a worktree using the existing branch.
 ///
-/// - First runs (no branch): generates an AI branch name, stores it on the ticket, then creates a worktree.
-/// - Subsequent runs: reuses the existing branch via worktree.
-///
-/// Returns `(Option<WorktreeInfo>, branch_name)`.
+/// Returns `(WorktreeInfo, branch_name)`. Fails if worktree creation fails,
+/// preventing silent fallback to the main repo.
 pub(super) async fn setup_worktree_and_branch(
     ctx: WorktreeBranchSetup<'_>,
-) -> Result<(Option<WorktreeInfo>, String), String> {
+) -> Result<(WorktreeInfo, String), String> {
     let WorktreeBranchSetup {
-        ticket, run_id, repo_path, agent_id,
-        provider, db, window, branch_gen_model,
-        agent_config,
+        ticket, run_id, repo_path, db,
     } = ctx;
 
     let ticket_id = &ticket.id;
     let repo_path_buf = std::path::PathBuf::from(repo_path);
 
-    let branch_to_use = if let Some(ref existing_branch) = ticket.branch_name {
-        tracing::info!("Ticket {} already has branch: {}", ticket_id, existing_branch);
-        existing_branch.clone()
-    } else {
-        tracing::info!("Ticket {} has no branch yet, generating AI branch name...", ticket_id);
-
-        let ai_branch = generate_ai_branch_name(
-            ticket, &repo_path_buf, agent_id,
-            provider.clone(), db.clone(),
-            branch_gen_model, agent_config,
-        ).await;
-
-        let branch = if let Some(name) = ai_branch {
-            tracing::info!("AI generated branch name: {}", name);
-            name
-        } else {
-            let fallback = worktree::generate_branch_name(&ticket.id, &ticket.title);
-            tracing::warn!("AI branch generation failed, using fallback: {}", fallback);
-            fallback
-        };
-
-        if let Err(e) = db.set_ticket_branch(ticket_id, &branch) {
-            let _ = db.unlock_ticket(ticket_id);
-            return Err(format!(
-                "Failed to store branch name on ticket: {}. Aborting run to prevent inconsistent state.", e
-            ));
-        }
-        tracing::info!("Stored branch name '{}' on ticket {}", branch, ticket_id);
-        let _ = window.emit(
-            "ticket-branch-updated",
-            serde_json::json!({ "ticketId": ticket_id, "branchName": branch }),
+    if let Some(ref existing_branch) = ticket.branch_name {
+        tracing::info!(
+            "Ticket {} already has branch: {}, creating worktree",
+            ticket_id, existing_branch
         );
 
-        branch
-    };
+        let worktree = create_worktree_with_existing_branch(
+            &repo_path_buf, existing_branch, run_id, None,
+        )
+        .inspect(|info| {
+            tracing::info!(
+                "Created worktree for run {} at {} using existing branch {}",
+                run_id, info.path.display(), info.branch_name
+            );
+        })
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to create worktree for existing branch '{}': {}. \
+                 Aborting run to prevent working directly on the main repo.",
+                existing_branch, e
+            );
+            format!(
+                "Failed to create worktree for branch '{}': {}",
+                existing_branch, e
+            )
+        })?;
 
-    tracing::info!("Creating worktree for ticket {} with branch: {}", ticket_id, branch_to_use);
-
-    let worktree = if ticket.branch_name.is_some() {
-        match create_worktree_with_existing_branch(&repo_path_buf, &branch_to_use, run_id, None) {
-            Ok(info) => {
-                tracing::info!(
-                    "Created worktree for run {} at {} using existing branch {}",
-                    run_id, info.path.display(), info.branch_name
-                );
-                Some(info)
-            }
-            Err(e) => {
-                tracing::warn!("Failed to create worktree with existing branch, falling back to main repo: {}", e);
-                None
-            }
-        }
+        Ok((worktree, existing_branch.clone()))
     } else {
-        match create_worktree(&WorktreeConfig {
+        let temp_branch = format!(
+            "agent-work/{}/{}",
+            &ticket_id[..8.min(ticket_id.len())],
+            &run_id[..8.min(run_id.len())]
+        );
+
+        let base_branch =
+            branching::get_base_branch_for_ticket(db, ticket, "direct-run");
+
+        tracing::info!(
+            "Ticket {} has no branch yet, creating worktree with temp branch: {}{}",
+            ticket_id,
+            temp_branch,
+            base_branch
+                .as_ref()
+                .map_or(String::new(), |b| format!(" (based on {})", b))
+        );
+
+        let mut worktree = create_worktree(&WorktreeConfig {
             repo_path: repo_path_buf.clone(),
-            branch_name: branch_to_use.clone(),
+            branch_name: temp_branch.clone(),
             run_id: run_id.to_string(),
             base_dir: None,
-            base_branch: None,
-        }) {
-            Ok(info) => {
-                tracing::info!(
-                    "Created new worktree for run {} at {} with new branch {}",
-                    run_id, info.path.display(), info.branch_name
-                );
-                Some(info)
-            }
-            Err(e) => {
-                tracing::warn!("Failed to create new worktree, falling back to main repo: {}", e);
-                None
-            }
-        }
-    };
+            base_branch,
+        })
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to create worktree with temp branch '{}': {}. \
+                 Aborting run to prevent working directly on the main repo.",
+                temp_branch, e
+            );
+            format!(
+                "Failed to create worktree for new branch '{}': {}",
+                temp_branch, e
+            )
+        })?;
 
-    Ok((worktree, branch_to_use))
+        tracing::info!(
+            "Created new worktree for run {} at {} with temp branch {}",
+            run_id, worktree.path.display(), worktree.branch_name
+        );
+
+        worktree.is_temp_branch = true;
+
+        Ok((worktree, temp_branch))
+    }
 }
 
 /// Start a heartbeat task to extend the lock periodically

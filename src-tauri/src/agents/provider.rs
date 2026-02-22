@@ -45,7 +45,7 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
 
     /// Build agent-specific environment variables.
     ///
-    /// Base environment variables (AGENT_KANBAN_*) are added by the spawner;
+    /// Base environment variables (BORED_*) are added by the spawner;
     /// this method only needs to return additional, agent-specific variables.
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)>;
 

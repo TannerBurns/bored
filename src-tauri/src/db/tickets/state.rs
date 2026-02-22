@@ -48,6 +48,23 @@ impl Database {
         })
     }
 
+    /// Clear the branch name from a ticket (used when worktree creation fails
+    /// after the branch name was stored but before the git branch was created)
+    pub fn clear_ticket_branch(&self, ticket_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            let affected = conn.execute(
+                "UPDATE tickets SET branch_name = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![now, ticket_id],
+            )?;
+
+            if affected == 0 {
+                return Err(DbError::NotFound(format!("Ticket {} not found", ticket_id)));
+            }
+            Ok(())
+        })
+    }
+
     /// Pause a ticket's execution - saves current stage and run ID for later resume
     pub fn pause_ticket(&self, ticket_id: &str, stage: &str, run_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {

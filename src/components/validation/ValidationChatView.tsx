@@ -117,7 +117,7 @@ export function ValidationChatView({ session, onBack }: ValidationChatViewProps)
         </div>
 
         <div className="flex items-center gap-2">
-          {appRunning && (
+          {(appRunning || session.status === 'app_running') && (
             <button
               onClick={async () => {
                 await stopApp(session.id);

@@ -259,7 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
     }),
     {
-      name: 'agent-kanban-settings',
+      name: 'bored-settings',
       version: 15,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };

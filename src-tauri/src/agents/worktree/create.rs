@@ -111,7 +111,7 @@ pub struct WorktreeInfo {
 
 /// Get the default base directory for worktrees
 pub fn get_default_worktree_base() -> PathBuf {
-    std::env::temp_dir().join("agent-kanban").join("worktrees")
+    std::env::temp_dir().join("bored").join("worktrees")
 }
 
 /// Prune stale worktree references from the repository.
@@ -332,7 +332,7 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                     return Err(WorktreeError::GitError {
                         message: format!(
                             "Branch '{}' is already checked out in another worktree at {}. \
-                            This worktree was not created by Agent Kanban and may contain work in progress. \
+                            This worktree was not created by Bored and may contain work in progress. \
                             Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
                             (2) use 'git worktree prune' if the directory no longer exists.",
                             config.branch_name, worktree_location, worktree_location
@@ -568,7 +568,7 @@ pub fn create_worktree_with_existing_branch(
                             return Err(WorktreeError::GitError {
                                 message: format!(
                                     "Branch '{}' is already checked out in another worktree at {}. \
-                                    This worktree was not created by Agent Kanban and may contain work in progress. \
+                                    This worktree was not created by Bored and may contain work in progress. \
                                     Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
                                     (2) use 'git worktree prune' if the directory no longer exists.",
                                     branch_name, worktree_location, worktree_location

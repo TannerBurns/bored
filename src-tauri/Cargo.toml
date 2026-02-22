@@ -1,15 +1,15 @@
 [package]
-name = "agent-kanban"
+name = "bored"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "agent_kanban"
+name = "bored"
 path = "src/lib.rs"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [[bin]]
-name = "agent-kanban"
+name = "bored"
 path = "src/main.rs"
 
 [build-dependencies]

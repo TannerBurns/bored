@@ -14,23 +14,23 @@ pub fn get_default_spool_dir() -> PathBuf {
         .map(|h| {
             h.join("Library")
                 .join("Application Support")
-                .join("agent-kanban")
+                .join("bored")
         })
-        .unwrap_or_else(|| PathBuf::from("/tmp/agent-kanban"));
+        .unwrap_or_else(|| PathBuf::from("/tmp/bored"));
 
     // Use AppData\Roaming for consistency across the application
     #[cfg(target_os = "windows")]
     let base_dir = dirs::home_dir()
-        .map(|h| h.join("AppData").join("Roaming").join("agent-kanban"))
-        .unwrap_or_else(|| PathBuf::from("C:\\Temp\\agent-kanban"));
+        .map(|h| h.join("AppData").join("Roaming").join("bored"))
+        .unwrap_or_else(|| PathBuf::from("C:\\Temp\\bored"));
 
     #[cfg(target_os = "linux")]
     let base_dir = dirs::home_dir()
-        .map(|h| h.join(".local").join("share").join("agent-kanban"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/agent-kanban"));
+        .map(|h| h.join(".local").join("share").join("bored"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/bored"));
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    let base_dir = PathBuf::from("/tmp/agent-kanban");
+    let base_dir = PathBuf::from("/tmp/bored");
 
     base_dir.join("spool")
 }
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn test_get_default_spool_dir() {
         let spool_dir = get_default_spool_dir();
-        assert!(spool_dir.to_string_lossy().contains("agent-kanban"));
+        assert!(spool_dir.to_string_lossy().contains("bored"));
         assert!(spool_dir.to_string_lossy().contains("spool"));
     }
 

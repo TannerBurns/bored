@@ -20,7 +20,7 @@ use super::worktree;
 use crate::db::{Database, RunStatus, Ticket};
 
 // Submodules
-mod branching;
+pub(crate) mod branching;
 mod config;
 mod error_handling;
 mod heartbeat;

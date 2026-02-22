@@ -1,18 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-use agent_kanban::agents::claude::provider::ClaudeProvider;
-use agent_kanban::agents::codex::provider::CodexProvider;
-use agent_kanban::agents::cursor::provider::CursorProvider;
-use agent_kanban::agents::registry::AgentRegistry;
-use agent_kanban::agents::validation_agent::AppProcessManager;
-use agent_kanban::commands::AgentSettingsManager;
-use agent_kanban::commands::runs::RunningAgents;
-use agent_kanban::commands::workflow_settings::WorkflowSettingsState;
-use agent_kanban::commands::ApiConnState;
-use agent_kanban::{api, commands, db, logging, tray};
+use bored::agents::claude::provider::ClaudeProvider;
+use bored::agents::codex::provider::CodexProvider;
+use bored::agents::cursor::provider::CursorProvider;
+use bored::agents::registry::AgentRegistry;
+use bored::agents::validation_agent::AppProcessManager;
+use bored::commands::AgentSettingsManager;
+use bored::commands::runs::RunningAgents;
+use bored::commands::workflow_settings::WorkflowSettingsState;
+use bored::commands::ApiConnState;
+use bored::{api, commands, db, logging, tray};
 
 /// Check if a URL is allowed for navigation within the app
 fn is_allowed_url(url: &url::Url) -> bool {
@@ -39,6 +40,96 @@ fn is_allowed_url(url: &url::Url) -> bool {
     false
 }
 
+/// Migrate data from the old `com.agent-kanban.app` data directory to the new one.
+///
+/// Tauri derives app_data_dir from the `identifier` in tauri.conf.json.
+/// When we renamed the identifier from `com.agent-kanban.app` to `com.bored.app`,
+/// the app started looking in a new (empty) directory. This function copies the
+/// old database and config files so existing users don't lose their data.
+fn migrate_from_old_app_dir(new_data_dir: &Path) {
+    let old_data_dir = new_data_dir
+        .parent()
+        .expect("app data dir must have a parent")
+        .join("com.agent-kanban.app");
+
+    let old_db = old_data_dir.join("agent-kanban.db");
+    let new_db = new_data_dir.join("bored.db");
+
+    if !old_db.exists() {
+        return;
+    }
+
+    // Only migrate if the new database is missing or tiny (fresh schema, no real data).
+    let new_db_is_fresh = match std::fs::metadata(&new_db) {
+        Ok(m) => m.len() < 100_000, // a fresh schema-only DB is well under 100KB
+        Err(_) => true,
+    };
+    if !new_db_is_fresh {
+        return;
+    }
+
+    eprintln!(
+        "Migrating data from old app directory {:?} -> {:?}",
+        old_data_dir, new_data_dir
+    );
+
+    // Copy the database files (main, WAL, SHM)
+    let db_files = [
+        ("agent-kanban.db", "bored.db"),
+        ("agent-kanban.db-wal", "bored.db-wal"),
+        ("agent-kanban.db-shm", "bored.db-shm"),
+    ];
+    for (old_name, new_name) in &db_files {
+        let src = old_data_dir.join(old_name);
+        let dst = new_data_dir.join(new_name);
+        if src.exists() {
+            if let Err(e) = std::fs::copy(&src, &dst) {
+                eprintln!("Failed to copy {:?} -> {:?}: {}", src, dst, e);
+                return;
+            }
+        }
+    }
+
+    // Copy config/settings files (non-destructive: skip if destination already exists)
+    let config_files = [
+        "claude_api_settings.json",
+        "codex_api_settings.json",
+    ];
+    for name in &config_files {
+        let src = old_data_dir.join(name);
+        let dst = new_data_dir.join(name);
+        if src.exists() && !dst.exists() {
+            let _ = std::fs::copy(&src, &dst);
+        }
+    }
+
+    // Copy custom commands directory if present
+    let old_cmds = old_data_dir.join("custom-commands");
+    let new_cmds = new_data_dir.join("custom-commands");
+    if old_cmds.is_dir() && !new_cmds.exists() {
+        if let Err(e) = copy_dir_recursive(&old_cmds, &new_cmds) {
+            eprintln!("Failed to copy custom-commands: {}", e);
+        }
+    }
+
+    eprintln!("Migration from old app directory complete.");
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     // Fix PATH for bundled apps on macOS/Linux
     // When launched from Finder, apps get a minimal PATH that doesn't include
@@ -62,7 +153,7 @@ fn main() {
                 eprintln!("Failed to initialize logging: {}", e);
             }
 
-            tracing::info!("Agent Kanban starting up...");
+            tracing::info!("Bored starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
 
             // Create window first to show loading screen while initialization continues
@@ -97,7 +188,11 @@ fn main() {
             agent_registry.register(Arc::new(CursorProvider::new()));
             agent_registry.register(Arc::new(CodexProvider::new()));
 
-            let db_path = app_data_dir.join("agent-kanban.db");
+            // One-time migration: copy data from the old "com.agent-kanban.app" directory
+            // if it exists and the new database hasn't been populated yet.
+            migrate_from_old_app_dir(&app_data_dir);
+
+            let db_path = app_data_dir.join("bored.db");
             let database = match db::Database::open(db_path.clone()) {
                 Ok(db) => Arc::new(db),
                 Err(e) => {
@@ -191,9 +286,9 @@ fn main() {
             let api_url = format!("http://127.0.0.1:{}", api_config.port);
 
             // Make config available via environment for child processes
-            std::env::set_var("AGENT_KANBAN_API_TOKEN", &api_config.token);
-            std::env::set_var("AGENT_KANBAN_API_PORT", api_config.port.to_string());
-            std::env::set_var("AGENT_KANBAN_API_URL", &api_url);
+            std::env::set_var("BORED_API_TOKEN", &api_config.token);
+            std::env::set_var("BORED_API_PORT", api_config.port.to_string());
+            std::env::set_var("BORED_API_URL", &api_url);
 
             // Create shared event channel for SSE broadcasting
             let event_tx = api::create_event_channel();
@@ -236,7 +331,7 @@ fn main() {
                 tracing::error!("Failed to setup system tray: {}", e);
             }
 
-            tracing::info!("Agent Kanban initialized successfully");
+            tracing::info!("Bored initialized successfully");
 
             Ok(())
         })
