@@ -109,6 +109,7 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
 ];
 
 export interface AgentConfig {
+  autoPilotEnabled: boolean;
   workflowStages: WorkflowStages;
   stageOrder: string[];
   stageTimeoutHours: number;
@@ -173,6 +174,7 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
 }
 
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
+  autoPilotEnabled: false,
   workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -203,6 +205,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 };
 
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
+  autoPilotEnabled: false,
   workflowStages: mapStagesForCodex(DEFAULT_WORKFLOW_STAGES),
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,

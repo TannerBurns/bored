@@ -260,7 +260,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'agent-kanban-settings',
-      version: 14,
+      version: 15,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -355,6 +355,7 @@ export const useSettingsStore = create<SettingsState>()(
               ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
               : base.workflowStages;
             return {
+              autoPilotEnabled: false,
               workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
@@ -434,6 +435,17 @@ export const useSettingsStore = create<SettingsState>()(
           }));
         }
 
+        if (version < 15) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (cfg.autoPilotEnabled === undefined) {
+                cfg.autoPilotEnabled = false;
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -442,6 +454,7 @@ export const useSettingsStore = create<SettingsState>()(
 
 function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
+    autoPilotEnabled: boolean;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
     codeReviewMaxIterations: number;
     stageTimeoutHours: number;
@@ -451,6 +464,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
+      autoPilotEnabled: config.autoPilotEnabled ?? false,
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,

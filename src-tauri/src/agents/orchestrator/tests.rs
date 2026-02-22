@@ -3,7 +3,7 @@
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
     build_full_stage_order, expand_stage_key, is_reserved_stage_id, normalize_legacy_stage_name,
-    StageEvent, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
+    StageEvent, WorkflowMode, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
 };
 
 #[test]
@@ -641,4 +641,32 @@ fn normalized_legacy_resume_skips_core_stages() {
             core, core_idx, resume, resume_idx,
         );
     }
+}
+
+// -- WorkflowMode tests --
+
+#[test]
+fn workflow_mode_equality() {
+    assert_eq!(WorkflowMode::AutoPilot, WorkflowMode::AutoPilot);
+    assert_eq!(WorkflowMode::MultiStage, WorkflowMode::MultiStage);
+    assert_ne!(WorkflowMode::AutoPilot, WorkflowMode::MultiStage);
+}
+
+#[test]
+fn workflow_mode_copy() {
+    let mode = WorkflowMode::AutoPilot;
+    let copied = mode;
+    assert_eq!(mode, copied);
+}
+
+#[test]
+fn workflow_mode_debug_format() {
+    assert_eq!(format!("{:?}", WorkflowMode::AutoPilot), "AutoPilot");
+    assert_eq!(format!("{:?}", WorkflowMode::MultiStage), "MultiStage");
+}
+
+#[test]
+fn workflow_mode_reexported_from_mod() {
+    use super::WorkflowMode as ReexportedMode;
+    assert_eq!(ReexportedMode::AutoPilot, WorkflowMode::AutoPilot);
 }

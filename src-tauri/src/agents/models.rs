@@ -5,7 +5,7 @@ pub const DEFAULT_DIAGNOSTIC_MODEL: &str = "sonnet-4.6";
 
 /// Single source of truth for model-name mappings.
 /// Each entry: (friendly_name, cli_family_prefix, version).
-const MODEL_ENTRIES: &[(&str, &str, &str)] = &[
+pub const MODEL_ENTRIES: &[(&str, &str, &str)] = &[
     ("opus-4.6", "claude-opus", "4.6"),
     ("opus-4.5", "claude-opus", "4.5"),
     ("sonnet-4.6", "claude-sonnet", "4.6"),

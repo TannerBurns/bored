@@ -442,6 +442,7 @@ export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> 
 
 // Per-agent workflow settings sync
 export async function syncAgentConfigs(agentConfigs: Record<string, {
+  autoPilotEnabled: boolean;
   stageConfigs: Record<string, { enabled: boolean; model: string }>;
   codeReviewMaxIterations: number;
   stageTimeoutHours: number;

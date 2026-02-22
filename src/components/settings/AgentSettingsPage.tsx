@@ -242,9 +242,22 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
+        <ToggleRow
+          label="Auto-Pilot"
+          description="Let the agent decide which commands to run after implementation instead of using the static stage pipeline"
+          enabled={config.autoPilotEnabled}
+          onChange={(v) => updateConfig(agentId, { autoPilotEnabled: v })}
+        />
+      </div>
+
+      <div className={cn('glass rounded-lg p-3 space-y-3', config.autoPilotEnabled && 'opacity-50 pointer-events-none')}>
         <div>
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
-          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Drag command stages to reorder.</p>
+          <p className="text-xs text-board-text-muted mt-0.5">
+            {config.autoPilotEnabled
+              ? 'Stage configuration is managed by the agent in Auto-Pilot mode.'
+              : 'Toggle stages and choose models. Drag command stages to reorder.'}
+          </p>
         </div>
         <div className="space-y-1">
           <div className="grid grid-cols-[20px_40px_1fr_130px] gap-2 px-2 py-1">

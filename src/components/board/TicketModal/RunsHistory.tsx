@@ -4,6 +4,11 @@ import type { RunEvent } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
 
+function getWorkflowLabel(run: AgentRun): string {
+  const mode = (run.metadata as Record<string, unknown> | undefined)?.workflow_mode;
+  return mode === 'auto_pilot' ? 'Auto-Pilot' : 'Multi-Stage';
+}
+
 /** For multi-stage parent runs, sum sub-run costs so the badge matches
  *  the backend aggregate (which excludes the parent). */
 function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
@@ -175,7 +180,7 @@ function CurrentRunSection({
                   : <Icon size={14} className="text-board-text-secondary" />;
               })()}
               {getAgentDisplayName(currentRun.agentType)}
-              {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
+              {isMultiStage && <span className="text-board-accent ml-1">({getWorkflowLabel(currentRun)})</span>}
             </span>
             <span className="text-board-text-muted text-xs">
               {new Date(currentRun.startedAt).toLocaleString()}
@@ -275,7 +280,7 @@ function PreviousRunsSection({
                         : <Icon size={14} className="text-board-text-secondary" />;
                     })()}
                     {getAgentDisplayName(run.agentType)}
-                    {isMultiStage && <span className="text-board-accent ml-1">(Multi-Stage)</span>}
+                    {isMultiStage && <span className="text-board-accent ml-1">({getWorkflowLabel(run)})</span>}
                     {run.resumedFromRunId && <span className="text-blue-400 ml-1">(Resumed)</span>}
                   </span>
                   <span className="text-board-text-muted text-xs">

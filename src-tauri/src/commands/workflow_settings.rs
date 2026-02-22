@@ -21,6 +21,10 @@ use crate::commands::runs::StageConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowSettings {
+    /// Whether auto-pilot mode is enabled for this agent.
+    /// When true, the agent dynamically decides which commands to run after implementation.
+    #[serde(default)]
+    pub auto_pilot_enabled: bool,
     /// Per-stage configuration (enabled/disabled + model selection).
     /// Keys are stage names (e.g. "plan", "implement", "code-review", "deslop", etc.).
     pub stage_configs: HashMap<String, StageConfig>,
@@ -52,6 +56,7 @@ fn default_diagnostic_model() -> String {
 impl Default for WorkflowSettings {
     fn default() -> Self {
         Self {
+            auto_pilot_enabled: false,
             stage_configs: HashMap::new(),
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
@@ -503,5 +508,58 @@ mod tests {
         }"#;
         let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
         assert!(settings.stage_order.is_none());
+    }
+
+    #[test]
+    fn auto_pilot_enabled_defaults_to_false_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.auto_pilot_enabled);
+    }
+
+    #[test]
+    fn auto_pilot_enabled_deserializes_true() {
+        let json = r#"{
+            "autoPilotEnabled":true,
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_pilot_enabled);
+    }
+
+    #[test]
+    fn auto_pilot_enabled_serializes_camel_case() {
+        let settings = WorkflowSettings {
+            auto_pilot_enabled: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("autoPilotEnabled"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn auto_pilot_enabled_round_trips() {
+        let original = WorkflowSettings {
+            auto_pilot_enabled: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert!(restored.auto_pilot_enabled);
+    }
+
+    #[test]
+    fn workflow_settings_default_auto_pilot_disabled() {
+        let settings = WorkflowSettings::default();
+        assert!(!settings.auto_pilot_enabled);
     }
 }

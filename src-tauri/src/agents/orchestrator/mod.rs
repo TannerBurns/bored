@@ -1,13 +1,18 @@
-//! Multi-stage workflow orchestrator for chaining agent CLI calls.
+//! Workflow orchestrator for chaining agent CLI calls.
+//!
+//! Supports two modes:
+//! - **Multi-stage**: static pipeline configured by the user in settings
+//! - **Auto-pilot**: agent dynamically decides which commands to run after implementation
 //!
 //! This module is split into focused submodules:
-//! - `config`: Configuration types and constants
+//! - `config`: Configuration types, constants, and `WorkflowMode` enum
+//! - `auto_pilot`: Command-selection prompt and response parsing for auto-pilot mode
 //! - `code_review`: Code review parsing functions
 //! - `comments`: Comment management methods
 //! - `ticket`: Ticket movement and lifecycle
 //! - `stages`: Stage execution and retry logic
 //! - `branch`: Branch creation and management
-//! - `execute`: Main workflow execution
+//! - `execute`: Main workflow execution and mode dispatch
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +27,7 @@ use crate::db::models::Task;
 use crate::db::{Database, Ticket};
 
 // Submodules
+mod auto_pilot;
 mod branch;
 mod code_review;
 mod comments;
@@ -34,12 +40,12 @@ mod ticket;
 
 // Public re-exports
 pub use code_review::{extract_issues_section, parse_code_review_issues};
-pub use config::{OrchestratorConfig, StageEvent, MULTI_STAGE_WORKFLOW};
+pub use config::{OrchestratorConfig, StageEvent, WorkflowMode, MULTI_STAGE_WORKFLOW};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
 
-/// Orchestrates a multi-stage workflow for a ticket
+/// Orchestrates a workflow for a ticket (either static multi-stage or agent-driven auto-pilot).
 pub struct WorkflowOrchestrator {
     db: Arc<Database>,
     window: Option<Window>,
@@ -85,6 +91,8 @@ pub struct WorkflowOrchestrator {
     stage_order: Vec<String>,
     /// Full execution order (backend stage names), built once from `stage_order` for resume logic.
     full_execution_order: Vec<String>,
+    /// Whether this workflow runs in multi-stage or auto-pilot mode.
+    workflow_mode: config::WorkflowMode,
 }
 
 impl WorkflowOrchestrator {
@@ -146,7 +154,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -157,6 +165,7 @@ impl WorkflowOrchestrator {
                     ws.stage_timeout_hours as u64 * 3600,
                     ws.stage_max_retries,
                     order,
+                    ws.auto_pilot_enabled,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -166,8 +175,15 @@ impl WorkflowOrchestrator {
                     config.stage_timeout_secs,
                     config.stage_max_retries,
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
+                    false,
                 )
             };
+
+        let workflow_mode = if auto_pilot_enabled {
+            config::WorkflowMode::AutoPilot
+        } else {
+            config::WorkflowMode::MultiStage
+        };
 
         drop(per_agent);
 
@@ -185,6 +201,24 @@ impl WorkflowOrchestrator {
                 None => s,
             }
         });
+
+        tracing::info!(
+            "WorkflowOrchestrator mode: {:?} for agent '{}'",
+            workflow_mode, config.agent_id,
+        );
+
+        // Store workflow mode in parent run metadata so the frontend can display
+        // "(Auto-Pilot)" vs "(Multi-Stage)".
+        let mode_str = match workflow_mode {
+            config::WorkflowMode::AutoPilot => "auto_pilot",
+            config::WorkflowMode::MultiStage => "multi_stage",
+        };
+        if let Err(e) = config.db.set_run_metadata(
+            &config.parent_run_id,
+            &serde_json::json!({ "workflow_mode": mode_str }),
+        ) {
+            tracing::warn!("Failed to set workflow_mode metadata on parent run: {}", e);
+        }
 
         Self {
             db: config.db,
@@ -212,6 +246,7 @@ impl WorkflowOrchestrator {
             stage_configs,
             stage_order,
             full_execution_order,
+            workflow_mode,
         }
     }
 

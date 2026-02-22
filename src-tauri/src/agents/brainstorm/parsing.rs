@@ -17,7 +17,7 @@ pub fn parse_response(response: &str) -> Result<BrainstormResponse, BrainstormEr
 /// Try to parse the response as our structured JSON format.
 /// Returns None if no structured JSON was found, Some(result) if parsed.
 fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse, BrainstormError>> {
-    let json_str = extract_json_block(response)?;
+    let json_str = crate::agents::json_extraction::extract_json_object(response)?;
     let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
     let is_complete = parsed.get("spec_complete")?.as_bool()?;
     
@@ -107,45 +107,6 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
     }
     
     String::new()
-}
-
-/// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
-fn extract_json_block(response: &str) -> Option<String> {
-    // Strategy 1: code-fenced JSON (```json ... ```)
-    if let Some(fence_start) = response.find("```json") {
-        let content_start = fence_start + 7;
-        if let Some(fence_end) = response[content_start..].find("```") {
-            let json_str = response[content_start..content_start + fence_end].trim();
-            if !json_str.is_empty() {
-                return Some(json_str.to_string());
-            }
-        }
-    }
-    
-    // Strategy 2: raw JSON containing "spec_complete" key.
-    // Find the key first, then walk backwards to the opening brace.
-    // This handles both compact `{"spec_complete":...}` and pretty-printed
-    // `{\n  "spec_complete":...}` forms that agents often produce without code fences.
-    if let Some(key_pos) = response.find("\"spec_complete\"") {
-        if let Some(brace_offset) = response[..key_pos].rfind('{') {
-            let json_start = brace_offset;
-            let mut depth = 0;
-            for (i, c) in response[json_start..].char_indices() {
-                match c {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return Some(response[json_start..json_start + i + 1].to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    
-    None
 }
 
 /// Legacy parsing: handles old-style markdown with ## Observations / ## Questions headers

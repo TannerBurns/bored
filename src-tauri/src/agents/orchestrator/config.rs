@@ -11,6 +11,15 @@ use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::PerAgentSettings;
 use crate::db::Database;
 
+/// Whether the orchestrator runs in static multi-stage mode or agent-driven auto-pilot mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowMode {
+    /// Static pipeline: stages are configured by the user in settings.
+    MultiStage,
+    /// Agent-driven: the agent decides which commands to run after implementation.
+    AutoPilot,
+}
+
 /// Configuration for creating a WorkflowOrchestrator
 pub struct OrchestratorConfig {
     pub db: Arc<Database>,

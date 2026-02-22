@@ -5,6 +5,7 @@ pub mod codex;
 pub mod command_templates;
 pub mod cost;
 pub mod cursor;
+pub mod json_extraction;
 pub mod log_utils;
 pub mod models;
 pub mod provider;

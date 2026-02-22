@@ -1,5 +1,7 @@
 //! Parsing utilities for plan validation responses.
 
+use crate::agents::json_extraction;
+
 use super::config::{PlanValidationError, PlanValidationResult};
 
 /// Parse the validation agent's response to extract the structured result.
@@ -9,35 +11,31 @@ use super::config::{PlanValidationError, PlanValidationResult};
 pub fn parse_validation_response(
     output: &str,
 ) -> Result<PlanValidationResult, PlanValidationError> {
-    let text_content = output.to_string();
-    let trimmed = text_content.trim();
+    let trimmed = output.trim();
 
-    if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            let json_str = &trimmed[start..=end];
+    if let Some(json_str) = json_extraction::extract_json_object(trimmed) {
+        if let Ok(result) = serde_json::from_str::<PlanValidationResult>(&json_str) {
+            return Ok(result);
+        }
 
-            if let Ok(result) = serde_json::from_str::<PlanValidationResult>(json_str) {
-                return Ok(result);
-            }
+        // Fallback: handle camelCase / snake_case field name variations
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            let needs_clarification = value
+                .get("needs_clarification")
+                .or_else(|| value.get("needsClarification"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
 
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                let needs_clarification = value
-                    .get("needs_clarification")
-                    .or_else(|| value.get("needsClarification"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+            let reason = value
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("No reason provided")
+                .to_string();
 
-                let reason = value
-                    .get("reason")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("No reason provided")
-                    .to_string();
-
-                return Ok(PlanValidationResult {
-                    needs_clarification,
-                    reason,
-                });
-            }
+            return Ok(PlanValidationResult {
+                needs_clarification,
+                reason,
+            });
         }
     }
 

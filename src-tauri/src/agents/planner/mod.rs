@@ -33,7 +33,7 @@ mod prompts;
 pub use config::{PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult};
 pub use dependencies::{calculate_execution_phases, topological_sort_epics};
 pub use markdown::generate_plan_markdown;
-pub use parsing::{extract_json_code_block, parse_project_plan};
+pub use parsing::parse_project_plan;
 pub use prompts::{format_plan_overview, generate_exploration_prompt, generate_planning_prompt};
 
 /// The planner agent
