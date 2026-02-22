@@ -36,6 +36,15 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         args.push(model.clone());
     }
 
+    let effort = api_config
+        .reasoning_effort
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "high".to_string());
+    args.push("--config".to_string());
+    args.push(format!("model_reasoning_effort=\"{}\"", effort));
+
     args.push(config.prompt.clone());
     (command, args)
 }
@@ -178,5 +187,40 @@ mod tests {
         let (_, args) = build_command_from_provider_config(&config);
         assert!(args.contains(&"--oss".to_string()));
         assert!(!args.contains(&"--local-provider".to_string()));
+    }
+
+    #[test]
+    fn build_command_default_reasoning_effort() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--config".to_string()));
+        assert!(args.contains(&r#"model_reasoning_effort="high""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_custom_reasoning_effort() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="xhigh""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_empty_reasoning_effort_falls_back_to_high() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!(""));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="high""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_reasoning_effort_before_prompt() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("low"));
+        let (_, args) = build_command_from_provider_config(&config);
+        let config_idx = args.iter().position(|a| a == "--config").unwrap();
+        let effort_idx = args.iter().position(|a| a == r#"model_reasoning_effort="low""#).unwrap();
+        assert_eq!(effort_idx, config_idx + 1);
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
     }
 }

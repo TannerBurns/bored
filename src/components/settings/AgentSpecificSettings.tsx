@@ -182,6 +182,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
 
   const ossEnabled = (settings.ossEnabled as boolean) ?? false;
   const localProvider = (settings.localProvider as string) ?? 'ollama';
+  const reasoningEffort = (settings.reasoningEffort as string) ?? 'high';
 
   const [modelOverride, setModelOverride] = useState('');
   const [apiLoaded, setApiLoaded] = useState(false);
@@ -201,6 +202,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         ...(oss !== undefined && { ossEnabled: oss }),
         localProvider: str('local_provider', 'localProvider') || 'ollama',
         modelOverride: str('model_override', 'modelOverride'),
+        reasoningEffort: str('reasoning_effort', 'reasoningEffort') || 'high',
       };
       setModelOverride(loaded.modelOverride);
       useSettingsStore.getState().setAgentSettings(agentId, loaded);
@@ -216,6 +218,39 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
   }, [agentId, setAgentSetting]);
 
   return (
+    <>
+    <div className="glass rounded-lg p-3 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
+        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
+      </div>
+      <div className="glass-subtle rounded-lg px-3 py-2 space-y-1.5">
+        <label className="block text-sm font-medium text-board-text">Reasoning Effort</label>
+        <p className="text-xs text-board-text-muted">Controls how much effort the model spends reasoning before responding.</p>
+        <div className="flex gap-1.5">
+          {[
+            { value: 'low', label: 'Low' },
+            { value: 'medium', label: 'Medium' },
+            { value: 'high', label: 'High' },
+            { value: 'xhigh', label: 'xHigh' },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => updateSetting('reasoningEffort', opt.value)}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200',
+                reasoningEffort === opt.value
+                  ? 'glass-intense ring-1 ring-board-accent text-board-accent'
+                  : 'glass text-board-text-muted hover:text-board-text hover:glass-intense'
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
     <div className="glass rounded-lg p-3 space-y-3">
       <div>
         <h3 className="text-sm font-medium text-board-text">Local Models (OSS)</h3>
@@ -268,6 +303,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         <p className="text-xs text-board-text-muted">Loading settings...</p>
       )}
     </div>
+    </>
   );
 }
 

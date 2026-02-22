@@ -15,6 +15,7 @@ pub struct CodexApiConfig {
     pub oss_enabled: Option<bool>,
     pub local_provider: Option<String>,
     pub model_override: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 impl CodexApiConfig {
@@ -32,6 +33,7 @@ impl CodexApiConfig {
             oss_enabled: Self::get_bool(map, "oss_enabled", "ossEnabled"),
             local_provider: Self::get_str(map, "local_provider", "localProvider"),
             model_override: Self::get_str(map, "model_override", "modelOverride"),
+            reasoning_effort: Self::get_str(map, "reasoning_effort", "reasoningEffort"),
         }
     }
 }
