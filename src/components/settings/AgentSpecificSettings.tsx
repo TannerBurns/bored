@@ -204,7 +204,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         localProvider: str('local_provider', 'localProvider') || 'ollama',
         modelOverride: str('model_override', 'modelOverride'),
         reasoningEffort: str('reasoning_effort', 'reasoningEffort') || 'high',
-        ...(bool('multi_agent_enabled', 'multiAgentEnabled') !== undefined && { multiAgentEnabled: bool('multi_agent_enabled', 'multiAgentEnabled') }),
+        multiAgentEnabled: bool('multi_agent_enabled', 'multiAgentEnabled') ?? true,
       };
       setModelOverride(loaded.modelOverride);
       useSettingsStore.getState().setAgentSettings(agentId, loaded);
