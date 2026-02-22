@@ -1,5 +1,61 @@
 [
   {
+    "version": "0.1.0-beta.25",
+    "published_at": "2026-02-22",
+    "summary": "Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration options",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Auto-pilot workflow mode — the agent dynamically decides which commands to run after implementation instead of following a static multi-stage pipeline; toggle per agent in settings",
+          "Extensible command-based task system — preset task types replaced with a command-driven model backed by the catalog, including custom commands",
+          "Codex reasoning effort setting — configurable Low/Medium/High/xHigh selector controlling how much reasoning the model performs",
+          "Codex multi-agent toggle — enable or disable the multi-agent CLI flag from settings",
+          "Dynamic command discovery for auto-pilot — scans project and bundled command directories at runtime for contextual selection",
+          "Doc-sync command template added to the built-in catalog"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Shared JSON extraction module consolidating duplicated parsing across brainstorm, planner, plan-validation, and auto-pilot",
+          "Run history shows \"(Auto-Pilot)\" vs \"(Multi-Stage)\" label based on workflow mode",
+          "Stage configuration UI dims when auto-pilot is active",
+          "Intent-aware command selection prompt with example workflows for different task types",
+          "Frontend task dropdown now sources from the command catalog instead of a hardcoded endpoint"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed brainstorm parsing when spec_complete JSON isn't the first object in an unfenced response",
+          "Fixed naive bracket extraction spanning across unrelated JSON objects — now uses depth-counting brace matching",
+          "Fixed multi-byte UTF-8 character handling in JSON extraction",
+          "Fixed auto-pilot resume losing saved implementation output",
+          "Fixed multi-agent toggle not actually disabling when turned off"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.24",
+        "highlight": "System tray integration with recent tickets and native OS notifications"
+      },
+      {
+        "version": "0.1.0-beta.23",
+        "highlight": "Catalog-driven command architecture with custom workflow commands per agent"
+      },
+      {
+        "version": "0.1.0-beta.22",
+        "highlight": "Drag-and-drop per-agent workflow stage ordering with preset management"
+      },
+      {
+        "version": "0.1.0-beta.21",
+        "highlight": "Local provider support (Ollama / LM Studio) for Codex and Claude Code"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.24",
     "published_at": "2026-02-21",
     "summary": "System tray integration and native OS notifications for background ticket monitoring",
