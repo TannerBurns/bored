@@ -96,39 +96,29 @@ pub fn create_task(
     Ok(task)
 }
 
-/// Add a preset task to a ticket
+/// Add a command-based task to a ticket (built-in or custom catalog command)
 #[tauri::command]
-pub fn add_preset_task(
+pub fn add_command_task(
     db: State<'_, Arc<Database>>,
     ticket_id: String,
-    preset_type: String,
+    command_id: String,
+    display_name: Option<String>,
 ) -> Result<Task, String> {
-    let task_type = match preset_type.as_str() {
-        "sync_with_main" => TaskType::SyncWithMain,
-        "add_tests" => TaskType::AddTests,
-        "review_polish" => TaskType::ReviewPolish,
-        "fix_lint" => TaskType::FixLint,
-        _ => return Err(format!("Unknown preset type: {}", preset_type)),
-    };
-
-    // Use the display name as the title
-    let title = task_type.display_name().to_string();
+    let task_type = TaskType::Command(command_id);
+    let title = display_name.unwrap_or_else(|| task_type.display_name());
 
     let task = db
         .create_task(&CreateTask {
             ticket_id: ticket_id.clone(),
             task_type,
             title: Some(title),
-            content: None, // Preset tasks use their template content
+            content: None,
         })
         .map_err(|e| e.to_string())?;
 
-    // Move ticket back to Ready if it was in Done/Review
-    // This is a best-effort operation - if it fails, we still return success
-    // since the primary operation (task creation) succeeded
     if let Err(e) = move_to_ready_if_completed(&db, &ticket_id) {
         tracing::warn!(
-            "Failed to move ticket {} back to Ready after adding preset task {}: {}",
+            "Failed to move ticket {} back to Ready after adding command task {}: {}",
             ticket_id,
             task.id,
             e
@@ -213,37 +203,3 @@ pub fn reset_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<Task,
     Ok(task)
 }
 
-/// Get all available preset task types
-#[tauri::command]
-pub fn get_preset_types() -> Vec<PresetTaskInfo> {
-    vec![
-        PresetTaskInfo {
-            type_name: "sync_with_main".to_string(),
-            display_name: "Sync with Main".to_string(),
-            description: "Merge the latest changes from main branch".to_string(),
-        },
-        PresetTaskInfo {
-            type_name: "add_tests".to_string(),
-            display_name: "Add Tests".to_string(),
-            description: "Add test coverage for recent changes".to_string(),
-        },
-        PresetTaskInfo {
-            type_name: "review_polish".to_string(),
-            display_name: "Review & Polish".to_string(),
-            description: "Review code quality and apply best practices".to_string(),
-        },
-        PresetTaskInfo {
-            type_name: "fix_lint".to_string(),
-            display_name: "Fix Lint Errors".to_string(),
-            description: "Fix all linting and type checking errors".to_string(),
-        },
-    ]
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PresetTaskInfo {
-    pub type_name: String,
-    pub display_name: String,
-    pub description: String,
-}

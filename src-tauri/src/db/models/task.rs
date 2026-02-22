@@ -8,46 +8,61 @@ pub enum TaskType {
     /// User-defined instructions (from description or manual entry)
     #[default]
     Custom,
-    /// Merge main branch, resolve conflicts
-    SyncWithMain,
-    /// Add test coverage for recent changes
-    AddTests,
-    /// Review code, fix issues, polish
-    ReviewPolish,
-    /// Fix all lint/type errors
-    FixLint,
+    /// A catalog command (built-in or custom) identified by its ID
+    #[serde(untagged)]
+    Command(String),
 }
 
 impl TaskType {
-    pub fn as_str(&self) -> &'static str {
+    pub fn to_db_string(&self) -> String {
         match self {
-            TaskType::Custom => "custom",
-            TaskType::SyncWithMain => "sync_with_main",
-            TaskType::AddTests => "add_tests",
-            TaskType::ReviewPolish => "review_polish",
-            TaskType::FixLint => "fix_lint",
+            TaskType::Custom => "custom".to_string(),
+            TaskType::Command(id) => format!("command:{}", id),
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "custom" => Some(TaskType::Custom),
-            "sync_with_main" => Some(TaskType::SyncWithMain),
-            "add_tests" => Some(TaskType::AddTests),
-            "review_polish" => Some(TaskType::ReviewPolish),
-            "fix_lint" => Some(TaskType::FixLint),
+            // Legacy preset values -> Command with hyphenated IDs
+            "sync_with_main" => Some(TaskType::Command("sync-with-main".to_string())),
+            "add_tests" => Some(TaskType::Command("add-tests".to_string())),
+            "review_polish" => Some(TaskType::Command("review-polish".to_string())),
+            "fix_lint" => Some(TaskType::Command("fix-lint".to_string())),
+            s if s.starts_with("command:") => {
+                let id = s.strip_prefix("command:").unwrap();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(TaskType::Command(id.to_string()))
+                }
+            }
             _ => None,
         }
     }
 
     /// Get a human-readable display name for the task type
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            TaskType::Custom => "Custom Task",
-            TaskType::SyncWithMain => "Sync with Main",
-            TaskType::AddTests => "Add Tests",
-            TaskType::ReviewPolish => "Review & Polish",
-            TaskType::FixLint => "Fix Lint Errors",
+            TaskType::Custom => "Custom Task".to_string(),
+            TaskType::Command(id) => id
+                .split('-')
+                .map(|w| {
+                    let mut c = w.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
+    }
+
+    pub fn command_id(&self) -> Option<&str> {
+        match self {
+            TaskType::Command(id) => Some(id),
+            _ => None,
         }
     }
 }
@@ -137,37 +152,81 @@ mod tests {
         use super::*;
 
         #[test]
-        fn as_str_returns_snake_case() {
-            assert_eq!(TaskType::Custom.as_str(), "custom");
-            assert_eq!(TaskType::SyncWithMain.as_str(), "sync_with_main");
-            assert_eq!(TaskType::AddTests.as_str(), "add_tests");
-            assert_eq!(TaskType::ReviewPolish.as_str(), "review_polish");
-            assert_eq!(TaskType::FixLint.as_str(), "fix_lint");
+        fn to_db_string_custom() {
+            assert_eq!(TaskType::Custom.to_db_string(), "custom");
         }
 
         #[test]
-        fn parse_valid_values() {
+        fn to_db_string_command() {
+            assert_eq!(
+                TaskType::Command("fix-lint".to_string()).to_db_string(),
+                "command:fix-lint"
+            );
+            assert_eq!(
+                TaskType::Command("my-custom-cmd".to_string()).to_db_string(),
+                "command:my-custom-cmd"
+            );
+        }
+
+        #[test]
+        fn parse_custom() {
             assert_eq!(TaskType::parse("custom"), Some(TaskType::Custom));
-            assert_eq!(TaskType::parse("sync_with_main"), Some(TaskType::SyncWithMain));
-            assert_eq!(TaskType::parse("add_tests"), Some(TaskType::AddTests));
-            assert_eq!(TaskType::parse("review_polish"), Some(TaskType::ReviewPolish));
-            assert_eq!(TaskType::parse("fix_lint"), Some(TaskType::FixLint));
+        }
+
+        #[test]
+        fn parse_command_prefix() {
+            assert_eq!(
+                TaskType::parse("command:code-review"),
+                Some(TaskType::Command("code-review".to_string()))
+            );
+        }
+
+        #[test]
+        fn parse_legacy_preset_values() {
+            assert_eq!(
+                TaskType::parse("sync_with_main"),
+                Some(TaskType::Command("sync-with-main".to_string()))
+            );
+            assert_eq!(
+                TaskType::parse("add_tests"),
+                Some(TaskType::Command("add-tests".to_string()))
+            );
+            assert_eq!(
+                TaskType::parse("review_polish"),
+                Some(TaskType::Command("review-polish".to_string()))
+            );
+            assert_eq!(
+                TaskType::parse("fix_lint"),
+                Some(TaskType::Command("fix-lint".to_string()))
+            );
         }
 
         #[test]
         fn parse_invalid_returns_none() {
             assert_eq!(TaskType::parse(""), None);
-            assert_eq!(TaskType::parse("invalid"), None);
+            assert_eq!(TaskType::parse("command:"), None);
             assert_eq!(TaskType::parse("CUSTOM"), None);
         }
 
         #[test]
-        fn display_name_returns_human_readable() {
+        fn display_name_custom() {
             assert_eq!(TaskType::Custom.display_name(), "Custom Task");
-            assert_eq!(TaskType::SyncWithMain.display_name(), "Sync with Main");
-            assert_eq!(TaskType::AddTests.display_name(), "Add Tests");
-            assert_eq!(TaskType::ReviewPolish.display_name(), "Review & Polish");
-            assert_eq!(TaskType::FixLint.display_name(), "Fix Lint Errors");
+        }
+
+        #[test]
+        fn display_name_command() {
+            assert_eq!(
+                TaskType::Command("fix-lint".to_string()).display_name(),
+                "Fix Lint"
+            );
+            assert_eq!(
+                TaskType::Command("code-review".to_string()).display_name(),
+                "Code Review"
+            );
+            assert_eq!(
+                TaskType::Command("sync-with-main".to_string()).display_name(),
+                "Sync With Main"
+            );
         }
 
         #[test]
@@ -176,16 +235,26 @@ mod tests {
         }
 
         #[test]
-        fn roundtrip_as_str_parse() {
-            for t in [
-                TaskType::Custom,
-                TaskType::SyncWithMain,
-                TaskType::AddTests,
-                TaskType::ReviewPolish,
-                TaskType::FixLint,
-            ] {
-                assert_eq!(TaskType::parse(t.as_str()), Some(t));
+        fn roundtrip_custom() {
+            let t = TaskType::Custom;
+            assert_eq!(TaskType::parse(&t.to_db_string()), Some(t));
+        }
+
+        #[test]
+        fn roundtrip_command() {
+            for id in ["fix-lint", "code-review", "my-custom-cmd"] {
+                let t = TaskType::Command(id.to_string());
+                assert_eq!(TaskType::parse(&t.to_db_string()), Some(t));
             }
+        }
+
+        #[test]
+        fn command_id_returns_id() {
+            assert_eq!(
+                TaskType::Command("fix-lint".to_string()).command_id(),
+                Some("fix-lint")
+            );
+            assert_eq!(TaskType::Custom.command_id(), None);
         }
     }
 

@@ -37,7 +37,7 @@ pub use specs::{
     resume_spec_work, set_spec_plan, set_spec_status, start_planner, start_spec_work, update_spec,
 };
 pub use tasks::{
-    add_preset_task, create_task, delete_task, get_next_pending_task, get_preset_types, get_task,
+    add_command_task, create_task, delete_task, get_next_pending_task, get_task,
     get_task_counts, get_tasks, has_pending_tasks, reset_task, update_task,
 };
 pub use tickets::*;

@@ -105,9 +105,9 @@ impl WorkflowOrchestrator {
         }
 
         let plan_prompt = if let Some(ref task) = self.task {
-            if task.task_type != TaskType::Custom {
+            if matches!(task.task_type, TaskType::Command(_)) {
                 tracing::info!(
-                    "Skipping plan stage for preset task type: {:?}",
+                    "Skipping plan stage for command task type: {:?}",
                     task.task_type
                 );
                 String::new()
@@ -226,7 +226,7 @@ impl WorkflowOrchestrator {
         }
 
         let implement_prompt = if let Some(ref task) = self.task {
-            if task.task_type != TaskType::Custom {
+            if matches!(task.task_type, TaskType::Command(_)) {
                 generate_task_prompt(task, &self.ticket, &self.repo_path, &[self.provider.as_ref()])
             } else {
                 generate_task_implement_prompt(task, &self.ticket, plan)

@@ -205,14 +205,13 @@ export interface WorkerQueueStatus {
 
 // Task Queue System types
 
-export type TaskType = 'custom' | 'sync_with_main' | 'add_tests' | 'review_polish' | 'fix_lint';
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export interface Task {
   id: string;
   ticketId: string;
   orderIndex: number;
-  taskType: TaskType;
+  taskType: string;
   title?: string;
   content?: string;
   status: TaskStatus;
@@ -229,10 +228,23 @@ export interface TaskCounts {
   failed: number;
 }
 
-export interface PresetTaskInfo {
-  typeName: string;
-  displayName: string;
-  description: string;
+/** Extract the command ID from a task type string (e.g. "command:fix-lint" -> "fix-lint") */
+export function getCommandId(taskType: string): string | null {
+  if (taskType.startsWith('command:')) {
+    return taskType.slice('command:'.length);
+  }
+  return null;
+}
+
+/** Get a display label for a task type.
+ *  Handles both DB format ("command:fix-lint") and serde/IPC format ("fix-lint"). */
+export function getTaskTypeLabel(taskType: string): string {
+  if (taskType === 'custom') return 'Custom';
+  const id = getCommandId(taskType) ?? taskType;
+  return id
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 // Epic types

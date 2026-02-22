@@ -13,12 +13,9 @@ pub fn generate_task_prompt(
     repo_path: &Path,
     providers: &[&dyn AgentProvider],
 ) -> String {
-    match task.task_type {
+    match &task.task_type {
         TaskType::Custom => generate_custom_task_prompt(task, ticket),
-        TaskType::SyncWithMain => generate_preset_task_prompt("sync-with-main", repo_path, providers),
-        TaskType::AddTests => generate_preset_task_prompt("add-tests", repo_path, providers),
-        TaskType::ReviewPolish => generate_preset_task_prompt("review-polish", repo_path, providers),
-        TaskType::FixLint => generate_preset_task_prompt("fix-lint", repo_path, providers),
+        TaskType::Command(id) => generate_command_task_prompt(id, repo_path, providers),
     }
 }
 
@@ -80,36 +77,35 @@ Focus on completing this specific task. Additional QA stages will follow.
     prompt
 }
 
-/// Generate a prompt for a preset task type by reading the command file.
+/// Generate a prompt for a command-based task by reading the command file.
 ///
 /// Searches provider-specific repo-level directories first (e.g.
-/// `<repo>/.cursor/rules/<preset>.md`), then bundled command files,
+/// `<repo>/.cursor/rules/<command>.md`), then bundled command files,
 /// then falls back to hardcoded prompts.
-fn generate_preset_task_prompt(
-    preset_name: &str,
+fn generate_command_task_prompt(
+    command_id: &str,
     repo_path: &Path,
     providers: &[&dyn AgentProvider],
 ) -> String {
     let locations =
-        super::workflow::build_command_search_paths(preset_name, repo_path, providers);
+        super::workflow::build_command_search_paths(command_id, repo_path, providers);
 
     for path in &locations {
         if let Ok(content) = std::fs::read_to_string(path) {
             return format!(
-                "# Preset Task: {}\n\n{}\n\nExecute these instructions carefully. When complete, report what was done.\n",
-                preset_name,
+                "# Command Task: {}\n\n{}\n\nExecute these instructions carefully. When complete, report what was done.\n",
+                command_id,
                 content
             );
         }
     }
 
-    // Fallback prompts if no command file found
-    get_fallback_preset_prompt(preset_name)
+    get_fallback_command_prompt(command_id)
 }
 
-/// Get a fallback prompt for a preset if the command file is not found
-fn get_fallback_preset_prompt(preset_name: &str) -> String {
-    match preset_name {
+/// Get a fallback prompt for a command task when no `.md` file is found
+fn get_fallback_command_prompt(command_id: &str) -> String {
+    match command_id {
         "sync-with-main" => r#"# Sync with Main
 
 Merge the latest changes from the main branch into this feature branch.
@@ -173,7 +169,7 @@ Fix all linting and type checking errors.
 
 Execute the {} task. Follow any project conventions for this task type.
 "#,
-            preset_name, preset_name
+            command_id, command_id
         ),
     }
 }
@@ -337,9 +333,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_task_prompt_preset_type_returns_fallback() {
+    fn generate_task_prompt_command_type_returns_fallback() {
         let ticket = create_test_ticket();
-        let mut task = create_test_task(TaskType::SyncWithMain);
+        let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
         let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
 
@@ -367,28 +363,28 @@ mod tests {
     }
 
     #[test]
-    fn get_fallback_preset_prompt_add_tests() {
-        let prompt = get_fallback_preset_prompt("add-tests");
+    fn get_fallback_command_prompt_add_tests() {
+        let prompt = get_fallback_command_prompt("add-tests");
         assert!(prompt.contains("Add Tests"));
         assert!(prompt.contains("test coverage"));
     }
 
     #[test]
-    fn get_fallback_preset_prompt_review_polish() {
-        let prompt = get_fallback_preset_prompt("review-polish");
+    fn get_fallback_command_prompt_review_polish() {
+        let prompt = get_fallback_command_prompt("review-polish");
         assert!(prompt.contains("Review and Polish"));
     }
 
     #[test]
-    fn get_fallback_preset_prompt_fix_lint() {
-        let prompt = get_fallback_preset_prompt("fix-lint");
+    fn get_fallback_command_prompt_fix_lint() {
+        let prompt = get_fallback_command_prompt("fix-lint");
         assert!(prompt.contains("Fix Lint"));
         assert!(prompt.contains("linter"));
     }
 
     #[test]
-    fn get_fallback_preset_prompt_unknown_returns_generic() {
-        let prompt = get_fallback_preset_prompt("unknown-task");
+    fn get_fallback_command_prompt_unknown_returns_generic() {
+        let prompt = get_fallback_command_prompt("unknown-task");
         assert!(prompt.contains("unknown-task"));
     }
 
@@ -453,7 +449,7 @@ mod tests {
         std::fs::write(cmd_dir.join("sync-with-main.md"), "# Custom sync instructions\nDo the custom sync.").unwrap();
 
         let ticket = create_test_ticket();
-        let mut task = create_test_task(TaskType::SyncWithMain);
+        let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
         let provider = TestProvider;
         let providers: &[&dyn AgentProvider] = &[&provider];
@@ -468,13 +464,22 @@ mod tests {
     }
 
     #[test]
-    fn generate_preset_prompt_falls_back_without_provider_file() {
-        // With empty providers, should use bundled/fallback prompt
+    fn generate_command_prompt_falls_back_without_provider_file() {
         let ticket = create_test_ticket();
-        let mut task = create_test_task(TaskType::FixLint);
+        let mut task = create_test_task(TaskType::Command("fix-lint".to_string()));
         task.content = None;
         let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
 
         assert!(prompt.contains("Fix Lint") || prompt.contains("fix-lint"));
+    }
+
+    #[test]
+    fn generate_command_prompt_unknown_command_uses_generic_fallback() {
+        let ticket = create_test_ticket();
+        let mut task = create_test_task(TaskType::Command("my-custom-cmd".to_string()));
+        task.content = None;
+        let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
+
+        assert!(prompt.contains("my-custom-cmd"));
     }
 }

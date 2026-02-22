@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { cn } from '../../lib/utils';
+import { getTaskTypeLabel } from '../../types';
 import type { Task } from '../../types';
 
 interface FullscreenTaskModalProps {
@@ -10,14 +11,6 @@ interface FullscreenTaskModalProps {
   onSave: (title: string, content: string) => Promise<void>;
   onReset?: () => Promise<void>;
 }
-
-const TASK_TYPE_LABELS: Record<Task['taskType'], string> = {
-  custom: 'Custom Task',
-  sync_with_main: 'Sync with Main',
-  add_tests: 'Add Tests',
-  review_polish: 'Review & Polish',
-  fix_lint: 'Fix Lint',
-};
 
 const STATUS_LABELS: Record<Task['status'], string> = {
   pending: 'Pending',
@@ -157,7 +150,7 @@ export function FullscreenTaskModal({
               Task #{task.orderIndex + 1}
             </h2>
             <span className="text-sm text-board-text-muted truncate max-w-md">
-              — {TASK_TYPE_LABELS[task.taskType]}
+              — {getTaskTypeLabel(task.taskType)}
             </span>
             <span
               className={cn(
@@ -263,7 +256,7 @@ export function FullscreenTaskModal({
               {/* Title display */}
               <div>
                 <h3 className="text-xl font-semibold text-board-text">
-                  {task.title || TASK_TYPE_LABELS[task.taskType]}
+                  {task.title || getTaskTypeLabel(task.taskType)}
                 </h3>
               </div>
               {/* Content display */}
@@ -272,7 +265,7 @@ export function FullscreenTaskModal({
                   <MarkdownViewer content={task.content} />
                 ) : task.taskType !== 'custom' ? (
                   <p className="text-board-text-muted italic">
-                    This is a preset task. The agent will use built-in instructions for "{TASK_TYPE_LABELS[task.taskType]}".
+                    This is a command task. The agent will use built-in instructions for "{getTaskTypeLabel(task.taskType)}".
                   </p>
                 ) : (
                   <p className="text-board-text-muted italic">
