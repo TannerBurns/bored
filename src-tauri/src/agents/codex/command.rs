@@ -45,10 +45,9 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     args.push("--config".to_string());
     args.push(format!("model_reasoning_effort=\"{}\"", effort));
 
-    if api_config.multi_agent_enabled.unwrap_or(true) {
-        args.push("--config".to_string());
-        args.push("features.multi_agent=true".to_string());
-    }
+    let multi_agent = api_config.multi_agent_enabled.unwrap_or(true);
+    args.push("--config".to_string());
+    args.push(format!("features.multi_agent={}", multi_agent));
 
     args.push(config.prompt.clone());
     (command, args)
@@ -262,6 +261,7 @@ mod tests {
         let mut config = create_test_config();
         config.agent_config.insert("multiAgentEnabled".into(), serde_json::json!(false));
         let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"features.multi_agent=false".to_string()));
         assert!(!args.contains(&"features.multi_agent=true".to_string()));
     }
 
