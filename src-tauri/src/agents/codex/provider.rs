@@ -16,6 +16,7 @@ pub struct CodexApiConfig {
     pub local_provider: Option<String>,
     pub model_override: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub multi_agent_enabled: Option<bool>,
 }
 
 impl CodexApiConfig {
@@ -34,6 +35,7 @@ impl CodexApiConfig {
             local_provider: Self::get_str(map, "local_provider", "localProvider"),
             model_override: Self::get_str(map, "model_override", "modelOverride"),
             reasoning_effort: Self::get_str(map, "reasoning_effort", "reasoningEffort"),
+            multi_agent_enabled: Self::get_bool(map, "multi_agent_enabled", "multiAgentEnabled"),
         }
     }
 }
@@ -300,5 +302,28 @@ mod tests {
         map.insert("reasoningEffort".into(), serde_json::json!(42));
         let config = CodexApiConfig::from_agent_config(&map);
         assert_eq!(config.reasoning_effort, None);
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_camel_case() {
+        let mut map = HashMap::new();
+        map.insert("multiAgentEnabled".into(), serde_json::json!(true));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, Some(true));
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_snake_case() {
+        let mut map = HashMap::new();
+        map.insert("multi_agent_enabled".into(), serde_json::json!(false));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, Some(false));
+    }
+
+    #[test]
+    fn from_agent_config_multi_agent_enabled_missing() {
+        let map = HashMap::new();
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.multi_agent_enabled, None);
     }
 }

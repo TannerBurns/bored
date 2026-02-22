@@ -183,6 +183,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
   const ossEnabled = (settings.ossEnabled as boolean) ?? false;
   const localProvider = (settings.localProvider as string) ?? 'ollama';
   const reasoningEffort = (settings.reasoningEffort as string) ?? 'high';
+  const multiAgentEnabled = (settings.multiAgentEnabled as boolean) ?? true;
 
   const [modelOverride, setModelOverride] = useState('');
   const [apiLoaded, setApiLoaded] = useState(false);
@@ -203,6 +204,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
         localProvider: str('local_provider', 'localProvider') || 'ollama',
         modelOverride: str('model_override', 'modelOverride'),
         reasoningEffort: str('reasoning_effort', 'reasoningEffort') || 'high',
+        ...(bool('multi_agent_enabled', 'multiAgentEnabled') !== undefined && { multiAgentEnabled: bool('multi_agent_enabled', 'multiAgentEnabled') }),
       };
       setModelOverride(loaded.modelOverride);
       useSettingsStore.getState().setAgentSettings(agentId, loaded);
@@ -249,6 +251,12 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
             ))}
           </div>
         </div>
+        <ToggleRow
+          label="Multi Agents"
+          description="Allow multiple agents to collaborate on tasks."
+          enabled={multiAgentEnabled}
+          onChange={(v) => updateSetting('multiAgentEnabled', v)}
+        />
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
