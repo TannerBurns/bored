@@ -214,6 +214,27 @@ mod tests {
     }
 
     #[test]
+    fn build_command_reasoning_effort_snake_case_key() {
+        let mut config = create_test_config();
+        config.agent_config.insert("reasoning_effort".into(), serde_json::json!("medium"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&r#"model_reasoning_effort="medium""#.to_string()));
+    }
+
+    #[test]
+    fn build_command_reasoning_effort_with_oss() {
+        let mut config = create_test_config();
+        config.agent_config.insert("ossEnabled".into(), serde_json::json!(true));
+        config.agent_config.insert("localProvider".into(), serde_json::json!("ollama"));
+        config.agent_config.insert("reasoningEffort".into(), serde_json::json!("low"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(args.contains(&"--oss".to_string()));
+        assert!(args.contains(&"--config".to_string()));
+        assert!(args.contains(&r#"model_reasoning_effort="low""#.to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
     fn build_command_reasoning_effort_before_prompt() {
         let mut config = create_test_config();
         config.agent_config.insert("reasoningEffort".into(), serde_json::json!("low"));

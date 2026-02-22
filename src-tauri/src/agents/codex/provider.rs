@@ -256,3 +256,49 @@ fn extract_cost_from_codex_json(output: &str, model: &str) -> Option<RunCostData
         is_estimated: false,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn from_agent_config_reasoning_effort_camel_case() {
+        let mut map = HashMap::new();
+        map.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("xhigh".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_snake_case() {
+        let mut map = HashMap::new();
+        map.insert("reasoning_effort".into(), serde_json::json!("low"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("low".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_snake_case_takes_precedence() {
+        let mut map = HashMap::new();
+        map.insert("reasoning_effort".into(), serde_json::json!("low"));
+        map.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, Some("low".to_string()));
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_missing() {
+        let map = HashMap::new();
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, None);
+    }
+
+    #[test]
+    fn from_agent_config_reasoning_effort_non_string_ignored() {
+        let mut map = HashMap::new();
+        map.insert("reasoningEffort".into(), serde_json::json!(42));
+        let config = CodexApiConfig::from_agent_config(&map);
+        assert_eq!(config.reasoning_effort, None);
+    }
+}
