@@ -23,8 +23,6 @@ pub struct PlannerConfig {
     /// Agent provider for agent-agnostic dispatch.
     pub provider: Arc<dyn AgentProvider>,
     pub repo_path: PathBuf,
-    pub api_url: String,
-    pub api_token: String,
     /// Agent-specific configuration map (auth tokens, API keys, etc.)
     pub agent_config: HashMap<String, serde_json::Value>,
     /// Timeout per exploration/planning call in seconds (default: 300 = 5 min)

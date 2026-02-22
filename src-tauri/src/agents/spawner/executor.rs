@@ -37,8 +37,7 @@ pub fn run_agent_via_provider_with_cancel(
 
     let (command, args) = provider.build_command(config);
 
-    let mut env_vars = build_base_env_vars(config);
-    env_vars.extend(provider.build_env_vars(config));
+    let env_vars = provider.build_env_vars(config);
 
     run_agent_inner(
         command,
@@ -50,19 +49,6 @@ pub fn run_agent_via_provider_with_cancel(
         on_log,
         on_spawn,
     )
-}
-
-fn build_base_env_vars(config: &AgentRunConfig) -> Vec<(String, String)> {
-    vec![
-        ("BORED_TICKET_ID".to_string(), config.ticket_id.clone()),
-        ("BORED_RUN_ID".to_string(), config.run_id.clone()),
-        ("BORED_API_URL".to_string(), config.api_url.clone()),
-        ("BORED_API_TOKEN".to_string(), config.api_token.clone()),
-        (
-            "BORED_REPO_PATH".to_string(),
-            config.repo_path.to_string_lossy().to_string(),
-        ),
-    ]
 }
 
 // ── Shared execution core ───────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 use super::{parse_datetime, Database, DbError};
 use crate::db::models::{
-    CreateValidationMessage, CreateValidationSession, UpdateValidationSession, ValidationMessage,
+    CreateValidationMessage, CreateValidationSession, ValidationMessage,
     ValidationMessageRole, ValidationSession, ValidationSessionStatus,
 };
 use rusqlite::params;
@@ -108,47 +108,6 @@ impl Database {
         })
     }
 
-    pub fn update_validation_session(
-        &self,
-        id: &str,
-        input: &UpdateValidationSession,
-    ) -> Result<ValidationSession, DbError> {
-        // First, perform the update
-        self.with_conn(|conn| {
-            let now_str = chrono::Utc::now().to_rfc3339();
-            let mut updates = vec!["updated_at = ?1".to_string()];
-            let mut param_index = 2u32;
-
-            // Build dynamic update query
-            let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> =
-                vec![Box::new(now_str.clone())];
-
-            if let Some(ref status) = input.status {
-                updates.push(format!("status = ?{}", param_index));
-                params_vec.push(Box::new(status.as_str().to_string()));
-                param_index += 1;
-            }
-
-            let id_param_idx = param_index;
-            params_vec.push(Box::new(id.to_string()));
-
-            let sql = format!(
-                "UPDATE validation_sessions SET {} WHERE id = ?{}",
-                updates.join(", "),
-                id_param_idx
-            );
-
-            let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-                params_vec.iter().map(|p| p.as_ref()).collect();
-            conn.execute(&sql, params_refs.as_slice())?;
-
-            Ok(())
-        })?;
-
-        // Then fetch the updated session
-        self.get_validation_session(id)
-    }
-
     pub fn update_validation_session_status(
         &self,
         id: &str,
@@ -237,16 +196,6 @@ impl Database {
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(messages)
-        })
-    }
-
-    pub fn delete_validation_messages(&self, session_id: &str) -> Result<usize, DbError> {
-        self.with_conn(|conn| {
-            let deleted = conn.execute(
-                "DELETE FROM validation_messages WHERE session_id = ?1",
-                [session_id],
-            )?;
-            Ok(deleted)
         })
     }
 }

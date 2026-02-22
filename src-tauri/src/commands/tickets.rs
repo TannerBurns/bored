@@ -456,20 +456,3 @@ pub async fn resume_ticket(
     Ok(stage)
 }
 
-/// Check if a ticket is currently paused
-#[tauri::command]
-pub async fn is_ticket_paused(
-    ticket_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<bool, String> {
-    db.is_ticket_paused(&ticket_id).map_err(|e| e.to_string())
-}
-
-/// Get all paused tickets for a spec
-#[tauri::command]
-pub async fn get_paused_tickets(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Vec<Ticket>, String> {
-    db.get_paused_tickets(&spec_id).map_err(|e| e.to_string())
-}

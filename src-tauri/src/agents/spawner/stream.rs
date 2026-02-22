@@ -5,11 +5,6 @@ use std::sync::Arc;
 
 use super::super::{LogCallback, LogLine, LogStream};
 
-#[allow(dead_code)]
-pub fn read_stream<R: std::io::Read>(reader: R, stream: LogStream, on_log: Option<Arc<LogCallback>>) {
-    let _ = read_stream_with_capture(reader, stream, on_log, false);
-}
-
 pub fn read_stream_with_capture<R: std::io::Read>(
     reader: R,
     stream: LogStream,

@@ -6,7 +6,6 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::agents::command_templates::discover_commands;
-use crate::agents::validation::{validate_worker_environment, ValidationResult};
 use crate::agents::worker::{WorkerConfig, WorkerManager, WorkerStatus};
 use crate::agents::AgentRegistry;
 use crate::commands::agent_settings::AgentSettingsManager;
@@ -106,15 +105,6 @@ pub async fn start_worker(
         .get(&agent_id)
         .ok_or_else(|| format!("Unknown agent type: {}", agent_id))?;
 
-    let api_url = std::env::var("BORED_API_URL").unwrap_or_else(|_| {
-        format!(
-            "http://127.0.0.1:{}",
-            std::env::var("BORED_API_PORT").unwrap_or_else(|_| "7432".to_string())
-        )
-    });
-    let api_token =
-        std::env::var("BORED_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
-
     let agent_config = agent_settings.agent_config_for(&agent_id);
 
     let workflow_settings = Some(workflow_settings_state.shared());
@@ -123,8 +113,6 @@ pub async fn start_worker(
         agent_id,
         provider,
         project_id,
-        api_url,
-        api_token,
         poll_interval_secs: 10,
         heartbeat_interval_secs: 60,
         lock_duration_mins: 30,
@@ -209,23 +197,6 @@ pub async fn get_worker_queue_status(
         in_progress_count,
         worker_count: WORKER_MANAGER.worker_count(),
     })
-}
-
-#[tauri::command]
-pub async fn validate_worker(
-    agent_type: String,
-    repo_path: String,
-    registry: State<'_, AgentRegistry>,
-) -> Result<ValidationResult, String> {
-    let provider = registry
-        .get(&agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
-
-    let api_url = std::env::var("BORED_API_URL").ok();
-    let result =
-        validate_worker_environment(&*provider, &PathBuf::from(&repo_path), api_url.as_deref());
-
-    Ok(result)
 }
 
 #[tauri::command]

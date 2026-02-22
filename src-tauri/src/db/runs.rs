@@ -237,21 +237,6 @@ impl Database {
         })
     }
 
-    /// Get all sub-runs for a parent run
-    pub fn get_sub_runs(&self, parent_run_id: &str) -> Result<Vec<AgentRun>, DbError> {
-        self.with_conn(|conn| {
-            let sql = format!(
-                "SELECT {} FROM agent_runs WHERE parent_run_id = ? ORDER BY started_at ASC",
-                AGENT_RUN_COLUMNS
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let runs = stmt
-                .query_map([parent_run_id], agent_run_from_row)?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(runs)
-        })
-    }
-
     /// Get the current stage of a parent run by finding the latest running or finished sub-run.
     /// Returns the stage name if found, or None if no sub-runs exist.
     pub fn get_current_run_stage(&self, parent_run_id: &str) -> Result<Option<String>, DbError> {

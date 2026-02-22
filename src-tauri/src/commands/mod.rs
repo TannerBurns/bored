@@ -26,19 +26,19 @@ pub use conversations::{
 };
 pub use projects::*;
 pub use runs::{
-    backfill_run_costs, cancel_agent_run, get_agent_run, get_agent_runs, get_board_cost_summary,
-    get_recent_runs, get_recent_runs_with_context, get_run_cost, get_run_events,
+    backfill_run_costs, cancel_agent_run, get_agent_run, get_agent_runs,
+    get_recent_runs_with_context, get_run_events,
     get_ticket_cost, start_agent_run,
 };
 pub use specs::{
-    append_spec_exploration, approve_plan, create_spec, delete_spec, execute_plan, get_spec,
-    get_spec_cost, get_spec_eta, get_spec_progress, get_spec_tickets, get_spec_version_cost,
-    get_specs, get_version_progress, halt_spec_work, pause_spec_work, reset_plan_execution,
+    append_spec_exploration, approve_plan, create_spec, delete_spec, execute_plan,
+    get_spec_cost, get_spec_eta, get_spec_tickets,
+    get_version_progress, halt_spec_work, pause_spec_work, reset_plan_execution,
     resume_spec_work, set_spec_plan, set_spec_status, start_planner, start_spec_work, update_spec,
 };
 pub use tasks::{
-    add_command_task, create_task, delete_task, get_next_pending_task, get_task,
-    get_task_counts, get_tasks, has_pending_tasks, reset_task, update_task,
+    add_command_task, create_task, delete_task,
+    get_task_counts, get_tasks, reset_task, update_task,
 };
 pub use tickets::*;
 pub use workers::{
@@ -46,8 +46,10 @@ pub use workers::{
     get_available_commands, get_commands_path, get_worker_queue_status, get_workers,
     install_commands_to_project, install_commands_to_user,
     install_catalog_commands_to_all_projects, read_command_content, save_custom_command,
-    start_worker, stop_all_workers, stop_worker, validate_worker,
+    start_worker, stop_all_workers, stop_worker,
 };
+
+use tauri::State;
 
 /// API connection state shared across Tauri commands via managed state.
 /// Bundled as a struct because Tauri keys managed state by type —
@@ -55,6 +57,7 @@ pub use workers::{
 #[derive(Debug, Clone)]
 pub struct ApiConnState {
     pub url: String,
+    pub port: u16,
     pub token: String,
 }
 
@@ -124,14 +127,10 @@ pub fn set_notifications_enabled(
 
 /// Get the current API configuration (port, URL, token)
 #[tauri::command]
-pub fn get_api_config() -> Result<ApiConfigResponse, String> {
-    let port_str = std::env::var("BORED_API_PORT").unwrap_or_else(|_| "7432".to_string());
-    let port: u16 = port_str.parse().unwrap_or(7432);
-
-    let url = std::env::var("BORED_API_URL")
-        .unwrap_or_else(|_| format!("http://127.0.0.1:{}", port));
-
-    let token = std::env::var("BORED_API_TOKEN").unwrap_or_default();
-
-    Ok(ApiConfigResponse { url, port, token })
+pub fn get_api_config(api_conn: State<'_, ApiConnState>) -> Result<ApiConfigResponse, String> {
+    Ok(ApiConfigResponse {
+        url: api_conn.url.clone(),
+        port: api_conn.port,
+        token: api_conn.token.clone(),
+    })
 }

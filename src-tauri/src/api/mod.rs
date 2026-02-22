@@ -4,7 +4,6 @@ pub mod error;
 pub mod events;
 pub mod handlers;
 pub mod routes;
-pub mod spool;
 pub mod state;
 pub mod types;
 
@@ -16,7 +15,6 @@ use tokio::sync::{broadcast, oneshot};
 pub use auth::generate_token;
 pub use cleanup::{start_cleanup_service, CleanupConfig};
 pub use error::{ApiError, ApiResult, AppError};
-pub use spool::{get_default_spool_dir, start_spool_processor};
 pub use state::{AppState, LiveEvent};
 
 /// Create a new event broadcaster channel
@@ -47,12 +45,6 @@ impl Default for ApiConfig {
 pub struct ServerHandle {
     pub addr: SocketAddr,
     pub shutdown_tx: oneshot::Sender<()>,
-}
-
-impl ServerHandle {
-    pub fn shutdown(self) {
-        let _ = self.shutdown_tx.send(());
-    }
 }
 
 /// Start the API server

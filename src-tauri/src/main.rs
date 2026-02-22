@@ -282,20 +282,14 @@ fn main() {
             std::fs::write(&port_path, api_config.port.to_string())
                 .expect("Failed to write API port");
 
-            // Create shared API URL and token for Tauri commands
             let api_url = format!("http://127.0.0.1:{}", api_config.port);
-
-            // Make config available via environment for child processes
-            std::env::set_var("BORED_API_TOKEN", &api_config.token);
-            std::env::set_var("BORED_API_PORT", api_config.port.to_string());
-            std::env::set_var("BORED_API_URL", &api_url);
 
             // Create shared event channel for SSE broadcasting
             let event_tx = api::create_event_channel();
 
             // Manage shared state for commands that need API/event access
             app.manage(event_tx.clone());
-            app.manage(ApiConnState { url: api_url, token: api_token });
+            app.manage(ApiConnState { url: api_url, port: api_config.port, token: api_token });
 
             // Start API server with shared event channel
             let db_for_api = database.clone();
@@ -318,13 +312,6 @@ fn main() {
                         tracing::error!("Failed to start API server: {}", e);
                     }
                 }
-            });
-
-            // Start spool processor for handling offline events
-            let db_for_spool = database.clone();
-            let spool_dir = api::get_default_spool_dir();
-            tauri::async_runtime::spawn(async move {
-                api::start_spool_processor(db_for_spool, spool_dir).await;
             });
 
             if let Err(e) = tray::setup_tray(app) {
@@ -360,15 +347,12 @@ fn main() {
             commands::reorder_epic_children,
             commands::runs::start_agent_run,
             commands::runs::get_agent_runs,
-            commands::runs::get_recent_runs,
             commands::runs::get_recent_runs_with_context,
             commands::runs::get_agent_run,
             commands::runs::cancel_agent_run,
             commands::runs::cleanup_stale_runs,
             commands::runs::get_run_events,
-            commands::runs::get_run_cost,
             commands::runs::get_ticket_cost,
-            commands::runs::get_board_cost_summary,
             commands::runs::backfill_run_costs,
             commands::get_projects,
             commands::get_project,
@@ -389,9 +373,7 @@ fn main() {
             commands::agent_settings::get_agent_settings,
             commands::agent_settings::set_agent_settings,
             // Workflow settings sync
-            commands::workflow_settings::sync_workflow_settings,
             commands::workflow_settings::sync_agent_configs,
-            commands::workflow_settings::get_workflow_settings,
             // Worker management
             commands::workers::start_worker,
             commands::workers::stop_worker,
@@ -399,7 +381,6 @@ fn main() {
             commands::workers::get_workers,
             commands::workers::get_worker_queue_status,
             // Worker validation and commands
-            commands::workers::validate_worker,
             commands::workers::get_commands_path,
             commands::workers::get_available_commands,
             commands::workers::install_commands_to_project,
@@ -417,20 +398,14 @@ fn main() {
             commands::get_available_agents,
             // Task queue management
             commands::tasks::get_tasks,
-            commands::tasks::get_task,
             commands::tasks::create_task,
             commands::tasks::add_command_task,
             commands::tasks::delete_task,
-            commands::tasks::get_next_pending_task,
-            commands::tasks::has_pending_tasks,
             commands::tasks::get_task_counts,
             commands::tasks::update_task,
             commands::tasks::reset_task,
             // Spec / Planner commands
             commands::specs::create_spec,
-            commands::specs::get_specs,
-            commands::specs::get_all_specs,
-            commands::specs::get_spec,
             commands::specs::update_spec,
             commands::specs::delete_spec,
             commands::specs::delete_spec_with_tickets,
@@ -442,18 +417,15 @@ fn main() {
             commands::specs::start_planner,
             commands::specs::execute_plan,
             commands::specs::start_spec_work,
-            commands::specs::get_spec_progress,
             commands::specs::pause_spec_work,
             commands::specs::resume_spec_work,
             commands::specs::halt_spec_work,
             commands::specs::reset_plan_execution,
             commands::specs::get_spec_eta,
             commands::specs::get_spec_cost,
-            commands::specs::get_spec_version_cost,
             commands::specs::get_version_progress,
             // Spec version commands
             commands::specs::get_spec_versions,
-            commands::specs::get_latest_spec_version,
             commands::specs::get_spec_with_version,
             commands::specs::get_specs_with_versions,
             commands::specs::get_all_specs_with_versions,
@@ -465,8 +437,6 @@ fn main() {
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,
-            commands::tickets::is_ticket_paused,
-            commands::tickets::get_paused_tickets,
             // Release notes
             commands::release_notes::get_release_notes,
             commands::release_notes::get_all_release_notes,
@@ -474,7 +444,6 @@ fn main() {
             commands::validation::create_validation_session,
             commands::validation::get_validation_session,
             commands::validation::get_validation_sessions,
-            commands::validation::update_validation_session_status,
             commands::validation::delete_validation_session,
             commands::validation::get_validation_messages,
             commands::validation::send_validation_message,

@@ -184,16 +184,6 @@ pub async fn start_agent_run(
         lock_expires_at
     );
 
-    // Get API credentials early - needed for orchestration
-    let api_url = std::env::var("BORED_API_URL").unwrap_or_else(|_| {
-        format!(
-            "http://127.0.0.1:{}",
-            std::env::var("BORED_API_PORT").unwrap_or_else(|_| "7432".to_string())
-        )
-    });
-    let api_token =
-        std::env::var("BORED_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
-
     // Create git worktree for isolated execution (same approach as worker path)
     let (worktree_info, branch_name) = setup_worktree_and_branch(WorktreeBranchSetup {
         ticket: &ticket,
@@ -247,8 +237,6 @@ pub async fn start_agent_run(
         branch_name,
         agent_id,
         provider,
-        api_url,
-        api_token,
         cancel_handles: running_agents_handles,
         agent_config,
         workflow_settings: shared_workflow_settings,

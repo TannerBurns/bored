@@ -26,8 +26,6 @@ pub struct RunnerConfig {
     pub agent_id: String,
     /// Agent provider for agent-agnostic dispatch.
     pub provider: Arc<dyn AgentProvider>,
-    pub api_url: String,
-    pub api_token: String,
     pub cancel_handles: CancelHandlesMap,
     pub worktree_branch: Option<String>,
     /// Whether the branch was already created (e.g., via worktree creation).

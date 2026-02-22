@@ -86,8 +86,6 @@ pub struct WorkflowOrchestrator {
     agent_id: String,
     /// Agent provider for agent-agnostic dispatch (text extraction, cost).
     provider: Arc<dyn AgentProvider>,
-    api_url: String,
-    api_token: String,
     /// Shared map of cancel handles for running agents
     cancel_handles: CancelHandlesMap,
     /// Flag to indicate if the workflow has been cancelled
@@ -258,8 +256,6 @@ impl WorkflowOrchestrator {
             repo_path: config.repo_path,
             agent_id: config.agent_id,
             provider: config.provider,
-            api_url: config.api_url,
-            api_token: config.api_token,
             cancel_handles: config.cancel_handles,
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,

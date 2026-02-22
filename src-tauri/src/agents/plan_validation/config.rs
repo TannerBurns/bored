@@ -35,8 +35,6 @@ pub struct PlanValidationConfig {
     pub parent_run_id: String,
     pub ticket_id: String,
     pub repo_path: PathBuf,
-    pub api_url: String,
-    pub api_token: String,
     pub model: Option<String>,
     /// Agent ID string (e.g. "cursor", "claude").
     pub agent_id: String,

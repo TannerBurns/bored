@@ -58,12 +58,6 @@ pub fn get_tasks(db: State<'_, Arc<Database>>, ticket_id: String) -> Result<Vec<
         .map_err(|e| e.to_string())
 }
 
-/// Get a specific task by ID
-#[tauri::command]
-pub fn get_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<Task, String> {
-    db.get_task(&task_id).map_err(|e| e.to_string())
-}
-
 /// Create a new custom task for a ticket
 #[tauri::command]
 pub fn create_task(
@@ -131,22 +125,6 @@ pub fn add_command_task(
 #[tauri::command]
 pub fn delete_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<(), String> {
     db.delete_task(&task_id).map_err(|e| e.to_string())
-}
-
-/// Get the next pending task for a ticket
-#[tauri::command]
-pub fn get_next_pending_task(
-    db: State<'_, Arc<Database>>,
-    ticket_id: String,
-) -> Result<Option<Task>, String> {
-    db.get_next_pending_task(&ticket_id)
-        .map_err(|e| e.to_string())
-}
-
-/// Check if a ticket has any pending tasks
-#[tauri::command]
-pub fn has_pending_tasks(db: State<'_, Arc<Database>>, ticket_id: String) -> Result<bool, String> {
-    db.has_pending_tasks(&ticket_id).map_err(|e| e.to_string())
 }
 
 /// Get task counts by status for a ticket

@@ -32,17 +32,6 @@ impl AgentSettingsManager {
             .unwrap_or_default()
     }
 
-    pub fn set_agent_config(&self, agent_id: &str, config: HashMap<String, serde_json::Value>) {
-        let mut guard = self.agents.lock().expect("agent settings mutex poisoned");
-        let entry = guard.entry(agent_id.to_string()).or_insert_with(|| {
-            AgentSettingsEntry {
-                config: HashMap::new(),
-                persistence_path: None,
-            }
-        });
-        entry.config = config;
-    }
-
     pub fn set_agent_config_and_persist(
         &self,
         agent_id: &str,

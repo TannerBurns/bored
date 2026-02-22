@@ -27,16 +27,6 @@ pub async fn get_agent_runs(
     db.get_runs(&ticket_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn get_recent_runs(
-    limit: Option<u32>,
-    db: State<'_, Arc<Database>>,
-) -> Result<Vec<AgentRun>, String> {
-    let limit = limit.unwrap_or(50);
-    tracing::debug!("Getting recent {} agent runs", limit);
-    db.get_recent_runs(limit).map_err(|e| e.to_string())
-}
-
 /// Get recent runs with full context (board, project, ticket info).
 /// This is the preferred method for the runs list view as it eliminates
 /// client-side lookups and works across all boards.

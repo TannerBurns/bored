@@ -134,8 +134,6 @@ fn make_config(
         repo_path: PathBuf::from("/tmp/test"),
         agent_id: "stub".to_string(),
         provider: Arc::new(StubProvider),
-        api_url: "https://api.test".to_string(),
-        api_token: "test-token".to_string(),
         cancel_handles: Arc::new(Mutex::new(HashMap::new())),
         worktree_branch: Some("test-branch".to_string()),
         branch_already_created: true,

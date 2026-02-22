@@ -117,26 +117,6 @@ pub async fn get_validation_sessions(
 }
 
 #[tauri::command]
-pub async fn update_validation_session_status(
-    session_id: String,
-    status: String,
-    db: State<'_, Arc<Database>>,
-    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-) -> Result<(), String> {
-    let status = ValidationSessionStatus::parse(&status)
-        .ok_or_else(|| format!("Invalid validation status: {}", status))?;
-
-    db.update_validation_session_status(&session_id, &status)
-        .map_err(|e| e.to_string())?;
-
-    let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
-        session_id,
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn delete_validation_session(
     session_id: String,
     db: State<'_, Arc<Database>>,
@@ -238,7 +218,7 @@ pub async fn send_validation_message(
     request: SendValidationMessageRequest,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_conn: State<'_, ApiConnState>,
+    _api_conn: State<'_, ApiConnState>,
     agent_settings: State<'_, AgentSettingsManager>,
     app_process_manager: State<'_, AppProcessManager>,
     registry: State<'_, AgentRegistry>,
@@ -304,8 +284,6 @@ pub async fn send_validation_message(
     let config = crate::agents::validation_agent::ValidationAgentConfig {
         session_id: session_id.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
-        api_url: api_conn.url.clone(),
-        api_token: api_conn.token.clone(),
         model: model.clone(),
         agent_config,
         agent_id,
@@ -482,7 +460,11 @@ pub async fn send_validation_message(
                 role: "system".to_string(),
             });
 
-            if was_running {
+            let is_app_running_status = db.get_validation_session(&session_id)
+                .map(|s| s.status == ValidationSessionStatus::AppRunning)
+                .unwrap_or(false);
+
+            if was_running || is_app_running_status {
                 let _ = db.update_validation_session_status(&session_id, &ValidationSessionStatus::Chatting);
                 let _ = event_tx.send(LiveEvent::ValidationSessionUpdated {
                     session_id: session_id.clone(),

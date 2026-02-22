@@ -143,8 +143,6 @@ impl WorkflowOrchestrator {
             repo_path: self.repo_path.clone(),
             prompt: prompt.to_string(),
             timeout_secs: Some(self.stage_timeout_secs),
-            api_url: self.api_url.clone(),
-            api_token: self.api_token.clone(),
             model: Some(stage_model.clone()),
             agent_config: self.agent_config.clone(),
         };

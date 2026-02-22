@@ -19,8 +19,6 @@ pub struct AgentRunConfig {
     pub repo_path: PathBuf,
     pub prompt: String,
     pub timeout_secs: Option<u64>,
-    pub api_url: String,
-    pub api_token: String,
     pub model: Option<String>,
     /// Opaque agent-specific configuration.
     /// Each provider knows its own keys (e.g. Claude uses "auth_token", "api_key", etc.).
@@ -43,10 +41,7 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     /// Build the CLI command and argument list for a run.
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>);
 
-    /// Build agent-specific environment variables.
-    ///
-    /// Base environment variables (BORED_*) are added by the spawner;
-    /// this method only needs to return additional, agent-specific variables.
+    /// Build agent-specific environment variables for the spawned process.
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)>;
 
     // ── Output parsing ──────────────────────────────────────────────

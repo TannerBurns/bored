@@ -45,38 +45,6 @@ impl ClaudeApiConfig {
         }
     }
 
-    /// Convert this config into a generic agent_config map.
-    pub fn to_agent_config(&self) -> std::collections::HashMap<String, serde_json::Value> {
-        let mut map = std::collections::HashMap::new();
-        if let Some(v) = self.use_local_provider {
-            map.insert("use_local_provider".to_string(), serde_json::json!(v));
-        }
-        if let Some(ref v) = self.auth_token {
-            map.insert("auth_token".to_string(), serde_json::json!(v));
-        }
-        if let Some(ref v) = self.api_key {
-            map.insert("api_key".to_string(), serde_json::json!(v));
-        }
-        if let Some(ref v) = self.base_url {
-            map.insert("base_url".to_string(), serde_json::json!(v));
-        }
-        if let Some(ref v) = self.model_override {
-            map.insert("model_override".to_string(), serde_json::json!(v));
-        }
-        if let Some(v) = self.thinking_enabled {
-            map.insert("thinking_enabled".to_string(), serde_json::json!(v));
-        }
-        if let Some(v) = self.extended_context_enabled {
-            map.insert(
-                "extended_context_enabled".to_string(),
-                serde_json::json!(v),
-            );
-        }
-        if let Some(v) = self.chrome_enabled {
-            map.insert("chrome_enabled".to_string(), serde_json::json!(v));
-        }
-        map
-    }
 }
 
 #[derive(Debug)]

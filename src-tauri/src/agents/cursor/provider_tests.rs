@@ -13,8 +13,6 @@ fn make_config() -> AgentRunConfig {
         repo_path: PathBuf::from("/tmp/test"),
         prompt: "Test".to_string(),
         timeout_secs: None,
-        api_url: "http://localhost:7432".to_string(),
-        api_token: "tok".to_string(),
         model: None,
         agent_config: HashMap::new(),
     }

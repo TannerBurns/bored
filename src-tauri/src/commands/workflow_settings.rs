@@ -148,25 +148,6 @@ impl Default for WorkflowSettingsState {
     }
 }
 
-/// Tauri command: frontend calls this whenever workflow settings change.
-/// Accepts settings for a single agent (legacy) — applies to all agents.
-#[tauri::command]
-pub async fn sync_workflow_settings(
-    mut settings: WorkflowSettings,
-    state: State<'_, WorkflowSettingsState>,
-) -> Result<(), String> {
-    tracing::debug!(
-        "Syncing workflow settings from frontend: {} stage configs, code_review_max_iterations={}, stage_timeout_hours={}, stage_max_retries={}",
-        settings.stage_configs.len(),
-        settings.code_review_max_iterations,
-        settings.stage_timeout_hours,
-        settings.stage_max_retries,
-    );
-    settings.synced = true;
-    state.set(settings);
-    Ok(())
-}
-
 /// Tauri command: frontend syncs per-agent workflow settings.
 #[tauri::command]
 pub async fn sync_agent_configs(
@@ -184,14 +165,6 @@ pub async fn sync_agent_configs(
     }
     state.set_all(marked);
     Ok(())
-}
-
-/// Tauri command: frontend can read current backend settings (useful for debugging).
-#[tauri::command]
-pub async fn get_workflow_settings(
-    state: State<'_, WorkflowSettingsState>,
-) -> Result<WorkflowSettings, String> {
-    Ok(state.get())
 }
 
 #[cfg(test)]

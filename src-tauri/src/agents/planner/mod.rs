@@ -286,8 +286,6 @@ impl PlannerAgent {
             repo_path: self.config.repo_path.clone(),
             prompt: prompt.to_string(),
             timeout_secs: Some(self.config.timeout_secs),
-            api_url: self.config.api_url.clone(),
-            api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
         };

@@ -220,8 +220,6 @@ impl WorkflowOrchestrator {
             parent_run_id: self.parent_run_id.clone(),
             ticket_id: self.ticket.id.clone(),
             repo_path: self.repo_path.clone(),
-            api_url: self.api_url.clone(),
-            api_token: self.api_token.clone(),
             model: Some(self.get_stage_model("plan")),
             agent_id: self.agent_id.clone(),
             provider: self.provider.clone(),
