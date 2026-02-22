@@ -74,8 +74,6 @@ impl BrainstormAgent {
             repo_path: self.config.repo_path.clone(),
             prompt: prompt.to_string(),
             timeout_secs: Some(self.config.timeout_secs),
-            api_url: self.config.api_url.clone(),
-            api_token: self.config.api_token.clone(),
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
         };
@@ -157,8 +155,6 @@ mod tests {
                 spec_id: "test".to_string(),
                 user_input: "test".to_string(),
                 repo_path: PathBuf::from("/tmp"),
-                api_url: "http://localhost".to_string(),
-                api_token: "token".to_string(),
                 agent_config: std::collections::HashMap::new(),
                 agent_id: "claude".to_string(),
                 provider: Arc::new(ClaudeProvider::new()),

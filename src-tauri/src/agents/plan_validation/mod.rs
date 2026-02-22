@@ -55,8 +55,6 @@ pub async fn validate_plan_for_clarification(
         repo_path: config.repo_path.clone(),
         prompt,
         timeout_secs: Some(config.timeout_secs),
-        api_url: config.api_url.clone(),
-        api_token: config.api_token.clone(),
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
     };
@@ -190,8 +188,6 @@ pub async fn generate_clarification_message(
         repo_path: config.repo_path.clone(),
         prompt,
         timeout_secs: Some(config.timeout_secs),
-        api_url: config.api_url.clone(),
-        api_token: config.api_token.clone(),
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
     };

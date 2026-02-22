@@ -17,7 +17,7 @@ pub fn parse_response(response: &str) -> Result<BrainstormResponse, BrainstormEr
 /// Try to parse the response as our structured JSON format.
 /// Returns None if no structured JSON was found, Some(result) if parsed.
 fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse, BrainstormError>> {
-    let json_str = extract_json_block(response)?;
+    let json_str = extract_spec_complete_json(response)?;
     let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
     let is_complete = parsed.get("spec_complete")?.as_bool()?;
     
@@ -109,42 +109,35 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
     String::new()
 }
 
-/// Extract a JSON string from the response, supporting both code-fenced and raw JSON.
-fn extract_json_block(response: &str) -> Option<String> {
-    // Strategy 1: code-fenced JSON (```json ... ```)
-    if let Some(fence_start) = response.find("```json") {
-        let content_start = fence_start + 7;
-        if let Some(fence_end) = response[content_start..].find("```") {
-            let json_str = response[content_start..content_start + fence_end].trim();
-            if !json_str.is_empty() {
-                return Some(json_str.to_string());
-            }
+/// Extract a JSON string that contains the `"spec_complete"` key.
+///
+/// Tries generic code-fence / first-object extraction first. If the extracted
+/// object doesn't contain `"spec_complete"`, falls back to locating the key in
+/// the raw text and walking backward to the enclosing `{`, then brace-matching
+/// forward. This handles agent responses with multiple unfenced JSON objects
+/// where the brainstorm payload isn't the first one.
+fn extract_spec_complete_json(response: &str) -> Option<String> {
+    if let Some(ref json_str) = crate::agents::json_extraction::extract_json_object(response) {
+        if json_str.contains("\"spec_complete\"") {
+            return Some(json_str.clone());
         }
     }
-    
-    // Strategy 2: raw JSON containing "spec_complete" key.
-    // Find the key first, then walk backwards to the opening brace.
-    // This handles both compact `{"spec_complete":...}` and pretty-printed
-    // `{\n  "spec_complete":...}` forms that agents often produce without code fences.
-    if let Some(key_pos) = response.find("\"spec_complete\"") {
-        if let Some(brace_offset) = response[..key_pos].rfind('{') {
-            let json_start = brace_offset;
-            let mut depth = 0;
-            for (i, c) in response[json_start..].char_indices() {
-                match c {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            return Some(response[json_start..json_start + i + 1].to_string());
-                        }
-                    }
-                    _ => {}
+
+    let key_pos = response.find("\"spec_complete\"")?;
+    let brace_start = response[..key_pos].rfind('{')?;
+    let mut depth = 0;
+    for (i, c) in response[brace_start..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(response[brace_start..brace_start + i + c.len_utf8()].to_string());
                 }
             }
+            _ => {}
         }
     }
-    
     None
 }
 
@@ -484,6 +477,40 @@ The API follows RESTful conventions."#;
 
         assert!(!response.is_complete);
         assert!(!response.has_questions);
+    }
+
+    // === Multiple unfenced JSON objects ===
+
+    #[test]
+    fn parse_spec_complete_not_first_unfenced_object() {
+        let response_text = concat!(
+            "I analyzed the codebase. Here's a summary: ",
+            r#"{"analysis": "done", "files": 42}"#,
+            "\n\nBased on my analysis:\n\n",
+            r#"{"spec_complete": false, "observations": "Found auth patterns.", "questions": "Which provider do you want?"}"#,
+        );
+
+        let response = parse_response(response_text).unwrap();
+        assert!(!response.is_complete);
+        assert!(response.has_questions);
+        let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
+        assert!(msg["observations"].as_str().unwrap().contains("auth patterns"));
+        assert!(msg["questions"].as_str().unwrap().contains("Which provider"));
+    }
+
+    #[test]
+    fn parse_spec_complete_not_first_unfenced_object_complete() {
+        let response_text = concat!(
+            r#"{"status": "analyzed"}"#,
+            " some text ",
+            r#"{"spec_complete": true, "structured_spec": {"requirements": "Build auth", "decisions": ["Use JWT"], "constraints": []}}"#,
+        );
+
+        let response = parse_response(response_text).unwrap();
+        assert!(response.is_complete);
+        assert!(response.structured_spec.is_some());
+        let spec = response.structured_spec.unwrap();
+        assert!(spec.requirements.contains("auth"));
     }
 
     // === Pretty-printed raw JSON tests (no code fence) ===

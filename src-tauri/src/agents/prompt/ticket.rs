@@ -116,14 +116,13 @@ pub fn generate_custom_prompt(ticket: &Ticket, template: &str) -> String {
     result
 }
 
-pub fn generate_system_prompt(api_url: &str, ticket_id: &str, run_id: &str) -> String {
+pub fn generate_system_prompt(ticket_id: &str, run_id: &str) -> String {
     format!(
         r#"You are an AI coding agent working on a task from a Kanban board.
 
 ## Task Context
 - Ticket ID: {ticket_id}
 - Run ID: {run_id}
-- API URL: {api_url}
 
 ## Guidelines
 1. Focus on completing the task as described
@@ -349,10 +348,9 @@ mod tests {
 
     #[test]
     fn generate_system_prompt_includes_context() {
-        let prompt = generate_system_prompt("http://localhost:7432", "ticket-1", "run-1");
+        let prompt = generate_system_prompt("ticket-1", "run-1");
         assert!(prompt.contains("ticket-1"));
         assert!(prompt.contains("run-1"));
-        assert!(prompt.contains("http://localhost:7432"));
     }
 
     #[test]

@@ -14,8 +14,6 @@ pub struct BrainstormConfig {
     pub spec_id: String,
     pub user_input: String,
     pub repo_path: PathBuf,
-    pub api_url: String,
-    pub api_token: String,
     /// Agent-specific configuration map (auth tokens, API keys, etc.)
     pub agent_config: HashMap<String, serde_json::Value>,
     /// Agent ID string (e.g. "cursor", "claude").

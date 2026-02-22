@@ -39,7 +39,7 @@ fn test_generate_branch_name_long_title() {
 #[test]
 fn test_default_worktree_base() {
     let base = get_default_worktree_base();
-    assert!(base.to_string_lossy().contains("agent-kanban"));
+    assert!(base.to_string_lossy().contains("bored"));
     assert!(base.to_string_lossy().contains("worktrees"));
 }
 
@@ -241,11 +241,11 @@ fn test_prune_stale_worktrees_in_git_repo() {
 #[test]
 fn test_extract_worktree_path_with_quotes() {
     let stderr =
-        "fatal: 'feature/test' is already checked out at '/tmp/agent-kanban/worktrees/abc123'";
+        "fatal: 'feature/test' is already checked out at '/tmp/bored/worktrees/abc123'";
     let result = git::extract_worktree_path_from_error(stderr);
     assert_eq!(
         result,
-        Some("/tmp/agent-kanban/worktrees/abc123".to_string())
+        Some("/tmp/bored/worktrees/abc123".to_string())
     );
 }
 
@@ -264,11 +264,11 @@ fn test_extract_worktree_path_no_match() {
 }
 
 #[test]
-fn test_is_our_worktree_with_agent_kanban_path() {
+fn test_is_our_worktree_with_bored_path() {
     // Should detect paths in our temp directory
-    assert!(manage::is_our_worktree("/tmp/agent-kanban/worktrees/abc123"));
+    assert!(manage::is_our_worktree("/tmp/bored/worktrees/abc123"));
     assert!(manage::is_our_worktree(
-        "/private/var/folders/89/xmt0wws/T/agent-kanban/worktrees/62e286f9"
+        "/private/var/folders/89/xmt0wws/T/bored/worktrees/62e286f9"
     ));
 }
 
@@ -393,9 +393,9 @@ fn test_is_worktree_conflict_error_no_match() {
 #[test]
 fn test_extract_worktree_path_new_git_format() {
     // Newer git format: "already used by worktree at 'path'"
-    let stderr = "fatal: 'fix/cff1ae76/remove-empty-categories-summary' is already used by worktree at '/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/agent-kanban/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98'";
+    let stderr = "fatal: 'fix/cff1ae76/remove-empty-categories-summary' is already used by worktree at '/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/bored/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98'";
     let result = git::extract_worktree_path_from_error(stderr);
-    assert_eq!(result, Some("/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/agent-kanban/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98".to_string()));
+    assert_eq!(result, Some("/private/var/folders/89/xmt0wws13ksdtn4_wm0g1_p40000gn/T/bored/worktrees/ccbc02ff-6c66-45fc-8b83-330bcb4f5f98".to_string()));
 }
 
 #[test]

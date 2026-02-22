@@ -103,30 +103,6 @@ fn claude_config_ignores_wrong_types() {
     assert!(api.thinking_enabled.is_none());
 }
 
-#[test]
-fn claude_config_to_agent_config_roundtrips() {
-    let original = ClaudeApiConfig {
-        use_local_provider: Some(true),
-        auth_token: Some("tok".to_string()),
-        api_key: Some("key".to_string()),
-        base_url: None,
-        model_override: Some("model".to_string()),
-        thinking_enabled: Some(true),
-        extended_context_enabled: Some(false),
-        chrome_enabled: None,
-    };
-    let map = original.to_agent_config();
-    let recovered = ClaudeApiConfig::from_agent_config(&map);
-    assert_eq!(recovered.use_local_provider, original.use_local_provider);
-    assert_eq!(recovered.auth_token, original.auth_token);
-    assert_eq!(recovered.api_key, original.api_key);
-    assert_eq!(recovered.base_url, original.base_url);
-    assert_eq!(recovered.model_override, original.model_override);
-    assert_eq!(recovered.thinking_enabled, original.thinking_enabled);
-    assert_eq!(recovered.extended_context_enabled, original.extended_context_enabled);
-    assert_eq!(recovered.chrome_enabled, original.chrome_enabled);
-}
-
 // ── AgentSettingsManager tests ──────────────────────────────────────
 
 #[test]
@@ -139,12 +115,10 @@ fn manager_default_returns_empty_config() {
 #[test]
 fn manager_set_and_get_agent_settings() {
     let manager = AgentSettingsManager::new();
-    let config = ClaudeApiConfig {
-        auth_token: Some("test-token".to_string()),
-        base_url: Some("https://custom.api".to_string()),
-        ..Default::default()
-    }.to_agent_config();
-    manager.set_agent_config("claude", config);
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("test-token"));
+    config.insert("base_url".to_string(), serde_json::json!("https://custom.api"));
+    manager.set_agent_config_and_persist("claude", config).unwrap();
 
     let loaded = manager.agent_config_for("claude");
     let api = ClaudeApiConfig::from_agent_config(&loaded);
@@ -156,12 +130,10 @@ fn manager_set_and_get_agent_settings() {
 #[test]
 fn manager_agent_config_populated_map() {
     let manager = AgentSettingsManager::new();
-    let config = ClaudeApiConfig {
-        auth_token: Some("tok".to_string()),
-        thinking_enabled: Some(true),
-        ..Default::default()
-    }.to_agent_config();
-    manager.set_agent_config("claude", config);
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("tok"));
+    config.insert("thinking_enabled".to_string(), serde_json::json!(true));
+    manager.set_agent_config_and_persist("claude", config).unwrap();
 
     let loaded = manager.agent_config_for("claude");
     assert_eq!(loaded.get("auth_token").and_then(|v| v.as_str()), Some("tok"));
@@ -198,11 +170,9 @@ fn manager_persist_to_bad_path_returns_error() {
 #[test]
 fn manager_agent_config_for_different_agent_returns_empty() {
     let manager = AgentSettingsManager::new();
-    let config = ClaudeApiConfig {
-        auth_token: Some("tok".to_string()),
-        ..Default::default()
-    }.to_agent_config();
-    manager.set_agent_config("claude", config);
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("tok"));
+    manager.set_agent_config_and_persist("claude", config).unwrap();
 
     let cursor_config = manager.agent_config_for("cursor");
     assert!(cursor_config.is_empty());
@@ -222,7 +192,7 @@ fn manager_generic_set_and_get() {
     config.insert("api_key".to_string(), serde_json::json!("my-key"));
     config.insert("option_a".to_string(), serde_json::json!(true));
 
-    manager.set_agent_config("new-agent", config);
+    manager.set_agent_config_and_persist("new-agent", config).unwrap();
 
     let loaded = manager.agent_config_for("new-agent");
     assert_eq!(loaded.get("api_key").and_then(|v| v.as_str()), Some("my-key"));
@@ -295,11 +265,9 @@ fn manager_shared_reads_fresh_settings() {
     let manager = AgentSettingsManager::new();
     let shared = manager.shared();
 
-    let config = ClaudeApiConfig {
-        auth_token: Some("fresh".to_string()),
-        ..Default::default()
-    }.to_agent_config();
-    manager.set_agent_config("claude", config);
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("fresh"));
+    manager.set_agent_config_and_persist("claude", config).unwrap();
 
     let loaded = shared.agent_config_for("claude");
     let api = ClaudeApiConfig::from_agent_config(&loaded);
@@ -332,12 +300,10 @@ fn manager_save_load_roundtrip() {
     let manager = AgentSettingsManager::new();
     manager.register_agent_settings_path("test-agent", path.clone());
 
-    let config = ClaudeApiConfig {
-        auth_token: Some("tok-original".to_string()),
-        api_key: Some("key-original".to_string()),
-        thinking_enabled: Some(true),
-        ..Default::default()
-    }.to_agent_config();
+    let mut config = HashMap::new();
+    config.insert("auth_token".to_string(), serde_json::json!("tok-original"));
+    config.insert("api_key".to_string(), serde_json::json!("key-original"));
+    config.insert("thinking_enabled".to_string(), serde_json::json!(true));
     manager.set_agent_config_and_persist("test-agent", config).unwrap();
 
     // Reload from disk in a fresh manager
@@ -358,11 +324,11 @@ fn manager_multiple_agents_independent() {
 
     let mut claude_config = HashMap::new();
     claude_config.insert("auth_token".to_string(), serde_json::json!("claude-tok"));
-    manager.set_agent_config("claude", claude_config);
+    manager.set_agent_config_and_persist("claude", claude_config).unwrap();
 
     let mut cursor_config = HashMap::new();
     cursor_config.insert("custom_key".to_string(), serde_json::json!("cursor-val"));
-    manager.set_agent_config("cursor", cursor_config);
+    manager.set_agent_config_and_persist("cursor", cursor_config).unwrap();
 
     let claude = manager.agent_config_for("claude");
     let cursor = manager.agent_config_for("cursor");
@@ -379,11 +345,11 @@ fn manager_set_agent_config_replaces_entire_map() {
     let mut config1 = HashMap::new();
     config1.insert("key_a".to_string(), serde_json::json!("val_a"));
     config1.insert("key_b".to_string(), serde_json::json!("val_b"));
-    manager.set_agent_config("agent", config1);
+    manager.set_agent_config_and_persist("agent", config1).unwrap();
 
     let mut config2 = HashMap::new();
     config2.insert("key_c".to_string(), serde_json::json!("val_c"));
-    manager.set_agent_config("agent", config2);
+    manager.set_agent_config_and_persist("agent", config2).unwrap();
 
     let loaded = manager.agent_config_for("agent");
     assert!(!loaded.contains_key("key_a"), "old keys should be replaced");

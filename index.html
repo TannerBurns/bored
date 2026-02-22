@@ -9,7 +9,7 @@
       (function() {
         var theme = 'dark';
         try {
-          var stored = localStorage.getItem('agent-kanban-settings');
+          var stored = localStorage.getItem('bored-settings');
           if (stored) {
             var settings = JSON.parse(stored);
             if (settings.state && settings.state.theme) {

@@ -23,8 +23,6 @@ pub async fn run_diagnostic_agent(
     _app_handle: Option<AppHandle>,
     ticket_id: &str,
     context: DiagnosticContext,
-    api_url: &str,
-    api_token: &str,
     model: Option<String>,
     provider: Arc<dyn AgentProvider>,
     agent_config: std::collections::HashMap<String, serde_json::Value>,
@@ -65,8 +63,6 @@ pub async fn run_diagnostic_agent(
         repo_path: context.repo_path.clone(),
         prompt,
         timeout_secs: Some(300),
-        api_url: api_url.to_string(),
-        api_token: api_token.to_string(),
         model,
         agent_config,
     };

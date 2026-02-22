@@ -1197,17 +1197,6 @@ impl Database {
         })
     }
 
-    pub fn release_lock(&self, ticket_id: &str, run_id: &str) -> Result<(), DbError> {
-        self.with_conn(|conn| {
-            conn.execute(
-                "UPDATE tickets SET locked_by_run_id = NULL, lock_expires_at = NULL 
-                 WHERE id = ? AND locked_by_run_id = ?",
-                rusqlite::params![ticket_id, run_id],
-            )?;
-            Ok(())
-        })
-    }
-
     /// Repair the specs table schema.
     /// This recreates the table with the correct schema (versioned fields moved to spec_versions).
     pub fn repair_specs_constraint(&self) -> Result<String, DbError> {

@@ -4,26 +4,26 @@ use crate::db::models::{CreateTask, Task, TaskType};
 use crate::db::tasks::TaskCounts;
 use crate::db::Database;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// Columns that should trigger a move back to Ready when a new task is added
 const COMPLETED_COLUMNS: &[&str] = &["Done", "Review"];
 
 /// Move ticket back to Ready if it's in a completed column (Done/Review)
 /// This allows workers to pick up the ticket again for the new task
-pub(crate) fn move_to_ready_if_completed(db: &Database, ticket_id: &str) -> Result<(), String> {
-    // Get the ticket to find its current column and board
+pub(crate) fn move_to_ready_if_completed(
+    db: &Database,
+    ticket_id: &str,
+    app_handle: &AppHandle,
+) -> Result<(), String> {
     let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
 
-    // Get all columns for the board
     let columns = db
         .get_columns(&ticket.board_id)
         .map_err(|e| e.to_string())?;
 
-    // Find the current column
     let current_column = columns.iter().find(|c| c.id == ticket.column_id);
 
-    // Check if ticket is in a completed column
     let is_completed = current_column
         .map(|c| {
             COMPLETED_COLUMNS
@@ -33,7 +33,6 @@ pub(crate) fn move_to_ready_if_completed(db: &Database, ticket_id: &str) -> Resu
         .unwrap_or(false);
 
     if is_completed {
-        // Find the Ready column (where workers pick up tickets)
         if let Some(ready) = columns
             .iter()
             .find(|c| c.name.eq_ignore_ascii_case("Ready"))
@@ -45,6 +44,7 @@ pub(crate) fn move_to_ready_if_completed(db: &Database, ticket_id: &str) -> Resu
             );
             db.move_ticket(ticket_id, &ready.id)
                 .map_err(|e| e.to_string())?;
+            crate::tray::refresh_tray(app_handle);
         }
     }
 
@@ -58,16 +58,11 @@ pub fn get_tasks(db: State<'_, Arc<Database>>, ticket_id: String) -> Result<Vec<
         .map_err(|e| e.to_string())
 }
 
-/// Get a specific task by ID
-#[tauri::command]
-pub fn get_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<Task, String> {
-    db.get_task(&task_id).map_err(|e| e.to_string())
-}
-
 /// Create a new custom task for a ticket
 #[tauri::command]
 pub fn create_task(
     db: State<'_, Arc<Database>>,
+    app_handle: AppHandle,
     ticket_id: String,
     title: Option<String>,
     content: Option<String>,
@@ -81,10 +76,7 @@ pub fn create_task(
         })
         .map_err(|e| e.to_string())?;
 
-    // Move ticket back to Ready if it was in Done/Review
-    // This is a best-effort operation - if it fails, we still return success
-    // since the primary operation (task creation) succeeded
-    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id) {
+    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id, &app_handle) {
         tracing::warn!(
             "Failed to move ticket {} back to Ready after creating task {}: {}",
             ticket_id,
@@ -100,6 +92,7 @@ pub fn create_task(
 #[tauri::command]
 pub fn add_command_task(
     db: State<'_, Arc<Database>>,
+    app_handle: AppHandle,
     ticket_id: String,
     command_id: String,
     display_name: Option<String>,
@@ -116,7 +109,7 @@ pub fn add_command_task(
         })
         .map_err(|e| e.to_string())?;
 
-    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id) {
+    if let Err(e) = move_to_ready_if_completed(&db, &ticket_id, &app_handle) {
         tracing::warn!(
             "Failed to move ticket {} back to Ready after adding command task {}: {}",
             ticket_id,
@@ -132,22 +125,6 @@ pub fn add_command_task(
 #[tauri::command]
 pub fn delete_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<(), String> {
     db.delete_task(&task_id).map_err(|e| e.to_string())
-}
-
-/// Get the next pending task for a ticket
-#[tauri::command]
-pub fn get_next_pending_task(
-    db: State<'_, Arc<Database>>,
-    ticket_id: String,
-) -> Result<Option<Task>, String> {
-    db.get_next_pending_task(&ticket_id)
-        .map_err(|e| e.to_string())
-}
-
-/// Check if a ticket has any pending tasks
-#[tauri::command]
-pub fn has_pending_tasks(db: State<'_, Arc<Database>>, ticket_id: String) -> Result<bool, String> {
-    db.has_pending_tasks(&ticket_id).map_err(|e| e.to_string())
 }
 
 /// Get task counts by status for a ticket
@@ -185,13 +162,14 @@ pub fn update_task(
 ///
 /// This allows the task to be picked up by a worker again.
 #[tauri::command]
-pub fn reset_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<Task, String> {
+pub fn reset_task(
+    db: State<'_, Arc<Database>>,
+    app_handle: AppHandle,
+    task_id: String,
+) -> Result<Task, String> {
     let task = db.reset_task(&task_id).map_err(|e| e.to_string())?;
 
-    // Move ticket back to Ready if it was in Done/Review
-    // This is a best-effort operation - if it fails, we still return success
-    // since the primary operation (task reset) succeeded
-    if let Err(e) = move_to_ready_if_completed(&db, &task.ticket_id) {
+    if let Err(e) = move_to_ready_if_completed(&db, &task.ticket_id, &app_handle) {
         tracing::warn!(
             "Failed to move ticket {} back to Ready after resetting task {}: {}",
             task.ticket_id,

@@ -237,8 +237,6 @@ fn agent_run_config_basic_fields() {
         repo_path: std::path::PathBuf::from("/repo"),
         prompt: "do stuff".to_string(),
         timeout_secs: Some(300),
-        api_url: "http://localhost:7432".to_string(),
-        api_token: "tok".to_string(),
         model: Some("sonnet-4.5".to_string()),
         agent_config: std::collections::HashMap::new(),
     };
@@ -263,8 +261,6 @@ fn agent_run_config_with_agent_config() {
         repo_path: std::path::PathBuf::from("/"),
         prompt: "p".to_string(),
         timeout_secs: None,
-        api_url: "http://x".to_string(),
-        api_token: "tok".to_string(),
         model: None,
         agent_config,
     };
@@ -290,8 +286,6 @@ fn agent_run_config_empty_agent_config() {
         repo_path: std::path::PathBuf::from("/"),
         prompt: "p".to_string(),
         timeout_secs: None,
-        api_url: "http://x".to_string(),
-        api_token: "tok".to_string(),
         model: None,
         agent_config: std::collections::HashMap::new(),
     };

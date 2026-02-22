@@ -30,13 +30,11 @@ pub(super) struct WorkflowTaskContext {
     pub run_id: String,
     pub ticket_id: String,
     pub ticket: Ticket,
-    pub worktree_info: Option<WorktreeInfo>,
+    pub worktree_info: WorktreeInfo,
     pub main_repo_path: PathBuf,
     pub branch_name: String,
     pub agent_id: String,
     pub provider: Arc<dyn AgentProvider>,
-    pub api_url: String,
-    pub api_token: String,
     pub cancel_handles: Arc<Mutex<HashMap<String, CancelHandle>>>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub workflow_settings: Arc<Mutex<crate::commands::workflow_settings::PerAgentSettings>>,
@@ -62,8 +60,6 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         branch_name,
         agent_id,
         provider,
-        api_url,
-        api_token,
         cancel_handles,
         agent_config,
         workflow_settings,
@@ -83,17 +79,15 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     );
 
     let cancel_handles_for_cleanup = cancel_handles.clone();
-    let orchestrator_working_path = worktree_info
-        .as_ref()
-        .map(|w| w.path.clone())
-        .unwrap_or_else(|| main_repo_path.clone());
+    let orchestrator_working_path = worktree_info.path.clone();
+    let is_temp_branch = worktree_info.is_temp_branch;
 
     let worktree_branch = Some(branch_name);
-    let branch_already_created = worktree_info.is_some() || ticket.branch_name.is_some();
+    let branch_already_created = true;
 
     tracing::debug!(
-        "Orchestrator config: worktree_branch={:?}, branch_already_created={}",
-        worktree_branch, branch_already_created
+        "Orchestrator config: worktree_branch={:?}, branch_already_created={}, is_temp_branch={}",
+        worktree_branch, branch_already_created, is_temp_branch
     );
 
     let task = db.get_next_pending_task(&ticket.id).ok().flatten();
@@ -110,9 +104,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 Some(&format!("Failed to start task: {}", e)),
             );
             let _ = db.unlock_ticket(&ticket_id);
-            if let Some(ref wt) = worktree_info {
-                let _ = worktree::remove_worktree(&wt.path, &main_repo_path);
-            }
+            let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
                 error: format!("Failed to start task: {}", e),
@@ -146,12 +138,10 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         repo_path: orchestrator_working_path,
         agent_id,
         provider,
-        api_url,
-        api_token,
         cancel_handles,
         worktree_branch,
         branch_already_created,
-        is_temp_branch: false,
+        is_temp_branch,
         agent_config,
         resume_from_stage,
         previous_run_id,
@@ -184,10 +174,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
     }
 
-    if let Some(ref wt) = worktree_info {
-        if let Err(e) = worktree::remove_worktree(&wt.path, &main_repo_path) {
-            tracing::error!("Failed to remove worktree {}: {}", wt.path.display(), e);
-        }
+    if let Err(e) = worktree::remove_worktree(&worktree_info.path, &main_repo_path) {
+        tracing::error!("Failed to remove worktree {}: {}", worktree_info.path.display(), e);
     }
 }
 
@@ -219,7 +207,7 @@ fn handle_workflow_result(
             if task.is_some() {
                 match db.has_pending_tasks(ticket_id) {
                     Ok(true) => {
-                        if let Err(e) = crate::commands::tasks::move_to_ready_if_completed(db, ticket_id) {
+                        if let Err(e) = crate::commands::tasks::move_to_ready_if_completed(db, ticket_id, window.app_handle()) {
                             tracing::warn!("Failed to move ticket {} back to Ready: {}", ticket_id, e);
                         }
                     }

@@ -82,22 +82,6 @@ pub fn get_bundled_commands_path() -> Option<PathBuf> {
     None
 }
 
-/// Get the bundled commands path with Tauri resource resolver fallback.
-pub fn get_bundled_commands_path_with_app<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-) -> Option<PathBuf> {
-    use tauri::Manager;
-
-    if let Some(path) = get_bundled_commands_path() {
-        return Some(path);
-    }
-
-    app.path()
-        .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
-        .ok()
-        .filter(|p| p.exists())
-}
-
 /// Install command templates from a source directory into a project's config directory.
 pub fn install_commands(
     project: &Path,

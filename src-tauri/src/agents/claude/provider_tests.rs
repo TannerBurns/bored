@@ -13,8 +13,6 @@ fn make_config() -> AgentRunConfig {
         repo_path: PathBuf::from("/tmp/test"),
         prompt: "Test".to_string(),
         timeout_secs: None,
-        api_url: "http://localhost:7432".to_string(),
-        api_token: "tok".to_string(),
         model: None,
         agent_config: HashMap::new(),
     }
@@ -96,45 +94,6 @@ fn extract_text_stream_json() {
     let p = ClaudeProvider::new();
     let input = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}"#;
     assert_eq!(p.extract_text(input), "Hello");
-}
-
-#[test]
-fn claude_api_config_roundtrip() {
-    let original = ClaudeApiConfig {
-        auth_token: Some("tok".to_string()),
-        thinking_enabled: Some(true),
-        ..Default::default()
-    };
-    let map = original.to_agent_config();
-    let restored = ClaudeApiConfig::from_agent_config(&map);
-    assert_eq!(restored.auth_token.as_deref(), Some("tok"));
-    assert_eq!(restored.thinking_enabled, Some(true));
-    assert!(restored.api_key.is_none());
-}
-
-#[test]
-fn claude_api_config_roundtrip_all_fields() {
-    let original = ClaudeApiConfig {
-        use_local_provider: Some(true),
-        auth_token: Some("auth".to_string()),
-        api_key: Some("key".to_string()),
-        base_url: Some("https://api.example.com".to_string()),
-        model_override: Some("custom".to_string()),
-        thinking_enabled: Some(false),
-        extended_context_enabled: Some(true),
-        chrome_enabled: Some(true),
-    };
-    let map = original.to_agent_config();
-    assert_eq!(map.len(), 8);
-    let restored = ClaudeApiConfig::from_agent_config(&map);
-    assert_eq!(restored.use_local_provider, Some(true));
-    assert_eq!(restored.auth_token.as_deref(), Some("auth"));
-    assert_eq!(restored.api_key.as_deref(), Some("key"));
-    assert_eq!(restored.base_url.as_deref(), Some("https://api.example.com"));
-    assert_eq!(restored.model_override.as_deref(), Some("custom"));
-    assert_eq!(restored.thinking_enabled, Some(false));
-    assert_eq!(restored.extended_context_enabled, Some(true));
-    assert_eq!(restored.chrome_enabled, Some(true));
 }
 
 #[test]

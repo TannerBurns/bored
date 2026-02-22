@@ -184,47 +184,20 @@ pub async fn start_agent_run(
         lock_expires_at
     );
 
-    // Get API credentials early - needed for orchestration
-    let api_url = std::env::var("AGENT_KANBAN_API_URL").unwrap_or_else(|_| {
-        format!(
-            "http://127.0.0.1:{}",
-            std::env::var("AGENT_KANBAN_API_PORT").unwrap_or_else(|_| "7432".to_string())
-        )
-    });
-    let api_token =
-        std::env::var("AGENT_KANBAN_API_TOKEN").unwrap_or_else(|_| "default-token".to_string());
-
-    let branch_gen_model = {
-        let ws = workflow_settings_state.get_for_agent(&agent_id);
-        ws.stage_configs
-            .get("branchGen")
-            .map(|c| c.model.clone())
-    };
-
-    // Resolve branch name (AI-generated or existing) and create a git worktree
+    // Create git worktree for isolated execution (same approach as worker path)
     let (worktree_info, branch_name) = setup_worktree_and_branch(WorktreeBranchSetup {
         ticket: &ticket,
         run_id: &run_id,
         repo_path: &repo_path,
-        agent_id: &agent_id,
-        provider: provider.clone(),
         db: db.inner(),
-        window: &window,
-        branch_gen_model,
-        agent_config: &agent_config,
     }).await?;
 
-    // Use worktree path if available, otherwise fall back to main repo
-    let working_path = worktree_info
-        .as_ref()
-        .map(|w| w.path.clone())
-        .unwrap_or_else(|| std::path::PathBuf::from(&repo_path));
-    let working_path_str = working_path.to_string_lossy().to_string();
+    let working_path = worktree_info.path.clone();
 
     tracing::info!(
-        "Agent will work in: {} (worktree: {})",
-        working_path_str,
-        worktree_info.is_some()
+        "Agent will work in: {} (worktree branch: {})",
+        working_path.display(),
+        worktree_info.branch_name
     );
 
     // All tickets now use multi-stage workflow
@@ -264,8 +237,6 @@ pub async fn start_agent_run(
         branch_name,
         agent_id,
         provider,
-        api_url,
-        api_token,
         cancel_handles: running_agents_handles,
         agent_config,
         workflow_settings: shared_workflow_settings,

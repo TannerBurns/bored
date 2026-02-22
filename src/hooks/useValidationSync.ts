@@ -60,6 +60,8 @@ export function useValidationSync(
   const currentSessionRef = useRef(currentSession);
   currentSessionRef.current = currentSession;
 
+  const processedRunIdsRef = useRef<Set<string>>(new Set());
+
   // Buffer app log entries and flush every 250ms to avoid per-line re-renders
   const appLogBufferRef = useRef<AppLogEntry[]>([]);
   const flushTimerRef = useRef<number | null>(null);
@@ -181,13 +183,16 @@ export function useValidationSync(
 
           case 'run_completed': {
             const session = currentSessionRef.current;
+            const runId = data.run_id;
             if (
               session &&
+              runId &&
+              !processedRunIdsRef.current.has(runId) &&
               data.ticket_id === session.ticketId &&
               data.status === 'finished' &&
               session.status === 'failed'
             ) {
-              // A fix run completed for the validation ticket -- restart the loop
+              processedRunIdsRef.current.add(runId);
               logger.info(
                 'Run completed for validation ticket, auto-restarting app'
               );

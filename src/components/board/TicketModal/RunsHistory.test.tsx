@@ -1,0 +1,306 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { RunsHistory, type RunsHistoryProps } from './RunsHistory';
+import type { AgentRun } from '../../../types';
+import type { RunEvent } from './types';
+
+vi.mock('../../common/CostBadge', () => ({
+  CostBadge: ({ cost }: { cost: unknown }) =>
+    cost ? <span data-testid="cost-badge">$cost</span> : null,
+  getRunCost: (run: AgentRun) => {
+    const meta = run.metadata as Record<string, unknown> | undefined;
+    const cost = meta?.cost as Record<string, unknown> | undefined;
+    if (!cost) return null;
+    return {
+      totalCostUsd: (cost.total_cost_usd as number) ?? 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      isEstimated: false,
+    };
+  },
+  getTotalCost: (cost: { totalCostUsd: number }) => cost.totalCostUsd,
+}));
+
+const now = new Date('2025-06-15T12:00:00Z');
+
+function createRun(overrides: Partial<AgentRun> = {}): AgentRun {
+  return {
+    id: 'run-1',
+    ticketId: 'ticket-1',
+    agentType: 'cursor',
+    repoPath: '/repo',
+    status: 'finished',
+    startedAt: now,
+    endedAt: new Date(now.getTime() + 60_000),
+    ...overrides,
+  };
+}
+
+function createEvent(overrides: Partial<RunEvent> = {}): RunEvent {
+  return {
+    id: 'evt-1',
+    eventType: 'log_stdout',
+    payload: { raw: 'hello world' },
+    createdAt: now.toISOString(),
+    ...overrides,
+  };
+}
+
+function renderHistory(overrides: Partial<RunsHistoryProps> = {}) {
+  const defaultProps: RunsHistoryProps = {
+    agentRuns: [createRun()],
+    expandedRunId: null,
+    runEvents: [],
+    loadingEvents: false,
+    handleRunClick: vi.fn(),
+    ...overrides,
+  };
+  return render(<RunsHistory {...defaultProps} />);
+}
+
+describe('RunsHistory', () => {
+  it('returns null when agentRuns is empty', () => {
+    const { container } = renderHistory({ agentRuns: [] });
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('renders previous runs section with count', () => {
+    renderHistory({ agentRuns: [createRun()] });
+    expect(screen.getByText('Previous Runs (1)')).toBeInTheDocument();
+  });
+
+  it('renders current run section when lockedByRunId is provided', () => {
+    renderHistory({
+      agentRuns: [createRun({ id: 'active', status: 'running' })],
+      lockedByRunId: 'active',
+    });
+    expect(screen.getByText('Current Run')).toBeInTheDocument();
+  });
+
+  it('shows agent display name on run row', () => {
+    renderHistory({ agentRuns: [createRun({ agentType: 'claude' })] });
+    expect(screen.getByText('Claude')).toBeInTheDocument();
+  });
+
+  it('displays status badge', () => {
+    renderHistory({ agentRuns: [createRun({ status: 'finished' })] });
+    expect(screen.getByText('finished')).toBeInTheDocument();
+  });
+
+  it('shows workflow label for multi-stage runs', () => {
+    const parent = createRun({ id: 'parent', metadata: { workflow_mode: 'multi_stage' } });
+    const sub = createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan' });
+    renderHistory({ agentRuns: [parent, sub] });
+    expect(screen.getByText('(Multi-Stage)')).toBeInTheDocument();
+  });
+
+  it('shows auto-pilot workflow label', () => {
+    const parent = createRun({ id: 'parent', metadata: { workflow_mode: 'auto_pilot' } });
+    const sub = createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan' });
+    renderHistory({ agentRuns: [parent, sub] });
+    expect(screen.getByText('(Auto-Pilot)')).toBeInTheDocument();
+  });
+
+  it('defaults to Multi-Stage when metadata is undefined', () => {
+    const parent = createRun({ id: 'parent', metadata: undefined });
+    const sub = createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan' });
+    renderHistory({ agentRuns: [parent, sub] });
+    expect(screen.getByText('(Multi-Stage)')).toBeInTheDocument();
+  });
+
+  it('defaults to Multi-Stage when workflow_mode is missing from metadata', () => {
+    const parent = createRun({ id: 'parent', metadata: { other_key: 'value' } });
+    const sub = createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan' });
+    renderHistory({ agentRuns: [parent, sub] });
+    expect(screen.getByText('(Multi-Stage)')).toBeInTheDocument();
+  });
+
+  it('defaults to Multi-Stage for unknown workflow_mode value', () => {
+    const parent = createRun({ id: 'parent', metadata: { workflow_mode: 'unknown_mode' } });
+    const sub = createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan' });
+    renderHistory({ agentRuns: [parent, sub] });
+    expect(screen.getByText('(Multi-Stage)')).toBeInTheDocument();
+  });
+
+  it('shows (Resumed) label for resumed runs', () => {
+    renderHistory({
+      agentRuns: [createRun({ resumedFromRunId: 'old-run' })],
+    });
+    expect(screen.getByText('(Resumed)')).toBeInTheDocument();
+  });
+
+  it('calls handleRunClick when a run row is clicked', async () => {
+    const handleRunClick = vi.fn();
+    renderHistory({ agentRuns: [createRun()], handleRunClick });
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+    expect(handleRunClick).toHaveBeenCalledWith('run-1');
+  });
+
+  it('shows collapsed indicator when run is not expanded', () => {
+    renderHistory({ agentRuns: [createRun()], expandedRunId: null });
+    expect(screen.getByText('▶')).toBeInTheDocument();
+  });
+
+  it('shows expanded indicator when run is expanded', () => {
+    renderHistory({ agentRuns: [createRun()], expandedRunId: 'run-1' });
+    expect(screen.getByText('▼')).toBeInTheDocument();
+  });
+
+  describe('expanded run details', () => {
+    it('shows run ID when expanded', () => {
+      renderHistory({ agentRuns: [createRun()], expandedRunId: 'run-1' });
+      expect(screen.getByText('run-1')).toBeInTheDocument();
+    });
+
+    it('shows duration when run has endedAt', () => {
+      renderHistory({
+        agentRuns: [createRun({ endedAt: new Date(now.getTime() + 120_000) })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('120s')).toBeInTheDocument();
+    });
+
+    it('shows exit code when present', () => {
+      renderHistory({
+        agentRuns: [createRun({ exitCode: 1 })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('1')).toBeInTheDocument();
+    });
+
+    it('shows summary when present', () => {
+      renderHistory({
+        agentRuns: [createRun({ summaryMd: 'All tasks completed' })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('All tasks completed')).toBeInTheDocument();
+    });
+  });
+
+  describe('sub-runs / stages', () => {
+    const parent = createRun({ id: 'parent' });
+    const subRuns = [
+      createRun({ id: 'sub-1', parentRunId: 'parent', stage: 'plan', status: 'finished' }),
+      createRun({ id: 'sub-2', parentRunId: 'parent', stage: 'implement', status: 'running' }),
+    ];
+
+    it('shows stage count', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        expandedRunId: 'parent',
+      });
+      expect(screen.getByText('Stages (2):')).toBeInTheDocument();
+    });
+
+    it('shows stage names', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        expandedRunId: 'parent',
+      });
+      expect(screen.getByText('plan')).toBeInTheDocument();
+      expect(screen.getByText('implement')).toBeInTheDocument();
+    });
+  });
+
+  describe('log events', () => {
+    it('shows log count when expanded', () => {
+      const events = [
+        createEvent({ id: 'e1', eventType: 'log_stdout' }),
+        createEvent({ id: 'e2', eventType: 'log_stderr' }),
+      ];
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        runEvents: events,
+      });
+      expect(screen.getByText(/Logs \(2 lines\)/)).toBeInTheDocument();
+    });
+
+    it('shows loading state', () => {
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        loadingEvents: true,
+      });
+      expect(screen.getByText('Loading...')).toBeInTheDocument();
+    });
+
+    it('shows log content', () => {
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        runEvents: [createEvent({ payload: { raw: 'test output line' } })],
+      });
+      expect(screen.getByText('test output line')).toBeInTheDocument();
+    });
+
+    it('shows empty state when no log events', () => {
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        runEvents: [],
+      });
+      expect(screen.getByText('No output logs recorded')).toBeInTheDocument();
+    });
+
+    it('handles custom eventType objects', () => {
+      const events = [
+        createEvent({ id: 'e1', eventType: { custom: 'log_stdout' }, payload: { raw: 'custom event' } }),
+      ];
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        runEvents: events,
+      });
+      expect(screen.getByText('custom event')).toBeInTheDocument();
+    });
+
+    it('filters out non-log events', () => {
+      const events = [
+        createEvent({ id: 'e1', eventType: 'log_stdout', payload: { raw: 'visible' } }),
+        createEvent({ id: 'e2', eventType: 'agent_status', payload: { raw: 'hidden' } }),
+      ];
+      renderHistory({
+        agentRuns: [createRun()],
+        expandedRunId: 'run-1',
+        runEvents: events,
+      });
+      expect(screen.getByText('visible')).toBeInTheDocument();
+      expect(screen.queryByText('hidden')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('multiple previous runs', () => {
+    it('shows correct count', () => {
+      const runs = [
+        createRun({ id: 'r1' }),
+        createRun({ id: 'r2' }),
+        createRun({ id: 'r3' }),
+      ];
+      renderHistory({ agentRuns: runs });
+      expect(screen.getByText('Previous Runs (3)')).toBeInTheDocument();
+    });
+
+    it('excludes current run from previous runs count', () => {
+      const runs = [
+        createRun({ id: 'active', status: 'running' }),
+        createRun({ id: 'old-1' }),
+        createRun({ id: 'old-2' }),
+      ];
+      renderHistory({ agentRuns: runs, lockedByRunId: 'active' });
+      expect(screen.getByText('Previous Runs (2)')).toBeInTheDocument();
+    });
+
+    it('excludes sub-runs from previous runs count', () => {
+      const runs = [
+        createRun({ id: 'parent-1' }),
+        createRun({ id: 'sub-1', parentRunId: 'parent-1', stage: 'plan' }),
+      ];
+      renderHistory({ agentRuns: runs });
+      expect(screen.getByText('Previous Runs (1)')).toBeInTheDocument();
+    });
+  });
+});

@@ -17,8 +17,6 @@ pub struct WorkerConfig {
     /// Agent provider for agent-agnostic dispatch.
     pub provider: Arc<dyn AgentProvider>,
     pub project_id: Option<String>,
-    pub api_url: String,
-    pub api_token: String,
     pub poll_interval_secs: u64,
     pub heartbeat_interval_secs: u64,
     pub lock_duration_mins: i64,
@@ -124,8 +122,6 @@ mod tests {
             agent_id: agent_id.to_string(),
             provider: Arc::new(StubProvider),
             project_id: None,
-            api_url: String::new(),
-            api_token: String::new(),
             poll_interval_secs: 10,
             heartbeat_interval_secs: 30,
             lock_duration_mins: 5,

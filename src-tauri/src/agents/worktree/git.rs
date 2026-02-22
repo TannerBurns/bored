@@ -253,11 +253,11 @@ pub fn create_initial_commit(repo_path: &Path) -> Result<(), WorktreeError> {
     // Create the initial commit
     // Configure git user if not set (needed for commit)
     let _ = git_command()
-        .args(["config", "user.email", "agent@agent-kanban.local"])
+        .args(["config", "user.email", "agent@bored.local"])
         .current_dir(repo_path)
         .output();
     let _ = git_command()
-        .args(["config", "user.name", "Agent Kanban"])
+        .args(["config", "user.name", "Bored"])
         .current_dir(repo_path)
         .output();
 

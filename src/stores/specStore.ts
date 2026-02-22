@@ -378,7 +378,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
 
   appendExploration: async (id: string, query: string, response: string) => {
     try {
-      await invoke('append_exploration', { id, query, response });
+      await invoke('append_spec_exploration', { id, query, response });
       
       // Refresh the spec
       const spec = await get().getSpec(id);

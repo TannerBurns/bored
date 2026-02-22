@@ -232,13 +232,6 @@ impl Database {
             }
         })
     }
-
-    pub fn resolve_project_for_ticket(&self, ticket_id: &str) -> Result<Option<Project>, DbError> {
-        match self.can_move_to_ready(ticket_id)? {
-            ReadinessCheck::Ready { project_id } => self.get_project(&project_id),
-            _ => Ok(None),
-        }
-    }
 }
 
 #[cfg(test)]

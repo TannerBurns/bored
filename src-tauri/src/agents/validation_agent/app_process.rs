@@ -67,7 +67,7 @@ impl AppProcessManager {
         worktree_path: Option<PathBuf>,
         repo_path: Option<PathBuf>,
     ) -> Result<StartResult, String> {
-        self.stop(&session_id);
+        self.kill_process(&session_id);
 
         let (program, args) = parse_shell_command(&command)?;
 
@@ -161,18 +161,31 @@ impl AppProcessManager {
         Ok(StartResult::Running)
     }
 
-    /// Stop the app process for the given session, if any.
-    /// On Unix, kills the entire process group (SIGTERM then SIGKILL) so child
-    /// processes like node/vite spawned by npm are also terminated.
-    /// Also removes the git worktree if one was created for this session.
-    pub fn stop(&self, session_id: &str) {
+    /// Kill the app process for the given session without cleaning up the
+    /// worktree.  Use this when the session is still active and may need the
+    /// working directory for subsequent commands (e.g. inside the command loop
+    /// or when `start()` restarts the process).
+    pub fn kill_process(&self, session_id: &str) -> bool {
         if let Ok(mut guard) = self.processes.lock() {
             if let Some(mut handle) = guard.remove(session_id) {
                 kill_process_tree(&mut handle);
-                // Clean up the worktree after the process is dead
-                cleanup_worktree(handle.worktree_path, handle.repo_path);
+                return true;
             }
         }
+        false
+    }
+
+    /// Stop the app process AND clean up the associated git worktree.
+    /// Use this for final cleanup (stop button, app exit).
+    pub fn stop(&self, session_id: &str) -> bool {
+        if let Ok(mut guard) = self.processes.lock() {
+            if let Some(mut handle) = guard.remove(session_id) {
+                kill_process_tree(&mut handle);
+                cleanup_worktree(handle.worktree_path, handle.repo_path);
+                return true;
+            }
+        }
+        false
     }
 
     /// Return true if an app process is running for this session.

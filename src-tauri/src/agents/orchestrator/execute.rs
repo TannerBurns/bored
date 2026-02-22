@@ -1,5 +1,6 @@
 //! Main workflow execution logic for the orchestrator.
 
+use super::config::WorkflowMode;
 use super::WorkflowOrchestrator;
 use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
@@ -11,12 +12,19 @@ use crate::agents::prompt::{
 use crate::db::models::TaskType;
 
 impl WorkflowOrchestrator {
-    /// Execute the full multi-stage workflow.
+    /// Execute the workflow, dispatching based on workflow mode.
     pub async fn execute(&self) -> Result<(), String> {
         self.log_workflow_start();
-
         self.move_ticket_to_column("In Progress");
 
+        match self.workflow_mode {
+            WorkflowMode::AutoPilot => self.execute_auto_pilot().await,
+            WorkflowMode::MultiStage => self.execute_multi_stage().await,
+        }
+    }
+
+    /// Execute the static multi-stage workflow pipeline.
+    async fn execute_multi_stage(&self) -> Result<(), String> {
         let mut plan = String::new();
 
         for stage_key in &self.stage_order {
@@ -34,9 +42,6 @@ impl WorkflowOrchestrator {
                     self.run_commit_stage().await?;
                 }
                 "code-review" => {
-                    // Check "code-review-fix" (the last sub-stage of the loop) so that
-                    // resuming mid-loop (e.g. paused during code-review-fix) re-enters
-                    // the loop instead of incorrectly skipping it.
                     if self.should_skip_stage("code-review-fix") {
                         tracing::info!("Skipping code-review loop (resuming from later stage)");
                     } else if !self.is_stage_enabled("code-review") {
@@ -53,22 +58,76 @@ impl WorkflowOrchestrator {
             }
         }
 
-        // Terminal state for automated workflows; "Review → Done" is a manual user action.
+        self.finish_workflow("Multi-stage");
+        Ok(())
+    }
+
+    /// Execute the auto-pilot workflow where the agent decides which commands to run.
+    async fn execute_auto_pilot(&self) -> Result<(), String> {
+        self.handle_branch_creation().await?;
+
+        let plan = self.run_plan_stage().await?;
+
+        let impl_result = self.run_implement_stage_capturing(&plan).await?;
+
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+
+        let selections = self.run_command_selection_stage(&plan, &impl_result).await?;
+
+        if selections.is_empty() {
+            tracing::info!("Auto-pilot: agent selected no commands, proceeding to commit");
+        } else {
+            tracing::info!(
+                "Auto-pilot: agent selected {} commands: {:?}",
+                selections.len(),
+                selections.iter().map(|s| &s.command).collect::<Vec<_>>()
+            );
+        }
+
+        for selection in &selections {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            self.run_stage_with_model(
+                &selection.command,
+                &generate_command_prompt_with_providers(
+                    &selection.command,
+                    &self.repo_path,
+                    &[self.provider.as_ref()],
+                ),
+                &selection.model,
+            )
+            .await?;
+        }
+
+        self.run_commit_stage().await?;
+
+        self.finish_workflow("Auto-pilot");
+        Ok(())
+    }
+
+    fn finish_workflow(&self, mode_label: &str) {
         self.move_ticket_to_column("Review");
         self.add_workflow_summary_comment();
-
         tracing::info!(
-            "Multi-stage workflow completed for ticket {}",
+            "{} workflow completed for ticket {}",
+            mode_label,
             self.ticket.id
         );
-        Ok(())
     }
 
     /// Log the workflow start, handling resumption if applicable.
     fn log_workflow_start(&self) {
+        let mode_label = match self.workflow_mode {
+            WorkflowMode::AutoPilot => "auto-pilot",
+            WorkflowMode::MultiStage => "multi-stage",
+        };
         if let Some(ref resume_stage) = self.resume_from_stage {
             tracing::info!(
-                "Resuming multi-stage workflow for ticket {} from stage '{}'",
+                "Resuming {} workflow for ticket {} from stage '{}'",
+                mode_label,
                 self.ticket.id,
                 resume_stage
             );
@@ -77,7 +136,8 @@ impl WorkflowOrchestrator {
             }
         } else {
             tracing::info!(
-                "Starting multi-stage workflow for ticket {}",
+                "Starting {} workflow for ticket {}",
+                mode_label,
                 self.ticket.id
             );
         }
@@ -160,8 +220,6 @@ impl WorkflowOrchestrator {
             parent_run_id: self.parent_run_id.clone(),
             ticket_id: self.ticket.id.clone(),
             repo_path: self.repo_path.clone(),
-            api_url: self.api_url.clone(),
-            api_token: self.api_token.clone(),
             model: Some(self.get_stage_model("plan")),
             agent_id: self.agent_id.clone(),
             provider: self.provider.clone(),
@@ -216,9 +274,20 @@ impl WorkflowOrchestrator {
 
     /// Run the implement stage.
     async fn run_implement_stage(&self, plan: &str) -> Result<(), String> {
+        self.run_implement_stage_capturing(plan).await?;
+        Ok(())
+    }
+
+    /// Run the implement stage and return the extracted output text.
+    async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
         if self.should_skip_stage("implement") {
             tracing::info!("Skipping implement stage (resuming from later stage)");
-            return Ok(());
+            return Ok(self.get_previous_stage_output("implement").unwrap_or_else(|| {
+                tracing::warn!(
+                    "No saved implement output found - command selection will proceed without implementation context"
+                );
+                String::new()
+            }));
         }
 
         if self.is_cancelled() {
@@ -235,9 +304,10 @@ impl WorkflowOrchestrator {
             generate_implement_prompt(&self.ticket, plan)
         };
 
-        let _impl_result = self.run_stage("implement", &implement_prompt).await?;
-
-        Ok(())
+        let impl_result = self.run_stage("implement", &implement_prompt).await?;
+        let raw_output = impl_result.captured_stdout.unwrap_or_default();
+        let text = self.extract_text(&raw_output);
+        Ok(text)
     }
 
     async fn run_commit_stage(&self) -> Result<(), String> {

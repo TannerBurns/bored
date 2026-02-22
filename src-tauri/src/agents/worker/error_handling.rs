@@ -19,8 +19,6 @@ pub struct WorktreeFailureContext<'a> {
     pub ticket: &'a Ticket,
     pub repo_path: &'a Path,
     pub error: &'a WorktreeError,
-    pub api_url: &'a str,
-    pub api_token: &'a str,
     pub provider: Arc<dyn AgentProvider>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub worker_id: &'a str,
@@ -35,8 +33,6 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
         ticket,
         repo_path,
         error,
-        api_url,
-        api_token,
         provider,
         agent_config,
         worker_id,
@@ -73,8 +69,6 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
     let db_clone = db.clone();
     let ticket_id = ticket.id.clone();
     let model = Some(diagnostic_model.unwrap_or_else(|| crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string()));
-    let api_url = api_url.to_string();
-    let api_token = api_token.to_string();
     let context_clone = context.clone();
     let worker_id = worker_id.to_string();
 
@@ -90,8 +84,6 @@ pub async fn handle_worktree_failure(ctx: WorktreeFailureContext<'_>) {
             app_handle,
             &ticket_id,
             context_clone.clone(),
-            &api_url,
-            &api_token,
             model,
             provider,
             agent_config,

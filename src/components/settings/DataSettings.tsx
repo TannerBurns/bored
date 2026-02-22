@@ -79,7 +79,7 @@ export function DataSettings() {
       await factoryReset();
       
       // Clear localStorage for settings
-      localStorage.removeItem('agent-kanban-settings');
+      localStorage.removeItem('bored-settings');
       
       // Reset the settings store to defaults
       useSettingsStore.setState({

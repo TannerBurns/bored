@@ -28,8 +28,6 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         repo_path: config.repo_path.clone(),
         agent_id: config.agent_id.clone(),
         provider: config.provider.clone(),
-        api_url: config.api_url.clone(),
-        api_token: config.api_token.clone(),
         cancel_handles: config.cancel_handles.clone(),
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,

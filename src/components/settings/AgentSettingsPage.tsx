@@ -242,9 +242,37 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
+        <ToggleRow
+          label="Auto-Pilot"
+          description="Let the agent decide which commands to run after implementation instead of using the static stage pipeline"
+          enabled={config.autoPilotEnabled}
+          onChange={(v) => updateConfig(agentId, { autoPilotEnabled: v })}
+        />
+        {config.autoPilotEnabled && (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-board-text">Model</p>
+              <p className="text-xs text-board-text-muted">Model used for the auto-pilot command selection call</p>
+            </div>
+            <select
+              value={config.autoPilotModel}
+              onChange={(e) => updateConfig(agentId, { autoPilotModel: e.target.value as AIModel })}
+              className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            >
+              {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className={cn('glass rounded-lg p-3 space-y-3', config.autoPilotEnabled && 'opacity-50 pointer-events-none')}>
         <div>
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
-          <p className="text-xs text-board-text-muted mt-0.5">Toggle stages and choose models. Drag command stages to reorder.</p>
+          <p className="text-xs text-board-text-muted mt-0.5">
+            {config.autoPilotEnabled
+              ? 'Stage configuration is managed by the agent in Auto-Pilot mode.'
+              : 'Toggle stages and choose models. Drag command stages to reorder.'}
+          </p>
         </div>
         <div className="space-y-1">
           <div className="grid grid-cols-[20px_40px_1fr_130px] gap-2 px-2 py-1">

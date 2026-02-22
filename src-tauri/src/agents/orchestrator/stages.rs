@@ -8,7 +8,6 @@ use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::generate_command_prompt_with_providers;
-use crate::agents::spawner::run_agent_via_provider_with_cancel;
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -19,6 +18,25 @@ impl WorkflowOrchestrator {
         &self,
         stage: &str,
         prompt: &str,
+    ) -> Result<AgentRunResult, String> {
+        self.run_stage_inner(stage, prompt, None).await
+    }
+
+    /// Run a single stage with an explicit model override (used by auto-pilot).
+    pub(super) async fn run_stage_with_model(
+        &self,
+        stage: &str,
+        prompt: &str,
+        model: &str,
+    ) -> Result<AgentRunResult, String> {
+        self.run_stage_inner(stage, prompt, Some(model)).await
+    }
+
+    async fn run_stage_inner(
+        &self,
+        stage: &str,
+        prompt: &str,
+        model_override: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         let max_attempts = self.stage_max_retries + 1;
         let mut last_error = String::new();
@@ -48,7 +66,7 @@ impl WorkflowOrchestrator {
             }
 
             match self
-                .run_stage_attempt(stage, prompt, attempt, max_attempts)
+                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -81,6 +99,7 @@ impl WorkflowOrchestrator {
         prompt: &str,
         attempt: u32,
         max_attempts: u32,
+        model_override: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         tracing::info!(
             "Starting stage '{}' attempt {}/{} for parent run {}",
@@ -114,7 +133,9 @@ impl WorkflowOrchestrator {
             .update_run_status(&sub_run.id, RunStatus::Running, None, None)
             .map_err(|e| format!("Failed to update sub-run status: {}", e))?;
 
-        let stage_model = self.get_stage_model(stage);
+        let stage_model = model_override
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| self.get_stage_model(stage));
         let config = AgentRunConfig {
             agent_id: self.agent_id.clone(),
             ticket_id: self.ticket.id.clone(),
@@ -122,8 +143,6 @@ impl WorkflowOrchestrator {
             repo_path: self.repo_path.clone(),
             prompt: prompt.to_string(),
             timeout_secs: Some(self.stage_timeout_secs),
-            api_url: self.api_url.clone(),
-            api_token: self.api_token.clone(),
             model: Some(stage_model.clone()),
             agent_config: self.agent_config.clone(),
         };
@@ -163,9 +182,10 @@ impl WorkflowOrchestrator {
         });
 
         let provider = self.provider.clone();
+        let runner = self.stage_runner.clone();
         let start_time = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
-            run_agent_via_provider_with_cancel(&*provider, &config, Some(on_log), Some(on_spawn))
+            runner.run(&*provider, &config, Some(on_log), Some(on_spawn))
         })
         .await
         .map_err(|e| format!("Stage task failed: {}", e))?

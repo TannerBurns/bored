@@ -259,8 +259,8 @@ export const useSettingsStore = create<SettingsState>()(
       },
     }),
     {
-      name: 'agent-kanban-settings',
-      version: 14,
+      name: 'bored-settings',
+      version: 15,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -355,6 +355,8 @@ export const useSettingsStore = create<SettingsState>()(
               ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
               : base.workflowStages;
             return {
+              autoPilotEnabled: false,
+              autoPilotModel: base.autoPilotModel,
               workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
@@ -434,6 +436,20 @@ export const useSettingsStore = create<SettingsState>()(
           }));
         }
 
+        if (version < 15) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const [agentId, cfg] of Object.entries(configs)) {
+              if (cfg.autoPilotEnabled === undefined) {
+                cfg.autoPilotEnabled = false;
+              }
+              if (cfg.autoPilotModel === undefined) {
+                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'opus-4.6';
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -442,6 +458,8 @@ export const useSettingsStore = create<SettingsState>()(
 
 function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
+    autoPilotEnabled: boolean;
+    autoPilotModel: string;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
     codeReviewMaxIterations: number;
     stageTimeoutHours: number;
@@ -451,6 +469,8 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
+      autoPilotEnabled: config.autoPilotEnabled ?? false,
+      autoPilotModel: config.autoPilotModel ?? 'opus-4.6',
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,

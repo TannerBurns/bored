@@ -2,8 +2,8 @@
 
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
-    build_full_stage_order, expand_stage_key, is_reserved_stage_id, normalize_legacy_stage_name,
-    StageEvent, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
+    build_full_stage_order, expand_stage_key, normalize_legacy_stage_name,
+    StageEvent, WorkflowMode, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
 };
 
 #[test]
@@ -566,22 +566,6 @@ fn reserved_internal_stages_does_not_include_catalog_commands() {
     }
 }
 
-#[test]
-fn is_reserved_stage_id_returns_true_for_reserved() {
-    assert!(is_reserved_stage_id("branch-gen"));
-    assert!(is_reserved_stage_id("branch"));
-    assert!(is_reserved_stage_id("plan-validation"));
-    assert!(is_reserved_stage_id("code-review-fix"));
-    assert!(is_reserved_stage_id("add-and-commit"));
-}
-
-#[test]
-fn is_reserved_stage_id_returns_false_for_commands() {
-    assert!(!is_reserved_stage_id("cleanup"));
-    assert!(!is_reserved_stage_id("deslop"));
-    assert!(!is_reserved_stage_id("my-custom-cmd"));
-}
-
 /// Regression: a custom command ID that collides with an internally expanded
 /// stage name must be deduplicated to prevent broken resume logic.
 #[test]
@@ -641,4 +625,32 @@ fn normalized_legacy_resume_skips_core_stages() {
             core, core_idx, resume, resume_idx,
         );
     }
+}
+
+// -- WorkflowMode tests --
+
+#[test]
+fn workflow_mode_equality() {
+    assert_eq!(WorkflowMode::AutoPilot, WorkflowMode::AutoPilot);
+    assert_eq!(WorkflowMode::MultiStage, WorkflowMode::MultiStage);
+    assert_ne!(WorkflowMode::AutoPilot, WorkflowMode::MultiStage);
+}
+
+#[test]
+fn workflow_mode_copy() {
+    let mode = WorkflowMode::AutoPilot;
+    let copied = mode;
+    assert_eq!(mode, copied);
+}
+
+#[test]
+fn workflow_mode_debug_format() {
+    assert_eq!(format!("{:?}", WorkflowMode::AutoPilot), "AutoPilot");
+    assert_eq!(format!("{:?}", WorkflowMode::MultiStage), "MultiStage");
+}
+
+#[test]
+fn workflow_mode_reexported_from_mod() {
+    use super::WorkflowMode as ReexportedMode;
+    assert_eq!(ReexportedMode::AutoPilot, WorkflowMode::AutoPilot);
 }

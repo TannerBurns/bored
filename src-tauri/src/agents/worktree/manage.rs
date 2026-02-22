@@ -142,7 +142,7 @@ pub fn is_our_worktree(worktree_path: &str) -> bool {
 
     // Check if the path is under our worktrees directory
     // Also handle /private/var vs /var symlink on macOS
-    worktree_path.contains("agent-kanban/worktrees/")
+    worktree_path.contains("bored/worktrees/")
         || worktree_path.starts_with(&*our_base_str)
         || worktree_path
             .replace("/private/var", "/var")

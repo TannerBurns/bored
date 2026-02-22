@@ -11,6 +11,15 @@ use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::PerAgentSettings;
 use crate::db::Database;
 
+/// Whether the orchestrator runs in static multi-stage mode or agent-driven auto-pilot mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowMode {
+    /// Static pipeline: stages are configured by the user in settings.
+    MultiStage,
+    /// Agent-driven: the agent decides which commands to run after implementation.
+    AutoPilot,
+}
+
 /// Configuration for creating a WorkflowOrchestrator
 pub struct OrchestratorConfig {
     pub db: Arc<Database>,
@@ -25,8 +34,6 @@ pub struct OrchestratorConfig {
     pub agent_id: String,
     /// Agent provider for agent-agnostic dispatch.
     pub provider: Arc<dyn AgentProvider>,
-    pub api_url: String,
-    pub api_token: String,
     pub cancel_handles: CancelHandlesMap,
     /// The branch name to use (if already known). If None, orchestrator will generate one.
     pub worktree_branch: Option<String>,
@@ -71,13 +78,6 @@ pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
     "branch-gen", "branch", "plan-validation",
     "code-review-fix", "add-and-commit",
 ];
-
-/// Returns true when `id` must not be used as a custom command identifier
-/// because it collides with an internally expanded stage name.
-#[cfg(test)]
-pub fn is_reserved_stage_id(id: &str) -> bool {
-    RESERVED_INTERNAL_STAGES.contains(&id)
-}
 
 /// Expand a frontend stage key into its backend execution stage names.
 /// Required stages and code-review have special mappings; all other commands

@@ -53,15 +53,6 @@ impl AgentProcess {
         CancelHandle::new(self.cancelled.clone())
     }
 
-    pub fn wait_with_output(
-        self,
-        timeout: Option<Duration>,
-        on_log: Option<Arc<LogCallback>>,
-    ) -> Result<(Option<i32>, RunOutcome), SpawnError> {
-        let (exit_code, outcome, _, _) = self.wait_with_capture(timeout, on_log, false)?;
-        Ok((exit_code, outcome))
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn wait_with_capture(
         mut self,

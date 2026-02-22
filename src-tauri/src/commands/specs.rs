@@ -57,24 +57,6 @@ pub async fn create_spec(
 }
 
 #[tauri::command]
-pub async fn get_specs(
-    board_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Vec<Spec>, String> {
-    db.get_specs(&board_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_all_specs(db: State<'_, Arc<Database>>) -> Result<Vec<Spec>, String> {
-    db.get_all_specs().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_spec(id: String, db: State<'_, Arc<Database>>) -> Result<Spec, String> {
-    db.get_spec(&id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn update_spec(
     id: String,
     name: Option<String>,
@@ -342,16 +324,6 @@ pub async fn get_spec_versions(
     db.get_spec_versions(&spec_id).map_err(|e| e.to_string())
 }
 
-/// Get the latest version for a spec
-#[tauri::command]
-pub async fn get_latest_spec_version(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Option<SpecVersion>, String> {
-    db.get_latest_spec_version(&spec_id)
-        .map_err(|e| e.to_string())
-}
-
 /// Get a spec with its latest version
 #[tauri::command]
 pub async fn get_spec_with_version(
@@ -419,7 +391,7 @@ pub async fn start_planner(
     input: StartPlannerInput,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_conn: State<'_, ApiConnState>,
+    _api_conn: State<'_, ApiConnState>,
     agent_settings: State<'_, AgentSettingsManager>,
     registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
@@ -450,8 +422,6 @@ pub async fn start_planner(
         agent_id: agent_id.clone(),
         provider: provider.clone(),
         repo_path: PathBuf::from(&project.path),
-        api_url: api_conn.url.clone(),
-        api_token: api_conn.token.clone(),
         agent_config,
         timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(300),
         max_retries: input.max_retries.unwrap_or(2),
@@ -475,7 +445,7 @@ pub async fn execute_plan(
     spec_id: String,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
-    api_conn: State<'_, ApiConnState>,
+    _api_conn: State<'_, ApiConnState>,
     agent_settings: State<'_, AgentSettingsManager>,
     registry: State<'_, AgentRegistry>,
 ) -> Result<Vec<String>, String> {
@@ -507,8 +477,6 @@ pub async fn execute_plan(
         agent_id,
         provider,
         repo_path: PathBuf::from(&project.path),
-        api_url: api_conn.url.clone(),
-        api_token: api_conn.token.clone(),
         agent_config,
         timeout_secs: 300, // Not used for execution
         max_retries: 0,    // Not used for execution
@@ -605,21 +573,6 @@ pub async fn start_spec_work(
     });
 
     Ok(started_epic_ids)
-}
-
-/// Get progress stats for the latest spec version's epics
-#[tauri::command]
-pub async fn get_spec_progress(
-    spec_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<SpecProgress, String> {
-    let version = db
-        .get_latest_spec_version(&spec_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "No version found for spec".to_string())?;
-
-    db.get_spec_version_progress(&version.id)
-        .map_err(|e| e.to_string())
 }
 
 /// Get progress stats for a specific spec version's epics
@@ -932,12 +885,3 @@ pub async fn get_spec_cost(
         .map_err(|e| e.to_string())
 }
 
-/// Get aggregated cost for a specific spec version.
-#[tauri::command]
-pub async fn get_spec_version_cost(
-    version_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<crate::agents::AggregatedCost, String> {
-    db.get_spec_version_cost(&version_id)
-        .map_err(|e| e.to_string())
-}

@@ -125,6 +125,26 @@ describe('getDefaultConfigForAgent', () => {
     const config = getDefaultConfigForAgent('claude');
     expect(config).not.toHaveProperty('workflowPreset');
   });
+
+  it('defaults autoPilotEnabled to false for claude', () => {
+    const config = getDefaultConfigForAgent('claude');
+    expect(config.autoPilotEnabled).toBe(false);
+  });
+
+  it('defaults autoPilotEnabled to false for cursor', () => {
+    const config = getDefaultConfigForAgent('cursor');
+    expect(config.autoPilotEnabled).toBe(false);
+  });
+
+  it('defaults autoPilotEnabled to false for codex', () => {
+    const config = getDefaultConfigForAgent('codex');
+    expect(config.autoPilotEnabled).toBe(false);
+  });
+
+  it('defaults autoPilotEnabled to false for unknown agent', () => {
+    const config = getDefaultConfigForAgent('unknown-agent');
+    expect(config.autoPilotEnabled).toBe(false);
+  });
 });
 
 describe('constants', () => {

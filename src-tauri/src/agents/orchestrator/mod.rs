@@ -1,13 +1,18 @@
-//! Multi-stage workflow orchestrator for chaining agent CLI calls.
+//! Workflow orchestrator for chaining agent CLI calls.
+//!
+//! Supports two modes:
+//! - **Multi-stage**: static pipeline configured by the user in settings
+//! - **Auto-pilot**: agent dynamically decides which commands to run after implementation
 //!
 //! This module is split into focused submodules:
-//! - `config`: Configuration types and constants
+//! - `config`: Configuration types, constants, and `WorkflowMode` enum
+//! - `auto_pilot`: Command-selection prompt and response parsing for auto-pilot mode
 //! - `code_review`: Code review parsing functions
 //! - `comments`: Comment management methods
 //! - `ticket`: Ticket movement and lifecycle
 //! - `stages`: Stage execution and retry logic
 //! - `branch`: Branch creation and management
-//! - `execute`: Main workflow execution
+//! - `execute`: Main workflow execution and mode dispatch
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +27,7 @@ use crate::db::models::Task;
 use crate::db::{Database, Ticket};
 
 // Submodules
+mod auto_pilot;
 mod branch;
 mod code_review;
 mod comments;
@@ -30,16 +36,43 @@ mod execute;
 mod stages;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod integration_tests;
 mod ticket;
 
 // Public re-exports
 pub use code_review::{extract_issues_section, parse_code_review_issues};
-pub use config::{OrchestratorConfig, StageEvent, MULTI_STAGE_WORKFLOW};
+pub use config::{OrchestratorConfig, StageEvent, WorkflowMode, MULTI_STAGE_WORKFLOW};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
 
-/// Orchestrates a multi-stage workflow for a ticket
+/// Abstracts the agent spawn call so tests can inject a mock.
+pub(super) trait StageRunner: Send + Sync {
+    fn run(
+        &self,
+        provider: &dyn AgentProvider,
+        config: &super::AgentRunConfig,
+        on_log: Option<std::sync::Arc<super::LogCallback>>,
+        on_spawn: Option<super::spawner::OnSpawnCallback>,
+    ) -> Result<super::AgentRunResult, super::spawner::SpawnError>;
+}
+
+struct DefaultStageRunner;
+
+impl StageRunner for DefaultStageRunner {
+    fn run(
+        &self,
+        provider: &dyn AgentProvider,
+        config: &super::AgentRunConfig,
+        on_log: Option<std::sync::Arc<super::LogCallback>>,
+        on_spawn: Option<super::spawner::OnSpawnCallback>,
+    ) -> Result<super::AgentRunResult, super::spawner::SpawnError> {
+        super::spawner::run_agent_via_provider_with_cancel(provider, config, on_log, on_spawn)
+    }
+}
+
+/// Orchestrates a workflow for a ticket (either static multi-stage or agent-driven auto-pilot).
 pub struct WorkflowOrchestrator {
     db: Arc<Database>,
     window: Option<Window>,
@@ -53,8 +86,6 @@ pub struct WorkflowOrchestrator {
     agent_id: String,
     /// Agent provider for agent-agnostic dispatch (text extraction, cost).
     provider: Arc<dyn AgentProvider>,
-    api_url: String,
-    api_token: String,
     /// Shared map of cancel handles for running agents
     cancel_handles: CancelHandlesMap,
     /// Flag to indicate if the workflow has been cancelled
@@ -85,6 +116,9 @@ pub struct WorkflowOrchestrator {
     stage_order: Vec<String>,
     /// Full execution order (backend stage names), built once from `stage_order` for resume logic.
     full_execution_order: Vec<String>,
+    workflow_mode: config::WorkflowMode,
+    auto_pilot_model: String,
+    stage_runner: Arc<dyn StageRunner>,
 }
 
 impl WorkflowOrchestrator {
@@ -146,7 +180,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -157,6 +191,8 @@ impl WorkflowOrchestrator {
                     ws.stage_timeout_hours as u64 * 3600,
                     ws.stage_max_retries,
                     order,
+                    ws.auto_pilot_enabled,
+                    ws.auto_pilot_model.clone(),
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -166,8 +202,16 @@ impl WorkflowOrchestrator {
                     config.stage_timeout_secs,
                     config.stage_max_retries,
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
+                    false,
+                    crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
                 )
             };
+
+        let workflow_mode = if auto_pilot_enabled {
+            config::WorkflowMode::AutoPilot
+        } else {
+            config::WorkflowMode::MultiStage
+        };
 
         drop(per_agent);
 
@@ -186,6 +230,22 @@ impl WorkflowOrchestrator {
             }
         });
 
+        tracing::info!(
+            "WorkflowOrchestrator mode: {:?} for agent '{}'",
+            workflow_mode, config.agent_id,
+        );
+
+        let mode_str = match workflow_mode {
+            config::WorkflowMode::AutoPilot => "auto_pilot",
+            config::WorkflowMode::MultiStage => "multi_stage",
+        };
+        if let Err(e) = config.db.set_run_metadata(
+            &config.parent_run_id,
+            &serde_json::json!({ "workflow_mode": mode_str }),
+        ) {
+            tracing::warn!("Failed to set workflow_mode metadata on parent run: {}", e);
+        }
+
         Self {
             db: config.db,
             window: config.window,
@@ -196,8 +256,6 @@ impl WorkflowOrchestrator {
             repo_path: config.repo_path,
             agent_id: config.agent_id,
             provider: config.provider,
-            api_url: config.api_url,
-            api_token: config.api_token,
             cancel_handles: config.cancel_handles,
             cancelled: Arc::new(AtomicBool::new(false)),
             worktree_branch: config.worktree_branch,
@@ -212,7 +270,15 @@ impl WorkflowOrchestrator {
             stage_configs,
             stage_order,
             full_execution_order,
+            workflow_mode,
+            auto_pilot_model,
+            stage_runner: Arc::new(DefaultStageRunner),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_stage_runner(&mut self, runner: Arc<dyn StageRunner>) {
+        self.stage_runner = runner;
     }
 
     /// Check if a stage should be skipped due to resumption.
