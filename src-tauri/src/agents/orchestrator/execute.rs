@@ -284,7 +284,12 @@ impl WorkflowOrchestrator {
     async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
         if self.should_skip_stage("implement") {
             tracing::info!("Skipping implement stage (resuming from later stage)");
-            return Ok(String::new());
+            return Ok(self.get_previous_stage_output("implement").unwrap_or_else(|| {
+                tracing::warn!(
+                    "No saved implement output found - command selection will proceed without implementation context"
+                );
+                String::new()
+            }));
         }
 
         if self.is_cancelled() {
