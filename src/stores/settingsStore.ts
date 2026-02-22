@@ -439,9 +439,12 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 15) {
           const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
           if (configs) {
-            for (const cfg of Object.values(configs)) {
+            for (const [agentId, cfg] of Object.entries(configs)) {
               if (cfg.autoPilotEnabled === undefined) {
                 cfg.autoPilotEnabled = false;
+              }
+              if (cfg.autoPilotModel === undefined) {
+                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'opus-4.6';
               }
             }
           }
