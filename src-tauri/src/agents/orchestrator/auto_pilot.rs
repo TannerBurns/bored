@@ -68,9 +68,30 @@ impl WorkflowOrchestrator {
     ) -> Result<Vec<CommandSelection>, String> {
         let available = discover_available_commands(&self.repo_path, &*self.provider);
 
+        let (effective_title, effective_description, ticket_context) = match &self.task {
+            Some(task) => {
+                let title = task.title.as_deref().unwrap_or(&self.ticket.title);
+                let desc = task.content.as_deref().unwrap_or(&self.ticket.description_md);
+                let context = if task.content.as_deref() != Some(&self.ticket.description_md)
+                    && !self.ticket.description_md.is_empty()
+                {
+                    Some(self.ticket.description_md.as_str())
+                } else {
+                    None
+                };
+                (title, desc, context)
+            }
+            None => (
+                self.ticket.title.as_str(),
+                self.ticket.description_md.as_str(),
+                None,
+            ),
+        };
+
         let prompt = generate_command_selection_prompt(
-            &self.ticket.title,
-            &self.ticket.description_md,
+            effective_title,
+            effective_description,
+            ticket_context,
             plan,
             impl_summary,
             &available,
@@ -105,6 +126,7 @@ impl WorkflowOrchestrator {
 fn generate_command_selection_prompt(
     ticket_title: &str,
     ticket_description: &str,
+    ticket_context: Option<&str>,
     plan: &str,
     impl_summary: &str,
     available_commands: &[String],
@@ -118,6 +140,13 @@ fn generate_command_selection_prompt(
     for &(friendly, _, _) in MODEL_ENTRIES {
         models_list.push_str(&format!("- `{}`\n", friendly));
     }
+
+    let ticket_context_section = match ticket_context {
+        Some(ctx) if !ctx.is_empty() => {
+            format!("## Original Ticket Context\n\n{}\n\n", ctx)
+        }
+        _ => String::new(),
+    };
 
     let plan_section = if plan.is_empty() {
         String::new()
@@ -142,7 +171,7 @@ fn generate_command_selection_prompt(
 **Title:** {ticket_title}
 **Description:** {ticket_description}
 
-{plan_section}{impl_section}## Available Commands
+{ticket_context_section}{plan_section}{impl_section}## Available Commands
 
 {commands_list}
 ## Available Models
@@ -459,7 +488,7 @@ These will ensure quality."#;
     fn prompt_includes_ticket_info() {
         let cmds = test_commands();
         let prompt =
-            generate_command_selection_prompt("Fix the bug", "There is a null pointer", "", "", &cmds);
+            generate_command_selection_prompt("Fix the bug", "There is a null pointer", None, "", "", &cmds);
         assert!(prompt.contains("Fix the bug"));
         assert!(prompt.contains("There is a null pointer"));
     }
@@ -467,7 +496,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_available_commands() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `code-review`"));
         assert!(prompt.contains("- `deslop`"));
@@ -477,7 +506,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_custom_commands() {
         let cmds = vec!["cleanup".to_string(), "my-custom-deploy".to_string()];
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `my-custom-deploy`"));
     }
@@ -485,7 +514,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_example_workflows() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(prompt.contains("Quick bug fix"));
         assert!(prompt.contains("Standard feature"));
         assert!(prompt.contains("Comprehensive / production-ready"));
@@ -496,7 +525,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_user_intent_guidance() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(prompt.contains("Pay close attention to the user's intent"));
         assert!(prompt.contains("comprehensive"));
         assert!(prompt.contains("quick"));
@@ -506,7 +535,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_models() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(prompt.contains("`opus-4.6`"));
         assert!(prompt.contains("`sonnet-4.6`"));
     }
@@ -514,7 +543,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_omits_empty_plan_and_impl() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
         assert!(!prompt.contains("## Plan"));
         assert!(!prompt.contains("## Implementation Summary"));
     }
@@ -523,12 +552,47 @@ These will ensure quality."#;
     fn prompt_includes_plan_and_impl_when_provided() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "T", "D", "Step 1: do X", "Changed file Y", &cmds,
+            "T", "D", None, "Step 1: do X", "Changed file Y", &cmds,
         );
         assert!(prompt.contains("## Plan"));
         assert!(prompt.contains("Step 1: do X"));
         assert!(prompt.contains("## Implementation Summary"));
         assert!(prompt.contains("Changed file Y"));
+    }
+
+    #[test]
+    fn prompt_uses_task_title_and_content() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt(
+            "Add integration tests",
+            "Write integration tests for the OAuth2 flow",
+            Some("Implement OAuth2 login with Google and GitHub providers"),
+            "",
+            "",
+            &cmds,
+        );
+        assert!(prompt.contains("Add integration tests"));
+        assert!(prompt.contains("Write integration tests for the OAuth2 flow"));
+        assert!(prompt.contains("## Original Ticket Context"));
+        assert!(prompt.contains("Implement OAuth2 login with Google and GitHub providers"));
+    }
+
+    #[test]
+    fn prompt_omits_ticket_context_when_none() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt(
+            "Fix the bug", "There is a null pointer", None, "", "", &cmds,
+        );
+        assert!(!prompt.contains("## Original Ticket Context"));
+    }
+
+    #[test]
+    fn prompt_omits_ticket_context_when_empty() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt(
+            "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds,
+        );
+        assert!(!prompt.contains("## Original Ticket Context"));
     }
 
     // ── discover_available_commands ──────────────────────────────
