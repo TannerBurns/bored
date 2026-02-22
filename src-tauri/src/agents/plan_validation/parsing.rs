@@ -117,4 +117,44 @@ That's my assessment."#;
         let result = parse_validation_response(response);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn parse_validation_response_from_code_fence() {
+        let response = r#"Here is my analysis:
+```json
+{"needs_clarification": true, "reason": "From code fence"}
+```
+Done."#;
+        let result = parse_validation_response(response).unwrap();
+        assert!(result.needs_clarification);
+        assert_eq!(result.reason, "From code fence");
+    }
+
+    #[test]
+    fn parse_validation_response_bracket_finding_fallback() {
+        let response = r#"```json
+not valid json inside fence!
+```
+Anyway {"needs_clarification": false, "reason": "Found via bracket"} here"#;
+        let result = parse_validation_response(response).unwrap();
+        assert!(!result.needs_clarification);
+        assert_eq!(result.reason, "Found via bracket");
+    }
+
+    #[test]
+    fn parse_validation_response_code_fence_camel_case() {
+        let response = "```json\n{\"needsClarification\": true, \"reason\": \"Fenced camel\"}\n```";
+        let result = parse_validation_response(response).unwrap();
+        assert!(result.needs_clarification);
+        assert_eq!(result.reason, "Fenced camel");
+    }
+
+    #[test]
+    fn parse_validation_response_error_truncates_long_output() {
+        let long_output = "x".repeat(500);
+        let result = parse_validation_response(&long_output);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.len() < 500, "Error message should truncate long input");
+    }
 }

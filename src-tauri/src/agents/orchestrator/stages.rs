@@ -8,7 +8,6 @@ use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::generate_command_prompt_with_providers;
-use crate::agents::spawner::run_agent_via_provider_with_cancel;
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -185,9 +184,10 @@ impl WorkflowOrchestrator {
         });
 
         let provider = self.provider.clone();
+        let runner = self.stage_runner.clone();
         let start_time = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
-            run_agent_via_provider_with_cancel(&*provider, &config, Some(on_log), Some(on_spawn))
+            runner.run(&*provider, &config, Some(on_log), Some(on_spawn))
         })
         .await
         .map_err(|e| format!("Stage task failed: {}", e))?

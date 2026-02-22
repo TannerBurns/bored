@@ -36,6 +36,8 @@ mod execute;
 mod stages;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod integration_tests;
 mod ticket;
 
 // Public re-exports
@@ -44,6 +46,31 @@ pub use config::{OrchestratorConfig, StageEvent, WorkflowMode, MULTI_STAGE_WORKF
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
+
+/// Abstracts the agent spawn call so tests can inject a mock.
+pub(super) trait StageRunner: Send + Sync {
+    fn run(
+        &self,
+        provider: &dyn AgentProvider,
+        config: &super::AgentRunConfig,
+        on_log: Option<std::sync::Arc<super::LogCallback>>,
+        on_spawn: Option<super::spawner::OnSpawnCallback>,
+    ) -> Result<super::AgentRunResult, super::spawner::SpawnError>;
+}
+
+struct DefaultStageRunner;
+
+impl StageRunner for DefaultStageRunner {
+    fn run(
+        &self,
+        provider: &dyn AgentProvider,
+        config: &super::AgentRunConfig,
+        on_log: Option<std::sync::Arc<super::LogCallback>>,
+        on_spawn: Option<super::spawner::OnSpawnCallback>,
+    ) -> Result<super::AgentRunResult, super::spawner::SpawnError> {
+        super::spawner::run_agent_via_provider_with_cancel(provider, config, on_log, on_spawn)
+    }
+}
 
 /// Orchestrates a workflow for a ticket (either static multi-stage or agent-driven auto-pilot).
 pub struct WorkflowOrchestrator {
@@ -91,8 +118,8 @@ pub struct WorkflowOrchestrator {
     stage_order: Vec<String>,
     /// Full execution order (backend stage names), built once from `stage_order` for resume logic.
     full_execution_order: Vec<String>,
-    /// Whether this workflow runs in multi-stage or auto-pilot mode.
     workflow_mode: config::WorkflowMode,
+    stage_runner: Arc<dyn StageRunner>,
 }
 
 impl WorkflowOrchestrator {
@@ -207,8 +234,6 @@ impl WorkflowOrchestrator {
             workflow_mode, config.agent_id,
         );
 
-        // Store workflow mode in parent run metadata so the frontend can display
-        // "(Auto-Pilot)" vs "(Multi-Stage)".
         let mode_str = match workflow_mode {
             config::WorkflowMode::AutoPilot => "auto_pilot",
             config::WorkflowMode::MultiStage => "multi_stage",
@@ -247,7 +272,13 @@ impl WorkflowOrchestrator {
             stage_order,
             full_execution_order,
             workflow_mode,
+            stage_runner: Arc::new(DefaultStageRunner),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_stage_runner(&mut self, runner: Arc<dyn StageRunner>) {
+        self.stage_runner = runner;
     }
 
     /// Check if a stage should be skipped due to resumption.

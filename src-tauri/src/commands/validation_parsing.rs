@@ -1,5 +1,6 @@
 //! Pure parsing helpers for extracting structured blocks from validation agent responses.
 
+use crate::agents::json_extraction::parse_all_json_blocks;
 use crate::db::models::FixTask;
 
 /// Parsed start_app block from agent response
@@ -18,45 +19,8 @@ pub(super) struct CreateFixTasksBlock {
     pub tasks: Vec<FixTask>,
 }
 
-/// Parse JSON blocks from the agent response.
-/// Tries fenced code blocks first (```json ... ```), then falls back to
-/// scanning for bare `{ ... }` objects on individual lines so the agent's
-/// output is recognised even without fences.
-fn parse_fenced_json_blocks(response_text: &str) -> Vec<serde_json::Value> {
-    let mut results = Vec::new();
-
-    // 1. Fenced code blocks
-    let blocks: Vec<&str> = response_text.split("```").collect();
-    for (i, segment) in blocks.iter().enumerate() {
-        if i % 2 == 0 {
-            continue;
-        }
-        let content = segment.trim_start();
-        let json_str = content.strip_prefix("json").map(|s| s.trim()).unwrap_or(content);
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-            results.push(v);
-        }
-    }
-
-    // 2. Bare JSON objects (lines starting with '{' and ending with '}')
-    if results.is_empty() {
-        for line in response_text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                    if v.is_object() {
-                        results.push(v);
-                    }
-                }
-            }
-        }
-    }
-
-    results
-}
-
 pub(super) fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
+    for v in parse_all_json_blocks(response_text) {
         if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
             if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
                 let port = start_app.get("port").and_then(|p| p.as_i64()).map(|p| p as i32);
@@ -71,7 +35,7 @@ pub(super) fn parse_start_app_from_response(response_text: &str) -> Option<Start
 }
 
 pub(super) fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
+    for v in parse_all_json_blocks(response_text) {
         if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
             if let Some(command) = rc.get("command").and_then(|c| c.as_str()) {
                 return Some(RunCommandBlock {
@@ -105,7 +69,7 @@ fn parse_fix_task_from_json_obj(obj: &serde_json::Map<String, serde_json::Value>
 pub(super) fn parse_create_fix_tasks_from_response(
     response_text: &str,
 ) -> Option<CreateFixTasksBlock> {
-    for v in parse_fenced_json_blocks(response_text) {
+    for v in parse_all_json_blocks(response_text) {
         if let Some(task_obj) = v.get("create_fix_task").and_then(|s| s.as_object()) {
             return Some(CreateFixTasksBlock {
                 tasks: vec![parse_fix_task_from_json_obj(task_obj)],
@@ -129,75 +93,6 @@ pub(super) fn parse_create_fix_tasks_from_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- parse_fenced_json_blocks ---
-
-    #[test]
-    fn fenced_json_extracts_from_code_block() {
-        let text = r#"Here is the plan:
-```json
-{ "start_app": { "command": "npm run dev" } }
-```
-Done."#;
-        let blocks = parse_fenced_json_blocks(text);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].get("start_app").is_some());
-    }
-
-    #[test]
-    fn fenced_json_extracts_multiple_blocks() {
-        let text = r#"Step 1:
-```json
-{ "run_command": { "command": "npm install" } }
-```
-Step 2:
-```json
-{ "start_app": { "command": "npm run dev" } }
-```"#;
-        let blocks = parse_fenced_json_blocks(text);
-        assert_eq!(blocks.len(), 2);
-    }
-
-    #[test]
-    fn fenced_json_falls_back_to_bare_json() {
-        let text = r#"I will start the app now.
-{ "start_app": { "command": "npm run dev", "port": 3000 } }
-That should work."#;
-        let blocks = parse_fenced_json_blocks(text);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].get("start_app").is_some());
-    }
-
-    #[test]
-    fn fenced_json_bare_fallback_skips_non_object() {
-        let text = "42\n\"hello\"";
-        let blocks = parse_fenced_json_blocks(text);
-        assert!(blocks.is_empty());
-    }
-
-    #[test]
-    fn fenced_json_no_blocks_returns_empty() {
-        let blocks = parse_fenced_json_blocks("Just some text with no JSON.");
-        assert!(blocks.is_empty());
-    }
-
-    #[test]
-    fn fenced_json_ignores_invalid_json_in_fence() {
-        let text = "```json\n{ not valid }\n```";
-        let blocks = parse_fenced_json_blocks(text);
-        assert!(blocks.is_empty());
-    }
-
-    #[test]
-    fn fenced_json_prefers_fenced_over_bare() {
-        let text = r#"```json
-{ "a": 1 }
-```
-{ "b": 2 }"#;
-        let blocks = parse_fenced_json_blocks(text);
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].get("a").is_some());
-    }
 
     // --- parse_start_app_from_response ---
 

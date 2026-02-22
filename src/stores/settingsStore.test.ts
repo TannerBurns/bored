@@ -392,10 +392,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 14', () => {
+    it('uses version 15', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(14);
+      expect(options.version).toBe(15);
     });
   });
 
@@ -620,6 +620,126 @@ describe('useSettingsStore', () => {
     it('has correct default validationModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
       expect(config.validationModel).toBe('sonnet-4.6');
+    });
+  });
+
+  describe('auto-pilot settings', () => {
+    it('has autoPilotEnabled false by default for claude', () => {
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.autoPilotEnabled).toBe(false);
+    });
+
+    it('has autoPilotEnabled false by default for cursor', () => {
+      const config = useSettingsStore.getState().getAgentConfig('cursor');
+      expect(config.autoPilotEnabled).toBe(false);
+    });
+
+    it('has autoPilotEnabled false by default for codex', () => {
+      const config = useSettingsStore.getState().getAgentConfig('codex');
+      expect(config.autoPilotEnabled).toBe(false);
+    });
+
+    it('toggles autoPilotEnabled to true', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: true });
+      expect(useSettingsStore.getState().getAgentConfig('claude').autoPilotEnabled).toBe(true);
+    });
+
+    it('toggles autoPilotEnabled back to false', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: true });
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: false });
+      expect(useSettingsStore.getState().getAgentConfig('claude').autoPilotEnabled).toBe(false);
+    });
+
+    it('autoPilotEnabled is per-agent', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: true });
+      expect(useSettingsStore.getState().getAgentConfig('claude').autoPilotEnabled).toBe(true);
+      expect(useSettingsStore.getState().getAgentConfig('cursor').autoPilotEnabled).toBe(false);
+    });
+
+    it('does not affect other config fields when toggling autoPilot', () => {
+      const before = useSettingsStore.getState().getAgentConfig('claude');
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: true });
+      const after = useSettingsStore.getState().getAgentConfig('claude');
+      expect(after.plannerModel).toBe(before.plannerModel);
+      expect(after.stageOrder).toEqual(before.stageOrder);
+      expect(after.stageTimeoutHours).toBe(before.stageTimeoutHours);
+    });
+  });
+
+  describe('migration: version < 15 adds autoPilotEnabled', () => {
+    it('adds autoPilotEnabled: false to all agents when missing', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowStages: { plan: { enabled: true, model: 'opus-4.6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+            cursor: {
+              workflowStages: { plan: { enabled: true, model: 'opus-4.6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        14
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotEnabled?: boolean }>;
+      expect(configs.claude.autoPilotEnabled).toBe(false);
+      expect(configs.cursor.autoPilotEnabled).toBe(false);
+    });
+
+    it('preserves existing autoPilotEnabled: true through migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabled: true,
+              workflowStages: { plan: { enabled: true, model: 'opus-4.6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        14
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotEnabled?: boolean }>;
+      expect(configs.claude.autoPilotEnabled).toBe(true);
+    });
+  });
+
+  describe('sync payload shape (agentConfigs structure)', () => {
+    it('agentConfigs include autoPilotEnabled for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.autoPilotEnabled).toBe('boolean');
+        expect(config).toHaveProperty('workflowStages');
+        expect(config).toHaveProperty('stageOrder');
+        expect(config).toHaveProperty('diagnosticModel');
+      }
+    });
+
+    it('autoPilotEnabled survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoPilotEnabled: true });
+      const config = useSettingsStore.getState().agentConfigs.claude;
+      expect(config).toBeDefined();
+      expect(config.autoPilotEnabled).toBe(true);
+      expect(config.stageOrder).toBeDefined();
+      expect(config.workflowStages).toBeDefined();
+    });
+
+    it('agentConfigs has stageOrder array for each agent', () => {
+      const state = useSettingsStore.getState();
+      const config = state.getAgentConfig('claude');
+      expect(Array.isArray(config.stageOrder)).toBe(true);
+      expect(config.stageOrder.length).toBeGreaterThan(0);
     });
   });
 

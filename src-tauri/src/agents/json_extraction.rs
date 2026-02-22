@@ -11,11 +11,9 @@ use serde::de::DeserializeOwned;
 ///
 /// Handles ` ```json `, plain ` ``` `, and both `\n` / `\r\n` line endings.
 /// Returns the trimmed content inside the fence without parsing it.
-pub fn extract_json_code_block(text: &str) -> Option<String> {
-    // Strategy 1: ```json ... ```
+fn extract_json_code_block(text: &str) -> Option<String> {
     if let Some(fence_start) = text.find("```json") {
-        let content_start = fence_start + 7; // len("```json")
-        // Skip optional newline after the marker
+        let content_start = fence_start + 7;
         let content_start = skip_newline(text, content_start);
         if let Some(end_offset) = text[content_start..].find("```") {
             let content = text[content_start..content_start + end_offset].trim();
@@ -25,7 +23,6 @@ pub fn extract_json_code_block(text: &str) -> Option<String> {
         }
     }
 
-    // Strategy 2: plain ``` blocks that start with { or [
     for pattern in &["```\n", "```\r\n"] {
         if let Some(fence_start) = text.find(pattern) {
             let content_start = fence_start + pattern.len();
@@ -64,27 +61,6 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     }
 }
 
-/// Extract the first JSON array (`[...]`) from agent text.
-///
-/// Tries code-fence extraction first, then falls back to bracket-finding
-/// (first `[` to last `]`).
-pub fn extract_json_array(text: &str) -> Option<String> {
-    if let Some(block) = extract_json_code_block(text) {
-        if block.starts_with('[') {
-            return Some(block);
-        }
-    }
-
-    let trimmed = text.trim();
-    let start = trimmed.find('[')?;
-    let end = trimmed.rfind(']')?;
-    if end > start {
-        Some(trimmed[start..=end].to_string())
-    } else {
-        None
-    }
-}
-
 /// Parse a JSON response of type `T` from agent text.
 ///
 /// Tries strategies in order:
@@ -96,19 +72,16 @@ pub fn extract_json_array(text: &str) -> Option<String> {
 pub fn parse_json_response<T: DeserializeOwned>(text: &str) -> Option<T> {
     let trimmed = text.trim();
 
-    // 1. Direct parse
     if let Ok(val) = serde_json::from_str::<T>(trimmed) {
         return Some(val);
     }
 
-    // 2. Code-fence extraction
     if let Some(block) = extract_json_code_block(trimmed) {
         if let Ok(val) = serde_json::from_str::<T>(&block) {
             return Some(val);
         }
     }
 
-    // 3. Bracket-finding -- try object first, then array
     if let Some(obj) = bracket_extract(trimmed, '{', '}') {
         if let Ok(val) = serde_json::from_str::<T>(&obj) {
             return Some(val);
@@ -121,6 +94,59 @@ pub fn parse_json_response<T: DeserializeOwned>(text: &str) -> Option<T> {
     }
 
     None
+}
+
+/// Extract the content of *all* markdown code fences from the text.
+///
+/// Like `extract_json_code_block` but returns every fenced block instead of
+/// just the first. Handles both ` ```json ` and plain ` ``` ` fences.
+fn extract_all_json_code_blocks(text: &str) -> Vec<String> {
+    let segments: Vec<&str> = text.split("```").collect();
+    let mut results = Vec::new();
+    for (i, segment) in segments.iter().enumerate() {
+        if i % 2 == 0 {
+            continue;
+        }
+        let content = segment.trim_start();
+        let json_str = content
+            .strip_prefix("json")
+            .map(|s| s.trim())
+            .unwrap_or(content.trim());
+        if !json_str.is_empty() {
+            results.push(json_str.to_string());
+        }
+    }
+    results
+}
+
+/// Parse all JSON blocks from agent text, returning parsed `serde_json::Value`s.
+///
+/// Tries fenced code blocks first (` ```json ... ``` `). If no valid JSON is
+/// found in fences, falls back to scanning for bare `{ ... }` JSON objects on
+/// individual lines. This covers agents that omit fences.
+pub fn parse_all_json_blocks(text: &str) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+
+    for block in extract_all_json_code_blocks(text) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&block) {
+            results.push(v);
+        }
+    }
+
+    if results.is_empty() {
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('{') && trimmed.ends_with('}') {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                    if v.is_object() {
+                        results.push(v);
+                    }
+                }
+            }
+        }
+    }
+
+    results
 }
 
 fn bracket_extract(text: &str, open: char, close: char) -> Option<String> {
@@ -214,25 +240,6 @@ mod tests {
             extract_json_object(text),
             Some("{\"correct\":true}".to_string())
         );
-    }
-
-    // -- extract_json_array --
-
-    #[test]
-    fn array_from_code_fence() {
-        let text = "```json\n[1,2,3]\n```";
-        assert_eq!(extract_json_array(text), Some("[1,2,3]".to_string()));
-    }
-
-    #[test]
-    fn array_from_preamble() {
-        let text = "Result:\n[{\"a\":1}]\nDone";
-        assert_eq!(extract_json_array(text), Some("[{\"a\":1}]".to_string()));
-    }
-
-    #[test]
-    fn array_none_when_absent() {
-        assert_eq!(extract_json_array("no arrays"), None);
     }
 
     // -- parse_json_response --
@@ -334,12 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn array_falls_through_when_fence_has_object() {
-        let text = "stray [1,2,3] text\n```json\n{\"obj\":true}\n```";
-        assert_eq!(extract_json_array(text), Some("[1,2,3]".to_string()));
-    }
-
-    #[test]
     fn parse_falls_back_to_bracket_when_fence_invalid() {
         #[derive(serde::Deserialize)]
         struct S {
@@ -395,12 +396,114 @@ mod tests {
     }
 
     #[test]
-    fn extract_array_empty_brackets() {
-        assert_eq!(extract_json_array("[]"), Some("[]".to_string()));
+    fn extract_object_empty_braces() {
+        assert_eq!(extract_json_object("{}"), Some("{}".to_string()));
+    }
+
+    // -- extract_all_json_code_blocks --
+
+    #[test]
+    fn all_blocks_single_fence() {
+        let text = "```json\n{\"a\":1}\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks, vec!["{\"a\":1}"]);
     }
 
     #[test]
-    fn extract_object_empty_braces() {
-        assert_eq!(extract_json_object("{}"), Some("{}".to_string()));
+    fn all_blocks_multiple_fences() {
+        let text = "Step 1:\n```json\n{\"a\":1}\n```\nStep 2:\n```json\n{\"b\":2}\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].contains("\"a\""));
+        assert!(blocks[1].contains("\"b\""));
+    }
+
+    #[test]
+    fn all_blocks_plain_fence() {
+        let text = "```\n{\"x\":1}\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks, vec!["{\"x\":1}"]);
+    }
+
+    #[test]
+    fn all_blocks_empty_fence_skipped() {
+        let text = "```json\n\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn all_blocks_no_fences() {
+        let blocks = extract_all_json_code_blocks("no fences here");
+        assert!(blocks.is_empty());
+    }
+
+    // -- parse_all_json_blocks --
+
+    #[test]
+    fn all_json_blocks_from_fenced() {
+        let text = r#"Here is the plan:
+```json
+{ "start_app": { "command": "npm run dev" } }
+```
+Done."#;
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].get("start_app").is_some());
+    }
+
+    #[test]
+    fn all_json_blocks_multiple() {
+        let text = r#"Step 1:
+```json
+{ "run_command": { "command": "npm install" } }
+```
+Step 2:
+```json
+{ "start_app": { "command": "npm run dev" } }
+```"#;
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn all_json_blocks_bare_fallback() {
+        let text = r#"I will start the app now.
+{ "start_app": { "command": "npm run dev", "port": 3000 } }
+That should work."#;
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].get("start_app").is_some());
+    }
+
+    #[test]
+    fn all_json_blocks_bare_skips_non_object() {
+        let text = "42\n\"hello\"";
+        let blocks = parse_all_json_blocks(text);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn all_json_blocks_no_json_returns_empty() {
+        let blocks = parse_all_json_blocks("Just some text with no JSON.");
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn all_json_blocks_ignores_invalid_in_fence() {
+        let text = "```json\n{ not valid }\n```";
+        let blocks = parse_all_json_blocks(text);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn all_json_blocks_prefers_fenced_over_bare() {
+        let text = r#"```json
+{ "a": 1 }
+```
+{ "b": 2 }"#;
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].get("a").is_some());
     }
 }
