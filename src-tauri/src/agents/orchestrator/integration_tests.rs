@@ -103,6 +103,7 @@ fn make_workflow_settings(auto_pilot: bool, synced: bool) -> Arc<Mutex<PerAgentS
         "stub".to_string(),
         WorkflowSettings {
             auto_pilot_enabled: auto_pilot,
+            auto_pilot_model: crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
             stage_configs: default_stages,
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,

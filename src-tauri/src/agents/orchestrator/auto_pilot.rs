@@ -80,7 +80,7 @@ impl WorkflowOrchestrator {
             .run_stage_with_model(
                 "command-selection",
                 &prompt,
-                &self.get_stage_model("implement"),
+                &self.auto_pilot_model,
             )
             .await;
 

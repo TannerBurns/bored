@@ -25,6 +25,9 @@ pub struct WorkflowSettings {
     /// When true, the agent dynamically decides which commands to run after implementation.
     #[serde(default)]
     pub auto_pilot_enabled: bool,
+    /// Model used for the auto-pilot command-selection call.
+    #[serde(default = "default_auto_pilot_model")]
+    pub auto_pilot_model: String,
     /// Per-stage configuration (enabled/disabled + model selection).
     /// Keys are stage names (e.g. "plan", "implement", "code-review", "deslop", etc.).
     pub stage_configs: HashMap<String, StageConfig>,
@@ -53,10 +56,15 @@ fn default_diagnostic_model() -> String {
     crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string()
 }
 
+fn default_auto_pilot_model() -> String {
+    crate::agents::models::DEFAULT_STAGE_MODEL.to_string()
+}
+
 impl Default for WorkflowSettings {
     fn default() -> Self {
         Self {
             auto_pilot_enabled: false,
+            auto_pilot_model: default_auto_pilot_model(),
             stage_configs: HashMap::new(),
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,

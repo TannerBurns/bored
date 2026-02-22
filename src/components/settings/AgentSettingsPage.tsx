@@ -248,6 +248,21 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
           enabled={config.autoPilotEnabled}
           onChange={(v) => updateConfig(agentId, { autoPilotEnabled: v })}
         />
+        {config.autoPilotEnabled && (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-board-text">Model</p>
+              <p className="text-xs text-board-text-muted">Model used for the auto-pilot command selection call</p>
+            </div>
+            <select
+              value={config.autoPilotModel}
+              onChange={(e) => updateConfig(agentId, { autoPilotModel: e.target.value as AIModel })}
+              className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            >
+              {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className={cn('glass rounded-lg p-3 space-y-3', config.autoPilotEnabled && 'opacity-50 pointer-events-none')}>

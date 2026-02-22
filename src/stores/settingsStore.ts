@@ -356,6 +356,7 @@ export const useSettingsStore = create<SettingsState>()(
               : base.workflowStages;
             return {
               autoPilotEnabled: false,
+              autoPilotModel: base.autoPilotModel,
               workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
@@ -455,6 +456,7 @@ export const useSettingsStore = create<SettingsState>()(
 function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
     autoPilotEnabled: boolean;
+    autoPilotModel: string;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
     codeReviewMaxIterations: number;
     stageTimeoutHours: number;
@@ -465,6 +467,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
+      autoPilotModel: config.autoPilotModel ?? 'opus-4.6',
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,
