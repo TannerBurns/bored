@@ -132,7 +132,7 @@ fn extract_spec_complete_json(response: &str) -> Option<String> {
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Some(response[brace_start..brace_start + i + 1].to_string());
+                    return Some(response[brace_start..brace_start + i + c.len_utf8()].to_string());
                 }
             }
             _ => {}
