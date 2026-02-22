@@ -27,7 +27,7 @@ impl Database {
                     task_id,
                     task.ticket_id,
                     next_index,
-                    task.task_type.as_str(),
+                    task.task_type.to_db_string(),
                     task.title,
                     task.content,
                     TaskStatus::Pending.as_str(),
@@ -587,7 +587,7 @@ mod tests {
         let task2 = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
-                task_type: TaskType::SyncWithMain,
+                task_type: TaskType::Command("sync-with-main".to_string()),
                 title: None,
                 content: None,
             })
@@ -596,7 +596,7 @@ mod tests {
         let task3 = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
-                task_type: TaskType::AddTests,
+                task_type: TaskType::Command("add-tests".to_string()),
                 title: None,
                 content: None,
             })
@@ -911,13 +911,11 @@ mod tests {
     fn task_type_parse_roundtrip() {
         for task_type in [
             TaskType::Custom,
-            TaskType::SyncWithMain,
-            TaskType::AddTests,
-            TaskType::ReviewPolish,
-            TaskType::FixLint,
+            TaskType::Command("fix-lint".to_string()),
+            TaskType::Command("code-review".to_string()),
         ] {
-            let s = task_type.as_str();
-            let parsed = TaskType::parse(s);
+            let s = task_type.to_db_string();
+            let parsed = TaskType::parse(&s);
             assert_eq!(parsed, Some(task_type));
         }
     }
@@ -939,10 +937,9 @@ mod tests {
     #[test]
     fn task_type_display_name() {
         assert_eq!(TaskType::Custom.display_name(), "Custom Task");
-        assert_eq!(TaskType::SyncWithMain.display_name(), "Sync with Main");
-        assert_eq!(TaskType::AddTests.display_name(), "Add Tests");
-        assert_eq!(TaskType::ReviewPolish.display_name(), "Review & Polish");
-        assert_eq!(TaskType::FixLint.display_name(), "Fix Lint Errors");
+        assert_eq!(TaskType::Command("sync-with-main".to_string()).display_name(), "Sync With Main");
+        assert_eq!(TaskType::Command("add-tests".to_string()).display_name(), "Add Tests");
+        assert_eq!(TaskType::Command("code-review".to_string()).display_name(), "Code Review");
     }
 
     #[test]
@@ -963,7 +960,7 @@ mod tests {
         let task = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
-                task_type: TaskType::AddTests,
+                task_type: TaskType::Command("add-tests".to_string()),
                 title: Some("Test Task".to_string()),
                 content: Some("Test content".to_string()),
             })
@@ -973,7 +970,7 @@ mod tests {
         assert_eq!(fetched.id, task.id);
         assert_eq!(fetched.title, Some("Test Task".to_string()));
         assert_eq!(fetched.content, Some("Test content".to_string()));
-        assert_eq!(fetched.task_type, TaskType::AddTests);
+        assert_eq!(fetched.task_type, TaskType::Command("add-tests".to_string()));
     }
 
     #[test]

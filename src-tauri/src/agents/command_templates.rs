@@ -23,6 +23,7 @@ pub const COMMAND_TEMPLATES: &[&str] = &[
     "api-contract-check.md",
     "observability-pass.md",
     "integration-test.md",
+    "doc-sync.md",
 ];
 
 /// Discover all `.md` command files from a source directory.
@@ -169,6 +170,7 @@ mod tests {
         assert!(COMMAND_TEMPLATES.contains(&"api-contract-check.md"));
         assert!(COMMAND_TEMPLATES.contains(&"observability-pass.md"));
         assert!(COMMAND_TEMPLATES.contains(&"integration-test.md"));
+        assert!(COMMAND_TEMPLATES.contains(&"doc-sync.md"));
     }
 
     #[test]

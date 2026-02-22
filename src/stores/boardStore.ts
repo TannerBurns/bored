@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts, PresetTaskInfo } from '../types';
+import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts } from '../types';
 import { logger } from '../lib/logger';
 
 interface BoardState {
@@ -43,12 +43,11 @@ interface BoardState {
   // Task queue management
   loadTasks: (ticketId: string) => Promise<void>;
   createTask: (ticketId: string, title?: string, content?: string) => Promise<Task>;
-  addPresetTask: (ticketId: string, presetType: string) => Promise<Task>;
+  addCommandTask: (ticketId: string, commandId: string, displayName?: string) => Promise<Task>;
   deleteTask: (taskId: string) => Promise<void>;
   updateTask: (taskId: string, title?: string, content?: string) => Promise<Task>;
   resetTask: (taskId: string) => Promise<Task>;
   getTaskCounts: (ticketId: string) => Promise<TaskCounts>;
-  getPresetTypes: () => Promise<PresetTaskInfo[]>;
 }
 
 export const useBoardStore = create<BoardState>((set, get) => ({
@@ -283,8 +282,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     return task;
   },
 
-  addPresetTask: async (ticketId: string, presetType: string) => {
-    const task = await invoke<Task>('add_preset_task', { ticketId, presetType });
+  addCommandTask: async (ticketId: string, commandId: string, displayName?: string) => {
+    const task = await invoke<Task>('add_command_task', { ticketId, commandId, displayName });
     set((state) => ({ tasks: [...state.tasks, task] }));
     return task;
   },
@@ -314,7 +313,4 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     return invoke<TaskCounts>('get_task_counts', { ticketId });
   },
 
-  getPresetTypes: async () => {
-    return invoke<PresetTaskInfo[]>('get_preset_types');
-  },
 }));

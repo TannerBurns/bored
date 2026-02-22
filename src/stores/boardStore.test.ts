@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useBoardStore } from './boardStore';
-import type { Board, Column, Ticket, Comment, Task, TaskCounts, PresetTaskInfo } from '../types';
+import type { Board, Column, Ticket, Comment, Task, TaskCounts } from '../types';
 
 // Mock @tauri-apps/api/core
 vi.mock('@tauri-apps/api/core', () => ({
@@ -445,17 +445,32 @@ describe('useBoardStore', () => {
     });
   });
 
-  describe('addPresetTask', () => {
-    it('adds preset task via backend', async () => {
+  describe('addCommandTask', () => {
+    it('adds command task via backend', async () => {
       vi.mocked(invoke).mockResolvedValue(mockTask);
       
-      const task = await useBoardStore.getState().addPresetTask('ticket-1', 'add_tests');
+      const task = await useBoardStore.getState().addCommandTask('ticket-1', 'add-tests', 'Add Tests');
       
-      expect(invoke).toHaveBeenCalledWith('add_preset_task', {
+      expect(invoke).toHaveBeenCalledWith('add_command_task', {
         ticketId: 'ticket-1',
-        presetType: 'add_tests',
+        commandId: 'add-tests',
+        displayName: 'Add Tests',
       });
       expect(task).toEqual(mockTask);
+    });
+
+    it('adds command task without displayName', async () => {
+      vi.mocked(invoke).mockResolvedValue(mockTask);
+
+      const task = await useBoardStore.getState().addCommandTask('ticket-1', 'fix-lint');
+
+      expect(invoke).toHaveBeenCalledWith('add_command_task', {
+        ticketId: 'ticket-1',
+        commandId: 'fix-lint',
+        displayName: undefined,
+      });
+      expect(task).toEqual(mockTask);
+      expect(useBoardStore.getState().tasks).toContain(mockTask);
     });
   });
 
@@ -500,19 +515,6 @@ describe('useBoardStore', () => {
     });
   });
 
-  describe('getPresetTypes', () => {
-    it('gets preset types from backend', async () => {
-      const presets: PresetTaskInfo[] = [
-        { typeName: 'add_tests', displayName: 'Add Tests', description: 'Add test coverage' },
-      ];
-      vi.mocked(invoke).mockResolvedValue(presets);
-      
-      const result = await useBoardStore.getState().getPresetTypes();
-      
-      expect(invoke).toHaveBeenCalledWith('get_preset_types');
-      expect(result).toEqual(presets);
-    });
-  });
 
   describe('setLoading', () => {
     it('sets loading state', () => {

@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 14;
+pub const SCHEMA_VERSION: i32 = 15;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY NOT NULL,
     ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     order_index INTEGER NOT NULL,
-    task_type TEXT NOT NULL DEFAULT 'custom' CHECK(task_type IN ('custom', 'sync_with_main', 'add_tests', 'review_polish', 'fix_lint')),
+    task_type TEXT NOT NULL DEFAULT 'custom',
     title TEXT,
     content TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),

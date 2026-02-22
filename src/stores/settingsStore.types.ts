@@ -105,6 +105,7 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
   { id: 'api-contract-check', name: 'API Contract Check', description: 'Verify and fix public contract consistency across call sites', enabled: false, source: 'builtin', filename: 'api-contract-check.md' },
   { id: 'observability-pass', name: 'Observability Pass', description: 'Align logs, metrics, and tracing with repo standards', enabled: false, source: 'builtin', filename: 'observability-pass.md' },
   { id: 'integration-test', name: 'Integration Test', description: 'Add minimal integration tests for boundary-spanning changes', enabled: false, source: 'builtin', filename: 'integration-test.md' },
+  { id: 'doc-sync', name: 'Documentation Sync', description: 'Update or create documentation from branch changes', enabled: false, source: 'builtin', filename: 'doc-sync.md' },
 ];
 
 export interface AgentConfig {

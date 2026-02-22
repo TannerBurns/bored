@@ -963,6 +963,50 @@ impl Database {
                 tracing::info!("Migration to version 14 complete: previous_versions_json added");
             }
 
+            // Migration from version 14 to 15: Replace preset task_type values with command:* format
+            // and drop the CHECK constraint by recreating the tasks table.
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has the new schema.
+            if current_version > 0 && current_version < 15 {
+                tracing::info!("Running migration to version 15: task_type preset -> command:*");
+
+                conn.execute_batch(r#"
+                    CREATE TABLE tasks_v15 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        order_index INTEGER NOT NULL,
+                        task_type TEXT NOT NULL DEFAULT 'custom',
+                        title TEXT,
+                        content TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+                        run_id TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        started_at TEXT,
+                        completed_at TEXT
+                    );
+
+                    INSERT INTO tasks_v15
+                    SELECT id, ticket_id, order_index,
+                        CASE task_type
+                            WHEN 'sync_with_main' THEN 'command:sync-with-main'
+                            WHEN 'add_tests'      THEN 'command:add-tests'
+                            WHEN 'review_polish'   THEN 'command:review-polish'
+                            WHEN 'fix_lint'        THEN 'command:fix-lint'
+                            ELSE task_type
+                        END,
+                        title, content, status, run_id, created_at, started_at, completed_at
+                    FROM tasks;
+
+                    DROP TABLE tasks;
+                    ALTER TABLE tasks_v15 RENAME TO tasks;
+
+                    CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+                    CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
+                "#)?;
+
+                tracing::info!("Migration to version 15 complete: task_type values migrated");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useBoardStore } from '../../stores/boardStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { FullscreenTaskModal } from './FullscreenTaskModal';
-import type { Task, PresetTaskInfo } from '../../types';
+import { getTaskTypeLabel } from '../../types';
+import type { Task } from '../../types';
 
 const STATUS_COLORS: Record<Task['status'], string> = {
   pending: 'bg-board-text-muted',
@@ -18,42 +20,23 @@ const STATUS_LABELS: Record<Task['status'], string> = {
   failed: 'Failed',
 };
 
-const TASK_TYPE_LABELS: Record<Task['taskType'], string> = {
-  custom: 'Custom',
-  sync_with_main: 'Sync with Main',
-  add_tests: 'Add Tests',
-  review_polish: 'Review & Polish',
-  fix_lint: 'Fix Lint',
-};
-
 interface TaskListProps {
   ticketId: string;
 }
 
 export function TaskList({ ticketId }: TaskListProps) {
-  const { tasks, loadTasks, createTask, addPresetTask, deleteTask, updateTask, resetTask } = useBoardStore();
+  const { tasks, loadTasks, createTask, addCommandTask, deleteTask, updateTask, resetTask } = useBoardStore();
+  const commandsCatalog = useSettingsStore((s) => s.commandsCatalog);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskContent, setNewTaskContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [presetTypes, setPresetTypes] = useState<PresetTaskInfo[]>([]);
-  const [showPresets, setShowPresets] = useState(false);
+  const [showCommands, setShowCommands] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showFullscreenAdd, setShowFullscreenAdd] = useState(false);
 
-  // Filter tasks for this ticket
   const ticketTasks = tasks.filter((t) => t.ticketId === ticketId);
 
-  // Load preset types on mount
-  useEffect(() => {
-    const loadPresets = async () => {
-      const types = await useBoardStore.getState().getPresetTypes();
-      setPresetTypes(types);
-    };
-    loadPresets();
-  }, []);
-
-  // Reload tasks when ticketId changes
   useEffect(() => {
     loadTasks(ticketId);
   }, [ticketId, loadTasks]);
@@ -74,13 +57,13 @@ export function TaskList({ ticketId }: TaskListProps) {
     }
   };
 
-  const handleAddPreset = async (presetType: string) => {
+  const handleAddCommand = async (commandId: string, displayName: string) => {
     setIsSubmitting(true);
     try {
-      await addPresetTask(ticketId, presetType);
-      setShowPresets(false);
+      await addCommandTask(ticketId, commandId, displayName);
+      setShowCommands(false);
     } catch (err) {
-      console.error('Failed to add preset task:', err);
+      console.error('Failed to add command task:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -107,12 +90,14 @@ export function TaskList({ ticketId }: TaskListProps) {
   const handleUpdateTask = async (title: string, content: string) => {
     if (!selectedTask) return;
     await updateTask(selectedTask.id, title || undefined, content || undefined);
-    // Refresh the selected task with updated values
     const updated = useBoardStore.getState().tasks.find(t => t.id === selectedTask.id);
     if (updated) {
       setSelectedTask(updated);
     }
   };
+
+  const builtinCommands = commandsCatalog.filter((c) => c.source === 'builtin');
+  const customCommands = commandsCatalog.filter((c) => c.source === 'custom');
 
   return (
     <div className="space-y-3">
@@ -122,10 +107,10 @@ export function TaskList({ ticketId }: TaskListProps) {
         </h3>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowPresets(!showPresets)}
+            onClick={() => setShowCommands(!showCommands)}
             className="text-xs px-2 py-1 text-board-accent hover:bg-board-accent/10 rounded transition-colors"
           >
-            + Preset
+            + Task
           </button>
           <button
             onClick={() => setShowAddTask(!showAddTask)}
@@ -136,27 +121,43 @@ export function TaskList({ ticketId }: TaskListProps) {
         </div>
       </div>
 
-      {/* Preset task buttons */}
-      {showPresets && (
-        <div className="p-3 bg-board-surface rounded-lg space-y-2">
-          <p className="text-xs text-board-text-muted mb-2">Add a preset task:</p>
+      {showCommands && (
+        <div className="p-3 bg-board-surface rounded-lg space-y-3">
+          <p className="text-xs text-board-text-muted">Add a command task:</p>
           <div className="grid grid-cols-2 gap-2">
-            {presetTypes.map((preset) => (
+            {builtinCommands.map((cmd) => (
               <button
-                key={preset.typeName}
-                onClick={() => handleAddPreset(preset.typeName)}
+                key={cmd.id}
+                onClick={() => handleAddCommand(cmd.id, cmd.name)}
                 disabled={isSubmitting}
                 className="text-left p-2 bg-board-surface-raised rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50"
               >
-                <p className="text-sm text-board-text font-medium">{preset.displayName}</p>
-                <p className="text-xs text-board-text-muted">{preset.description}</p>
+                <p className="text-sm text-board-text font-medium">{cmd.name}</p>
+                <p className="text-xs text-board-text-muted">{cmd.description}</p>
               </button>
             ))}
           </div>
+          {customCommands.length > 0 && (
+            <>
+              <p className="text-xs text-board-text-muted pt-1">Custom commands:</p>
+              <div className="grid grid-cols-2 gap-2">
+                {customCommands.map((cmd) => (
+                  <button
+                    key={cmd.id}
+                    onClick={() => handleAddCommand(cmd.id, cmd.name)}
+                    disabled={isSubmitting}
+                    className="text-left p-2 bg-board-surface-raised rounded-lg hover:bg-board-card-hover transition-colors disabled:opacity-50 ring-1 ring-board-accent/20"
+                  >
+                    <p className="text-sm text-board-text font-medium">{cmd.name}</p>
+                    <p className="text-xs text-board-text-muted">{cmd.description}</p>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {/* Add custom task form */}
       {showAddTask && (
         <div className="p-3 bg-board-surface rounded-lg space-y-2">
           <input
@@ -175,7 +176,6 @@ export function TaskList({ ticketId }: TaskListProps) {
               rows={3}
               className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border resize-none pr-10"
             />
-            {/* Expand button */}
             <button
               onClick={() => setShowFullscreenAdd(true)}
               className="absolute top-2 right-2 p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-surface rounded transition-colors"
@@ -221,7 +221,6 @@ export function TaskList({ ticketId }: TaskListProps) {
         </div>
       )}
 
-      {/* Task list */}
       {ticketTasks.length === 0 ? (
         <p className="text-sm text-board-text-muted italic py-2">
           No tasks yet. Tasks will be created automatically when the ticket runs.
@@ -250,11 +249,11 @@ export function TaskList({ ticketId }: TaskListProps) {
                     />
                     <div className="min-w-0">
                       <p className="text-sm text-board-text truncate">
-                        {task.title || TASK_TYPE_LABELS[task.taskType]}
+                        {task.title || getTaskTypeLabel(task.taskType)}
                       </p>
                       {task.taskType !== 'custom' && (
                         <span className="text-xs text-board-accent">
-                          {TASK_TYPE_LABELS[task.taskType]}
+                          {getTaskTypeLabel(task.taskType)}
                         </span>
                       )}
                     </div>
@@ -335,7 +334,6 @@ export function TaskList({ ticketId }: TaskListProps) {
         </div>
       )}
 
-      {/* Fullscreen task modal for viewing/editing existing tasks */}
       {selectedTask && (
         <FullscreenTaskModal
           task={selectedTask}
@@ -349,7 +347,6 @@ export function TaskList({ ticketId }: TaskListProps) {
         />
       )}
 
-      {/* Fullscreen modal for creating new task */}
       {showFullscreenAdd && (
         <FullscreenAddTaskModal
           title={newTaskTitle}
@@ -359,7 +356,6 @@ export function TaskList({ ticketId }: TaskListProps) {
           onSave={async (title, content) => {
             setNewTaskTitle(title);
             setNewTaskContent(content);
-            // Create the task
             if (title.trim()) {
               setIsSubmitting(true);
               try {
@@ -381,7 +377,6 @@ export function TaskList({ ticketId }: TaskListProps) {
   );
 }
 
-// Separate modal for adding new tasks (doesn't need Task object)
 interface FullscreenAddTaskModalProps {
   title: string;
   content: string;
