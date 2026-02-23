@@ -1,3 +1,4 @@
+export { DashboardView } from './DashboardView';
 export { SettingsView } from './SettingsView';
 export { BoardsView } from './BoardsView';
 export { AgentsView } from './AgentsView';

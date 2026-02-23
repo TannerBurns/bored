@@ -4,6 +4,7 @@ pub mod agent_settings;
 mod agent_settings_tests;
 pub mod boards;
 pub mod conversations;
+pub mod dashboard;
 mod diff_parser;
 pub mod next_steps;
 pub mod projects;

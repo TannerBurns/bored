@@ -456,6 +456,12 @@ fn main() {
             commands::next_steps::create_pull_request,
             commands::next_steps::get_branch_diff,
             commands::next_steps::get_branch_diff_files,
+            // Dashboard commands
+            commands::dashboard::get_dashboard_summary,
+            commands::dashboard::get_dashboard_trends,
+            commands::dashboard::get_model_breakdown,
+            commands::dashboard::get_agent_breakdown,
+            commands::dashboard::backfill_git_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

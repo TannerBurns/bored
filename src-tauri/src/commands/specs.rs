@@ -181,20 +181,6 @@ pub async fn set_spec_status(
         .map_err(|e| e.to_string())
 }
 
-/// Set status on a specific spec version
-#[tauri::command]
-pub async fn set_spec_version_status(
-    version_id: String,
-    status: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
-    let status =
-        SpecVersionStatus::parse(&status).ok_or_else(|| format!("Invalid status: {}", status))?;
-
-    db.set_spec_version_status(&version_id, status)
-        .map_err(|e| e.to_string())
-}
-
 /// Append exploration to the latest spec version
 #[tauri::command]
 pub async fn append_spec_exploration(
@@ -219,24 +205,6 @@ pub async fn append_spec_exploration(
         .map_err(|e| e.to_string())
 }
 
-/// Append exploration to a specific spec version
-#[tauri::command]
-pub async fn append_spec_version_exploration(
-    version_id: String,
-    query: String,
-    response: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
-    let exploration = Exploration {
-        query,
-        response,
-        timestamp: chrono::Utc::now(),
-    };
-
-    db.append_spec_version_exploration(&version_id, &exploration)
-        .map_err(|e| e.to_string())
-}
-
 /// Set plan on the latest spec version
 #[tauri::command]
 pub async fn set_spec_plan(
@@ -252,18 +220,6 @@ pub async fn set_spec_plan(
         .ok_or_else(|| "No version found for spec".to_string())?;
 
     db.set_spec_version_plan(&version.id, &markdown, json.as_ref())
-        .map_err(|e| e.to_string())
-}
-
-/// Set plan on a specific spec version
-#[tauri::command]
-pub async fn set_spec_version_plan(
-    version_id: String,
-    markdown: String,
-    json: Option<serde_json::Value>,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
-    db.set_spec_version_plan(&version_id, &markdown, json.as_ref())
         .map_err(|e| e.to_string())
 }
 
@@ -302,16 +258,6 @@ pub async fn get_spec_tickets(
         .ok_or_else(|| "No version found for spec".to_string())?;
 
     db.get_spec_version_tickets(&version.id)
-        .map_err(|e| e.to_string())
-}
-
-/// Get tickets for a specific spec version
-#[tauri::command]
-pub async fn get_spec_version_tickets(
-    version_id: String,
-    db: State<'_, Arc<Database>>,
-) -> Result<Vec<crate::db::Ticket>, String> {
-    db.get_spec_version_tickets(&version_id)
         .map_err(|e| e.to_string())
 }
 

@@ -8,7 +8,7 @@ import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
+import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
 import { ValidationView } from './components/validation';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
@@ -24,7 +24,7 @@ import type { Board as BoardType } from './types';
 import './index.css';
 
 function App() {
-  const [activeNav, setActiveNav] = useState('boards');
+  const [activeNav, setActiveNav] = useState('dashboard');
   const [isCreateBoardModalOpen, setIsCreateBoardModalOpen] = useState(false);
   const [renameBoardModalOpen, setRenameBoardModalOpen] = useState(false);
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
@@ -189,11 +189,13 @@ function App() {
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <Header
           title={
-            activeNav === 'boards' && currentBoard 
-              ? currentBoard.name 
-              : activeNav === 'specs' 
-                ? 'AI Specs' 
-                : 'Bored'
+            activeNav === 'dashboard'
+              ? 'Dashboard'
+              : activeNav === 'boards' && currentBoard 
+                ? currentBoard.name 
+                : activeNav === 'specs' 
+                  ? 'AI Specs' 
+                  : 'Bored'
           }
           subtitle={undefined}
           action={
@@ -221,6 +223,8 @@ function App() {
             ) : undefined
           }
         />
+
+        {activeNav === 'dashboard' && <DashboardView />}
 
         {activeNav === 'boards' && (
           <BoardsView

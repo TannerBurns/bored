@@ -2,7 +2,11 @@ mod boards;
 mod comments;
 mod conversations;
 mod costs;
+pub mod dashboard;
+#[cfg(test)]
+mod dashboard_tests;
 mod events;
+pub mod git_stats;
 pub mod models;
 mod projects;
 pub mod release_notes;
@@ -1007,6 +1011,32 @@ impl Database {
                 tracing::info!("Migration to version 15 complete: task_type values migrated");
             }
 
+            // Migration from version 15 to 16: Add ticket_git_stats table
+            // Skip when current_version is 0 (fresh DB) — CREATE_TABLES already has the table
+            if current_version > 0 && current_version < 16 {
+                tracing::info!("Running migration to version 16: ticket_git_stats table");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS ticket_git_stats (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                        commits INTEGER NOT NULL DEFAULT 0,
+                        prs_created INTEGER NOT NULL DEFAULT 0,
+                        lines_added INTEGER NOT NULL DEFAULT 0,
+                        lines_removed INTEGER NOT NULL DEFAULT 0,
+                        files_changed INTEGER NOT NULL DEFAULT 0,
+                        collected_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        UNIQUE(ticket_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_ticket_git_stats_ticket ON ticket_git_stats(ticket_id);
+                    "#
+                )?;
+
+                tracing::info!("Migration to version 16 complete: ticket_git_stats table added");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -1270,6 +1300,7 @@ impl Database {
             conn.execute("DELETE FROM tasks", [])?;
             conn.execute("DELETE FROM agent_runs", [])?;
             conn.execute("DELETE FROM repo_locks", [])?;
+            conn.execute("DELETE FROM ticket_git_stats", [])?;
             
             // Tickets must be deleted before spec_versions (spec_version_id FK)
             // and before columns (column_id FK with RESTRICT)

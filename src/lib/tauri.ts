@@ -442,6 +442,34 @@ export async function listCursorModels(): Promise<CursorModelList> {
   return invoke('list_cursor_models');
 }
 
+// Dashboard
+import type {
+  DashboardSummary,
+  DashboardTrendPoint,
+  ModelBreakdownEntry,
+  AgentBreakdownEntry,
+} from '../types';
+
+export async function getDashboardSummary(days: number | null): Promise<DashboardSummary> {
+  return invoke('get_dashboard_summary', { days });
+}
+
+export async function getDashboardTrends(days: number): Promise<DashboardTrendPoint[]> {
+  return invoke('get_dashboard_trends', { days });
+}
+
+export async function getModelBreakdown(days: number | null): Promise<ModelBreakdownEntry[]> {
+  return invoke('get_model_breakdown', { days });
+}
+
+export async function getAgentBreakdown(days: number | null): Promise<AgentBreakdownEntry[]> {
+  return invoke('get_agent_breakdown', { days });
+}
+
+export async function backfillGitStats(): Promise<number> {
+  return invoke('backfill_git_stats');
+}
+
 // Per-agent workflow settings sync
 export async function syncAgentConfigs(agentConfigs: Record<string, {
   autoPilotEnabled: boolean;
