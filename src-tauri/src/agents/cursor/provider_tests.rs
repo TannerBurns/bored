@@ -75,14 +75,30 @@ fn map_model_name_is_passthrough() {
 }
 
 #[test]
-fn build_command_maps_model_name_end_to_end() {
+fn build_command_passes_model_through() {
     let p = CursorProvider::new();
     let mut config = make_config();
     config.model = Some("opus-4.6".to_string());
     let (_, args) = p.build_command(&config);
     assert!(
+        args.contains(&"opus-4.6".to_string()),
+        "Model should be passed through unchanged"
+    );
+    assert!(
+        !args.contains(&"opus-4.6-thinking".to_string()),
+        "No -thinking suffix should be appended"
+    );
+}
+
+#[test]
+fn build_command_passes_thinking_model_through() {
+    let p = CursorProvider::new();
+    let mut config = make_config();
+    config.model = Some("opus-4.6-thinking".to_string());
+    let (_, args) = p.build_command(&config);
+    assert!(
         args.contains(&"opus-4.6-thinking".to_string()),
-        "Default thinking=true should produce opus-4.6-thinking"
+        "Thinking model ID should be passed through as-is"
     );
 }
 
@@ -92,140 +108,6 @@ fn build_command_no_model_omits_model_flag() {
     let config = make_config();
     let (_, args) = p.build_command(&config);
     assert!(!args.contains(&"--model".to_string()));
-}
-
-// ── Thinking setting ──────────────────────────────────────────
-
-#[test]
-fn build_command_thinking_enabled_appends_suffix() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("opus-4.5".to_string());
-    config.agent_config.insert(
-        "thinking_enabled".to_string(),
-        serde_json::json!(true),
-    );
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"opus-4.5-thinking".to_string()),
-        "thinking_enabled=true should produce opus-4.5-thinking"
-    );
-}
-
-#[test]
-fn build_command_thinking_disabled_no_suffix() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("opus-4.5".to_string());
-    config.agent_config.insert(
-        "thinking_enabled".to_string(),
-        serde_json::json!(false),
-    );
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"opus-4.5".to_string()),
-        "thinking_enabled=false should produce opus-4.5 without suffix"
-    );
-    assert!(
-        !args.contains(&"opus-4.5-thinking".to_string()),
-        "thinking_enabled=false should NOT have -thinking suffix"
-    );
-}
-
-#[test]
-fn build_command_thinking_defaults_to_true() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("sonnet-4.5".to_string());
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"sonnet-4.5-thinking".to_string()),
-        "Empty agent_config should default thinking=true"
-    );
-}
-
-#[test]
-fn build_command_sonnet_4_6_appends_thinking_suffix() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("sonnet-4.6".to_string());
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"sonnet-4.6-thinking".to_string()),
-        "sonnet-4.6 with default thinking=true should produce sonnet-4.6-thinking"
-    );
-}
-
-#[test]
-fn build_command_thinking_accepts_camel_case_key() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("opus-4.6".to_string());
-    config.agent_config.insert(
-        "thinkingEnabled".to_string(),
-        serde_json::json!(false),
-    );
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"opus-4.6".to_string()),
-        "camelCase thinkingEnabled=false should work"
-    );
-    assert!(
-        !args.contains(&"opus-4.6-thinking".to_string()),
-        "camelCase thinkingEnabled=false should NOT have -thinking suffix"
-    );
-}
-
-#[test]
-fn build_command_thinking_with_unknown_model_appends_suffix() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("custom-model-xyz".to_string());
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"custom-model-xyz-thinking".to_string()),
-        "Unknown model with default thinking=true should get -thinking suffix"
-    );
-}
-
-#[test]
-fn build_command_thinking_disabled_with_unknown_model_no_suffix() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("custom-model-xyz".to_string());
-    config.agent_config.insert(
-        "thinking_enabled".to_string(),
-        serde_json::json!(false),
-    );
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"custom-model-xyz".to_string()),
-        "Unknown model with thinking=false should pass through unchanged"
-    );
-    assert!(
-        !args.contains(&"custom-model-xyz-thinking".to_string()),
-        "Unknown model with thinking=false should NOT have -thinking suffix"
-    );
-}
-
-#[test]
-fn build_command_snake_case_takes_precedence_over_camel_case() {
-    let p = CursorProvider::new();
-    let mut config = make_config();
-    config.model = Some("opus-4.5".to_string());
-    config.agent_config.insert(
-        "thinking_enabled".to_string(),
-        serde_json::json!(false),
-    );
-    config.agent_config.insert(
-        "thinkingEnabled".to_string(),
-        serde_json::json!(true),
-    );
-    let (_, args) = p.build_command(&config);
-    assert!(
-        args.contains(&"opus-4.5".to_string()),
-        "snake_case thinking_enabled should take precedence over camelCase"
-    );
 }
 
 // ── Trait methods coverage ────────────────────────────────────

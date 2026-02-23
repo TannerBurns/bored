@@ -32,7 +32,14 @@ function fetchAgentStatus(agentId: string) {
   };
 }
 
-function getModelOptions(agentId: string, availableModels?: AgentModelOption[]): { value: AIModel; label: string }[] {
+function getModelOptions(
+  agentId: string,
+  availableModels?: AgentModelOption[],
+  cursorModels?: { value: string; label: string }[],
+): { value: AIModel; label: string }[] {
+  if (agentId === 'cursor' && cursorModels && cursorModels.length > 0) {
+    return cursorModels.map((m) => ({ value: m.value as AIModel, label: m.label }));
+  }
   if (availableModels && availableModels.length > 0) {
     return availableModels.map((m) => ({ value: m.value as AIModel, label: m.label }));
   }
@@ -52,14 +59,22 @@ function GripIcon({ className }: { className?: string }) {
   );
 }
 
+function useModelColWidth(models: { value: string; label: string }[]): number {
+  return useMemo(() => {
+    const longest = models.reduce((max, m) => Math.max(max, m.label.length), 0);
+    return Math.max(130, longest * 7.5 + 28);
+  }, [models]);
+}
+
 function SortableStageRow({
-  stageKey, agentId, config, models, catalogInfo,
+  stageKey, agentId, config, models, catalogInfo, modelColWidth,
 }: {
   stageKey: string;
   agentId: string;
   config: AgentConfig;
   models: { value: AIModel; label: string }[];
   catalogInfo?: CatalogCommand;
+  modelColWidth: number;
 }) {
   const setStage = useSettingsStore((s) => s.setAgentConfigStage);
   const isRequired = REQUIRED_STAGE_KEYS.has(stageKey);
@@ -85,12 +100,17 @@ function SortableStageRow({
 
   if (!stageConfig) return null;
 
+  const gridStyle = {
+    ...style,
+    gridTemplateColumns: `20px 40px 1fr ${modelColWidth}px`,
+  };
+
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={gridStyle}
       className={cn(
-        'grid grid-cols-[20px_40px_1fr_130px] gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
+        'grid gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
         stageConfig.enabled ? 'glass-subtle' : 'opacity-50',
         isDragging && 'opacity-70 ring-1 ring-board-accent z-10',
       )}
@@ -157,7 +177,7 @@ function ZoneSeparator({ label }: { label: string }) {
   );
 }
 
-function WorkflowSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
+function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const setStageOrder = useSettingsStore((s) => s.setAgentConfigStageOrder);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
   const catalog = useSettingsStore((s) => s.commandsCatalog);
@@ -223,6 +243,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
           config={config}
           models={models}
           catalogInfo={catalogMap.get(key)}
+          modelColWidth={modelColWidth}
         />
       );
 
@@ -257,7 +278,8 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
             <select
               value={config.autoPilotModel}
               onChange={(e) => updateConfig(agentId, { autoPilotModel: e.target.value as AIModel })}
-              className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+              style={{ maxWidth: modelColWidth }}
+              className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
             >
               {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
@@ -275,7 +297,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
           </p>
         </div>
         <div className="space-y-1">
-          <div className="grid grid-cols-[20px_40px_1fr_130px] gap-2 px-2 py-1">
+          <div className="grid gap-2 px-2 py-1" style={{ gridTemplateColumns: `20px 40px 1fr ${modelColWidth}px` }}>
             <span />
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">On</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Stage</span>
@@ -320,7 +342,7 @@ function WorkflowSection({ agentId, config, models }: { agentId: string; config:
   );
 }
 
-function SpecAgentSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
+function SpecAgentSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
   return (
@@ -361,7 +383,8 @@ function SpecAgentSection({ agentId, config, models }: { agentId: string; config
           <label className="block text-sm font-medium text-board-text mb-1">Model</label>
           <select value={config.plannerModel}
             onChange={(e) => updateConfig(agentId, { plannerModel: e.target.value as AIModel })}
-            className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
             {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
         </div>
@@ -370,7 +393,7 @@ function SpecAgentSection({ agentId, config, models }: { agentId: string; config
   );
 }
 
-function ValidationSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
+function ValidationSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
   return (
@@ -384,7 +407,8 @@ function ValidationSection({ agentId, config, models }: { agentId: string; confi
           <label className="block text-sm font-medium text-board-text mb-1">Model</label>
           <select value={config.validationModel}
             onChange={(e) => updateConfig(agentId, { validationModel: e.target.value as AIModel })}
-            className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
             {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
         </div>
@@ -399,7 +423,7 @@ function ValidationSection({ agentId, config, models }: { agentId: string; confi
   );
 }
 
-function DiagnosticSection({ agentId, config, models }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[] }) {
+function DiagnosticSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
   return (
@@ -413,7 +437,8 @@ function DiagnosticSection({ agentId, config, models }: { agentId: string; confi
           <label className="block text-sm font-medium text-board-text mb-1">Model</label>
           <select value={config.diagnosticModel}
             onChange={(e) => updateConfig(agentId, { diagnosticModel: e.target.value as AIModel })}
-            className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
             {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
         </div>
@@ -434,11 +459,13 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
   const base = useAgentSettings(agentConfig);
   const agent = useAgentRegistryStore((s) => s.agents.find((a) => a.id === agentId));
   const config = useSettingsStore((s) => s.agentConfigs[agentId] ?? s.getAgentConfig(agentId));
+  const cursorModels = useSettingsStore((s) => s.cursorModels);
 
   const Icon = getAgentIcon(agentId);
   const brandColor = getAgentBrandColor(agentId, agent?.brandColor);
   const displayName = agent?.displayName ?? agentId.charAt(0).toUpperCase() + agentId.slice(1);
-  const models = getModelOptions(agentId, agent?.availableModels);
+  const models = getModelOptions(agentId, agent?.availableModels, cursorModels);
+  const modelColWidth = useModelColWidth(models);
 
   const AgentSpecific = AGENT_SPECIFIC_SECTIONS[agentId];
 
@@ -467,13 +494,13 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
         </>
       )}
 
-      <WorkflowSection agentId={agentId} config={config} models={models} />
+      <WorkflowSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
-      <SpecAgentSection agentId={agentId} config={config} models={models} />
+      <SpecAgentSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
-      <ValidationSection agentId={agentId} config={config} models={models} />
+      <ValidationSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
-      <DiagnosticSection agentId={agentId} config={config} models={models} />
+      <DiagnosticSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
     </div>
   );
 }

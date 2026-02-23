@@ -47,6 +47,15 @@ pub async fn check_agent_available(
     Ok(provider.is_available())
 }
 
+/// Fetch the model list from `cursor agent --list-models`.
+#[tauri::command]
+pub async fn list_cursor_models() -> Result<crate::agents::cursor::models::CursorModelList, String>
+{
+    tokio::task::spawn_blocking(crate::agents::cursor::models::list_models)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -34,23 +34,7 @@ impl AgentProvider for CursorProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
-        let thinking = config
-            .agent_config
-            .get("thinking_enabled")
-            .or_else(|| config.agent_config.get("thinkingEnabled"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-
-        let mut config = config.clone();
-        config.model = config.model.map(|m| {
-            let base = self.map_model_name(&m);
-            if thinking {
-                format!("{}-thinking", base)
-            } else {
-                base
-            }
-        });
-        command::build_command_from_provider_config(&config)
+        command::build_command_from_provider_config(config)
     }
 
     fn build_env_vars(&self, _config: &AgentRunConfig) -> Vec<(String, String)> {

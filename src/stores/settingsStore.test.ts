@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore, WORKFLOW_STAGE_INFO, MODEL_OPTIONS, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
 
 describe('useSettingsStore', () => {
@@ -391,11 +391,129 @@ describe('useSettingsStore', () => {
     });
   });
 
+  describe('cursor models state', () => {
+    it('has cursorModels empty by default', () => {
+      expect(useSettingsStore.getState().cursorModels).toEqual([]);
+    });
+
+    it('has cursorModelsSynced false by default', () => {
+      expect(useSettingsStore.getState().cursorModelsSynced).toBe(false);
+    });
+
+    it('setCursorModels sets models', () => {
+      const models = [
+        { value: 'opus-4.6-thinking', label: 'Opus 4.6 (Thinking)' },
+        { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
+      ];
+      useSettingsStore.getState().setCursorModels(models);
+      expect(useSettingsStore.getState().cursorModels).toEqual(models);
+    });
+
+    it('setCursorModels replaces previous models', () => {
+      useSettingsStore.getState().setCursorModels([{ value: 'a', label: 'A' }]);
+      useSettingsStore.getState().setCursorModels([{ value: 'b', label: 'B' }]);
+      expect(useSettingsStore.getState().cursorModels).toEqual([{ value: 'b', label: 'B' }]);
+    });
+  });
+
+  describe('syncCursorModels', () => {
+    it('first sync with currentModel updates all cursor config models', async () => {
+      const mockResult = {
+        models: [
+          { id: 'opus-4.6-thinking', label: 'Opus (Thinking)', isDefault: true, isCurrent: true },
+          { id: 'sonnet-4.5', label: 'Sonnet 4.5', isDefault: false, isCurrent: false },
+        ],
+        currentModel: 'opus-4.6-thinking',
+        defaultModel: 'opus-4.6-thinking',
+      };
+      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+
+      useSettingsStore.setState({ cursorModelsSynced: false });
+      await useSettingsStore.getState().syncCursorModels();
+
+      const state = useSettingsStore.getState();
+      expect(state.cursorModelsSynced).toBe(true);
+      expect(state.cursorModels).toHaveLength(2);
+      expect(state.cursorModels[0].value).toBe('opus-4.6-thinking');
+
+      const cursorConfig = state.getAgentConfig('cursor');
+      expect(cursorConfig.autoPilotModel).toBe('opus-4.6-thinking');
+      expect(cursorConfig.plannerModel).toBe('opus-4.6-thinking');
+      expect(cursorConfig.validationModel).toBe('opus-4.6-thinking');
+      expect(cursorConfig.diagnosticModel).toBe('opus-4.6-thinking');
+      for (const stage of Object.values(cursorConfig.workflowStages)) {
+        expect(stage.model).toBe('opus-4.6-thinking');
+      }
+
+      vi.doUnmock('../lib/tauri');
+    });
+
+    it('subsequent sync does not overwrite cursor config models', async () => {
+      const mockResult = {
+        models: [
+          { id: 'opus-4.6-thinking', label: 'Opus (Thinking)', isDefault: true, isCurrent: true },
+        ],
+        currentModel: 'opus-4.6-thinking',
+        defaultModel: 'opus-4.6-thinking',
+      };
+      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+
+      useSettingsStore.setState({ cursorModelsSynced: true });
+      useSettingsStore.getState().updateAgentConfig('cursor', { plannerModel: 'sonnet-4.5' });
+      await useSettingsStore.getState().syncCursorModels();
+
+      expect(useSettingsStore.getState().getAgentConfig('cursor').plannerModel).toBe('sonnet-4.5');
+      vi.doUnmock('../lib/tauri');
+    });
+
+    it('first sync without currentModel does not update cursor config models', async () => {
+      const mockResult = {
+        models: [
+          { id: 'auto', label: 'Auto', isDefault: false, isCurrent: false },
+        ],
+        currentModel: null,
+        defaultModel: null,
+      };
+      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+
+      useSettingsStore.setState({ cursorModelsSynced: false });
+      const configBefore = useSettingsStore.getState().getAgentConfig('cursor');
+      await useSettingsStore.getState().syncCursorModels();
+
+      const state = useSettingsStore.getState();
+      expect(state.cursorModelsSynced).toBe(true);
+      expect(state.cursorModels).toHaveLength(1);
+      expect(state.getAgentConfig('cursor').plannerModel).toBe(configBefore.plannerModel);
+
+      vi.doUnmock('../lib/tauri');
+    });
+
+    it('first sync does not affect other agents', async () => {
+      const mockResult = {
+        models: [
+          { id: 'opus-4.6-thinking', label: 'Opus', isDefault: true, isCurrent: true },
+        ],
+        currentModel: 'opus-4.6-thinking',
+        defaultModel: 'opus-4.6-thinking',
+      };
+      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+
+      const claudeConfigBefore = useSettingsStore.getState().getAgentConfig('claude');
+      useSettingsStore.setState({ cursorModelsSynced: false });
+      await useSettingsStore.getState().syncCursorModels();
+
+      const claudeConfigAfter = useSettingsStore.getState().getAgentConfig('claude');
+      expect(claudeConfigAfter.plannerModel).toBe(claudeConfigBefore.plannerModel);
+
+      vi.doUnmock('../lib/tauri');
+    });
+  });
+
   describe('persist config', () => {
-    it('uses version 15', () => {
+    it('uses version 16', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(15);
+      expect(options.version).toBe(16);
     });
   });
 
@@ -711,6 +829,86 @@ describe('useSettingsStore', () => {
 
       const configs = migrated.agentConfigs as Record<string, { autoPilotEnabled?: boolean }>;
       expect(configs.claude.autoPilotEnabled).toBe(true);
+    });
+  });
+
+  describe('migration: version < 16 removes thinking settings and resets model sync', () => {
+    it('removes thinkingEnabled from cursor settings', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            cursor: {
+              workflowStages: { plan: { enabled: true, model: 'opus-4.6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+              settings: { thinkingEnabled: true },
+              autoPilotEnabled: false,
+            },
+          },
+          commandsCatalog: [],
+          cursorModelsSynced: true,
+          cursorModels: [{ value: 'x', label: 'X' }],
+        } as unknown,
+        15
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { settings?: Record<string, unknown> }>;
+      expect(configs.cursor.settings?.thinkingEnabled).toBeUndefined();
+      expect(configs.cursor.settings?.thinking_enabled).toBeUndefined();
+    });
+
+    it('resets cursorModelsSynced to false', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: { cursor: { settings: {} } },
+          commandsCatalog: [],
+          cursorModelsSynced: true,
+          cursorModels: [{ value: 'x', label: 'X' }],
+        } as unknown,
+        15
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.cursorModelsSynced).toBe(false);
+      expect(migrated.cursorModels).toEqual([]);
+    });
+
+    it('handles missing cursor settings gracefully', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: { claude: { settings: { authToken: 'tok' } } },
+          commandsCatalog: [],
+        } as unknown,
+        15
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated.cursorModelsSynced).toBe(false);
+      expect(migrated.cursorModels).toEqual([]);
+    });
+
+    it('removes both thinkingEnabled variants from cursor settings', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            cursor: {
+              settings: { thinkingEnabled: true, thinking_enabled: false, someOtherSetting: 42 },
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        15
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { settings?: Record<string, unknown> }>;
+      expect(configs.cursor.settings?.thinkingEnabled).toBeUndefined();
+      expect(configs.cursor.settings?.thinking_enabled).toBeUndefined();
+      expect(configs.cursor.settings?.someOtherSetting).toBe(42);
     });
   });
 

@@ -396,6 +396,7 @@ fn main() {
             commands::set_notifications_enabled,
             // Agent registry
             commands::get_available_agents,
+            commands::agents::list_cursor_models,
             // Task queue management
             commands::tasks::get_tasks,
             commands::tasks::create_task,
