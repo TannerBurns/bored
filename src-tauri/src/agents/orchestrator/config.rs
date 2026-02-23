@@ -119,7 +119,8 @@ pub fn build_full_stage_order(stage_order: &[String]) -> Vec<String> {
 }
 
 /// The stages in a multi-stage workflow (default order for backward compat).
-pub const MULTI_STAGE_WORKFLOW: &[&str] = &[
+#[cfg(test)]
+pub(super) const MULTI_STAGE_WORKFLOW: &[&str] = &[
     "branch",
     "plan",
     "implement",

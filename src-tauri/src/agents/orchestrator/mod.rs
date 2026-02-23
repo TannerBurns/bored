@@ -42,7 +42,7 @@ mod ticket;
 
 // Public re-exports
 pub use code_review::{extract_issues_section, parse_code_review_issues};
-pub use config::{OrchestratorConfig, StageEvent, WorkflowMode, MULTI_STAGE_WORKFLOW};
+pub use config::{OrchestratorConfig, StageEvent, WorkflowMode};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
