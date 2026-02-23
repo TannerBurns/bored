@@ -156,22 +156,47 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
   );
 }
 
-function CursorSpecificSettings({ agentId }: { agentId: string }) {
-  const settings = useSettingsStore((s) => s.getAgentSettings(agentId));
-  const setAgentSetting = useSettingsStore((s) => s.setAgentSetting);
-  const thinkingEnabled = (settings.thinkingEnabled as boolean) ?? true;
+function CursorSpecificSettings({ agentId: _agentId }: { agentId: string }) {
+  const cursorModels = useSettingsStore((s) => s.cursorModels);
+  const syncCursorModels = useSettingsStore((s) => s.syncCursorModels);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    syncCursorModels().catch(() => {});
+  }, [syncCursorModels]);
+
+  const handleRefresh = useCallback(async () => {
+    setSyncing(true);
+    try {
+      await syncCursorModels();
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncCursorModels]);
 
   return (
     <div className="glass rounded-lg p-3 space-y-3">
-      <div>
-        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
-        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-board-text">Available Models</h3>
+          <p className="text-xs text-board-text-muted">
+            {cursorModels.length > 0
+              ? `${cursorModels.length} models synced from Cursor CLI`
+              : 'Models not yet synced from Cursor CLI'}
+          </p>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={syncing}
+          className={cn(
+            'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200',
+            'glass text-board-text-muted hover:text-board-text hover:glass-intense',
+            syncing && 'opacity-50 cursor-not-allowed'
+          )}
+        >
+          {syncing ? 'Syncing...' : 'Refresh Models'}
+        </button>
       </div>
-      <ToggleRow
-        label="Thinking" description='Appends "-thinking" to the model name sent to Cursor.'
-        enabled={thinkingEnabled}
-        onChange={(v) => setAgentSetting(agentId, 'thinkingEnabled', v)}
-      />
     </div>
   );
 }

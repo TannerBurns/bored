@@ -87,10 +87,11 @@ describe('getDefaultConfigForAgent', () => {
     expect(config.settings).toHaveProperty('chromeEnabled');
   });
 
-  it('returns cursor config with thinking setting', () => {
+  it('returns cursor config with empty settings (no thinkingEnabled)', () => {
     const config = getDefaultConfigForAgent('cursor');
     expect(config.plannerModel).toBe('opus-4.5');
-    expect(config.settings).toHaveProperty('thinkingEnabled');
+    expect(config.settings).toEqual({});
+    expect(config.settings).not.toHaveProperty('thinkingEnabled');
     expect(config.settings).not.toHaveProperty('authToken');
   });
 

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useBoardStore } from '../stores/boardStore';
 import { useSpecStore } from '../stores/specStore';
 import { getProjects, getBoards, getTickets, getApiConfig, getRecentRunsWithContext, getColumns } from '../lib/tauri';
-import { api } from '../lib/api';
 import { logger } from '../lib/logger';
 import type { Project, AgentRunWithContext } from '../types';
 
@@ -56,10 +55,6 @@ export function useAppData(
       try {
         const config = await getApiConfigWithRetry();
         setApiConfig(config);
-        api.configure({
-          baseUrl: config.url,
-          token: config.token,
-        });
         
         const [projectsData, boardsData] = await Promise.all([
           getProjects(),

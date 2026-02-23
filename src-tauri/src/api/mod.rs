@@ -5,7 +5,6 @@ pub mod events;
 pub mod handlers;
 pub mod routes;
 pub mod state;
-pub mod types;
 
 use crate::db::Database;
 use std::net::SocketAddr;

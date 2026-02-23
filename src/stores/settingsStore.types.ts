@@ -203,7 +203,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
 
 const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   ...DEFAULT_CLAUDE_CONFIG,
-  settings: { thinkingEnabled: true },
+  settings: {},
 };
 
 const DEFAULT_CODEX_CONFIG: AgentConfig = {

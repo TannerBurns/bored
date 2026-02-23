@@ -43,6 +43,7 @@ const storeState = {
     { id: 'code-review', name: 'Code Review', description: 'Iterative review loop', enabled: true, source: 'builtin', filename: 'code-review.md' },
     { id: 'cleanup', name: 'Cleanup', description: 'Run linters', enabled: true, source: 'builtin', filename: 'cleanup.md' },
   ],
+  cursorModels: [] as { value: string; label: string }[],
   getAgentConfig: (id: string) => storeState.agentConfigs[id as keyof typeof storeState.agentConfigs] ?? makeConfig(),
   setAgentConfigStage: mockSetStage,
   setAgentConfigStageOrder: mockSetStageOrder,

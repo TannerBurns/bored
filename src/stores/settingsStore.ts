@@ -35,6 +35,8 @@ interface SettingsState {
   notificationsEnabled: boolean;
   agentConfigs: Record<string, AgentConfig>;
   commandsCatalog: CatalogCommand[];
+  cursorModels: { value: string; label: string }[];
+  cursorModelsSynced: boolean;
 
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   setNotificationsEnabled: (enabled: boolean) => void;
@@ -46,6 +48,9 @@ interface SettingsState {
   getAgentSettings: (agentId: string) => Record<string, unknown>;
   setAgentSettings: (agentId: string, settings: Record<string, unknown>) => void;
   setAgentSetting: (agentId: string, key: string, value: unknown) => void;
+
+  setCursorModels: (models: { value: string; label: string }[]) => void;
+  syncCursorModels: () => Promise<void>;
 
   toggleCatalogCommand: (commandId: string) => void;
   addCustomCommand: (command: CatalogCommand) => void;
@@ -113,6 +118,8 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       commandsCatalog: BUILTIN_CATALOG_COMMANDS.map((c) => ({ ...c })),
+      cursorModels: [],
+      cursorModelsSynced: false,
 
       setTheme: (theme) => set({ theme }),
 
@@ -219,6 +226,42 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
+      setCursorModels: (models) => set({ cursorModels: models }),
+
+      syncCursorModels: async () => {
+        const { listCursorModels } = await import('../lib/tauri');
+        const result = await listCursorModels();
+        const models = result.models.map((m) => ({ value: m.id, label: m.label }));
+        const { cursorModelsSynced, agentConfigs } = get();
+
+        if (!cursorModelsSynced && result.currentModel) {
+          const currentModel = result.currentModel as AIModel;
+          const cursorConfig = agentConfigs.cursor ?? getDefaultConfigForAgent('cursor');
+          const updatedStages: WorkflowStages = {};
+          for (const [key, stage] of Object.entries(cursorConfig.workflowStages)) {
+            updatedStages[key] = { ...stage, model: currentModel };
+          }
+          set({
+            cursorModels: models,
+            cursorModelsSynced: true,
+            agentConfigs: {
+              ...agentConfigs,
+              cursor: {
+                ...cursorConfig,
+                autoPilotModel: currentModel,
+                workflowStages: updatedStages,
+                plannerModel: currentModel,
+                validationModel: currentModel,
+                diagnosticModel: currentModel,
+              },
+            },
+          });
+        } else {
+          set({ cursorModels: models, cursorModelsSynced: true });
+        }
+        console.debug(`[settings] Cursor models synced: ${models.length} models`);
+      },
+
       toggleCatalogCommand: (commandId) => {
         const { commandsCatalog, agentConfigs } = get();
         const cmdIdx = commandsCatalog.findIndex((c) => c.id === commandId);
@@ -260,7 +303,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 15,
+      version: 16,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -450,6 +493,19 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
 
+        if (version < 16) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs?.cursor) {
+            const settings = configs.cursor.settings as Record<string, unknown> | undefined;
+            if (settings) {
+              delete settings.thinkingEnabled;
+              delete settings.thinking_enabled;
+            }
+          }
+          state.cursorModelsSynced = false;
+          state.cursorModels = [];
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -505,27 +561,39 @@ useSettingsStore.subscribe(
   },
 );
 
+function retryAsync(label: string, fn: () => Promise<unknown>, maxRetries: number) {
+  let attempt = 0;
+  const run = () => {
+    attempt++;
+    fn()
+      .then(() => console.debug(`[settings] ${label} succeeded on attempt ${attempt}`))
+      .catch((err) => {
+        if (attempt < maxRetries) {
+          const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
+          console.debug(`[settings] ${label} attempt ${attempt} failed, retrying in ${delay}ms:`, err);
+          setTimeout(run, delay);
+        } else {
+          console.warn(`[settings] ${label} failed after ${maxRetries} attempts:`, err);
+        }
+      });
+  };
+  run();
+}
+
 const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
   const maxRetries = 5;
-  let attempt = 0;
-  const trySync = () => {
-    attempt++;
+
+  retryAsync('Initial sync', () => {
     const agentSync = syncAgentConfigs(buildSyncPayload(state.agentConfigs));
     const notifSync = import('../lib/tauri').then(({ setNotificationsEnabled }) =>
       setNotificationsEnabled(state.notificationsEnabled)
     );
-    Promise.all([agentSync, notifSync])
-      .then(() => { console.debug(`[settings] Initial sync succeeded on attempt ${attempt}`); })
-      .catch((err) => {
-        if (attempt < maxRetries) {
-          const delay = Math.min(500 * Math.pow(2, attempt - 1), 5000);
-          console.debug(`[settings] Initial sync attempt ${attempt} failed, retrying in ${delay}ms:`, err);
-          setTimeout(trySync, delay);
-        } else {
-          console.warn(`[settings] Initial sync failed after ${maxRetries} attempts:`, err);
-        }
-      });
-  };
-  trySync();
+    return Promise.all([agentSync, notifSync]).then(() => {});
+  }, maxRetries);
+
+  retryAsync('Cursor model sync', () =>
+    useSettingsStore.getState().syncCursorModels(),
+  maxRetries);
+
   unsubRehydrate();
 });

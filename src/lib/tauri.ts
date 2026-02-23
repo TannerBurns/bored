@@ -440,6 +440,22 @@ export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> 
   return invoke('get_branch_diff_files', { ticketId });
 }
 
+// Cursor model list from CLI
+export interface CursorModelInfo {
+  id: string;
+  label: string;
+  isDefault: boolean;
+  isCurrent: boolean;
+}
+export interface CursorModelList {
+  models: CursorModelInfo[];
+  currentModel: string | null;
+  defaultModel: string | null;
+}
+export async function listCursorModels(): Promise<CursorModelList> {
+  return invoke('list_cursor_models');
+}
+
 // Per-agent workflow settings sync
 export async function syncAgentConfigs(agentConfigs: Record<string, {
   autoPilotEnabled: boolean;
