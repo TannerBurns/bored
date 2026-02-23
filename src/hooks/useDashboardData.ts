@@ -43,7 +43,7 @@ export function useDashboardData(): UseDashboardDataResult {
     try {
       backfillGitStats().catch(() => {});
 
-      const days = timeRange ?? undefined;
+      const days = timeRange;
       const trendDays = timeRange ?? 90;
 
       const [summaryData, trendsData, modelsData, agentsData] = await Promise.all([

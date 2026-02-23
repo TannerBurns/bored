@@ -450,20 +450,20 @@ import type {
   AgentBreakdownEntry,
 } from '../types';
 
-export async function getDashboardSummary(days?: number): Promise<DashboardSummary> {
-  return invoke('get_dashboard_summary', { days: days ?? null });
+export async function getDashboardSummary(days: number | null): Promise<DashboardSummary> {
+  return invoke('get_dashboard_summary', { days });
 }
 
 export async function getDashboardTrends(days: number): Promise<DashboardTrendPoint[]> {
   return invoke('get_dashboard_trends', { days });
 }
 
-export async function getModelBreakdown(days?: number): Promise<ModelBreakdownEntry[]> {
-  return invoke('get_model_breakdown', { days: days ?? null });
+export async function getModelBreakdown(days: number | null): Promise<ModelBreakdownEntry[]> {
+  return invoke('get_model_breakdown', { days });
 }
 
-export async function getAgentBreakdown(days?: number): Promise<AgentBreakdownEntry[]> {
-  return invoke('get_agent_breakdown', { days: days ?? null });
+export async function getAgentBreakdown(days: number | null): Promise<AgentBreakdownEntry[]> {
+  return invoke('get_agent_breakdown', { days });
 }
 
 export async function backfillGitStats(): Promise<number> {

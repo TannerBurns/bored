@@ -135,7 +135,7 @@ describe('useDashboardData', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(mockGetDashboardSummary).toHaveBeenLastCalledWith(undefined);
+    expect(mockGetDashboardSummary).toHaveBeenLastCalledWith(null);
   });
 
   it('uses 90 as fallback trend days when timeRange is null', async () => {
