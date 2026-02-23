@@ -330,7 +330,7 @@ fn model_breakdown_sorted_by_cost_desc() {
                 0,
                 cost,
                 serde_json::json!({
-                    model: {
+                    (model): {
                         "inputTokens": 100,
                         "outputTokens": 50,
                         "cacheReadTokens": 0,
