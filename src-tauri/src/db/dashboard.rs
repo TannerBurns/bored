@@ -382,6 +382,16 @@ impl Database {
                         entry.output_tokens += cost.output_tokens;
                         entry.run_count += 1;
                     } else {
+                        let dominant_model = cost
+                            .model_usage
+                            .iter()
+                            .max_by(|a, b| {
+                                a.1.cost_usd
+                                    .partial_cmp(&b.1.cost_usd)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(name, _)| name.clone());
+
                         for (model_name, model_data) in &cost.model_usage {
                             let entry = model_map
                                 .entry(model_name.clone())
@@ -392,7 +402,9 @@ impl Database {
                             entry.cost_usd += model_data.cost_usd;
                             entry.input_tokens += model_data.input_tokens;
                             entry.output_tokens += model_data.output_tokens;
-                            entry.run_count += 1;
+                            if dominant_model.as_ref() == Some(model_name) {
+                                entry.run_count += 1;
+                            }
                         }
                     }
                 }
