@@ -52,7 +52,7 @@ pub use diagnostic::{
     build_diagnostic_prompt, classify_worktree_error, create_fallback_diagnostic_comment,
     run_diagnostic_agent, DiagnosticContext, DiagnosticError,
 };
-pub use eta::{calculate_eta, calculate_remaining_time, calculate_timing_stats};
+pub use eta::calculate_eta;
 pub use plan_validation::{
     build_clarification_message_prompt, build_plan_validation_prompt,
     generate_clarification_message, parse_validation_response, validate_plan_for_clarification,

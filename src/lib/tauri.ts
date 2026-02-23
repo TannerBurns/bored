@@ -56,20 +56,6 @@ export async function deleteProject(projectId: string): Promise<void> {
   return invoke('delete_project', { projectId });
 }
 
-export async function setBoardProject(
-  boardId: string,
-  projectId: string | null
-): Promise<void> {
-  return invoke('set_board_project', { boardId, projectId });
-}
-
-export async function setTicketProject(
-  ticketId: string,
-  projectId: string | null
-): Promise<void> {
-  return invoke('set_ticket_project', { ticketId, projectId });
-}
-
 export async function checkTicketReadiness(
   ticketId: string
 ): Promise<ReadinessCheck> {

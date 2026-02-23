@@ -11,7 +11,7 @@ fn module_reexports_are_accessible() {
     use super::{
         extract_issues_section as reexported_extract,
         parse_code_review_issues as reexported_parse, OrchestratorConfig,
-        StageEvent as ReexportedStageEvent, MULTI_STAGE_WORKFLOW as REEXPORTED_WORKFLOW,
+        StageEvent as ReexportedStageEvent,
     };
 
     assert_eq!(
@@ -22,7 +22,6 @@ fn module_reexports_are_accessible() {
         reexported_extract("## Issues Found\ntest\n## Summary"),
         extract_issues_section("## Issues Found\ntest\n## Summary")
     );
-    assert_eq!(REEXPORTED_WORKFLOW, MULTI_STAGE_WORKFLOW);
 
     let event = ReexportedStageEvent {
         parent_run_id: "test".to_string(),
