@@ -49,6 +49,7 @@ export function TicketModal({
   const [commentClearTrigger, setCommentClearTrigger] = useState(0);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
+  const moveTicket = useBoardStore((s) => s.moveTicket);
   const tasks = useBoardStore((s) => s.tasks).filter((t) => t.ticketId === ticket.id);
 
   const editState = useTicketEdit({ ticket, onUpdate });
@@ -126,11 +127,12 @@ export function TicketModal({
         {/* Header */}
         <TicketModalHeader
           ticket={ticket}
-          currentColumn={currentColumn}
+          columns={columns}
           isEditing={editState.isEditing}
           editTitle={editState.editTitle}
           setEditTitle={editState.setEditTitle}
           onClose={onClose}
+          onMoveTicket={(newColumnId) => moveTicket(ticket.id, newColumnId)}
         />
 
         {/* Content */}

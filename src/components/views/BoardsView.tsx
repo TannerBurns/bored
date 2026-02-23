@@ -1,9 +1,31 @@
+import { useCallback, useState } from 'react';
+import { cn } from '../../lib/utils';
 import { Board } from '../board/Board';
+import { ListView } from '../board/ListView';
 import type { Column, Ticket } from '../../types';
+
+type ViewMode = 'board' | 'list';
+
+const STORAGE_KEY = 'bored:board-view-modes';
+
+function loadPersistedModes(): Record<string, ViewMode> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore corrupt data */ }
+  return {};
+}
+
+function persistModes(modes: Record<string, ViewMode>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(modes));
+  } catch { /* storage full / unavailable */ }
+}
 
 interface BoardsViewProps {
   isDataLoaded: boolean;
   hasBoards: boolean;
+  currentBoardId?: string;
   columns: Column[];
   tickets: Ticket[];
   projectMap?: Record<string, string>;
@@ -15,6 +37,7 @@ interface BoardsViewProps {
 export function BoardsView({
   isDataLoaded,
   hasBoards,
+  currentBoardId,
   columns,
   tickets,
   projectMap,
@@ -22,6 +45,19 @@ export function BoardsView({
   onTicketClick,
   onCreateBoardClick,
 }: BoardsViewProps) {
+  const [viewModes, setViewModes] = useState<Record<string, ViewMode>>(loadPersistedModes);
+
+  const viewMode: ViewMode = currentBoardId ? (viewModes[currentBoardId] ?? 'board') : 'board';
+
+  const setViewMode = useCallback((mode: ViewMode) => {
+    if (!currentBoardId) return;
+    setViewModes((prev) => {
+      const next = { ...prev, [currentBoardId]: mode };
+      persistModes(next);
+      return next;
+    });
+  }, [currentBoardId]);
+
   if (!isDataLoaded) {
     return (
       <div className="flex-1 overflow-hidden">
@@ -75,14 +111,73 @@ export function BoardsView({
   }
 
   return (
-    <div className="flex-1 overflow-hidden">
-      <Board
-        columns={columns}
-        tickets={tickets}
-        projectMap={projectMap}
-        onTicketMove={onTicketMove}
-        onTicketClick={onTicketClick}
-      />
+    <div className="flex-1 overflow-hidden flex flex-col">
+      {/* View mode toggle */}
+      <div className="flex justify-end mb-3 flex-shrink-0">
+        <div className="flex items-center glass-subtle rounded-lg p-0.5 border border-board-border">
+          <button
+            type="button"
+            onClick={() => setViewMode('board')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150',
+              viewMode === 'board'
+                ? 'bg-board-accent text-white shadow-sm'
+                : 'text-board-text-muted hover:text-board-text',
+            )}
+            title="Board view"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            Board
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150',
+              viewMode === 'list'
+                ? 'bg-board-accent text-white shadow-sm'
+                : 'text-board-text-muted hover:text-board-text',
+            )}
+            title="List view"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            List
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {viewMode === 'board' ? (
+          <Board
+            columns={columns}
+            tickets={tickets}
+            projectMap={projectMap}
+            onTicketMove={onTicketMove}
+            onTicketClick={onTicketClick}
+          />
+        ) : (
+          <ListView
+            columns={columns}
+            tickets={tickets}
+            projectMap={projectMap}
+            onTicketMove={onTicketMove}
+            onTicketClick={onTicketClick}
+          />
+        )}
+      </div>
     </div>
   );
 }

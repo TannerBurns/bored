@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
+import { getColumnBg as getColumnColor, getColumnGlow } from '../../lib/constants';
 import type { SpecProgress, SpecEta, AggregatedCost } from '../../types';
 import { getSpecCost } from '../../lib/tauri';
 import { CostBadge } from '../common/CostBadge';
@@ -105,28 +106,6 @@ export function EpicProgressPanel({ progress, specId, isWorking, isPaused = fals
   const rootEpics = progress.epics.filter(e => e.dependsOnIds.length === 0);
   const dependentEpics = progress.epics.filter(e => e.dependsOnIds.length > 0);
   const waitingEpics = dependentEpics.filter(e => e.column === 'Backlog');
-  
-  const getColumnColor = (column: string) => {
-    switch (column) {
-      case 'Done': return 'bg-status-success';
-      case 'Ready': return 'bg-status-info';
-      case 'In Progress': return 'bg-status-warning';
-      case 'Review': return 'bg-purple-500';
-      case 'Blocked': return 'bg-status-error';
-      case 'Backlog': return 'bg-board-text-muted';
-      default: return 'bg-board-text-muted';
-    }
-  };
-  
-  const getColumnGlow = (column: string) => {
-    switch (column) {
-      case 'Done': return 'glow-success';
-      case 'Ready': return '';
-      case 'In Progress': return 'glow-warning';
-      case 'Blocked': return 'glow-error';
-      default: return '';
-    }
-  };
   
   const getColumnIcon = (column: string) => {
     switch (column) {

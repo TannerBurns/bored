@@ -1,3 +1,4 @@
+use crate::agents::cost::{AggregatedCost, RunCostData};
 use crate::db::models::{AgentRun, AgentRunWithContext, CreateRun, RunStatus};
 use crate::db::{parse_datetime, Database, DbError};
 
@@ -172,21 +173,6 @@ impl Database {
         })
     }
 
-    /// Get recent runs across all tickets (for the runs view)
-    pub fn get_recent_runs(&self, limit: u32) -> Result<Vec<AgentRun>, DbError> {
-        self.with_conn(|conn| {
-            let sql = format!(
-                "SELECT {} FROM agent_runs WHERE parent_run_id IS NULL ORDER BY started_at DESC LIMIT ?",
-                AGENT_RUN_COLUMNS
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let runs = stmt
-                .query_map([limit], agent_run_from_row)?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(runs)
-        })
-    }
-
     /// Get recent runs with full context (board, project, ticket info) for the runs view.
     /// This eliminates the need for client-side lookups and works across all boards.
     pub fn get_recent_runs_with_context(&self, limit: u32) -> Result<Vec<AgentRunWithContext>, DbError> {
@@ -217,7 +203,7 @@ impl Database {
                 LIMIT ?"#,
             )?;
 
-            let runs = stmt
+            let mut runs = stmt
                 .query_map([limit], |row| {
                     Ok(AgentRunWithContext {
                         run: agent_run_from_row(row)?,
@@ -232,6 +218,36 @@ impl Database {
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
+
+            // For multi-stage parent runs that don't already have cost in their
+            // metadata, aggregate sub-run costs so the frontend can display them.
+            for run in &mut runs {
+                if run.total_stages == 0 {
+                    continue;
+                }
+                let has_cost = run
+                    .run
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("cost"))
+                    .is_some();
+                if has_cost {
+                    continue;
+                }
+
+                let agg = aggregate_sub_run_costs(conn, &run.run.id);
+                if agg.run_count > 0 {
+                    let metadata = run
+                        .run
+                        .metadata
+                        .get_or_insert_with(|| serde_json::json!({}));
+                    if let Some(obj) = metadata.as_object_mut() {
+                        if let Ok(cost_val) = serde_json::to_value(&agg) {
+                            obj.insert("cost".to_string(), cost_val);
+                        }
+                    }
+                }
+            }
 
             Ok(runs)
         })
@@ -295,6 +311,35 @@ impl Database {
             Ok(count as u32)
         })
     }
+}
+
+/// Aggregate cost data from all sub-runs of a parent run.
+fn aggregate_sub_run_costs(conn: &rusqlite::Connection, parent_run_id: &str) -> AggregatedCost {
+    let mut agg = AggregatedCost::default();
+
+    let mut stmt = match conn.prepare(
+        "SELECT metadata_json FROM agent_runs WHERE parent_run_id = ? AND metadata_json IS NOT NULL",
+    ) {
+        Ok(s) => s,
+        Err(_) => return agg,
+    };
+
+    let rows = match stmt.query_map([parent_run_id], |row| row.get::<_, String>(0)) {
+        Ok(r) => r,
+        Err(_) => return agg,
+    };
+
+    for json_str in rows.flatten() {
+        if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let Some(cost_value) = metadata.get("cost") {
+                if let Ok(cost) = serde_json::from_value::<RunCostData>(cost_value.clone()) {
+                    agg.add(&cost);
+                }
+            }
+        }
+    }
+
+    agg
 }
 
 #[cfg(test)]
@@ -859,6 +904,341 @@ mod tests {
 
         let results = db.get_recent_runs_with_context(3).unwrap();
         assert_eq!(results.len(), 3);
+    }
+
+    fn create_ticket_for_board(db: &Database) -> (crate::db::models::Board, crate::db::models::Ticket) {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        (board, ticket)
+    }
+
+    #[test]
+    fn aggregate_sub_run_costs_returns_zero_when_no_sub_runs() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.with_conn(|conn| {
+            let agg = aggregate_sub_run_costs(conn, &parent.id);
+            assert_eq!(agg.run_count, 0);
+            assert_eq!(agg.total_input_tokens, 0);
+            assert_eq!(agg.total_output_tokens, 0);
+            assert_eq!(agg.total_cost_usd, 0.0);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn aggregate_sub_run_costs_sums_multiple_sub_runs() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("build".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub1.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "cacheReadTokens": 10,
+                    "cacheCreationTokens": 5,
+                    "totalCostUsd": 0.01,
+                    "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let sub2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("test".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub2.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 200,
+                    "outputTokens": 75,
+                    "cacheReadTokens": 20,
+                    "cacheCreationTokens": 8,
+                    "totalCostUsd": 0.02,
+                    "isEstimated": true,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        db.with_conn(|conn| {
+            let agg = aggregate_sub_run_costs(conn, &parent.id);
+            assert_eq!(agg.run_count, 2);
+            assert_eq!(agg.total_input_tokens, 300);
+            assert_eq!(agg.total_output_tokens, 125);
+            assert_eq!(agg.total_cache_read_tokens, 30);
+            assert_eq!(agg.total_cache_creation_tokens, 13);
+            assert_eq!(agg.estimated_count, 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn aggregate_sub_run_costs_skips_sub_runs_without_cost() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub_with_cost = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("build".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub_with_cost.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 500,
+                    "outputTokens": 200,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.05,
+                    "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let sub_no_cost = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("review".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub_no_cost.id,
+            &serde_json::json!({ "stage_output": "looks good" }),
+        )
+        .unwrap();
+
+        // Third sub-run has no metadata at all (already the default)
+
+        db.with_conn(|conn| {
+            let agg = aggregate_sub_run_costs(conn, &parent.id);
+            assert_eq!(agg.run_count, 1);
+            assert_eq!(agg.total_input_tokens, 500);
+            assert_eq!(agg.total_output_tokens, 200);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn recent_runs_with_context_aggregates_cost_for_multi_stage_parent() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("build".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 1000,
+                    "outputTokens": 400,
+                    "cacheReadTokens": 50,
+                    "cacheCreationTokens": 25,
+                    "totalCostUsd": 0.10,
+                    "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let cost = results[0]
+            .run
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("cost"));
+        assert!(cost.is_some(), "parent run should have aggregated cost");
+
+        let cost_val = cost.unwrap();
+        assert_eq!(cost_val.get("runCount").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(
+            cost_val.get("totalInputTokens").and_then(|v| v.as_u64()),
+            Some(1000)
+        );
+    }
+
+    #[test]
+    fn recent_runs_with_context_skips_cost_aggregation_when_parent_already_has_cost() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &parent.id,
+            &serde_json::json!({
+                "cost": { "preExisting": true }
+            }),
+        )
+        .unwrap();
+
+        let sub = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("build".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &sub.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 999,
+                    "outputTokens": 999,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalCostUsd": 9.99,
+                    "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let cost = results[0]
+            .run
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("cost"))
+            .unwrap();
+        assert_eq!(
+            cost.get("preExisting").and_then(|v| v.as_bool()),
+            Some(true),
+            "should preserve the original cost, not overwrite with aggregated"
+        );
     }
 
     #[test]

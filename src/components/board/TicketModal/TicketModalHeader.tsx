@@ -1,24 +1,27 @@
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../../../lib/utils';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '../../../lib/constants';
+import { ColumnSelect } from '../ColumnSelect';
 import type { Ticket, Column } from '../../../types';
 
-export interface TicketModalHeaderProps {
+interface TicketModalHeaderProps {
   ticket: Ticket;
-  currentColumn: Column | undefined;
+  columns: Column[];
   isEditing: boolean;
   editTitle: string;
   setEditTitle: (title: string) => void;
   onClose: () => void;
+  onMoveTicket: (newColumnId: string) => void;
 }
 
 export function TicketModalHeader({
   ticket,
-  currentColumn,
+  columns,
   isEditing,
   editTitle,
   setEditTitle,
   onClose,
+  onMoveTicket,
 }: TicketModalHeaderProps) {
   return (
     <div className="flex items-start justify-between p-4 border-b border-board-border">
@@ -43,7 +46,12 @@ export function TicketModalHeader({
           >
             {PRIORITY_LABELS[ticket.priority]}
           </span>
-          <span>in {currentColumn?.name || 'Unknown'}</span>
+          <ColumnSelect
+            columns={columns}
+            currentColumnId={ticket.columnId}
+            onMove={onMoveTicket}
+            size="md"
+          />
           <span>•</span>
           <span>
             Created {formatDistanceToNow(new Date(ticket.createdAt))} ago
