@@ -72,3 +72,33 @@ export function RunIcon() {
     </svg>
   );
 }
+
+export function ClockIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+export function CycleIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+      <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+    </svg>
+  );
+}
+
+export function CostPerIcon() {
+  return (
+    <svg {...ICON_PROPS}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M12 8v8" />
+      <path d="M15 10h-4.5a1.5 1.5 0 0 0 0 3H13a1.5 1.5 0 0 1 0 3H9" />
+    </svg>
+  );
+}

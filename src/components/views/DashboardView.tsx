@@ -16,7 +16,7 @@ import { cn } from '../../lib/utils';
 import { getAgentDisplayName, getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { useEffect } from 'react';
-import { TicketIcon, TaskIcon, DollarIcon, TokenIcon, CommitIcon, CodeIcon, RunIcon } from './DashboardIcons';
+import { TicketIcon, TaskIcon, DollarIcon, TokenIcon, CommitIcon, CodeIcon, RunIcon, ClockIcon, CycleIcon, CostPerIcon } from './DashboardIcons';
 
 type RenderLabel = TooltipProps<number, string>['labelFormatter'];
 type RenderFormatter = TooltipProps<number, string>['formatter'];
@@ -78,6 +78,14 @@ export function formatDuration(secs: number): string {
   return `${(secs / 3600).toFixed(1)}h`;
 }
 
+export function formatCycleTime(hours: number): string {
+  if (hours <= 0) return '--';
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  const days = hours / 24;
+  return days < 10 ? `${days.toFixed(1)}d` : `${Math.round(days)}d`;
+}
+
 export function formatDateLabel(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -135,8 +143,9 @@ export function DashboardView() {
         <EmptyState />
       ) : (
         <>
-          {/* Stat cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          {/* Stat cards -- grouped: work output, then cost & efficiency */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {/* Row 1: Work output */}
             <StatCard
               label="Tickets Done"
               value={s!.ticketsCompleted}
@@ -150,10 +159,38 @@ export function DashboardView() {
               color="text-status-info"
             />
             <StatCard
+              label="Commits"
+              value={s!.totalCommits}
+              icon={<CommitIcon />}
+              color="text-cyan-400"
+            />
+            <StatCard
+              label="Lines Changed"
+              value={`+${formatNumber(s!.totalLinesAdded)} / -${formatNumber(s!.totalLinesRemoved)}`}
+              icon={<CodeIcon />}
+              color="text-sky-400"
+            />
+            <StatCard
+              label="Cycle Time"
+              value={formatCycleTime(s!.avgCycleTimeHours)}
+              subtitle="created to done"
+              icon={<CycleIcon />}
+              color="text-blue-400"
+            />
+            {/* Row 2: Cost & efficiency */}
+            <StatCard
               label="Total Cost"
               value={formatCost(s!.totalCostUsd)}
               icon={<DollarIcon />}
               color="text-emerald-400"
+            />
+            <StatCard
+              label="Cost / Ticket"
+              value={s!.ticketsCompleted > 0
+                ? formatCost(s!.totalCostUsd / s!.ticketsCompleted)
+                : '--'}
+              icon={<CostPerIcon />}
+              color="text-teal-400"
             />
             <StatCard
               label="Tokens Used"
@@ -162,23 +199,17 @@ export function DashboardView() {
               color="text-board-accent"
             />
             <StatCard
-              label="Commits"
-              value={s!.totalCommits}
-              icon={<CommitIcon />}
-              color="text-status-warning"
-            />
-            <StatCard
-              label="Lines Changed"
-              value={`+${formatNumber(s!.totalLinesAdded)} / -${formatNumber(s!.totalLinesRemoved)}`}
-              icon={<CodeIcon />}
-              color="text-cyan-400"
-            />
-            <StatCard
               label="Agent Runs"
               value={s!.totalRuns}
               subtitle={`${Math.round(s!.successRate * 100)}% success`}
               icon={<RunIcon />}
               color="text-purple-400"
+            />
+            <StatCard
+              label="Avg Run Time"
+              value={formatDuration(s!.avgRunDurationSecs)}
+              icon={<ClockIcon />}
+              color="text-orange-400"
             />
           </div>
 

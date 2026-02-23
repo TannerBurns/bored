@@ -20,6 +20,7 @@ pub struct DashboardSummary {
     pub total_prs: i64,
     pub total_lines_added: i64,
     pub total_lines_removed: i64,
+    pub avg_cycle_time_hours: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -192,6 +193,24 @@ impl Database {
                 )
                 .unwrap_or((0, 0, 0, 0));
 
+            let avg_cycle_time_hours: f64 = conn
+                .query_row(
+                    &format!(
+                        r#"SELECT COALESCE(AVG(
+                            (julianday(t.updated_at) - julianday(t.created_at)) * 24
+                        ), 0)
+                        FROM tickets t
+                        JOIN columns c ON t.column_id = c.id
+                        WHERE c.name = 'Done'
+                        AND t.updated_at > t.created_at
+                        {}"#,
+                        time_filter
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0.0);
+
             Ok(DashboardSummary {
                 tickets_completed,
                 tasks_completed,
@@ -207,6 +226,7 @@ impl Database {
                 total_prs,
                 total_lines_added,
                 total_lines_removed,
+                avg_cycle_time_hours,
             })
         })
     }
@@ -362,9 +382,6 @@ impl Database {
                         entry.output_tokens += cost.output_tokens;
                         entry.run_count += 1;
                     } else {
-                        let mut primary_model: Option<&String> = None;
-                        let mut primary_cost = f64::NEG_INFINITY;
-
                         for (model_name, model_data) in &cost.model_usage {
                             let entry = model_map
                                 .entry(model_name.clone())
@@ -375,17 +392,7 @@ impl Database {
                             entry.cost_usd += model_data.cost_usd;
                             entry.input_tokens += model_data.input_tokens;
                             entry.output_tokens += model_data.output_tokens;
-
-                            if model_data.cost_usd > primary_cost {
-                                primary_cost = model_data.cost_usd;
-                                primary_model = Some(model_name);
-                            }
-                        }
-
-                        if let Some(primary) = primary_model {
-                            if let Some(entry) = model_map.get_mut(primary) {
-                                entry.run_count += 1;
-                            }
+                            entry.run_count += 1;
                         }
                     }
                 }

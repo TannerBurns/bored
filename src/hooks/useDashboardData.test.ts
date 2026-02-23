@@ -33,6 +33,7 @@ const makeSummary = (): DashboardSummary => ({
   totalPrs: 3,
   totalLinesAdded: 500,
   totalLinesRemoved: 100,
+  avgCycleTimeHours: 2.5,
 });
 
 const makeTrends = (): DashboardTrendPoint[] => [

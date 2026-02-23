@@ -593,6 +593,7 @@ export interface DashboardSummary {
   totalPrs: number;
   totalLinesAdded: number;
   totalLinesRemoved: number;
+  avgCycleTimeHours: number;
 }
 
 export interface DashboardTrendPoint {
