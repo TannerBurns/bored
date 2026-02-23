@@ -576,3 +576,49 @@ export interface FileDiff {
   hunks: DiffHunk[];
 }
 
+// Dashboard types
+
+export interface DashboardSummary {
+  ticketsCompleted: number;
+  tasksCompleted: number;
+  totalRuns: number;
+  successfulRuns: number;
+  successRate: number;
+  avgRunDurationSecs: number;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCommits: number;
+  totalPrs: number;
+  totalLinesAdded: number;
+  totalLinesRemoved: number;
+}
+
+export interface DashboardTrendPoint {
+  date: string;
+  ticketsCompleted: number;
+  tasksCompleted: number;
+  costUsd: number;
+  tokensUsed: number;
+  runs: number;
+  commits: number;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+export interface ModelBreakdownEntry {
+  model: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  runCount: number;
+}
+
+export interface AgentBreakdownEntry {
+  agentType: string;
+  runCount: number;
+  successCount: number;
+  avgDurationSecs: number;
+}
+

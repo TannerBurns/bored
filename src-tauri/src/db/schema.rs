@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 15;
+pub const SCHEMA_VERSION: i32 = 16;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -261,6 +261,21 @@ CREATE TABLE IF NOT EXISTS validation_messages (
 
 CREATE INDEX IF NOT EXISTS idx_validation_messages_session ON validation_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_validation_messages_created ON validation_messages(session_id, created_at);
+
+-- Git stats per ticket (commits, lines changed, PRs)
+CREATE TABLE IF NOT EXISTS ticket_git_stats (
+    id TEXT PRIMARY KEY NOT NULL,
+    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    commits INTEGER NOT NULL DEFAULT 0,
+    prs_created INTEGER NOT NULL DEFAULT 0,
+    lines_added INTEGER NOT NULL DEFAULT 0,
+    lines_removed INTEGER NOT NULL DEFAULT 0,
+    files_changed INTEGER NOT NULL DEFAULT 0,
+    collected_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(ticket_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_git_stats_ticket ON ticket_git_stats(ticket_id);
 "#;
 
 /// Default columns for a new board
