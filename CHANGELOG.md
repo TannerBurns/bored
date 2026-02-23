@@ -2,6 +2,66 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.26] - 2026-02-23
+
+Dashboard landing page, board/list view toggle, dynamic Cursor model sync, and dead code cleanup.
+
+### New Features
+
+- Dashboard landing page — summary stats, trend charts (activity, cost, tokens), model cost breakdown, agent distribution pie chart, and per-ticket git stats (commits, PRs, lines changed); default navigation changed from boards to dashboard
+- Board/list view toggle — switch between kanban board and sortable table view per board with localStorage persistence
+- Column select dropdown — move tickets between columns inline from list view rows or ticket modal header
+- Dynamic Cursor model sync — model list sourced from `cursor agent --list-models` CLI output instead of a hardcoded list; syncs on first load and via Refresh Models button
+- Cycle time, cost/ticket, and avg run time stat cards on the dashboard for efficiency visibility
+
+### Improvements
+
+- Sub-run cost aggregation for multi-stage parent runs now visible in the UI
+- Shared column color constants (getColumnColors, getColumnBg, getColumnGlow) replacing duplicated switch statements
+- Cursor thinking toggle removed — users now select thinking vs non-thinking model variants directly from the synced model dropdown
+- REST API surface reduced to health + SSE stream endpoints (removed obsolete api.ts, useSSE.ts, useBoard.ts, useTauri.ts)
+- Removed dead components (BoardProjectSelector, TicketProjectSelector) and orphaned Tauri command wrappers
+- Tightened Rust export visibility — MULTI_STAGE_WORKFLOW scoped to #[cfg(test)], removed unnecessary re-exports from agents::mod
+- DB migration v16 adds ticket_git_stats table and cleans up thinkingEnabled settings
+
+### Bug Fixes
+
+- Fixed git stats backfill repeatedly processing the same tickets when all stat values were zero — now always upserts a row
+- Fixed null-to-undefined coercion in dashboard data hook breaking the "all time" time-range parameter contract
+- Fixed git diff range syntax mismatch (three-dot vs two-dot) between commit count and line stats
+- Fixed off-by-one in dashboard trends date bucketing dropping data from the boundary date
+- Fixed model breakdown run_count inflation when a single run used multiple models
+
+### Testing
+
+- Added 19 Rust tests for dashboard queries (parse_cost, time_filter_clause, summary, trends, model/agent breakdown)
+- Added 5 Rust tests for git_stats DB operations (upsert, increment_pr_count)
+- Added 27 TypeScript tests for dashboard format helpers (formatCost, formatNumber, formatDuration, formatDateLabel)
+- Added 8 TypeScript tests for useDashboardData hook
+- Added 12 TypeScript tests for shared column color constants
+- Added 9 TypeScript tests for ColumnSelect component
+- Added 17 TypeScript tests for ListView component
+- Added 6 Rust tests for sub-run cost aggregation
+- Added Cursor model list parser tests covering empty, header-only, and multi-flag edge cases
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.25, here is a summary of the major features introduced in recent releases:
+
+**beta.25 — Auto-Pilot Workflow & Command-Based Tasks**
+Auto-pilot workflow mode where the agent dynamically decides which commands to run after implementation. Extensible command-based task system backed by the command catalog. Codex reasoning effort and multi-agent toggle.
+
+**beta.24 — System Tray & Notifications**
+System tray integration with recent tickets list and native OS notifications when tickets move to Review or Blocked. Notification toggle in General Settings.
+
+**beta.23 — Catalog-Driven Commands**
+Custom and built-in workflow commands managed through a discoverable command catalog. Create, edit, and delete custom commands per agent with file-backed persistence.
+
+**beta.22 — Drag-and-Drop Stage Ordering**
+Per-agent workflow stage ordering via drag-and-drop UI. Reorder optional stages independently for each agent. Preset selection resets ordering.
+
+---
+
 ## [0.1.0-beta.25] - 2026-02-22
 
 Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration options.
