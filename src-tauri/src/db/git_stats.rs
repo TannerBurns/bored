@@ -65,7 +65,7 @@ fn count_diff_stats(
         .args([
             "diff",
             "--numstat",
-            &format!("{}...{}", default_branch, branch),
+            &format!("{}..{}", default_branch, branch),
         ])
         .current_dir(working_dir)
         .output();
