@@ -61,6 +61,8 @@ body {
   /* Surfaces */
   --app-board-surface: rgba(255, 255, 255, 0.6);
   --app-board-surface-raised: rgba(255, 255, 255, 0.9);
+  --app-board-popover: #ffffff;
+  --app-board-popover-hover: #f3f3f8;
   
   /* Scrollbar */
   --app-scrollbar-thumb: rgba(0, 0, 0, 0.18);
@@ -128,6 +130,8 @@ body {
   /* Surfaces */
   --app-board-surface: rgba(255, 255, 255, 0.03);
   --app-board-surface-raised: rgba(255, 255, 255, 0.06);
+  --app-board-popover: #1e1e2a;
+  --app-board-popover-hover: #2a2a3a;
   
   /* Scrollbar */
   --app-scrollbar-thumb: rgba(255, 255, 255, 0.12);
@@ -176,7 +180,9 @@ body {
   /* Surfaces */
   --color-board-surface: var(--app-board-surface);
   --color-board-surface-raised: var(--app-board-surface-raised);
-  
+  --color-board-popover: var(--app-board-popover);
+  --color-board-popover-hover: var(--app-board-popover-hover);
+
   /* Status */
   --color-status-success: var(--app-status-success);
   --color-status-warning: var(--app-status-warning);

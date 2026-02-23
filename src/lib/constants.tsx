@@ -36,6 +36,39 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   urgent: 'Urgent',
 };
 
+interface ColumnColorSet {
+  bg: string;
+  dot: string;
+  glow: string;
+}
+
+const COLUMN_COLOR_MAP: Record<string, ColumnColorSet> = {
+  'Backlog':       { bg: 'bg-board-text-muted',  dot: 'bg-board-text-muted',  glow: '' },
+  'Ready':         { bg: 'bg-status-info',        dot: 'bg-status-info',        glow: '' },
+  'In Progress':   { bg: 'bg-status-warning',     dot: 'bg-status-warning',     glow: 'glow-warning' },
+  'Blocked':       { bg: 'bg-status-error',        dot: 'bg-status-error',        glow: 'glow-error' },
+  'Review':        { bg: 'bg-purple-500',          dot: 'bg-purple-500',          glow: '' },
+  'Done':          { bg: 'bg-status-success',      dot: 'bg-status-success',      glow: 'glow-success' },
+};
+
+const DEFAULT_COLUMN_COLORS: ColumnColorSet = {
+  bg: 'bg-board-text-muted',
+  dot: 'bg-board-text-muted',
+  glow: '',
+};
+
+export function getColumnColors(columnName: string): ColumnColorSet {
+  return COLUMN_COLOR_MAP[columnName] ?? DEFAULT_COLUMN_COLORS;
+}
+
+export function getColumnBg(columnName: string): string {
+  return getColumnColors(columnName).bg;
+}
+
+export function getColumnGlow(columnName: string): string {
+  return getColumnColors(columnName).glow;
+}
+
 interface NavItem {
   id: string;
   label: string;

@@ -226,6 +226,7 @@ function App() {
           <BoardsView
             isDataLoaded={isDataLoaded}
             hasBoards={boards.length > 0}
+            currentBoardId={currentBoard?.id}
             columns={columns}
             tickets={tickets}
             projectMap={projectMap}
