@@ -184,9 +184,7 @@ impl Database {
             };
 
             let stats = collect_git_stats_for_ticket(&working_dir, &branch_name, &default_branch);
-            if (stats.commits > 0 || stats.lines_added > 0 || stats.lines_removed > 0)
-                && self.upsert_git_stats(&ticket_id, &stats).is_ok()
-            {
+            if self.upsert_git_stats(&ticket_id, &stats).is_ok() {
                 count += 1;
             }
         }
