@@ -237,7 +237,7 @@ fn summary_includes_git_stats() {
 fn trends_returns_sorted_date_points() {
     let db = create_test_db();
     let trends = db.get_dashboard_trends(7).unwrap();
-    assert_eq!(trends.len(), 7);
+    assert_eq!(trends.len(), 8);
     for w in trends.windows(2) {
         assert!(w[0].date <= w[1].date, "dates should be sorted ascending");
     }

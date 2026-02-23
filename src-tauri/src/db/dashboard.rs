@@ -219,7 +219,7 @@ impl Database {
         self.with_conn(|conn| {
             let mut date_map: HashMap<String, DashboardTrendPoint> = HashMap::new();
 
-            for i in 0..days {
+            for i in 0..=days {
                 let date: String = conn
                     .query_row(
                         "SELECT date('now', ? || ' days')",
@@ -362,6 +362,9 @@ impl Database {
                         entry.output_tokens += cost.output_tokens;
                         entry.run_count += 1;
                     } else {
+                        let mut primary_model: Option<&String> = None;
+                        let mut primary_cost = f64::NEG_INFINITY;
+
                         for (model_name, model_data) in &cost.model_usage {
                             let entry = model_map
                                 .entry(model_name.clone())
@@ -372,7 +375,17 @@ impl Database {
                             entry.cost_usd += model_data.cost_usd;
                             entry.input_tokens += model_data.input_tokens;
                             entry.output_tokens += model_data.output_tokens;
-                            entry.run_count += 1;
+
+                            if model_data.cost_usd > primary_cost {
+                                primary_cost = model_data.cost_usd;
+                                primary_model = Some(model_name);
+                            }
+                        }
+
+                        if let Some(primary) = primary_model {
+                            if let Some(entry) = model_map.get_mut(primary) {
+                                entry.run_count += 1;
+                            }
                         }
                     }
                 }
