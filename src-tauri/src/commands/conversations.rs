@@ -349,14 +349,15 @@ struct PlanTriggerConfig {
 }
 
 const COMPLETION_PROMPT: &str = "Based on your observations and the conversation so far, you have enough information. \
-    Please produce the final specification JSON block now. Remember: the spec must be EXHAUSTIVE and VERBOSE. \
-    The requirements field should be a complete, multi-paragraph description of everything to build. \
-    The technical_notes field should be a comprehensive implementation guide listing every file to create or modify, \
-    patterns to follow, types to define, integration points, and edge cases. \
-    This spec is the ONLY document implementing agents will see — capture EVERY detail from the conversation.\n\
+    Please produce the final specification JSON block now. \
+    The spec is the ONLY document implementing agents will see — capture EVERY detail from the conversation.\n\
     ```json\n{\n  \"spec_complete\": true,\n  \"observations\": \"<comprehensive final summary>\",\n  \"structured_spec\": {\n    \
-    \"requirements\": \"<VERBOSE detailed requirements — multiple paragraphs>\",\n    \"decisions\": [\"Decision: WHAT — WHY — HOW it affects implementation\"],\n    \
-    \"constraints\": [\"Constraint with context and codebase evidence\"],\n    \"technical_notes\": \"<EXHAUSTIVE implementation guide with files, patterns, types, integration points, testing>\"\n  }\n}\n```";
+    \"requirements\": [\"Requirement 1: <specific, self-contained requirement>\", \"Requirement 2: <another requirement>\"],\n    \
+    \"decisions\": [\"Decision: WHAT — WHY — HOW it affects implementation\"],\n    \
+    \"constraints\": [\"Constraint with context and codebase evidence\"],\n    \
+    \"technical_notes\": [\"Create/Modify <path> — <details>\", \"Follow pattern in <path> — <what to replicate>\"]\n  }\n}\n```\n\
+    IMPORTANT: requirements and technical_notes MUST be JSON arrays of strings, not single strings. \
+    Each array item should be one concrete, actionable statement. Do NOT embed code fences inside array values.";
 
 /// Create a system error message, emit it via SSE, and signal conversation complete.
 fn emit_conversation_error(
@@ -386,7 +387,7 @@ fn emit_conversation_error(
 
 fn trigger_from_spec(base: &PlanTriggerConfig, spec: &StructuredSpec) -> PlanTriggerConfig {
     let mut cfg = base.clone();
-    cfg.exploration_context = spec.technical_notes.clone().unwrap_or_default();
+    cfg.exploration_context = spec.technical_notes.join("\n");
     cfg
 }
 
@@ -457,6 +458,11 @@ async fn request_auto_completion(
     }
 }
 
+/// Format a slice of strings as a markdown bullet list (`- item\n- item`).
+fn bullet_list(items: &[String]) -> String {
+    items.iter().map(|s| format!("- {}", s)).collect::<Vec<_>>().join("\n")
+}
+
 /// Helper function to handle spec completion
 fn handle_spec_completion(
     db: &Arc<Database>,
@@ -473,18 +479,27 @@ fn handle_spec_completion(
         let enhanced_input = format!(
             "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}{}",
             original_user_input,
-            structured.requirements,
-            structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
-            structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
-            structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default(),
+            bullet_list(&structured.requirements),
+            bullet_list(&structured.decisions),
+            bullet_list(&structured.constraints),
+            if structured.technical_notes.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n\n## Technical Notes (from codebase exploration)\n{}",
+                    bullet_list(&structured.technical_notes)
+                )
+            },
             observations_section
         );
 
         let exploration_entry = crate::db::Exploration {
             query: "Codebase exploration during spec discovery".to_string(),
-            response: structured.technical_notes.clone().unwrap_or_else(|| 
+            response: if structured.technical_notes.is_empty() {
                 "Exploration completed during conversational spec discovery.".to_string()
-            ),
+            } else {
+                structured.technical_notes.join("\n")
+            },
             timestamp: chrono::Utc::now(),
         };
 

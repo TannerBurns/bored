@@ -375,16 +375,49 @@ pub struct CreateConversationMessage {
     pub content: String,
 }
 
+/// Accepts a JSON string OR an array of strings and always produces `Vec<String>`.
+/// A single string is wrapped in a one-element vec; null / absent → empty vec.
+fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrArray {
+        Multiple(Vec<String>),
+        Single(String),
+    }
+
+    let value: Option<StringOrArray> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(Vec::new()),
+        Some(StringOrArray::Single(s)) => {
+            if s.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![s])
+            }
+        }
+        Some(StringOrArray::Multiple(v)) => Ok(v.into_iter().filter(|s| !s.is_empty()).collect()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredSpec {
-    pub requirements: String,
+    /// Discrete requirement statements; one per array entry.
+    /// Gracefully accepts a plain string from LLM output.
+    #[serde(deserialize_with = "deserialize_string_or_vec")]
+    pub requirements: Vec<String>,
     pub decisions: Vec<String>,
     pub constraints: Vec<String>,
-    /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case)
-    /// since the brainstorm prompt examples use snake_case.
-    #[serde(alias = "technical_notes")]
-    pub technical_notes: Option<String>,
+    /// Implementation notes: files to create, patterns to follow, integration points, etc.
+    /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case).
+    /// Gracefully accepts a plain string from LLM output.
+    #[serde(alias = "technical_notes", default, deserialize_with = "deserialize_string_or_vec")]
+    pub technical_notes: Vec<String>,
 }
 
 #[cfg(test)]
@@ -502,71 +535,74 @@ mod tests {
         #[test]
         fn serialize_with_technical_notes() {
             let spec = StructuredSpec {
-                requirements: "Build auth system".to_string(),
+                requirements: vec!["Build auth system".to_string(), "Support OAuth".to_string()],
                 decisions: vec!["Use JWT".to_string(), "Support OAuth".to_string()],
                 constraints: vec!["Must be fast".to_string()],
-                technical_notes: Some("Use middleware pattern".to_string()),
+                technical_notes: vec!["Use middleware pattern".to_string()],
             };
             let json = serde_json::to_value(&spec).unwrap();
-            assert_eq!(json["requirements"], "Build auth system");
+            assert_eq!(json["requirements"].as_array().unwrap().len(), 2);
+            assert_eq!(json["requirements"][0], "Build auth system");
             assert_eq!(json["decisions"].as_array().unwrap().len(), 2);
-            assert_eq!(json["technicalNotes"], "Use middleware pattern");
+            assert_eq!(json["technicalNotes"].as_array().unwrap()[0], "Use middleware pattern");
         }
 
         #[test]
         fn serialize_without_technical_notes() {
             let spec = StructuredSpec {
-                requirements: "Build feature".to_string(),
+                requirements: vec!["Build feature".to_string()],
                 decisions: vec![],
                 constraints: vec![],
-                technical_notes: None,
+                technical_notes: vec![],
             };
             let json = serde_json::to_value(&spec).unwrap();
-            assert_eq!(json["requirements"], "Build feature");
-            assert!(json["technicalNotes"].is_null());
+            assert_eq!(json["requirements"][0], "Build feature");
+            assert!(json["technicalNotes"].as_array().unwrap().is_empty());
         }
 
         #[test]
         fn deserialize_with_technical_notes() {
             let json = r#"{
-                "requirements": "Build auth",
+                "requirements": ["Build auth", "Support login"],
                 "decisions": ["Use JWT"],
                 "constraints": ["Must be fast"],
-                "technicalNotes": "Consider caching"
+                "technicalNotes": ["Consider caching", "Follow existing middleware pattern"]
             }"#;
             let spec: StructuredSpec = serde_json::from_str(json).unwrap();
-            assert_eq!(spec.requirements, "Build auth");
+            assert_eq!(spec.requirements.len(), 2);
+            assert_eq!(spec.requirements[0], "Build auth");
             assert_eq!(spec.decisions.len(), 1);
-            assert_eq!(spec.technical_notes, Some("Consider caching".to_string()));
+            assert_eq!(spec.technical_notes.len(), 2);
+            assert_eq!(spec.technical_notes[0], "Consider caching");
         }
 
         #[test]
         fn deserialize_without_technical_notes() {
             let json = r#"{
-                "requirements": "Build feature",
+                "requirements": ["Build feature"],
                 "decisions": [],
                 "constraints": []
             }"#;
             let spec: StructuredSpec = serde_json::from_str(json).unwrap();
-            assert_eq!(spec.requirements, "Build feature");
-            assert!(spec.technical_notes.is_none());
+            assert_eq!(spec.requirements[0], "Build feature");
+            assert!(spec.technical_notes.is_empty());
         }
 
         #[test]
         fn deserialize_with_snake_case_technical_notes() {
             // The brainstorm prompt examples use "technical_notes" (snake_case),
-            // so agents often output it that way instead of "technicalNotes" (camelCase).
+            // so agents may output it that way instead of "technicalNotes" (camelCase).
             let json = r#"{
-                "requirements": "Build auth",
+                "requirements": ["Build auth"],
                 "decisions": ["Use JWT"],
                 "constraints": ["Must be fast"],
-                "technical_notes": "Extend the existing auth module in src/auth/"
+                "technical_notes": ["Extend the existing auth module in src/auth/"]
             }"#;
             let spec: StructuredSpec = serde_json::from_str(json).unwrap();
-            assert_eq!(spec.requirements, "Build auth");
+            assert_eq!(spec.requirements[0], "Build auth");
             assert_eq!(
-                spec.technical_notes,
-                Some("Extend the existing auth module in src/auth/".to_string()),
+                spec.technical_notes[0],
+                "Extend the existing auth module in src/auth/",
                 "snake_case technical_notes should be accepted via serde alias"
             );
         }
@@ -574,10 +610,10 @@ mod tests {
         #[test]
         fn roundtrip_serialization() {
             let spec = StructuredSpec {
-                requirements: "Complex feature".to_string(),
+                requirements: vec!["Complex feature".to_string(), "Must scale".to_string()],
                 decisions: vec!["A".to_string(), "B".to_string()],
                 constraints: vec!["X".to_string()],
-                technical_notes: Some("Notes here".to_string()),
+                technical_notes: vec!["Notes here".to_string()],
             };
             let json = serde_json::to_string(&spec).unwrap();
             let parsed: StructuredSpec = serde_json::from_str(&json).unwrap();
@@ -586,5 +622,93 @@ mod tests {
             assert_eq!(parsed.constraints, spec.constraints);
             assert_eq!(parsed.technical_notes, spec.technical_notes);
         }
+
+        #[test]
+        fn deserialize_empty_requirements_array() {
+            // requirements: [] must deserialize to an empty Vec, not an error.
+            let json = r#"{
+                "requirements": [],
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty(), "empty requirements array should deserialize to empty Vec");
+            assert!(spec.technical_notes.is_empty());
+        }
+
+        #[test]
+        fn technical_notes_defaults_to_empty_vec_when_field_absent() {
+            // The #[serde(default)] annotation means a missing technicalNotes field
+            // should produce an empty Vec rather than a parse error.
+            let json = r#"{
+                "requirements": ["Build it"],
+                "decisions": ["Use Rust"],
+                "constraints": ["Must compile"]
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(
+                spec.technical_notes.is_empty(),
+                "absent technical_notes must default to empty Vec via #[serde(default)]"
+            );
+        }
+
+        #[test]
+        fn deserialize_requirements_as_plain_string() {
+            let json = r#"{
+                "requirements": "Build OAuth integration",
+                "decisions": ["Use OAuth 2.0"],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, vec!["Build OAuth integration"]);
+        }
+
+        #[test]
+        fn deserialize_technical_notes_as_plain_string() {
+            let json = r#"{
+                "requirements": ["Build auth"],
+                "decisions": [],
+                "constraints": [],
+                "technicalNotes": "Extend existing auth module in src/auth/"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.technical_notes, vec!["Extend existing auth module in src/auth/"]);
+        }
+
+        #[test]
+        fn deserialize_snake_case_technical_notes_as_plain_string() {
+            let json = r#"{
+                "requirements": "Single requirement string",
+                "decisions": [],
+                "constraints": [],
+                "technical_notes": "Use middleware pattern"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, vec!["Single requirement string"]);
+            assert_eq!(spec.technical_notes, vec!["Use middleware pattern"]);
+        }
+
+        #[test]
+        fn deserialize_null_requirements_gives_empty_vec() {
+            let json = r#"{
+                "requirements": null,
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty());
+        }
+
+        #[test]
+        fn deserialize_empty_string_requirements_gives_empty_vec() {
+            let json = r#"{
+                "requirements": "",
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty());
+        }
+
     }
 }

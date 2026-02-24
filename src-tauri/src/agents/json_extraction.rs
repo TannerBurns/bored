@@ -11,10 +11,29 @@ use serde::de::DeserializeOwned;
 ///
 /// Handles ` ```json `, plain ` ``` `, and both `\n` / `\r\n` line endings.
 /// Returns the trimmed content inside the fence without parsing it.
+///
+/// For ` ```json ` fences, brace-matching is tried first so that triple-backtick
+/// sequences *inside* JSON string values (e.g. code examples in spec fields) do
+/// not prematurely terminate the extraction. The closing-fence string search is
+/// kept as a fallback for non-JSON content inside the fence.
 fn extract_json_code_block(text: &str) -> Option<String> {
     if let Some(fence_start) = text.find("```json") {
         let content_start = fence_start + 7;
         let content_start = skip_newline(text, content_start);
+        let remaining = &text[content_start..];
+        // Prefer balanced brace/bracket matching: immune to backticks inside JSON strings.
+        // Guard with starts_with so preamble text that contains { or } does not cause
+        // find_balanced to latch onto the wrong delimiter; fall through to fence-search instead.
+        if remaining.trim_start().starts_with('{') {
+            if let Some(json) = find_balanced(remaining, '{', '}') {
+                return Some(json);
+            }
+        } else if remaining.trim_start().starts_with('[') {
+            if let Some(json) = find_balanced(remaining, '[', ']') {
+                return Some(json);
+            }
+        }
+        // Fallback: closing-fence string search (original behaviour for non-JSON fences).
         if let Some(end_offset) = text[content_start..].find("```") {
             let content = text[content_start..content_start + end_offset].trim();
             if !content.is_empty() {
@@ -365,6 +384,79 @@ mod tests {
             extract_json_code_block(text),
             Some("{\"first\":1}".to_string())
         );
+    }
+
+    #[test]
+    fn code_block_json_with_nested_backticks_in_string_value() {
+        // Agent outputs a JSON code fence whose string values contain sub-fences
+        // (e.g. code examples in spec technical_notes). The naive find("```") would
+        // stop at the inner fence; brace-matching must return the full object.
+        let text = concat!(
+            "```json\n",
+            "{\n",
+            "  \"spec_complete\": true,\n",
+            "  \"notes\": [\"Create main.go with:\\n```go\\npackage main\\n```\"]\n",
+            "}\n",
+            "```",
+        );
+        let result = extract_json_code_block(text).expect("should extract full JSON object");
+        assert!(result.contains("spec_complete"), "must contain spec_complete key");
+        assert!(result.contains("notes"), "must contain notes key");
+        // Verify the extracted string is valid JSON
+        serde_json::from_str::<serde_json::Value>(&result)
+            .expect("extracted content must be valid JSON");
+    }
+
+    #[test]
+    fn code_block_json_fence_array_with_nested_backticks() {
+        // Covers the new `[`-prefixed brace-matching path inside a ```json fence.
+        // The naive find("```") would stop at the inner ``` and return a truncated array.
+        let text = concat!(
+            "```json\n",
+            "[\n",
+            "  {\"cmd\": \"go build\", \"example\": \"```go\\npackage main\\n```\"},\n",
+            "  {\"cmd\": \"go test\"}\n",
+            "]\n",
+            "```",
+        );
+        let result = extract_json_code_block(text).expect("should extract full JSON array");
+        let parsed = serde_json::from_str::<serde_json::Value>(&result)
+            .expect("extracted content must be valid JSON");
+        let arr = parsed.as_array().expect("must be an array");
+        assert_eq!(arr.len(), 2, "both array elements must be present");
+        assert_eq!(arr[0]["cmd"].as_str().unwrap(), "go build");
+        assert_eq!(arr[1]["cmd"].as_str().unwrap(), "go test");
+    }
+
+    #[test]
+    fn code_block_json_fence_non_json_content_uses_fence_search_fallback() {
+        // When the content after ```json doesn't start with { or [, brace-matching
+        // is skipped and we fall through to the original closing-``` search.
+        // This ensures the fallback path is exercised.
+        let text = "```json\n\"a plain string value\"\n```\ntrailing text";
+        let result = extract_json_code_block(text).expect("fence-search fallback should find content");
+        assert_eq!(result, "\"a plain string value\"");
+    }
+
+    #[test]
+    fn code_block_json_fence_preamble_with_braces_uses_fence_search() {
+        // If preamble text before the JSON contains { or }, brace-matching would
+        // latch onto the wrong delimiter and return garbage. The trim_start guard
+        // must detect that content doesn't open with { and skip to fence-search.
+        let text = "```json\nThe schema {x: y} is:\n{\"real\": true}\n```";
+        let result = extract_json_code_block(text).expect("fence-search fallback should return content");
+        assert!(result.contains("{\"real\": true}"), "result must include the JSON object");
+        assert!(result.contains("schema"), "result includes preamble returned by fence-search");
+    }
+
+    #[test]
+    fn code_block_json_fence_brace_match_fallback_when_unbalanced() {
+        // If the content starts with { but brace-matching finds no closing brace
+        // (malformed JSON), we fall through to closing-fence search so we still
+        // return whatever was in the fence.
+        let text = "```json\n{no closing brace\n```";
+        let result = extract_json_code_block(text).expect("fence-search fallback should return content");
+        assert_eq!(result, "{no closing brace");
     }
 
     #[test]
