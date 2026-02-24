@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{State, Window};
+use tauri::{Manager, State, Window};
 
 use crate::agents::spawner::CancelHandle;
+use crate::agents::worker::error_handling::{self, WorktreeFailureContext};
 use crate::agents::AgentRegistry;
 use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::models::{CreateRun, RunStatus};
@@ -185,12 +186,56 @@ pub async fn start_agent_run(
     );
 
     // Create git worktree for isolated execution (same approach as worker path)
-    let (worktree_info, branch_name) = setup_worktree_and_branch(WorktreeBranchSetup {
+    let (worktree_info, branch_name) = match setup_worktree_and_branch(WorktreeBranchSetup {
         ticket: &ticket,
         run_id: &run_id,
         repo_path: &repo_path,
         db: db.inner(),
-    }).await?;
+    }).await {
+        Ok(result) => result,
+        Err(worktree_err) => {
+            let err_msg = format!("Worktree setup failed: {}", worktree_err);
+
+            if let Err(e) = db.update_run_status(
+                &run_id, RunStatus::Error, None, Some(&err_msg),
+            ) {
+                tracing::error!("Failed to mark run {} as Error: {}", run_id, e);
+            }
+
+            let repo_path_buf = std::path::PathBuf::from(&repo_path);
+            let diagnostic_model = {
+                let ws = workflow_settings_state.shared();
+                let per_agent = ws.lock().expect("workflow settings mutex poisoned");
+                per_agent.get(&agent_id).map(|s| s.diagnostic_model.clone())
+            };
+
+            let ticket_blocked = error_handling::handle_worktree_failure(WorktreeFailureContext {
+                db: db.inner().clone(),
+                app_handle: Some(window.app_handle().clone()),
+                ticket: &ticket,
+                repo_path: &repo_path_buf,
+                error: &worktree_err,
+                provider,
+                agent_config,
+                worker_id: "direct-run",
+                diagnostic_model,
+            })
+            .await;
+
+            if ticket_blocked {
+                if let Err(e) = db.unlock_ticket(&ticket_id) {
+                    tracing::error!("Failed to unlock ticket {} after worktree failure: {}", ticket_id, e);
+                }
+            } else {
+                tracing::warn!(
+                    "Could not move ticket {} to Blocked column; keeping lock active to prevent re-queuing",
+                    ticket_id,
+                );
+            }
+
+            return Err(err_msg);
+        }
+    };
 
     let working_path = worktree_info.path.clone();
 
