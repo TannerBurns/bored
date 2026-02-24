@@ -22,7 +22,7 @@ use crate::db::{Database, RunStatus, Ticket};
 // Submodules
 pub(crate) mod branching;
 mod config;
-mod error_handling;
+pub(crate) mod error_handling;
 mod heartbeat;
 mod manager;
 mod run;
@@ -229,9 +229,18 @@ impl Worker {
         .await
         {
             worktree_setup::WorktreeSetupResult::Success(info) => info,
-            worktree_setup::WorktreeSetupResult::Failed(e) => {
-                self.db.unlock_ticket(&ticket.id)?;
-                return Err(e.into());
+            worktree_setup::WorktreeSetupResult::Failed { message, ticket_blocked } => {
+                if ticket_blocked {
+                    self.db.unlock_ticket(&ticket.id)?;
+                } else {
+                    tracing::warn!(
+                        "Worker {} could not move ticket {} to Blocked, keeping lock active ({} min expiry)",
+                        self.id,
+                        ticket.id,
+                        self.config.lock_duration_mins,
+                    );
+                }
+                return Err(message.into());
             }
         };
         let working_path = worktree.path.clone();
@@ -509,6 +518,7 @@ impl Worker {
 mod tests {
     use super::*;
     use crate::agents::claude::provider::ClaudeProvider;
+    use crate::db::{CreateTicket, Priority, WorkflowType};
     use std::collections::HashMap;
 
     fn create_test_worker_config() -> WorkerConfig {
@@ -560,5 +570,130 @@ mod tests {
 
         assert!(!worker.is_running());
         assert_eq!(worker.get_status().status, WorkerState::Stopped);
+    }
+
+    #[test]
+    fn worktree_setup_failed_blocked_unlocks_ticket() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready_col = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready_col.id.clone(),
+                title: "Test".to_string(),
+                description_md: String::new(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let run_id = "test-run-1";
+        let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, run_id, lock_expires).unwrap();
+
+        // Simulate: worktree failed, ticket WAS moved to Blocked
+        let result = worktree_setup::WorktreeSetupResult::Failed {
+            message: "Branch already checked out".to_string(),
+            ticket_blocked: true,
+        };
+
+        if let worktree_setup::WorktreeSetupResult::Failed { ticket_blocked, .. } = result {
+            if ticket_blocked {
+                db.unlock_ticket(&ticket.id).unwrap();
+            }
+        }
+
+        // Ticket should be unlocked
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert!(updated.locked_by_run_id.is_none());
+    }
+
+    #[test]
+    fn worktree_setup_failed_not_blocked_keeps_lock() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ready_col = columns.iter().find(|c| c.name == "Ready").unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: ready_col.id.clone(),
+                title: "Test".to_string(),
+                description_md: String::new(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let run_id = "test-run-2";
+        let lock_expires = chrono::Utc::now() + chrono::Duration::minutes(30);
+        db.lock_ticket(&ticket.id, run_id, lock_expires).unwrap();
+
+        // Simulate: worktree failed, ticket was NOT moved to Blocked
+        let result = worktree_setup::WorktreeSetupResult::Failed {
+            message: "Branch already checked out".to_string(),
+            ticket_blocked: false,
+        };
+
+        if let worktree_setup::WorktreeSetupResult::Failed { ticket_blocked, .. } = result {
+            if ticket_blocked {
+                db.unlock_ticket(&ticket.id).unwrap();
+            }
+        }
+
+        // Ticket should STILL be locked to prevent re-queuing
+        let updated = db.get_ticket(&ticket.id).unwrap();
+        assert_eq!(updated.locked_by_run_id.as_deref(), Some(run_id));
+    }
+
+    #[test]
+    fn worktree_setup_result_failed_carries_message_and_flag() {
+        let result = worktree_setup::WorktreeSetupResult::Failed {
+            message: "SSH auth failed".to_string(),
+            ticket_blocked: true,
+        };
+
+        match result {
+            worktree_setup::WorktreeSetupResult::Failed { message, ticket_blocked } => {
+                assert_eq!(message, "SSH auth failed");
+                assert!(ticket_blocked);
+            }
+            _ => panic!("Expected Failed variant"),
+        }
+
+        let result2 = worktree_setup::WorktreeSetupResult::Failed {
+            message: "No blocked column".to_string(),
+            ticket_blocked: false,
+        };
+
+        match result2 {
+            worktree_setup::WorktreeSetupResult::Failed { message, ticket_blocked } => {
+                assert_eq!(message, "No blocked column");
+                assert!(!ticket_blocked);
+            }
+            _ => panic!("Expected Failed variant"),
+        }
     }
 }

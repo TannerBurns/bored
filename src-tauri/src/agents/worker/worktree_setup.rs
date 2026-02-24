@@ -27,7 +27,11 @@ pub struct WorktreeSetupContext<'a> {
 /// Result of worktree setup
 pub enum WorktreeSetupResult {
     Success(WorktreeInfo),
-    Failed(String),
+    Failed {
+        message: String,
+        /// Whether the ticket was successfully moved to the Blocked column.
+        ticket_blocked: bool,
+    },
 }
 
 /// Create a worktree for the ticket, handling both existing branch and new branch cases.
@@ -73,7 +77,7 @@ async fn create_worktree_with_existing_branch(
                 ctx.ticket.id,
                 e
             );
-            error_handling::handle_worktree_failure(WorktreeFailureContext {
+            let ticket_blocked = error_handling::handle_worktree_failure(WorktreeFailureContext {
                 db: ctx.db.clone(),
                 app_handle: ctx.app_handle.clone(),
                 ticket: ctx.ticket,
@@ -85,7 +89,10 @@ async fn create_worktree_with_existing_branch(
                 diagnostic_model: ctx.diagnostic_model.clone(),
             })
             .await;
-            WorktreeSetupResult::Failed(format!("Failed to create worktree: {}", e))
+            WorktreeSetupResult::Failed {
+                message: format!("Failed to create worktree: {}", e),
+                ticket_blocked,
+            }
         }
     }
 }
@@ -135,7 +142,7 @@ async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> Work
                 ctx.ticket.id,
                 e
             );
-            error_handling::handle_worktree_failure(WorktreeFailureContext {
+            let ticket_blocked = error_handling::handle_worktree_failure(WorktreeFailureContext {
                 db: ctx.db.clone(),
                 app_handle: ctx.app_handle.clone(),
                 ticket: ctx.ticket,
@@ -147,7 +154,10 @@ async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> Work
                 diagnostic_model: ctx.diagnostic_model.clone(),
             })
             .await;
-            WorktreeSetupResult::Failed(format!("Failed to create worktree: {}", e))
+            WorktreeSetupResult::Failed {
+                message: format!("Failed to create worktree: {}", e),
+                ticket_blocked,
+            }
         }
     }
 }

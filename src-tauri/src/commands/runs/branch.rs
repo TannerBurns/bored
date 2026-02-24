@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use crate::agents::worker::branching;
 use crate::agents::worktree::{
-    create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeInfo,
+    create_worktree, create_worktree_with_existing_branch, WorktreeConfig, WorktreeError,
+    WorktreeInfo,
 };
 use crate::db::{Database, Ticket};
 
@@ -23,11 +24,11 @@ pub(super) struct WorktreeBranchSetup<'a> {
 ///   will later rename it to an AI-generated name.
 /// - Subsequent runs (existing branch): creates a worktree using the existing branch.
 ///
-/// Returns `(WorktreeInfo, branch_name)`. Fails if worktree creation fails,
-/// preventing silent fallback to the main repo.
+/// Returns `(WorktreeInfo, branch_name)`. Fails with the original `WorktreeError`
+/// so callers can run diagnostics on the structured error.
 pub(super) async fn setup_worktree_and_branch(
     ctx: WorktreeBranchSetup<'_>,
-) -> Result<(WorktreeInfo, String), String> {
+) -> Result<(WorktreeInfo, String), WorktreeError> {
     let WorktreeBranchSetup {
         ticket, run_id, repo_path, db,
     } = ctx;
@@ -50,16 +51,12 @@ pub(super) async fn setup_worktree_and_branch(
                 run_id, info.path.display(), info.branch_name
             );
         })
-        .map_err(|e| {
+        .inspect_err(|e| {
             tracing::error!(
                 "Failed to create worktree for existing branch '{}': {}. \
                  Aborting run to prevent working directly on the main repo.",
                 existing_branch, e
             );
-            format!(
-                "Failed to create worktree for branch '{}': {}",
-                existing_branch, e
-            )
         })?;
 
         Ok((worktree, existing_branch.clone()))
@@ -89,16 +86,12 @@ pub(super) async fn setup_worktree_and_branch(
             base_dir: None,
             base_branch,
         })
-        .map_err(|e| {
+        .inspect_err(|e| {
             tracing::error!(
                 "Failed to create worktree with temp branch '{}': {}. \
                  Aborting run to prevent working directly on the main repo.",
                 temp_branch, e
             );
-            format!(
-                "Failed to create worktree for new branch '{}': {}",
-                temp_branch, e
-            )
         })?;
 
         tracing::info!(
