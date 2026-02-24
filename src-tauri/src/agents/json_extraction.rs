@@ -21,15 +21,9 @@ fn extract_json_code_block(text: &str) -> Option<String> {
         let content_start = fence_start + 7;
         let content_start = skip_newline(text, content_start);
         let remaining = &text[content_start..];
-        // Prefer balanced brace/bracket matching: immune to ``` inside JSON strings.
-        //
-        // The starts_with check on the trimmed slice guards against content with preamble
-        // text that itself contains { or } characters — in that case find_balanced would
-        // latch onto the wrong delimiter and return garbage, so we skip to fence-search.
-        // When the content opens directly with { or [ (the normal agent output), brace-
-        // matching is safe and handles backticks inside string values correctly.
-        // find_balanced uses text.find(open) internally, so leading whitespace before
-        // the delimiter is handled even though we guard with trim_start().
+        // Prefer balanced brace/bracket matching: immune to backticks inside JSON strings.
+        // Guard with starts_with so preamble text that contains { or } does not cause
+        // find_balanced to latch onto the wrong delimiter; fall through to fence-search instead.
         if remaining.trim_start().starts_with('{') {
             if let Some(json) = find_balanced(remaining, '{', '}') {
                 return Some(json);
@@ -451,8 +445,6 @@ mod tests {
         // must detect that content doesn't open with { and skip to fence-search.
         let text = "```json\nThe schema {x: y} is:\n{\"real\": true}\n```";
         let result = extract_json_code_block(text).expect("fence-search fallback should return content");
-        // Fence-search returns everything up to the ```, including the preamble.
-        // The caller (parse_json_response) then does brace-matching on the whole block.
         assert!(result.contains("{\"real\": true}"), "result must include the JSON object");
         assert!(result.contains("schema"), "result includes preamble returned by fence-search");
     }

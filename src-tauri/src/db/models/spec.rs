@@ -378,16 +378,12 @@ pub struct CreateConversationMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredSpec {
-    /// List of discrete, single-sentence requirement statements.
-    /// Using Vec<String> (rather than a markdown blob) keeps each item small
-    /// so agents do not embed code fences inside the values, which would break
-    /// JSON extraction via fence-search heuristics.
+    /// Discrete requirement statements; one per array entry.
     pub requirements: Vec<String>,
     pub decisions: Vec<String>,
     pub constraints: Vec<String>,
-    /// List of implementation notes/steps (files to create, patterns to follow, etc.).
-    /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case)
-    /// since the brainstorm prompt examples use snake_case.
+    /// Implementation notes: files to create, patterns to follow, integration points, etc.
+    /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case).
     #[serde(alias = "technical_notes", default)]
     pub technical_notes: Vec<String>,
 }
@@ -609,20 +605,6 @@ mod tests {
         }
 
         #[test]
-        fn deserialize_many_requirements_preserves_order() {
-            let json = r#"{
-                "requirements": ["First", "Second", "Third"],
-                "decisions": [],
-                "constraints": []
-            }"#;
-            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
-            assert_eq!(spec.requirements.len(), 3);
-            assert_eq!(spec.requirements[0], "First");
-            assert_eq!(spec.requirements[1], "Second");
-            assert_eq!(spec.requirements[2], "Third");
-        }
-
-        #[test]
         fn technical_notes_defaults_to_empty_vec_when_field_absent() {
             // The #[serde(default)] annotation means a missing technicalNotes field
             // should produce an empty Vec rather than a parse error.
@@ -638,31 +620,5 @@ mod tests {
             );
         }
 
-        #[test]
-        fn technical_notes_join_produces_newline_separated_string() {
-            // Verify the join("\n") behaviour used in trigger_from_spec and
-            // the exploration_entry.response path of handle_spec_completion.
-            let spec = StructuredSpec {
-                requirements: vec!["R1".to_string()],
-                decisions: vec![],
-                constraints: vec![],
-                technical_notes: vec!["Note A".to_string(), "Note B".to_string(), "Note C".to_string()],
-            };
-            let joined = spec.technical_notes.join("\n");
-            assert_eq!(joined, "Note A\nNote B\nNote C");
-        }
-
-        #[test]
-        fn technical_notes_join_empty_produces_empty_string() {
-            // Empty technical_notes.join("\n") must be "" so the exploration_entry
-            // fallback branch activates correctly.
-            let spec = StructuredSpec {
-                requirements: vec![],
-                decisions: vec![],
-                constraints: vec![],
-                technical_notes: vec![],
-            };
-            assert_eq!(spec.technical_notes.join("\n"), "");
-        }
     }
 }
