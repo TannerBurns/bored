@@ -375,16 +375,48 @@ pub struct CreateConversationMessage {
     pub content: String,
 }
 
+/// Accepts a JSON string OR an array of strings and always produces `Vec<String>`.
+/// A single string is wrapped in a one-element vec; null / absent → empty vec.
+fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrArray {
+        Multiple(Vec<String>),
+        Single(String),
+    }
+
+    let value: Option<StringOrArray> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(Vec::new()),
+        Some(StringOrArray::Single(s)) => {
+            if s.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![s])
+            }
+        }
+        Some(StringOrArray::Multiple(v)) => Ok(v.into_iter().filter(|s| !s.is_empty()).collect()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StructuredSpec {
     /// Discrete requirement statements; one per array entry.
+    /// Gracefully accepts a plain string from LLM output.
+    #[serde(deserialize_with = "deserialize_string_or_vec")]
     pub requirements: Vec<String>,
     pub decisions: Vec<String>,
     pub constraints: Vec<String>,
     /// Implementation notes: files to create, patterns to follow, integration points, etc.
     /// Accepts both "technicalNotes" (camelCase) and "technical_notes" (snake_case).
-    #[serde(alias = "technical_notes", default)]
+    /// Gracefully accepts a plain string from LLM output.
+    #[serde(alias = "technical_notes", default, deserialize_with = "deserialize_string_or_vec")]
     pub technical_notes: Vec<String>,
 }
 
@@ -618,6 +650,64 @@ mod tests {
                 spec.technical_notes.is_empty(),
                 "absent technical_notes must default to empty Vec via #[serde(default)]"
             );
+        }
+
+        #[test]
+        fn deserialize_requirements_as_plain_string() {
+            let json = r#"{
+                "requirements": "Build OAuth integration",
+                "decisions": ["Use OAuth 2.0"],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, vec!["Build OAuth integration"]);
+        }
+
+        #[test]
+        fn deserialize_technical_notes_as_plain_string() {
+            let json = r#"{
+                "requirements": ["Build auth"],
+                "decisions": [],
+                "constraints": [],
+                "technicalNotes": "Extend existing auth module in src/auth/"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.technical_notes, vec!["Extend existing auth module in src/auth/"]);
+        }
+
+        #[test]
+        fn deserialize_snake_case_technical_notes_as_plain_string() {
+            let json = r#"{
+                "requirements": "Single requirement string",
+                "decisions": [],
+                "constraints": [],
+                "technical_notes": "Use middleware pattern"
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements, vec!["Single requirement string"]);
+            assert_eq!(spec.technical_notes, vec!["Use middleware pattern"]);
+        }
+
+        #[test]
+        fn deserialize_null_requirements_gives_empty_vec() {
+            let json = r#"{
+                "requirements": null,
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty());
+        }
+
+        #[test]
+        fn deserialize_empty_string_requirements_gives_empty_vec() {
+            let json = r#"{
+                "requirements": "",
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty());
         }
 
     }
