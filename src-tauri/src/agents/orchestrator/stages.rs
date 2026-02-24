@@ -7,7 +7,7 @@ use tauri::Emitter;
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
-use crate::agents::prompt::generate_command_prompt_with_providers;
+use crate::agents::prompt::generate_command_prompt;
 use crate::agents::{AgentRunConfig, AgentRunResult};
 use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
@@ -378,6 +378,8 @@ impl WorkflowOrchestrator {
             max_iterations
         );
 
+        let custom_dir = self.custom_commands_dir();
+
         for iteration in 1..=max_iterations {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
@@ -385,7 +387,7 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
 
-            let review_prompt = generate_command_prompt_with_providers("code-review", &self.repo_path, &[self.provider.as_ref()]);
+            let review_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
             let review_result = self.run_stage("code-review", &review_prompt).await?;
             let raw_output = review_result.captured_stdout.unwrap_or_default();
             let text = self.extract_text(&raw_output);
@@ -407,7 +409,7 @@ impl WorkflowOrchestrator {
                     );
 
                     let issues_context = extract_issues_section(&text);
-                    let base_fix_prompt = generate_command_prompt_with_providers("code-review-fix", &self.repo_path, &[self.provider.as_ref()]);
+                    let base_fix_prompt = generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, issues_context
@@ -421,7 +423,7 @@ impl WorkflowOrchestrator {
                         iteration
                     );
 
-                    let base_fix_prompt = generate_command_prompt_with_providers("code-review-fix", &self.repo_path, &[self.provider.as_ref()]);
+                    let base_fix_prompt = generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, text

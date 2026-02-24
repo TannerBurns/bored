@@ -9,20 +9,6 @@ export interface AgentStatus {
 }
 
 /**
- * State and handlers for command installation
- */
-export interface CommandInstallState {
-  location: 'user' | 'project';
-  setLocation: (loc: 'user' | 'project') => void;
-  projectPath: string;
-  setProjectPath: (path: string) => void;
-  projectId: string;
-  setProjectId: (id: string) => void;
-  installing: boolean;
-  install: () => Promise<void>;
-}
-
-/**
  * Configuration for the agent settings hook factory
  */
 export interface AgentSettingsConfig {
@@ -40,19 +26,6 @@ export interface AgentSettingsReturn {
 
   projects: Project[];
   availableCommands: string[];
-  userCommandsInstalled: boolean;
-  projectCommandStatus: Record<string, boolean>;
 
-  commandInstall: CommandInstallState;
-
-  handleBrowse: (target: 'commands') => Promise<void>;
   reload: () => Promise<void>;
-}
-
-/**
- * Labels for the install location radio buttons
- */
-export interface InstallLocationLabels {
-  user: string;
-  project: string;
 }

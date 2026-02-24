@@ -6,7 +6,7 @@ use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
 };
 use crate::agents::prompt::{
-    generate_command_prompt_with_providers, generate_implement_prompt, generate_plan_prompt,
+    generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
 };
 use crate::db::models::TaskType;
@@ -93,16 +93,16 @@ impl WorkflowOrchestrator {
             );
         }
 
+        let custom_dir = self.custom_commands_dir();
         for selection in &selections {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
             self.run_stage_with_model(
                 &selection.command,
-                &generate_command_prompt_with_providers(
+                &generate_command_prompt(
                     &selection.command,
-                    &self.repo_path,
-                    &[self.provider.as_ref()],
+                    custom_dir.as_deref(),
                 ),
                 &selection.model,
             )
@@ -303,7 +303,8 @@ impl WorkflowOrchestrator {
 
         let implement_prompt = if let Some(ref task) = self.task {
             if matches!(task.task_type, TaskType::Command(_)) {
-                generate_task_prompt(task, &self.ticket, &self.repo_path, &[self.provider.as_ref()])
+                let custom_dir = self.custom_commands_dir();
+                generate_task_prompt(task, &self.ticket, custom_dir.as_deref())
             } else {
                 generate_task_implement_prompt(task, &self.ticket, plan)
             }
@@ -326,13 +327,10 @@ impl WorkflowOrchestrator {
         } else if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
         } else {
+            let custom_dir = self.custom_commands_dir();
             self.run_stage(
                 cmd,
-                &generate_command_prompt_with_providers(
-                    cmd,
-                    &self.repo_path,
-                    &[self.provider.as_ref()],
-                ),
+                &generate_command_prompt(cmd, custom_dir.as_deref()),
             )
             .await?;
         }
@@ -351,13 +349,10 @@ impl WorkflowOrchestrator {
         if self.is_cancelled() {
             return Err("Workflow cancelled".to_string());
         }
+        let custom_dir = self.custom_commands_dir();
         self.run_stage(
             cmd,
-            &generate_command_prompt_with_providers(
-                cmd,
-                &self.repo_path,
-                &[self.provider.as_ref()],
-            ),
+            &generate_command_prompt(cmd, custom_dir.as_deref()),
         )
         .await?;
         Ok(())

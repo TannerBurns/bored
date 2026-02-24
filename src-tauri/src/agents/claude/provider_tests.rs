@@ -236,21 +236,6 @@ fn format_command_reference_returns_file_path() {
 }
 
 #[test]
-fn check_commands_installed_project_returns_false_for_missing_dir() {
-    let temp = std::env::temp_dir().join(format!("claude_prov_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp).unwrap();
-    let p = ClaudeProvider::new();
-    assert!(!p.check_commands_installed_project(&temp));
-    std::fs::remove_dir_all(&temp).ok();
-}
-
-#[test]
-fn check_commands_installed_user_returns_bool() {
-    let p = ClaudeProvider::new();
-    let _ = p.check_commands_installed_user();
-}
-
-#[test]
 fn available_models_returns_claude_models() {
     let p = ClaudeProvider::new();
     let models = p.available_models();

@@ -15,19 +15,6 @@ use crate::db::Database;
 
 pub static WORKER_MANAGER: Lazy<WorkerManager> = Lazy::new(WorkerManager::new);
 
-fn resolve_commands_source(
-    provider: &dyn crate::agents::AgentProvider,
-    app: &tauri::AppHandle,
-) -> Option<PathBuf> {
-    provider.get_bundled_commands_path().or_else(|| {
-        use tauri::Manager;
-        app.path()
-            .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
-            .ok()
-            .filter(|p| p.exists())
-    })
-}
-
 fn get_custom_commands_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
     let dir = app
@@ -181,12 +168,10 @@ pub async fn get_worker_queue_status(
                 .count();
         }
 
-        // In-progress = valid lock, regardless of column
         let all_tickets = db.get_tickets(&board.id, None).map_err(|e| e.to_string())?;
         in_progress_count += all_tickets
             .iter()
             .filter(|t| {
-                // Has a lock that hasn't expired
                 t.locked_by_run_id.is_some() && t.lock_expires_at.is_some_and(|exp| exp > now)
             })
             .count();
@@ -202,91 +187,51 @@ pub async fn get_worker_queue_status(
 #[tauri::command]
 pub async fn get_commands_path(
     app: tauri::AppHandle,
-    registry: State<'_, AgentRegistry>,
 ) -> Result<Option<String>, String> {
-    let path = registry.providers().iter()
-        .find_map(|p| resolve_commands_source(&**p, &app));
-    Ok(path.map(|p| p.to_string_lossy().to_string()))
+    use crate::agents::command_templates;
+    let path = command_templates::get_bundled_commands_path();
+    if let Some(p) = path {
+        return Ok(Some(p.to_string_lossy().to_string()));
+    }
+    use tauri::Manager;
+    let resource_path = app
+        .path()
+        .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
+        .ok()
+        .filter(|p| p.exists());
+    Ok(resource_path.map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
 pub async fn get_available_commands(
     app: tauri::AppHandle,
-    registry: State<'_, AgentRegistry>,
 ) -> Result<Vec<String>, String> {
-    let commands_source = registry.providers().iter()
-        .find_map(|p| resolve_commands_source(&**p, &app));
-    match commands_source {
-        Some(path) => Ok(discover_commands(&path)),
-        None => Ok(vec![]),
+    use crate::agents::command_templates;
+    let mut all_commands = std::collections::HashSet::new();
+
+    // Bundled commands
+    if let Some(bundled) = command_templates::get_bundled_commands_path() {
+        for name in discover_commands(&bundled) {
+            all_commands.insert(name);
+        }
     }
-}
 
-#[tauri::command]
-pub async fn install_commands_to_project(
-    app: tauri::AppHandle,
-    agent_type: String,
-    repo_path: String,
-    registry: State<'_, AgentRegistry>,
-) -> Result<Vec<String>, String> {
-    let provider = registry
-        .get(&agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
+    // Custom commands
+    if let Ok(custom_dir) = get_custom_commands_dir(&app) {
+        for name in discover_commands(&custom_dir) {
+            all_commands.insert(name);
+        }
+    }
 
-    let commands_source = resolve_commands_source(&*provider, &app)
-        .ok_or_else(|| "Command templates not found".to_string())?;
-
-    let repo = PathBuf::from(&repo_path);
-    provider.install_commands_to_project(&repo, &commands_source)
-}
-
-#[tauri::command]
-pub async fn install_commands_to_user(
-    app: tauri::AppHandle,
-    agent_type: String,
-    registry: State<'_, AgentRegistry>,
-) -> Result<Vec<String>, String> {
-    let provider = registry
-        .get(&agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
-
-    let commands_source = resolve_commands_source(&*provider, &app)
-        .ok_or_else(|| "Command templates not found".to_string())?;
-
-    provider.install_commands_to_user(&commands_source)
-}
-
-#[tauri::command]
-pub async fn check_commands_installed(
-    agent_type: String,
-    repo_path: String,
-    registry: State<'_, AgentRegistry>,
-) -> Result<bool, String> {
-    let provider = registry
-        .get(&agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
-
-    let repo = PathBuf::from(&repo_path);
-    Ok(provider.check_commands_installed_user() || provider.check_commands_installed_project(&repo))
-}
-
-#[tauri::command]
-pub async fn check_user_commands_installed(
-    agent_type: String,
-    registry: State<'_, AgentRegistry>,
-) -> Result<bool, String> {
-    let provider = registry
-        .get(&agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
-
-    Ok(provider.check_commands_installed_user())
+    let mut result: Vec<String> = all_commands.into_iter().collect();
+    result.sort();
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn read_command_content(
     app: tauri::AppHandle,
     filename: String,
-    registry: State<'_, AgentRegistry>,
 ) -> Result<String, String> {
     if let Ok(custom_dir) = get_custom_commands_dir(&app) {
         let file_path = safe_join(&custom_dir, &filename)?;
@@ -296,11 +241,9 @@ pub async fn read_command_content(
         }
     }
 
-    let commands_source = registry.providers().iter()
-        .find_map(|p| resolve_commands_source(&**p, &app));
-
-    if let Some(path) = commands_source {
-        let file_path = safe_join(&path, &filename)?;
+    use crate::agents::command_templates;
+    if let Some(bundled) = command_templates::get_bundled_commands_path() {
+        let file_path = safe_join(&bundled, &filename)?;
         if file_path.exists() {
             return std::fs::read_to_string(&file_path)
                 .map_err(|e| format!("Failed to read command file: {}", e));
@@ -335,70 +278,6 @@ pub async fn delete_custom_command(
         std::fs::remove_file(&file_path)
             .map_err(|e| format!("Failed to delete command file: {}", e))?;
     }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn install_catalog_commands_to_all_projects(
-    app: tauri::AppHandle,
-    filenames: Vec<String>,
-    remove_filenames: Vec<String>,
-    db: State<'_, Arc<Database>>,
-    registry: State<'_, AgentRegistry>,
-) -> Result<(), String> {
-    let providers = registry.providers();
-    let bundled_source = providers.iter()
-        .find_map(|p| resolve_commands_source(&**p, &app));
-    let custom_source = get_custom_commands_dir(&app).ok();
-
-    let projects = db.get_projects().map_err(|e| e.to_string())?;
-
-    for project in &projects {
-        let repo_path = PathBuf::from(&project.path);
-        if !repo_path.exists() {
-            continue;
-        }
-        for provider in &providers {
-            let commands_dir = repo_path
-                .join(provider.config_dir_name())
-                .join(provider.command_instructions_subdir());
-            let _ = std::fs::create_dir_all(&commands_dir);
-
-            for filename in &filenames {
-                let dest = match safe_join(&commands_dir, filename) {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                };
-                let copied = custom_source.as_ref().is_some_and(|d| {
-                    safe_join(d, filename)
-                        .ok()
-                        .filter(|src| src.exists())
-                        .and_then(|src| std::fs::copy(&src, &dest).ok())
-                        .is_some()
-                });
-                if !copied {
-                    if let Some(ref bundled) = bundled_source {
-                        if let Ok(src) = safe_join(bundled, filename) {
-                            if src.exists() {
-                                let _ = std::fs::copy(&src, &dest);
-                            }
-                        }
-                    }
-                }
-            }
-
-            for filename in &remove_filenames {
-                let dest = match safe_join(&commands_dir, filename) {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                };
-                if dest.exists() {
-                    let _ = std::fs::remove_file(&dest);
-                }
-            }
-        }
-    }
-
     Ok(())
 }
 

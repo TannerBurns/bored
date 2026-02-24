@@ -34,12 +34,6 @@ pub fn validate_worker_environment_with_options(
     }
     all_checks.push(cli_check);
 
-    let commands_check = checks::check_commands_installed(provider, repo_path);
-    if !commands_check.passed {
-        errors.push(commands_check.message.clone());
-    }
-    all_checks.push(commands_check);
-
     if requires_git {
         let git_check = checks::check_git_repository(repo_path);
         if !git_check.passed {
@@ -182,8 +176,44 @@ mod tests {
 
         let check_names: Vec<&str> = result.checks.iter().map(|c| c.name.as_str()).collect();
         assert!(check_names.contains(&"cli_available"));
-        assert!(check_names.contains(&"commands_installed"));
         assert!(check_names.contains(&"git_repository"));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn validation_does_not_include_commands_installed_check() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("validation_no_cmds_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let provider = CursorProvider::new();
+        let result = validate_worker_environment(&provider, &temp_dir, None);
+
+        let commands_check = result.checks.iter().find(|c| c.name == "commands_installed");
+        assert!(
+            commands_check.is_none(),
+            "Validation should not include commands_installed check — commands are now app-internal"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn validation_check_names_are_correct_set() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("validation_names_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let provider = CursorProvider::new();
+        let result = validate_worker_environment(&provider, &temp_dir, None);
+        let check_names: Vec<&str> = result.checks.iter().map(|c| c.name.as_str()).collect();
+
+        assert!(check_names.contains(&"cli_available"));
+        assert!(check_names.contains(&"git_repository"));
+        assert!(check_names.contains(&"git_clean_state"));
+        assert!(!check_names.contains(&"commands_installed"));
+        assert!(!check_names.contains(&"hooks_configured"));
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }

@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use crate::agents::provider::AgentProvider;
 use crate::db::models::{Priority, Task, TaskType, Ticket};
 
 /// Generate a prompt for executing a task
@@ -10,12 +9,11 @@ use crate::db::models::{Priority, Task, TaskType, Ticket};
 pub fn generate_task_prompt(
     task: &Task,
     ticket: &Ticket,
-    repo_path: &Path,
-    providers: &[&dyn AgentProvider],
+    custom_commands_dir: Option<&Path>,
 ) -> String {
     match &task.task_type {
         TaskType::Custom => generate_custom_task_prompt(task, ticket),
-        TaskType::Command(id) => generate_command_task_prompt(id, repo_path, providers),
+        TaskType::Command(id) => generate_command_task_prompt(id, custom_commands_dir),
     }
 }
 
@@ -78,17 +76,12 @@ Focus on completing this specific task. Additional QA stages will follow.
 }
 
 /// Generate a prompt for a command-based task by reading the command file.
-///
-/// Searches provider-specific repo-level directories first (e.g.
-/// `<repo>/.cursor/rules/<command>.md`), then bundled command files,
-/// then falls back to hardcoded prompts.
 fn generate_command_task_prompt(
     command_id: &str,
-    repo_path: &Path,
-    providers: &[&dyn AgentProvider],
+    custom_commands_dir: Option<&Path>,
 ) -> String {
     let locations =
-        super::workflow::build_command_search_paths(command_id, repo_path, providers);
+        super::workflow::build_command_search_paths(command_id, custom_commands_dir);
 
     for path in &locations {
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -326,7 +319,7 @@ mod tests {
     fn generate_task_prompt_custom_includes_content() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/tmp"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains(&ticket.title));
         assert!(prompt.contains("Custom task content"));
@@ -337,7 +330,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("Sync with Main"));
         assert!(prompt.contains("git fetch"));
@@ -348,7 +341,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.priority = Priority::Urgent;
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/tmp"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("URGENT"));
     }
@@ -357,7 +350,7 @@ mod tests {
     fn generate_custom_task_prompt_includes_labels() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/tmp"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("bug"));
     }
@@ -422,53 +415,29 @@ mod tests {
     }
 
     #[test]
-    fn generate_preset_prompt_finds_provider_specific_file() {
-        use crate::agents::cost::RunCostData;
-        use crate::agents::provider::{AgentProvider, AgentRunConfig};
-
-        #[derive(Debug)]
-        struct TestProvider;
-        impl AgentProvider for TestProvider {
-            fn id(&self) -> &str { "test" }
-            fn display_name(&self) -> &str { "Test" }
-            fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) { ("test".into(), vec![]) }
-            fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
-            fn extract_text(&self, o: &str) -> String { o.to_string() }
-            fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<RunCostData> { None }
-            fn is_available(&self) -> bool { false }
-            fn get_version(&self) -> Option<String> { None }
-            fn config_dir_name(&self) -> &str { ".test-agent" }
-            fn command_instructions_subdir(&self) -> &str { "commands" }
-            fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
-        }
-
-        // Create a temp dir with a provider-specific command file
+    fn generate_command_prompt_reads_custom_dir_first() {
         let tmp = std::env::temp_dir().join(format!("task_test_{}", uuid::Uuid::new_v4()));
-        let cmd_dir = tmp.join(".test-agent").join("commands");
-        std::fs::create_dir_all(&cmd_dir).unwrap();
-        std::fs::write(cmd_dir.join("sync-with-main.md"), "# Custom sync instructions\nDo the custom sync.").unwrap();
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("sync-with-main.md"), "# Custom sync instructions\nDo the custom sync.").unwrap();
 
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
-        let provider = TestProvider;
-        let providers: &[&dyn AgentProvider] = &[&provider];
 
-        let prompt = generate_task_prompt(&task, &ticket, &tmp, providers);
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
 
-        // Should find the provider-specific file, not the fallback
-        assert!(prompt.contains("Custom sync instructions"), "Should find provider-specific command file");
+        assert!(prompt.contains("Custom sync instructions"), "Should find custom command file");
         assert!(!prompt.contains("git fetch"), "Should NOT fall through to hardcoded fallback");
 
         std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
-    fn generate_command_prompt_falls_back_without_provider_file() {
+    fn generate_command_prompt_falls_back_without_custom_file() {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("fix-lint".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("Fix Lint") || prompt.contains("fix-lint"));
     }
@@ -478,8 +447,64 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("my-custom-cmd".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, Path::new("/nonexistent"), &[]);
+        let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("my-custom-cmd"));
+    }
+
+    #[test]
+    fn custom_dir_missing_command_falls_through_to_bundled() {
+        let tmp = std::env::temp_dir().join(format!("task_fallthrough_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("other-cmd.md"), "# other").unwrap();
+
+        let ticket = create_test_ticket();
+        let mut task = create_test_task(TaskType::Command("fix-lint".to_string()));
+        task.content = None;
+
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
+
+        assert!(
+            prompt.contains("Fix Lint") || prompt.contains("fix-lint"),
+            "Should fall through to bundled/fallback when custom dir lacks the command"
+        );
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn none_custom_dir_reads_bundled_command_file() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if manifest_dir.join("scripts/commands/code-review.md").exists() {
+            let ticket = create_test_ticket();
+            let mut task = create_test_task(TaskType::Command("code-review".to_string()));
+            task.content = None;
+
+            let prompt = generate_task_prompt(&task, &ticket, None);
+
+            assert!(
+                prompt.contains("Command Task: code-review"),
+                "Should read bundled file content"
+            );
+            assert!(
+                prompt.contains("Execute these instructions carefully"),
+                "Should include the instruction footer"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_task_ignores_custom_commands_dir() {
+        let tmp = std::env::temp_dir().join(format!("task_custom_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
+
+        assert!(prompt.contains("Custom task content"));
+        assert!(prompt.contains(&ticket.title));
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }

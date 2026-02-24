@@ -18,25 +18,6 @@ pub fn check_cli_available(provider: &dyn AgentProvider) -> ValidationCheck {
     }
 }
 
-pub fn check_commands_installed(provider: &dyn AgentProvider, repo_path: &Path) -> ValidationCheck {
-    let user_installed = provider.check_commands_installed_user();
-    let project_installed = provider.check_commands_installed_project(repo_path);
-
-    if user_installed || project_installed {
-        let location = if user_installed { "user" } else { "project" };
-        ValidationCheck::pass(
-            "commands_installed",
-            &format!("Command templates are installed ({})", location),
-        )
-    } else {
-        ValidationCheck::fail(
-            "commands_installed",
-            "Command templates are not installed",
-            Some("install_commands"),
-        )
-    }
-}
-
 pub fn check_git_repository(repo_path: &Path) -> ValidationCheck {
     let git_dir = repo_path.join(".git");
 
@@ -95,13 +76,11 @@ mod tests {
     use super::*;
     use crate::agents::cost::RunCostData;
     use crate::agents::provider::{AgentProvider, AgentRunConfig};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[derive(Debug, Default)]
     struct CheckStub {
         available: bool,
-        user_commands: bool,
-        project_commands: bool,
     }
 
     impl AgentProvider for CheckStub {
@@ -116,15 +95,13 @@ mod tests {
         fn config_dir_name(&self) -> &str { ".stub" }
         fn command_instructions_subdir(&self) -> &str { "commands" }
         fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
-        fn check_commands_installed_user(&self) -> bool { self.user_commands }
-        fn check_commands_installed_project(&self, _: &Path) -> bool { self.project_commands }
     }
 
     // ── check_cli_available ──────────────────────────────────────────
 
     #[test]
     fn cli_available_passes_when_provider_is_available() {
-        let stub = CheckStub { available: true, ..Default::default() };
+        let stub = CheckStub { available: true };
         let check = check_cli_available(&stub);
         assert!(check.passed);
         assert_eq!(check.name, "cli_available");
@@ -133,44 +110,10 @@ mod tests {
 
     #[test]
     fn cli_available_fails_when_provider_is_unavailable() {
-        let stub = CheckStub { available: false, ..Default::default() };
+        let stub = CheckStub { available: false };
         let check = check_cli_available(&stub);
         assert!(!check.passed);
         assert!(check.message.contains("not installed"));
-    }
-
-    // ── check_commands_installed ──────────────────────────────────────
-
-    #[test]
-    fn commands_installed_passes_with_user_commands() {
-        let stub = CheckStub { user_commands: true, ..Default::default() };
-        let check = check_commands_installed(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("user"));
-    }
-
-    #[test]
-    fn commands_installed_passes_with_project_commands() {
-        let stub = CheckStub { project_commands: true, ..Default::default() };
-        let check = check_commands_installed(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("project"));
-    }
-
-    #[test]
-    fn commands_installed_prefers_user_over_project() {
-        let stub = CheckStub { user_commands: true, project_commands: true, ..Default::default() };
-        let check = check_commands_installed(&stub, Path::new("/tmp"));
-        assert!(check.passed);
-        assert!(check.message.contains("user"));
-    }
-
-    #[test]
-    fn commands_installed_fails_when_neither_installed() {
-        let stub = CheckStub::default();
-        let check = check_commands_installed(&stub, Path::new("/tmp"));
-        assert!(!check.passed);
-        assert_eq!(check.fix_action.as_deref(), Some("install_commands"));
     }
 
     // ── existing tests ───────────────────────────────────────────────

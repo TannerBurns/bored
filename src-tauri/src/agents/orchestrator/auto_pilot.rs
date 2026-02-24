@@ -8,7 +8,6 @@ use std::path::Path;
 use super::WorkflowOrchestrator;
 use crate::agents::command_templates;
 use crate::agents::models::MODEL_ENTRIES;
-use crate::agents::provider::AgentProvider;
 
 /// A single command+model pair selected by the agent.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -24,28 +23,23 @@ const EXCLUDED_COMMANDS: &[&str] = &[
     "code-review-fix",
 ];
 
-/// Discover available commands by scanning the provider's project-level
-/// command directory and the bundled commands directory, then merging
-/// and deduplicating. Returns sorted command IDs (without `.md` extension).
+/// Returns sorted, deduplicated command IDs (without `.md` extension)
+/// from the custom and bundled command directories.
 fn discover_available_commands(
-    repo_path: &Path,
-    provider: &dyn AgentProvider,
+    custom_commands_dir: Option<&Path>,
 ) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut commands = Vec::new();
 
-    // 1. Provider's project-level commands (e.g. <repo>/.claude/commands/)
-    let project_commands_dir = repo_path
-        .join(provider.config_dir_name())
-        .join(provider.command_instructions_subdir());
-    for filename in command_templates::discover_commands(&project_commands_dir) {
-        let id = filename.trim_end_matches(".md").to_string();
-        if !EXCLUDED_COMMANDS.contains(&id.as_str()) && seen.insert(id.clone()) {
-            commands.push(id);
+    if let Some(custom_dir) = custom_commands_dir {
+        for filename in command_templates::discover_commands(custom_dir) {
+            let id = filename.trim_end_matches(".md").to_string();
+            if !EXCLUDED_COMMANDS.contains(&id.as_str()) && seen.insert(id.clone()) {
+                commands.push(id);
+            }
         }
     }
 
-    // 2. Bundled commands
     if let Some(bundled_dir) = command_templates::get_bundled_commands_path() {
         for filename in command_templates::discover_commands(&bundled_dir) {
             let id = filename.trim_end_matches(".md").to_string();
@@ -66,7 +60,8 @@ impl WorkflowOrchestrator {
         plan: &str,
         impl_summary: &str,
     ) -> Result<Vec<CommandSelection>, String> {
-        let available = discover_available_commands(&self.repo_path, &*self.provider);
+        let custom_dir = self.custom_commands_dir();
+        let available = discover_available_commands(custom_dir.as_deref());
 
         let (effective_title, effective_description, ticket_context) = match &self.task {
             Some(task) => {
@@ -599,9 +594,7 @@ These will ensure quality."#;
 
     #[test]
     fn discover_finds_bundled_commands() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        let provider = ClaudeProvider::new();
-        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        let commands = discover_available_commands(None);
         assert!(commands.contains(&"cleanup".to_string()));
         assert!(commands.contains(&"code-review".to_string()));
         assert!(commands.contains(&"deslop".to_string()));
@@ -611,9 +604,7 @@ These will ensure quality."#;
 
     #[test]
     fn discover_excludes_orchestrator_internal_commands() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        let provider = ClaudeProvider::new();
-        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        let commands = discover_available_commands(None);
         for excluded in EXCLUDED_COMMANDS {
             assert!(
                 !commands.contains(&excluded.to_string()),
@@ -625,29 +616,23 @@ These will ensure quality."#;
 
     #[test]
     fn discover_returns_sorted_output() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        let provider = ClaudeProvider::new();
-        let commands = discover_available_commands(Path::new("/nonexistent"), &provider);
+        let commands = discover_available_commands(None);
         let mut sorted = commands.clone();
         sorted.sort();
         assert_eq!(commands, sorted);
     }
 
     #[test]
-    fn discover_picks_up_project_commands() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        let provider = ClaudeProvider::new();
+    fn discover_picks_up_custom_commands() {
         let temp = std::env::temp_dir().join(format!("auto_pilot_test_{}", uuid::Uuid::new_v4()));
-        let cmd_dir = temp.join(".claude").join("commands");
-        std::fs::create_dir_all(&cmd_dir).unwrap();
-        std::fs::write(cmd_dir.join("my-custom-deploy.md"), "# deploy").unwrap();
+        std::fs::create_dir_all(&temp).unwrap();
+        std::fs::write(temp.join("my-custom-deploy.md"), "# deploy").unwrap();
 
-        let commands = discover_available_commands(&temp, &provider);
+        let commands = discover_available_commands(Some(&temp));
         assert!(
             commands.contains(&"my-custom-deploy".to_string()),
-            "Project-level custom command should be discovered"
+            "Custom command should be discovered"
         );
-        // Should also have bundled commands
         assert!(commands.contains(&"cleanup".to_string()));
 
         std::fs::remove_dir_all(&temp).ok();
@@ -655,15 +640,11 @@ These will ensure quality."#;
 
     #[test]
     fn discover_deduplicates_across_sources() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        let provider = ClaudeProvider::new();
         let temp = std::env::temp_dir().join(format!("auto_pilot_dedup_{}", uuid::Uuid::new_v4()));
-        let cmd_dir = temp.join(".claude").join("commands");
-        std::fs::create_dir_all(&cmd_dir).unwrap();
-        // Create a project-level command with the same name as a bundled one
-        std::fs::write(cmd_dir.join("cleanup.md"), "# custom cleanup").unwrap();
+        std::fs::create_dir_all(&temp).unwrap();
+        std::fs::write(temp.join("cleanup.md"), "# custom cleanup").unwrap();
 
-        let commands = discover_available_commands(&temp, &provider);
+        let commands = discover_available_commands(Some(&temp));
         let cleanup_count = commands.iter().filter(|c| c.as_str() == "cleanup").count();
         assert_eq!(cleanup_count, 1, "Duplicate commands should be deduplicated");
 
@@ -718,5 +699,50 @@ These will ensure quality."#;
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].command, "cleanup");
         assert_eq!(result[1].command, "deslop");
+    }
+
+    #[test]
+    fn discover_with_empty_custom_dir_returns_bundled_only() {
+        let temp = std::env::temp_dir().join(format!("auto_pilot_empty_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let commands = discover_available_commands(Some(&temp));
+        assert!(commands.contains(&"cleanup".to_string()), "Bundled commands should be present");
+        assert!(commands.contains(&"deslop".to_string()), "Bundled commands should be present");
+        assert!(!commands.contains(&"add-and-commit".to_string()), "Excluded should still be excluded");
+
+        std::fs::remove_dir_all(&temp).ok();
+    }
+
+    #[test]
+    fn discover_ignores_non_md_files_in_custom_dir() {
+        let temp = std::env::temp_dir().join(format!("auto_pilot_nonmd_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp).unwrap();
+        std::fs::write(temp.join("readme.txt"), "not a command").unwrap();
+        std::fs::write(temp.join("config.json"), "{}").unwrap();
+        std::fs::write(temp.join("real-cmd.md"), "# a command").unwrap();
+
+        let commands = discover_available_commands(Some(&temp));
+        assert!(commands.contains(&"real-cmd".to_string()));
+        assert!(!commands.iter().any(|c| c.contains("readme")));
+        assert!(!commands.iter().any(|c| c.contains("config")));
+
+        std::fs::remove_dir_all(&temp).ok();
+    }
+
+    #[test]
+    fn discover_with_nonexistent_custom_dir_returns_bundled() {
+        let commands = discover_available_commands(Some(Path::new("/nonexistent/path")));
+        assert!(commands.contains(&"cleanup".to_string()));
+        assert!(!commands.contains(&"add-and-commit".to_string()));
+    }
+
+    #[test]
+    fn discover_none_excludes_code_review_fix() {
+        let commands = discover_available_commands(None);
+        assert!(
+            !commands.contains(&"code-review-fix".to_string()),
+            "code-review-fix should be excluded"
+        );
     }
 }

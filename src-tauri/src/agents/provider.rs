@@ -5,7 +5,7 @@
 //! agent-specific logic.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::cost::RunCostData;
 
@@ -119,47 +119,6 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         _agent_config: &HashMap<String, serde_json::Value>,
     ) -> String {
         stage_model.to_string()
-    }
-
-    // ── Commands checking and installation ───────────────────────────
-
-    /// Check whether command templates are installed in a project.
-    fn check_commands_installed_project(&self, _repo_path: &Path) -> bool {
-        false
-    }
-
-    /// Check whether command templates are installed at the user level.
-    fn check_commands_installed_user(&self) -> bool {
-        false
-    }
-
-    /// Install command templates into a project directory.
-    fn install_commands_to_project(
-        &self,
-        _repo_path: &Path,
-        _commands_source: &Path,
-    ) -> Result<Vec<String>, String> {
-        Ok(vec![])
-    }
-
-    /// Install command templates to the user-level directory.
-    fn install_commands_to_user(
-        &self,
-        _commands_source: &Path,
-    ) -> Result<Vec<String>, String> {
-        Ok(vec![])
-    }
-
-    /// Get the path to bundled command templates (dev builds).
-    fn get_bundled_commands_path(&self) -> Option<PathBuf> {
-        let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("scripts")
-            .join("commands");
-        if dev_path.exists() {
-            Some(dev_path)
-        } else {
-            None
-        }
     }
 }
 
