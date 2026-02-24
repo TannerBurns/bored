@@ -2,6 +2,50 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.27] - 2026-02-24
+
+Bug fix release improving spec agent JSON extraction reliability and model override cost attribution accuracy.
+
+### Improvements
+
+- Auto-pilot command selections persisted to run metadata and displayed in RunsHistory UI after workflow completion
+- Agent config stored in sub-run metadata enabling cost backfill to apply local provider overrides retroactively
+- StructuredSpec requirements and technical_notes fields changed from String to Vec<String> for discrete, actionable items that avoid embedded code fences
+- Extracted bullet_list helper consolidating repeated formatting patterns in spec completion
+- Dashboard model breakdown adds "Others" bucket when 8+ models are present
+
+### Bug Fixes
+
+- Fixed spec agent silently producing duplicate spec JSON without creating a spec — extract_json_code_block now uses brace-counting inside json fences instead of string-searching for closing backticks, which failed on code examples embedded in field values
+- Fixed StructuredSpec deserialization failures when agents return a plain string instead of an array for requirements or technical_notes — added flexible string-or-array deserializer matching the existing depends_on pattern
+- Fixed model override cost re-keying — when users configure local provider overrides (Ollama, vLLM), model_usage entries are now re-keyed to the user-configured override model so costs are attributed correctly in dashboards and reports
+- Fixed dashboard cost aggregation inconsistencies — summary and trends now prefer per-model sums over total_cost_usd when model_usage entries disagree
+
+### Testing
+
+- Added JSON extraction tests for nested backticks, non-JSON fence fallback, and unbalanced brace recovery
+- Added StructuredSpec schema tests for empty arrays, order preservation, string-or-array deserialization, and null handling
+- Added cost re-keying tests for local provider model override scenarios
+- Added merge_run_metadata and auto-pilot selection persistence tests
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.26, here is a summary of the major features introduced in recent releases:
+
+**beta.26 — Dashboard & Board/List View**
+Dashboard landing page with summary stats, trend charts (activity, cost, tokens), model cost breakdown, and per-ticket git stats. Board/list view toggle with column select dropdown. Dynamic Cursor model sync from CLI output.
+
+**beta.25 — Auto-Pilot Workflow & Command-Based Tasks**
+Auto-pilot workflow mode where the agent dynamically decides which commands to run after implementation. Extensible command-based task system backed by the command catalog. Codex reasoning effort and multi-agent toggle.
+
+**beta.24 — System Tray & Notifications**
+System tray integration with recent tickets list and native OS notifications when tickets move to Review or Blocked. Notification toggle in General Settings.
+
+**beta.23 — Catalog-Driven Commands**
+Custom and built-in workflow commands managed through a discoverable command catalog. Create, edit, and delete custom commands per agent with file-backed persistence.
+
+---
+
 ## [0.1.0-beta.26] - 2026-02-23
 
 Dashboard landing page, board/list view toggle, dynamic Cursor model sync, and dead code cleanup.
