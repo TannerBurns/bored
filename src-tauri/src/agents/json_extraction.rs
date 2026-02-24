@@ -79,7 +79,8 @@ pub fn extract_json_object(text: &str) -> Option<String> {
 /// Tries strategies in order:
 /// 1. Direct `serde_json::from_str` on the full text
 /// 2. Code-fence extraction + parse
-/// 3. Bracket-finding (object `{...}` or array `[...]`) + parse
+/// 3. Bracket-finding (object `{...}` or array `[...]`) + parse, trying
+///    successive positions if the first balanced match doesn't deserialize.
 ///
 /// Returns `None` if all strategies fail.
 pub fn parse_json_response<T: DeserializeOwned>(text: &str) -> Option<T> {
@@ -95,17 +96,37 @@ pub fn parse_json_response<T: DeserializeOwned>(text: &str) -> Option<T> {
         }
     }
 
-    if let Some(obj) = find_balanced(trimmed, '{', '}') {
-        if let Ok(val) = serde_json::from_str::<T>(&obj) {
-            return Some(val);
-        }
+    if let Some(val) = find_balanced_and_parse::<T>(trimmed, '{', '}') {
+        return Some(val);
     }
-    if let Some(arr) = find_balanced(trimmed, '[', ']') {
-        if let Ok(val) = serde_json::from_str::<T>(&arr) {
-            return Some(val);
-        }
+    if let Some(val) = find_balanced_and_parse::<T>(trimmed, '[', ']') {
+        return Some(val);
     }
 
+    None
+}
+
+/// Try successive balanced-bracket matches until one deserializes as `T`.
+///
+/// Unlike a single `find_balanced` call, this handles text where prose
+/// contains brackets before the actual JSON (e.g. `"Based on [the analysis]...
+/// [{"command":"cleanup"}]"`).
+fn find_balanced_and_parse<T: DeserializeOwned>(
+    text: &str,
+    open: char,
+    close: char,
+) -> Option<T> {
+    let mut search_from = 0;
+    while search_from < text.len() {
+        if let Some(candidate) = find_balanced_from(text, search_from, open, close) {
+            if let Ok(val) = serde_json::from_str::<T>(&candidate.matched) {
+                return Some(val);
+            }
+            search_from = candidate.end_byte;
+        } else {
+            break;
+        }
+    }
     None
 }
 
@@ -162,25 +183,47 @@ pub fn parse_all_json_blocks(text: &str) -> Vec<serde_json::Value> {
     results
 }
 
+struct BalancedMatch {
+    matched: String,
+    /// Byte offset just past the closing delimiter — used to resume searching.
+    end_byte: usize,
+}
+
+/// Find a balanced pair of open/close characters starting at or after `from_byte`.
+fn find_balanced_from(
+    text: &str,
+    from_byte: usize,
+    open: char,
+    close: char,
+) -> Option<BalancedMatch> {
+    let slice = &text[from_byte..];
+    let start = slice.find(open)?;
+    let abs_start = from_byte + start;
+    let mut depth = 0;
+    for (i, c) in text[abs_start..].char_indices() {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                let end = abs_start + i + c.len_utf8();
+                return Some(BalancedMatch {
+                    matched: text[abs_start..end].to_string(),
+                    end_byte: end,
+                });
+            }
+        }
+    }
+    None
+}
+
 /// Find the first balanced pair of open/close characters using depth counting.
 ///
 /// Starts from the first `open` character and walks forward, incrementing
 /// depth on `open` and decrementing on `close`. Returns the substring from
 /// the opening character to its matching close (inclusive).
 fn find_balanced(text: &str, open: char, close: char) -> Option<String> {
-    let start = text.find(open)?;
-    let mut depth = 0;
-    for (i, c) in text[start..].char_indices() {
-        if c == open {
-            depth += 1;
-        } else if c == close {
-            depth -= 1;
-            if depth == 0 {
-                return Some(text[start..start + i + c.len_utf8()].to_string());
-            }
-        }
-    }
-    None
+    find_balanced_from(text, 0, open, close).map(|m| m.matched)
 }
 
 fn skip_newline(text: &str, pos: usize) -> usize {
@@ -675,5 +718,120 @@ That should work."#;
         let blocks = parse_all_json_blocks(text);
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].get("a").is_some());
+    }
+
+    // ── find_balanced_and_parse (multi-match) ─────────────────────
+
+    #[derive(serde::Deserialize, Debug, PartialEq)]
+    struct Cmd {
+        command: String,
+        model: String,
+    }
+
+    #[test]
+    fn parse_array_skips_prose_brackets() {
+        let text = r#"Based on [the analysis], I recommend:
+[{"command": "cleanup", "model": "sonnet-4.6"}]"#;
+        let result: Option<Vec<Cmd>> = parse_json_response(text);
+        let cmds = result.expect("should parse despite prose brackets");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "cleanup");
+    }
+
+    #[test]
+    fn parse_array_skips_checkbox_brackets() {
+        let text = r#"Checklist:
+- [x] reviewed code
+- [x] ran tests
+[{"command": "unit-tests", "model": "opus-4.5"}]"#;
+        let result: Option<Vec<Cmd>> = parse_json_response(text);
+        let cmds = result.expect("should skip checkbox brackets");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "unit-tests");
+    }
+
+    #[test]
+    fn parse_object_skips_prose_braces() {
+        let text = r#"The result {summary} is:
+{"command": "cleanup", "model": "sonnet-4.6"}"#;
+        let result: Option<Cmd> = parse_json_response(text);
+        let cmd = result.expect("should skip prose braces");
+        assert_eq!(cmd.command, "cleanup");
+    }
+
+    #[test]
+    fn parse_array_with_result_text_appended() {
+        let text = r#"[{"command":"code-review","model":"opus-4.6"}]I selected code-review."#;
+        let result: Option<Vec<Cmd>> = parse_json_response(text);
+        let cmds = result.expect("should parse with trailing text");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "code-review");
+    }
+
+    #[test]
+    fn parse_no_valid_match_returns_none() {
+        let text = "No JSON here, just [prose] and {words}.";
+        let result: Option<Vec<Cmd>> = parse_json_response(text);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_balanced_from_skips_to_offset() {
+        let text = r#"[x] then [{"a":1}]"#;
+        let m = find_balanced_from(text, 4, '[', ']').expect("should find second match");
+        assert_eq!(m.matched, r#"[{"a":1}]"#);
+    }
+
+    #[test]
+    fn find_balanced_from_at_text_end_returns_none() {
+        let text = "[1,2]";
+        assert!(find_balanced_from(text, text.len(), '[', ']').is_none());
+    }
+
+    #[test]
+    fn find_balanced_from_no_open_after_offset() {
+        let text = "[first] nothing here";
+        assert!(find_balanced_from(text, 8, '[', ']').is_none());
+    }
+
+    #[test]
+    fn find_balanced_from_end_byte_is_correct() {
+        let text = "[a][b][c]";
+        let m = find_balanced_from(text, 0, '[', ']').unwrap();
+        assert_eq!(m.matched, "[a]");
+        assert_eq!(m.end_byte, 3);
+
+        let m2 = find_balanced_from(text, m.end_byte, '[', ']').unwrap();
+        assert_eq!(m2.matched, "[b]");
+        assert_eq!(m2.end_byte, 6);
+
+        let m3 = find_balanced_from(text, m2.end_byte, '[', ']').unwrap();
+        assert_eq!(m3.matched, "[c]");
+        assert_eq!(m3.end_byte, 9);
+
+        assert!(find_balanced_from(text, m3.end_byte, '[', ']').is_none());
+    }
+
+    #[test]
+    fn parse_skips_multiple_invalid_before_valid() {
+        let text = r#"[x] and [y] and [z] finally [{"command":"cleanup","model":"s"}]"#;
+        let result: Option<Vec<Cmd>> = parse_json_response(text);
+        let cmds = result.expect("should find valid array after 3 invalid matches");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "cleanup");
+    }
+
+    #[test]
+    fn find_balanced_and_parse_empty_text() {
+        let result: Option<Vec<Cmd>> = find_balanced_and_parse("", '[', ']');
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_balanced_and_parse_object_skips_multiple_invalid() {
+        let text = r#"see {x} and {y} then {"command":"review","model":"opus-4.6"}"#;
+        let result: Option<Cmd> = find_balanced_and_parse(text, '{', '}');
+        let cmd = result.expect("should find valid object after 2 invalid");
+        assert_eq!(cmd.command, "review");
     }
 }
