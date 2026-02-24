@@ -34,6 +34,37 @@ impl AgentProvider for StubProvider {
     fn config_dir_name(&self) -> &str { ".stub" }
     fn command_instructions_subdir(&self) -> &str { "commands" }
     fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("opus-4.6", "Opus 4.6"),
+            ("sonnet-4.5", "Sonnet 4.5"),
+        ]
+    }
+}
+
+#[derive(Debug)]
+struct CodexStubProvider;
+
+impl AgentProvider for CodexStubProvider {
+    fn id(&self) -> &str { "codex" }
+    fn display_name(&self) -> &str { "Codex" }
+    fn build_command(&self, _: &crate::agents::AgentRunConfig) -> (String, Vec<String>) {
+        ("echo".into(), vec!["ok".into()])
+    }
+    fn build_env_vars(&self, _: &crate::agents::AgentRunConfig) -> Vec<(String, String)> { vec![] }
+    fn extract_text(&self, o: &str) -> String { o.into() }
+    fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<crate::agents::cost::RunCostData> { None }
+    fn is_available(&self) -> bool { true }
+    fn get_version(&self) -> Option<String> { Some("1.0".into()) }
+    fn config_dir_name(&self) -> &str { ".codex" }
+    fn command_instructions_subdir(&self) -> &str { "commands" }
+    fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("gpt-5.3-codex", "GPT-5.3 Codex"),
+            ("gpt-5.2-codex", "GPT-5.2 Codex"),
+        ]
+    }
 }
 
 fn create_test_db() -> Arc<Database> {
@@ -921,4 +952,220 @@ async fn command_selection_with_stream_json_multiple_deltas() {
     );
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].command, "cleanup");
+}
+
+// -- Prompt content integration tests --
+// These verify that run_command_selection_stage builds a prompt that is
+// truly dynamic: commands come from the bundled catalog, and models come
+// from the provider.
+
+/// A mock runner that captures the prompt sent to the stage.
+struct PromptCapturingRunner {
+    captured_prompt: std::sync::Mutex<Option<String>>,
+}
+
+impl PromptCapturingRunner {
+    fn new() -> Self {
+        Self {
+            captured_prompt: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn prompt(&self) -> String {
+        self.captured_prompt.lock().unwrap().clone().unwrap()
+    }
+}
+
+impl super::StageRunner for PromptCapturingRunner {
+    fn run(
+        &self,
+        _provider: &dyn AgentProvider,
+        config: &crate::agents::AgentRunConfig,
+        _on_log: Option<Arc<crate::agents::LogCallback>>,
+        _on_spawn: Option<crate::agents::spawner::OnSpawnCallback>,
+    ) -> Result<crate::agents::AgentRunResult, crate::agents::spawner::SpawnError> {
+        *self.captured_prompt.lock().unwrap() = Some(config.prompt.clone());
+        Ok(crate::agents::AgentRunResult {
+            run_id: config.run_id.clone(),
+            exit_code: Some(0),
+            status: crate::agents::RunOutcome::Success,
+            summary: None,
+            duration_secs: 0.1,
+            captured_stdout: Some("[]".to_string()),
+        })
+    }
+}
+
+fn make_config_with_provider(
+    db: Arc<Database>,
+    ticket: Ticket,
+    parent_run_id: String,
+    settings: Arc<Mutex<PerAgentSettings>>,
+    provider: Arc<dyn AgentProvider>,
+    agent_id: &str,
+) -> OrchestratorConfig {
+    OrchestratorConfig {
+        db,
+        window: None,
+        app_handle: None,
+        parent_run_id,
+        ticket,
+        task: None,
+        repo_path: PathBuf::from("/tmp/test"),
+        agent_id: agent_id.to_string(),
+        provider,
+        cancel_handles: Arc::new(Mutex::new(HashMap::new())),
+        worktree_branch: Some("test-branch".to_string()),
+        branch_already_created: true,
+        is_temp_branch: false,
+        agent_config: HashMap::new(),
+        resume_from_stage: None,
+        previous_run_id: None,
+        workflow_settings: settings,
+        stage_configs: HashMap::new(),
+        code_review_max_iterations: 3,
+        stage_timeout_secs: 3600,
+        stage_max_retries: 2,
+    }
+}
+
+fn make_workflow_settings_for_agent(agent_id: &str) -> Arc<Mutex<PerAgentSettings>> {
+    let mut map = HashMap::new();
+    let default_stages: HashMap<String, StageConfig> = [
+        ("branchGen", "sonnet-4.6"),
+        ("plan", "opus-4.6"),
+        ("implement", "opus-4.6"),
+        ("commit", "sonnet-4.6"),
+    ]
+    .into_iter()
+    .map(|(k, m)| (k.to_string(), StageConfig { enabled: true, model: m.to_string() }))
+    .collect();
+
+    map.insert(
+        agent_id.to_string(),
+        WorkflowSettings {
+            auto_pilot_enabled: true,
+            auto_pilot_model: crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+            stage_configs: default_stages,
+            code_review_max_iterations: 3,
+            stage_timeout_hours: 1,
+            stage_max_retries: 0,
+            diagnostic_model: "sonnet-4.6".to_string(),
+            stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
+            synced: true,
+        },
+    );
+    Arc::new(Mutex::new(map))
+}
+
+#[tokio::test]
+async fn command_selection_prompt_contains_provider_models_claude() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_for_agent("stub");
+
+    let runner = Arc::new(PromptCapturingRunner::new());
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db, ticket, run_id, settings, Arc::new(StubProvider), "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    let _ = orch.run_command_selection_stage("the plan", "the impl").await;
+
+    let prompt = runner.prompt();
+
+    // Provider models (StubProvider returns opus-4.6 and sonnet-4.5)
+    assert!(
+        prompt.contains("`opus-4.6` (Opus 4.6)"),
+        "Prompt should list the provider's first model with label"
+    );
+    assert!(
+        prompt.contains("`sonnet-4.5` (Sonnet 4.5)"),
+        "Prompt should list the provider's second model with label"
+    );
+
+    // Examples should use the provider's models
+    assert!(
+        prompt.contains(r#""model": "opus-4.6""#),
+        "Examples should use the capable model from the provider"
+    );
+    assert!(
+        prompt.contains(r#""model": "sonnet-4.5""#),
+        "Examples should use the efficient model from the provider"
+    );
+
+    // Bundled commands should appear
+    assert!(prompt.contains("- `cleanup`"), "Prompt should list bundled commands");
+    assert!(prompt.contains("- `code-review`"), "Prompt should list bundled commands");
+    assert!(prompt.contains("- `deslop`"), "Prompt should list bundled commands");
+
+    // Excluded commands must NOT appear
+    assert!(!prompt.contains("- `add-and-commit`"), "Excluded commands must not appear");
+
+    // Ticket context
+    assert!(prompt.contains("Test Ticket"), "Prompt should contain ticket title");
+    assert!(prompt.contains("Do the thing"), "Prompt should contain ticket description");
+
+    // Plan and impl summary
+    assert!(prompt.contains("the plan"), "Prompt should contain plan text");
+    assert!(prompt.contains("the impl"), "Prompt should contain implementation summary");
+
+    // Model constraint instruction
+    assert!(
+        prompt.contains("ONLY use model names from the Available Models list"),
+        "Prompt should tell the agent to only use listed models"
+    );
+}
+
+#[tokio::test]
+async fn command_selection_prompt_uses_codex_models_not_claude() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_for_agent("codex");
+
+    let runner = Arc::new(PromptCapturingRunner::new());
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db, ticket, run_id, settings, Arc::new(CodexStubProvider), "codex",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    let _ = orch.run_command_selection_stage("", "").await;
+
+    let prompt = runner.prompt();
+
+    // Should contain Codex models
+    assert!(
+        prompt.contains("`gpt-5.3-codex` (GPT-5.3 Codex)"),
+        "Codex prompt should list gpt-5.3-codex"
+    );
+    assert!(
+        prompt.contains("`gpt-5.2-codex` (GPT-5.2 Codex)"),
+        "Codex prompt should list gpt-5.2-codex"
+    );
+
+    // Examples should use Codex models
+    assert!(
+        prompt.contains(r#""model": "gpt-5.3-codex""#),
+        "Codex examples should use gpt-5.3-codex as capable model"
+    );
+    assert!(
+        prompt.contains(r#""model": "gpt-5.2-codex""#),
+        "Codex examples should use gpt-5.2-codex as efficient model"
+    );
+
+    // Should NOT contain Claude model names anywhere
+    assert!(
+        !prompt.contains("opus"),
+        "Codex prompt must not mention Claude 'opus' models"
+    );
+    assert!(
+        !prompt.contains("sonnet"),
+        "Codex prompt must not mention Claude 'sonnet' models"
+    );
+
+    // Bundled commands should still be listed
+    assert!(prompt.contains("- `cleanup`"), "Commands should still be present");
+    assert!(prompt.contains("- `unit-tests`"), "Commands should still be present");
 }
