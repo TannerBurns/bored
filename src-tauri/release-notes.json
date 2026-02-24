@@ -1,5 +1,55 @@
 [
   {
+    "version": "0.1.0-beta.28",
+    "published_at": "2026-02-24",
+    "summary": "Bug fix and refactor release fixing worktree lock failures, auto-pilot command selection, and making commands app-internal",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Commands are now app-internal — content is read from bundled files and app-data custom commands at prompt-generation time, eliminating file-based installation into project directories",
+          "Projects can be added/removed without file system side effects; command toggling in the catalog is instant",
+          "Diagnostic logging and error-level stage event emission added to the command-selection pipeline"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed worktree lock error leaving runs permanently queued — manual-run path now marks runs as Error, moves tickets to Blocked, spawns diagnostic agent, and unlocks the ticket",
+          "Fixed worktree failure in the worker path causing infinite re-queue loop — ticket conditionally unlocked only when move-to-Blocked succeeds",
+          "Fixed auto-pilot command selection returning zero stages 100% of the time due to corrupted JSON output, single-position bracket matching, and silently swallowed errors",
+          "Fixed extract_text_from_stream_json appending result event summary to streaming delta text, corrupting downstream JSON parsing"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added worktree failure and conditional unlock tests for both manual-run and worker paths",
+          "Added multi-position bracket matching and auto-pilot command selection integration tests",
+          "Added Claude provider stream-json extraction tests for result event handling"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.27",
+        "highlight": "Spec agent JSON extraction reliability, StructuredSpec deserialization fixes, and model override cost re-keying for local providers"
+      },
+      {
+        "version": "0.1.0-beta.26",
+        "highlight": "Dashboard landing page with stats, trends, and cost breakdowns; board/list view toggle; dynamic Cursor model sync"
+      },
+      {
+        "version": "0.1.0-beta.25",
+        "highlight": "Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration"
+      },
+      {
+        "version": "0.1.0-beta.24",
+        "highlight": "System tray integration with recent tickets and native OS notifications"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.27",
     "published_at": "2026-02-24",
     "summary": "Bug fix release improving spec agent JSON extraction reliability and model override cost attribution accuracy",
