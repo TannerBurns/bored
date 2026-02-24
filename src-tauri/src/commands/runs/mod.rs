@@ -222,15 +222,15 @@ pub async fn start_agent_run(
             })
             .await;
 
-            if !ticket_blocked {
+            if ticket_blocked {
+                if let Err(e) = db.unlock_ticket(&ticket_id) {
+                    tracing::error!("Failed to unlock ticket {} after worktree failure: {}", ticket_id, e);
+                }
+            } else {
                 tracing::warn!(
-                    "Could not move ticket {} to Blocked column during worktree failure handling",
+                    "Could not move ticket {} to Blocked column; keeping lock active to prevent re-queuing",
                     ticket_id,
                 );
-            }
-
-            if let Err(e) = db.unlock_ticket(&ticket_id) {
-                tracing::error!("Failed to unlock ticket {} after worktree failure: {}", ticket_id, e);
             }
 
             return Err(err_msg);
