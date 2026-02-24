@@ -72,6 +72,16 @@ pub(crate) fn parse_cost(json_str: &str) -> Option<RunCostData> {
     serde_json::from_value(cost_value.clone()).ok()
 }
 
+/// Prefer per-model cost sums when available; fall back to `total_cost_usd`
+/// for runs that pre-date per-model tracking.
+fn effective_cost_usd(cost: &RunCostData) -> f64 {
+    if cost.model_usage.is_empty() {
+        cost.total_cost_usd
+    } else {
+        cost.model_usage.values().map(|d| d.cost_usd).sum()
+    }
+}
+
 pub(crate) fn time_filter_clause(days: Option<i32>, column: &str) -> String {
     match days {
         Some(d) => format!(
@@ -162,7 +172,7 @@ impl Database {
                 let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
                 for row in rows.flatten() {
                     if let Some(cost) = parse_cost(&row) {
-                        total_cost_usd += cost.total_cost_usd;
+                        total_cost_usd += effective_cost_usd(&cost);
                         total_input_tokens += cost.input_tokens;
                         total_output_tokens += cost.output_tokens;
                         total_cache_read_tokens += cost.cache_read_tokens;
@@ -335,7 +345,7 @@ impl Database {
                 for row in rows.flatten() {
                     if let Some(cost) = parse_cost(&row.1) {
                         if let Some(point) = date_map.get_mut(&row.0) {
-                            point.cost_usd += cost.total_cost_usd;
+                            point.cost_usd += effective_cost_usd(&cost);
                             point.tokens_used +=
                                 cost.input_tokens + cost.output_tokens + cost.cache_read_tokens;
                         }
@@ -455,5 +465,209 @@ impl Database {
             })?;
             Ok(rows.flatten().collect())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::{CreateRun, CreateTicket, Priority, RunStatus, WorkflowType};
+
+    fn create_test_db() -> Database {
+        Database::open_in_memory().unwrap()
+    }
+
+    fn create_ticket_and_run(db: &Database) -> (String, String) {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Dashboard Ticket".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&run.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+        (ticket.id, run.id)
+    }
+
+    #[test]
+    fn summary_cost_uses_total_when_model_usage_empty() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+
+        db.set_run_metadata(
+            &run_id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.05,
+                    "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let summary = db.get_dashboard_summary(None).unwrap();
+        assert!(
+            (summary.total_cost_usd - 0.05).abs() < 0.001,
+            "empty model_usage → should use totalCostUsd; got {}",
+            summary.total_cost_usd
+        );
+        assert_eq!(summary.total_input_tokens, 100);
+        assert_eq!(summary.total_output_tokens, 50);
+    }
+
+    #[test]
+    fn summary_cost_sums_model_usage_when_present() {
+        let db = create_test_db();
+        let (_, run_id) = create_ticket_and_run(&db);
+
+        db.set_run_metadata(
+            &run_id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.10,
+                    "isEstimated": false,
+                    "modelUsage": {
+                        "opus-4.6": { "inputTokens": 80, "outputTokens": 40, "costUsd": 0.08, "cacheReadTokens": 0, "cacheCreationTokens": 0 },
+                        "sonnet-4.5": { "inputTokens": 20, "outputTokens": 10, "costUsd": 0.02, "cacheReadTokens": 0, "cacheCreationTokens": 0 }
+                    }
+                }
+            }),
+        )
+        .unwrap();
+
+        let summary = db.get_dashboard_summary(None).unwrap();
+        assert!(
+            (summary.total_cost_usd - 0.10).abs() < 0.001,
+            "non-empty model_usage → should sum model costs (0.08+0.02=0.10); got {}",
+            summary.total_cost_usd
+        );
+    }
+
+    #[test]
+    fn summary_cost_mixed_runs_with_and_without_model_usage() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "T".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Low,
+                labels: vec![],
+                project_id: None,
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let r1 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&r1.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+        db.set_run_metadata(
+            &r1.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 100, "outputTokens": 50,
+                    "cacheReadTokens": 0, "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.03, "isEstimated": false,
+                    "modelUsage": {}
+                }
+            }),
+        )
+        .unwrap();
+
+        let r2 = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&r2.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+        db.set_run_metadata(
+            &r2.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 200, "outputTokens": 100,
+                    "cacheReadTokens": 0, "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.07,
+                    "isEstimated": false,
+                    "modelUsage": {
+                        "opus-4.6": { "inputTokens": 200, "outputTokens": 100, "costUsd": 0.07, "cacheReadTokens": 0, "cacheCreationTokens": 0 }
+                    }
+                }
+            }),
+        )
+        .unwrap();
+
+        let summary = db.get_dashboard_summary(None).unwrap();
+        assert!(
+            (summary.total_cost_usd - 0.10).abs() < 0.001,
+            "mixed: 0.03 (empty model_usage) + 0.07 (from model_usage) = 0.10; got {}",
+            summary.total_cost_usd
+        );
+        assert_eq!(summary.total_input_tokens, 300);
+        assert_eq!(summary.total_output_tokens, 150);
+    }
+
+    #[test]
+    fn summary_empty_db_returns_zero_costs() {
+        let db = create_test_db();
+        let summary = db.get_dashboard_summary(None).unwrap();
+        assert_eq!(summary.total_cost_usd, 0.0);
+        assert_eq!(summary.total_input_tokens, 0);
+        assert_eq!(summary.total_output_tokens, 0);
+        assert_eq!(summary.total_runs, 0);
     }
 }

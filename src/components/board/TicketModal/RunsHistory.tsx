@@ -201,6 +201,8 @@ function CurrentRunSection({
               <p><span className="font-medium">Run ID:</span> {currentRun.id}</p>
               <p><span className="font-medium">Started:</span> {new Date(currentRun.startedAt).toLocaleString()}</p>
             </div>
+
+            <AutoPilotSelections run={currentRun} />
             
             {/* Sub-runs for multi-stage workflows */}
             {isMultiStage && subRuns.length > 0 && (
@@ -377,6 +379,38 @@ function SubRunsList({ subRuns }: SubRunsListProps) {
   );
 }
 
+function AutoPilotSelections({ run }: { run: AgentRun }) {
+  const meta = run.metadata as Record<string, unknown> | undefined;
+  if (meta?.workflow_mode !== 'auto_pilot') return null;
+
+  const raw = meta.auto_pilot_selections;
+  if (!Array.isArray(raw)) return null;
+  const selections = raw as { command: string; model: string }[];
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-board-text-muted mb-2">
+        Auto-Pilot Selected Commands ({selections.length}):
+      </p>
+      {selections.length === 0 ? (
+        <p className="text-xs text-board-text-muted italic px-2">No commands selected</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {selections.map((s, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-board-accent/15 text-board-accent border border-board-accent/25"
+            >
+              <span className="font-medium">{s.command}</span>
+              <span className="text-board-text-muted">{s.model}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ExpandedRunDetailsProps {
   run: AgentRun;
   subRuns: AgentRun[];
@@ -416,6 +450,8 @@ function ExpandedRunDetails({
           </p>
         )}
       </div>
+
+      <AutoPilotSelections run={run} />
 
       {/* Sub-runs for multi-stage workflows */}
       {isMultiStage && subRuns.length > 0 && (

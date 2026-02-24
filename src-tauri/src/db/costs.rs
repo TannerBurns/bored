@@ -152,18 +152,40 @@ impl Database {
                 }
 
                 let model = ticket_model.as_deref().unwrap_or(crate::agents::models::DEFAULT_STAGE_MODEL);
-                let cost_data = crate::agents::cost::extract_or_estimate_cost_by_agent(
-                    registry,
-                    &agent_type,
-                    &full_stdout,
-                    model,
-                    duration_secs,
-                );
+
+                let parsed_metadata = metadata_json
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+
+                let stored_agent_config: Option<std::collections::HashMap<String, serde_json::Value>> =
+                    parsed_metadata
+                        .as_ref()
+                        .and_then(|m| m.get("agent_config"))
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+                let cost_data = if let Some(provider) = registry.get(&agent_type) {
+                    if let Some(ref agent_config) = stored_agent_config {
+                        crate::agents::provider::extract_cost_with_overrides(
+                            &*provider,
+                            &full_stdout,
+                            model,
+                            agent_config,
+                            duration_secs,
+                        )
+                    } else {
+                        provider.extract_cost(&full_stdout, model, duration_secs)
+                    }
+                } else {
+                    let output_chars = full_stdout.len();
+                    if output_chars > 0 || duration_secs > 0.0 {
+                        Some(crate::agents::cost::estimate_cost(model, output_chars, duration_secs))
+                    } else {
+                        None
+                    }
+                };
 
                 if let Some(cost) = cost_data {
-                    let mut metadata = metadata_json
-                        .as_deref()
-                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    let mut metadata = parsed_metadata
                         .unwrap_or_else(|| serde_json::json!({}));
 
                     metadata["cost"] = serde_json::to_value(&cost).unwrap_or_default();
@@ -848,6 +870,143 @@ mod tests {
             let registry = make_registry();
             let count = db.backfill_run_costs(&registry).unwrap();
             assert_eq!(count, 0);
+        }
+
+        /// Provider that keys model_usage by a hardcoded API model name
+        /// (simulating Claude Code) and supports model overrides via
+        /// `effective_cost_model` / `is_local_override`.
+        #[derive(Debug)]
+        struct OverrideAwareProvider;
+
+        impl AgentProvider for OverrideAwareProvider {
+            fn id(&self) -> &str { "claude" }
+            fn display_name(&self) -> &str { "claude" }
+            fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+                ("claude".to_string(), vec![])
+            }
+            fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+            fn extract_text(&self, o: &str) -> String { o.to_string() }
+            fn extract_cost(&self, _stdout: &str, _model: &str, _dur: f64) -> Option<RunCostData> {
+                let mut usage = std::collections::HashMap::new();
+                usage.insert("claude-opus-4-6".to_string(), crate::agents::cost::ModelCostData {
+                    input_tokens: 200,
+                    output_tokens: 100,
+                    cost_usd: 0.03,
+                    ..Default::default()
+                });
+                Some(RunCostData {
+                    input_tokens: 200,
+                    output_tokens: 100,
+                    total_cost_usd: 0.03,
+                    model_usage: usage,
+                    is_estimated: false,
+                    ..Default::default()
+                })
+            }
+            fn is_available(&self) -> bool { true }
+            fn get_version(&self) -> Option<String> { None }
+            fn config_dir_name(&self) -> &str { ".claude" }
+            fn command_instructions_subdir(&self) -> &str { "commands" }
+            fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+
+            fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
+                agent_config.get("useLocalProvider")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            }
+
+            fn effective_cost_model(&self, stage: &str, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> String {
+                agent_config.get("modelOverride")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| stage.to_string())
+            }
+        }
+
+        #[test]
+        fn backfill_uses_model_override_from_stored_agent_config() {
+            let db = create_test_db();
+            let mut reg = AgentRegistry::new();
+            reg.register(Arc::new(OverrideAwareProvider));
+
+            let (ticket_id, run_id) = create_finished_run_without_cost(&db);
+
+            // Store metadata with agent_config (model override) but no cost
+            db.set_run_metadata(&run_id, &serde_json::json!({
+                "duration_secs": 10.0,
+                "agent_config": {
+                    "useLocalProvider": true,
+                    "modelOverride": "llama3.2"
+                }
+            })).unwrap();
+
+            db.create_event(&NormalizedEvent {
+                run_id: run_id.clone(),
+                ticket_id: ticket_id.clone(),
+                agent_type: "claude".to_string(),
+                event_type: EventType::Custom("log_stdout".to_string()),
+                payload: AgentEventPayload {
+                    raw: Some("some output".to_string()),
+                    structured: None,
+                },
+                timestamp: chrono::Utc::now(),
+            }).unwrap();
+
+            let count = db.backfill_run_costs(&reg).unwrap();
+            assert_eq!(count, 1);
+
+            let cost = db.get_run_cost(&run_id).unwrap().unwrap();
+
+            // Tokens should be re-keyed to the override model name
+            assert!(
+                cost.model_usage.contains_key("llama3.2"),
+                "should track under override model; got keys: {:?}",
+                cost.model_usage.keys().collect::<Vec<_>>()
+            );
+            assert!(
+                !cost.model_usage.contains_key("opus-4.6")
+                    && !cost.model_usage.contains_key("claude-opus-4-6"),
+                "API/stage model key should be gone"
+            );
+
+            // Local override should zero out costs
+            assert_eq!(cost.total_cost_usd, 0.0, "local override should zero cost");
+            assert_eq!(cost.model_usage["llama3.2"].cost_usd, 0.0);
+            assert_eq!(cost.model_usage["llama3.2"].input_tokens, 200);
+        }
+
+        #[test]
+        fn backfill_without_agent_config_uses_ticket_model() {
+            let db = create_test_db();
+            let mut reg = AgentRegistry::new();
+            reg.register(Arc::new(OverrideAwareProvider));
+
+            let (ticket_id, run_id) = create_finished_run_without_cost(&db);
+
+            db.create_event(&NormalizedEvent {
+                run_id: run_id.clone(),
+                ticket_id: ticket_id.clone(),
+                agent_type: "claude".to_string(),
+                event_type: EventType::Custom("log_stdout".to_string()),
+                payload: AgentEventPayload {
+                    raw: Some("some output".to_string()),
+                    structured: None,
+                },
+                timestamp: chrono::Utc::now(),
+            }).unwrap();
+
+            // No metadata with agent_config — backfill falls back to direct extract_cost
+            let count = db.backfill_run_costs(&reg).unwrap();
+            assert_eq!(count, 1);
+
+            let cost = db.get_run_cost(&run_id).unwrap().unwrap();
+            // Without agent_config, the API model key from extract_cost is used as-is
+            assert!(
+                cost.model_usage.contains_key("claude-opus-4-6"),
+                "without override, API model key should be preserved"
+            );
+            assert_eq!(cost.total_cost_usd, 0.03, "no local override → cost preserved");
         }
     }
 }
