@@ -123,6 +123,46 @@ impl Database {
         })
     }
 
+    /// Merge new fields into a run's existing metadata, preserving existing keys.
+    pub fn merge_run_metadata(
+        &self,
+        run_id: &str,
+        new_fields: &serde_json::Value,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT metadata_json FROM agent_runs WHERE id = ?",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .ok()
+                .flatten();
+
+            let mut merged = match existing {
+                Some(ref json_str) => serde_json::from_str::<serde_json::Value>(json_str)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+                None => serde_json::json!({}),
+            };
+
+            if let (Some(base), Some(additions)) = (merged.as_object_mut(), new_fields.as_object())
+            {
+                for (k, v) in additions {
+                    base.insert(k.clone(), v.clone());
+                }
+            }
+
+            let metadata_json = serde_json::to_string(&merged)
+                .map_err(|e| DbError::Validation(format!("Failed to serialize metadata: {}", e)))?;
+
+            conn.execute(
+                "UPDATE agent_runs SET metadata_json = ? WHERE id = ?",
+                rusqlite::params![metadata_json, run_id],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Get completed stage outputs from sub-runs of a parent run
     /// Returns a map of stage name -> extracted output text
     pub fn get_completed_stage_outputs(
@@ -1287,4 +1327,108 @@ mod tests {
         assert_eq!(runs[0].agent_type, "my-custom-agent");
     }
 
+    #[test]
+    fn merge_run_metadata_into_empty() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.merge_run_metadata(
+            &run.id,
+            &serde_json::json!({ "auto_pilot_selections": [{"command": "cleanup", "model": "sonnet-4.6"}] }),
+        )
+        .unwrap();
+
+        let fetched = db.get_run(&run.id).unwrap();
+        let meta = fetched.metadata.unwrap();
+        let selections = meta.get("auto_pilot_selections").unwrap().as_array().unwrap();
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0]["command"], "cleanup");
+    }
+
+    #[test]
+    fn merge_run_metadata_preserves_existing_keys() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &run.id,
+            &serde_json::json!({ "duration_secs": 42.0, "workflow_mode": "auto_pilot" }),
+        )
+        .unwrap();
+
+        db.merge_run_metadata(
+            &run.id,
+            &serde_json::json!({ "auto_pilot_selections": [] }),
+        )
+        .unwrap();
+
+        let fetched = db.get_run(&run.id).unwrap();
+        let meta = fetched.metadata.unwrap();
+        assert_eq!(meta.get("duration_secs").unwrap().as_f64().unwrap(), 42.0);
+        assert_eq!(meta.get("workflow_mode").unwrap().as_str().unwrap(), "auto_pilot");
+        assert!(meta.get("auto_pilot_selections").unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn merge_run_metadata_overwrites_conflicting_keys() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.set_run_metadata(
+            &run.id,
+            &serde_json::json!({ "stage_output": "old value", "keep_me": true }),
+        )
+        .unwrap();
+
+        db.merge_run_metadata(
+            &run.id,
+            &serde_json::json!({ "stage_output": "new value" }),
+        )
+        .unwrap();
+
+        let fetched = db.get_run(&run.id).unwrap();
+        let meta = fetched.metadata.unwrap();
+        assert_eq!(meta.get("stage_output").unwrap().as_str().unwrap(), "new value");
+        assert!(meta.get("keep_me").unwrap().as_bool().unwrap());
+    }
+
+    #[test]
+    fn merge_run_metadata_nonexistent_run_succeeds() {
+        let db = create_test_db();
+        let result = db.merge_run_metadata(
+            "nonexistent-run",
+            &serde_json::json!({ "key": "value" }),
+        );
+        assert!(result.is_ok());
+    }
 }

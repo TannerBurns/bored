@@ -76,6 +76,13 @@ impl WorkflowOrchestrator {
 
         let selections = self.run_command_selection_stage(&plan, &impl_result).await?;
 
+        if let Err(e) = self.db.merge_run_metadata(
+            &self.parent_run_id,
+            &serde_json::json!({ "auto_pilot_selections": selections }),
+        ) {
+            tracing::warn!("Failed to persist auto-pilot selections: {}", e);
+        }
+
         if selections.is_empty() {
             tracing::info!("Auto-pilot: agent selected no commands, proceeding to commit");
         } else {

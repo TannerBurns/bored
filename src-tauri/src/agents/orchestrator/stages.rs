@@ -232,6 +232,11 @@ impl WorkflowOrchestrator {
                 metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
             }
 
+            if !self.agent_config.is_empty() {
+                metadata["agent_config"] =
+                    serde_json::to_value(&self.agent_config).unwrap_or_default();
+            }
+
             if result.status == RunOutcome::Success && !stdout.is_empty() {
                 let extracted_output = self.extract_text(stdout);
 

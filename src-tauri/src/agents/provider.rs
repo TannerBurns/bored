@@ -168,6 +168,11 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
 /// Composes [`AgentProvider::effective_cost_model`], [`AgentProvider::extract_cost`],
 /// and [`AgentProvider::is_local_override`] into a single call. All cost extraction
 /// call sites should use this to ensure consistent handling of local overrides.
+///
+/// When a model override is active (effective model differs from stage model),
+/// all `model_usage` entries are collapsed into a single entry keyed by the
+/// override model name so that token tracking attributes usage to the model
+/// the user actually configured.
 pub fn extract_cost_with_overrides(
     provider: &dyn AgentProvider,
     stdout: &str,
@@ -177,6 +182,22 @@ pub fn extract_cost_with_overrides(
 ) -> Option<RunCostData> {
     let effective_model = provider.effective_cost_model(stage_model, agent_config);
     let mut cost = provider.extract_cost(stdout, &effective_model, duration_secs)?;
+
+    let normalized_effective = super::cost::normalize_model_name(&effective_model);
+    let normalized_stage = super::cost::normalize_model_name(stage_model);
+    if normalized_effective != normalized_stage && !cost.model_usage.is_empty() {
+        let mut merged = super::cost::ModelCostData::default();
+        for data in cost.model_usage.values() {
+            merged.input_tokens += data.input_tokens;
+            merged.output_tokens += data.output_tokens;
+            merged.cache_read_tokens += data.cache_read_tokens;
+            merged.cache_creation_tokens += data.cache_creation_tokens;
+            merged.cost_usd += data.cost_usd;
+        }
+        cost.model_usage.clear();
+        cost.model_usage.insert(normalized_effective, merged);
+    }
+
     if provider.is_local_override(agent_config) {
         cost.zero_out_costs();
     }
@@ -327,5 +348,127 @@ mod tests {
         assert!(cost.model_usage.contains_key("my-local"));
         assert_eq!(cost.model_usage["my-local"].cost_usd, 0.0);
         assert_eq!(cost.model_usage["my-local"].input_tokens, 100);
+    }
+
+    // ── re-keying tests (API returns different model names than override) ──
+
+    /// Provider that always keys model_usage under a hardcoded API model name,
+    /// simulating Claude Code where the API response determines the key
+    /// regardless of the `model` parameter.
+    #[derive(Debug)]
+    struct ApiKeyedProvider {
+        api_model_key: String,
+        local_override: bool,
+        override_model: Option<String>,
+    }
+
+    impl AgentProvider for ApiKeyedProvider {
+        fn id(&self) -> &str { "api-keyed" }
+        fn display_name(&self) -> &str { "ApiKeyed" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+            ("fake".into(), vec![])
+        }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.into() }
+        fn extract_cost(&self, stdout: &str, _model: &str, _dur: f64) -> Option<RunCostData> {
+            if stdout.is_empty() { return None; }
+            let mut usage = HashMap::new();
+            usage.insert(self.api_model_key.clone(), crate::agents::cost::ModelCostData {
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.03,
+                ..Default::default()
+            });
+            Some(RunCostData {
+                input_tokens: 100,
+                output_tokens: 50,
+                total_cost_usd: 0.03,
+                model_usage: usage,
+                ..Default::default()
+            })
+        }
+        fn is_available(&self) -> bool { false }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".fake" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+
+        fn is_local_override(&self, _: &HashMap<String, serde_json::Value>) -> bool {
+            self.local_override
+        }
+        fn effective_cost_model(&self, stage: &str, _: &HashMap<String, serde_json::Value>) -> String {
+            self.override_model.clone().unwrap_or_else(|| stage.to_string())
+        }
+    }
+
+    #[test]
+    fn rekey_model_usage_when_api_returns_different_model_name() {
+        let p = ApiKeyedProvider {
+            api_model_key: "claude-opus-4-6".into(),
+            local_override: true,
+            override_model: Some("llama3.2".into()),
+        };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert!(
+            cost.model_usage.contains_key("llama3.2"),
+            "should re-key to override model; got keys: {:?}", cost.model_usage.keys().collect::<Vec<_>>()
+        );
+        assert!(!cost.model_usage.contains_key("opus-4.6"), "stage model key should be gone");
+        assert!(!cost.model_usage.contains_key("claude-opus-4-6"), "API model key should be gone");
+        assert_eq!(cost.model_usage["llama3.2"].input_tokens, 100);
+        assert_eq!(cost.model_usage["llama3.2"].output_tokens, 50);
+    }
+
+    #[test]
+    fn rekey_merges_multiple_api_model_entries() {
+        let p = ApiKeyedProvider {
+            api_model_key: "ignored".into(),
+            local_override: false,
+            override_model: Some("my-custom".into()),
+        };
+        // Manually build a provider that returns two model entries
+        let mut usage = HashMap::new();
+        usage.insert("model-a".to_string(), crate::agents::cost::ModelCostData {
+            input_tokens: 60, output_tokens: 30, cost_usd: 0.01, ..Default::default()
+        });
+        usage.insert("model-b".to_string(), crate::agents::cost::ModelCostData {
+            input_tokens: 40, output_tokens: 20, cost_usd: 0.02, ..Default::default()
+        });
+        let mut cost_data = RunCostData {
+            input_tokens: 100, output_tokens: 50, total_cost_usd: 0.03,
+            model_usage: usage, ..Default::default()
+        };
+
+        // Simulate what extract_cost_with_overrides does after extract_cost
+        let effective = p.effective_cost_model("opus-4.6", &HashMap::new());
+        let normalized_effective = crate::agents::cost::normalize_model_name(&effective);
+        let normalized_stage = crate::agents::cost::normalize_model_name("opus-4.6");
+        assert_ne!(normalized_effective, normalized_stage);
+
+        let mut merged = crate::agents::cost::ModelCostData::default();
+        for data in cost_data.model_usage.values() {
+            merged.input_tokens += data.input_tokens;
+            merged.output_tokens += data.output_tokens;
+            merged.cost_usd += data.cost_usd;
+        }
+        cost_data.model_usage.clear();
+        cost_data.model_usage.insert(normalized_effective.clone(), merged);
+
+        assert_eq!(cost_data.model_usage.len(), 1);
+        assert_eq!(cost_data.model_usage[&normalized_effective].input_tokens, 100);
+        assert_eq!(cost_data.model_usage[&normalized_effective].output_tokens, 50);
+        assert!((cost_data.model_usage[&normalized_effective].cost_usd - 0.03).abs() < 0.001);
+    }
+
+    #[test]
+    fn no_rekey_when_effective_matches_stage() {
+        let p = ApiKeyedProvider {
+            api_model_key: "opus-4.6".into(),
+            local_override: false,
+            override_model: None,
+        };
+        let cost = extract_cost_with_overrides(&p, "output", "opus-4.6", &HashMap::new(), 5.0).unwrap();
+        assert!(cost.model_usage.contains_key("opus-4.6"), "original key should be preserved");
+        assert_eq!(cost.model_usage.len(), 1);
     }
 }

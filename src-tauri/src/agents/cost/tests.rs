@@ -627,3 +627,87 @@ fn cost_by_agent_codex_extracts_from_ndjson() {
     assert_eq!(cost.output_tokens, 74);
     assert!(cost.model_usage.contains_key("gpt-5.3-codex"));
 }
+
+// ── extract_cost_with_overrides integration (real providers) ──────
+
+#[test]
+fn claude_override_rekeys_api_model_usage_to_override_name() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    use crate::agents::provider::extract_cost_with_overrides;
+
+    let provider = ClaudeProvider::new();
+    let stream = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":100,"outputTokens":50,"costUSD":0.05}}}"#;
+
+    let mut agent_config = HashMap::new();
+    agent_config.insert("useLocalProvider".to_string(), serde_json::json!(true));
+    agent_config.insert("baseUrl".to_string(), serde_json::json!("http://localhost:8080"));
+    agent_config.insert("modelOverride".to_string(), serde_json::json!("llama3.2"));
+
+    let cost = extract_cost_with_overrides(&provider, stream, "opus-4.6", &agent_config, 5.0).unwrap();
+
+    assert!(
+        cost.model_usage.contains_key("llama3.2"),
+        "should re-key to override model; got keys: {:?}",
+        cost.model_usage.keys().collect::<Vec<_>>()
+    );
+    assert!(!cost.model_usage.contains_key("opus-4.6"));
+    assert!(!cost.model_usage.contains_key("claude-opus-4-6"));
+    assert_eq!(cost.model_usage["llama3.2"].input_tokens, 100);
+    assert_eq!(cost.model_usage["llama3.2"].output_tokens, 50);
+    assert_eq!(cost.total_cost_usd, 0.0, "local override should zero cost");
+}
+
+#[test]
+fn claude_no_override_preserves_api_model_keys() {
+    use crate::agents::claude::provider::ClaudeProvider;
+    use crate::agents::provider::extract_cost_with_overrides;
+
+    let provider = ClaudeProvider::new();
+    let stream = r#"{"type":"result","result":"text","usage":{"input_tokens":100,"output_tokens":50,"total_cost_usd":0.05},"modelUsage":{"claude-opus-4-6":{"inputTokens":100,"outputTokens":50,"costUSD":0.05}}}"#;
+
+    let agent_config = HashMap::new();
+    let cost = extract_cost_with_overrides(&provider, stream, "opus-4.6", &agent_config, 5.0).unwrap();
+
+    assert!(cost.model_usage.contains_key("opus-4.6"), "should keep normalized API key");
+    assert_eq!(cost.total_cost_usd, 0.05, "no override → cost preserved");
+}
+
+#[test]
+fn codex_override_rekeys_to_override_name() {
+    use crate::agents::codex::provider::CodexProvider;
+    use crate::agents::provider::extract_cost_with_overrides;
+
+    let provider = CodexProvider::new();
+    let ndjson = r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":100,"output_tokens":50}}"#;
+
+    let mut agent_config = HashMap::new();
+    agent_config.insert("ossEnabled".to_string(), serde_json::json!(true));
+    agent_config.insert("localProvider".to_string(), serde_json::json!("ollama"));
+    agent_config.insert("modelOverride".to_string(), serde_json::json!("codestral"));
+
+    let cost = extract_cost_with_overrides(&provider, ndjson, "gpt-5.3-codex", &agent_config, 5.0).unwrap();
+
+    assert!(
+        cost.model_usage.contains_key("codestral"),
+        "should re-key to override model; got keys: {:?}",
+        cost.model_usage.keys().collect::<Vec<_>>()
+    );
+    assert!(!cost.model_usage.contains_key("gpt-5.3-codex"));
+    assert_eq!(cost.model_usage["codestral"].input_tokens, 500);
+    assert_eq!(cost.total_cost_usd, 0.0, "local override should zero cost");
+}
+
+#[test]
+fn codex_no_override_preserves_model_key() {
+    use crate::agents::codex::provider::CodexProvider;
+    use crate::agents::provider::extract_cost_with_overrides;
+
+    let provider = CodexProvider::new();
+    let ndjson = r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":100,"output_tokens":50}}"#;
+
+    let agent_config = HashMap::new();
+    let cost = extract_cost_with_overrides(&provider, ndjson, "gpt-5.3-codex", &agent_config, 5.0).unwrap();
+
+    assert!(cost.model_usage.contains_key("gpt-5.3-codex"), "should keep stage model key");
+    assert!(cost.total_cost_usd > 0.0, "no override → cost preserved");
+}

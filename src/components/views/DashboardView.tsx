@@ -390,6 +390,40 @@ export function DashboardView() {
                       </div>
                     );
                   })}
+                  {modelBreakdown.length > 8 && (() => {
+                    const rest = modelBreakdown.slice(8);
+                    const othersCost = rest.reduce((sum, m) => sum + m.costUsd, 0);
+                    const othersTok = rest.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0);
+                    const maxCost = modelBreakdown[0]?.costUsd || 1;
+                    const barPct = Math.max(2, (othersCost / maxCost) * 100);
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium text-board-text-muted truncate mr-3">
+                            Others ({rest.length})
+                          </span>
+                          <div className="flex items-center gap-3 flex-shrink-0 text-xs">
+                            <span className="text-board-text-muted">
+                              {formatNumber(othersTok)} tok
+                            </span>
+                            <span className="font-mono font-medium text-board-text">
+                              {formatCost(othersCost)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="h-2 rounded-full bg-board-card-hover overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${barPct}%`,
+                              backgroundColor: BAR_COLORS[8 % BAR_COLORS.length],
+                              opacity: 0.5,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </ChartCard>
             )}

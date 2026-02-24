@@ -11,7 +11,7 @@ use crate::agents::models::MODEL_ENTRIES;
 use crate::agents::provider::AgentProvider;
 
 /// A single command+model pair selected by the agent.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CommandSelection {
     pub command: String,
     pub model: String,
@@ -675,6 +675,34 @@ These will ensure quality."#;
         let response = r#"[{"command": "cleanup", "model": "sonnet-4.6"}]"#;
         let result = parse_command_selection_response(response, &[]);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn command_selection_serializes_to_json() {
+        let selection = CommandSelection {
+            command: "cleanup".to_string(),
+            model: "sonnet-4.6".to_string(),
+        };
+        let json = serde_json::to_value(&selection).unwrap();
+        assert_eq!(json["command"], "cleanup");
+        assert_eq!(json["model"], "sonnet-4.6");
+
+        let roundtripped: CommandSelection = serde_json::from_value(json).unwrap();
+        assert_eq!(roundtripped.command, "cleanup");
+        assert_eq!(roundtripped.model, "sonnet-4.6");
+    }
+
+    #[test]
+    fn command_selection_vec_serializes_for_metadata() {
+        let selections = vec![
+            CommandSelection { command: "cleanup".to_string(), model: "sonnet-4.6".to_string() },
+            CommandSelection { command: "unit-tests".to_string(), model: "opus-4.6".to_string() },
+        ];
+        let metadata = serde_json::json!({ "auto_pilot_selections": selections });
+        let arr = metadata["auto_pilot_selections"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["command"], "cleanup");
+        assert_eq!(arr[1]["command"], "unit-tests");
     }
 
     #[test]
