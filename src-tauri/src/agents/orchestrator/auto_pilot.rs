@@ -7,7 +7,6 @@ use std::path::Path;
 
 use super::WorkflowOrchestrator;
 use crate::agents::command_templates;
-use crate::agents::models::MODEL_ENTRIES;
 
 /// A single command+model pair selected by the agent.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -83,6 +82,8 @@ impl WorkflowOrchestrator {
             ),
         };
 
+        let provider_models = self.provider.available_models();
+
         let prompt = generate_command_selection_prompt(
             effective_title,
             effective_description,
@@ -90,6 +91,7 @@ impl WorkflowOrchestrator {
             plan,
             impl_summary,
             &available,
+            &provider_models,
         );
 
         let result = self
@@ -133,6 +135,7 @@ fn generate_command_selection_prompt(
     plan: &str,
     impl_summary: &str,
     available_commands: &[String],
+    available_models: &[(&str, &str)],
 ) -> String {
     let mut commands_list = String::new();
     for id in available_commands {
@@ -140,9 +143,11 @@ fn generate_command_selection_prompt(
     }
 
     let mut models_list = String::new();
-    for &(friendly, _, _) in MODEL_ENTRIES {
-        models_list.push_str(&format!("- `{}`\n", friendly));
+    for &(id, label) in available_models {
+        models_list.push_str(&format!("- `{}` ({})\n", id, label));
     }
+
+    let (capable_model, efficient_model) = pick_example_models(available_models);
 
     let ticket_context_section = match ticket_context {
         Some(ctx) if !ctx.is_empty() => {
@@ -196,50 +201,41 @@ fn generate_command_selection_prompt(
 - Public API changes need contract checks and documentation.
 
 **Model selection:**
-- Use more capable models (opus) for tasks requiring deep reasoning: code review, security review, complex test generation.
-- Use cheaper models (sonnet) for mechanical tasks: linting, cleanup, formatting, simple doc updates.
+- Use more capable models (e.g., `{capable_model}`) for tasks requiring deep reasoning: code review, security review, complex test generation.
+- Use cheaper/faster models (e.g., `{efficient_model}`) for mechanical tasks: linting, cleanup, formatting, simple doc updates.
+- ONLY use model names from the Available Models list above.
 
 ## Example Workflows
 
 **Quick bug fix** — ticket says "Fix null pointer crash in user lookup":
 ```json
 [
-  {{"command": "cleanup", "model": "sonnet-4.6"}},
-  {{"command": "unit-tests", "model": "sonnet-4.6"}}
+  {{"command": "cleanup", "model": "{efficient_model}"}},
+  {{"command": "unit-tests", "model": "{efficient_model}"}}
 ]
 ```
 
 **Standard feature** — ticket says "Add email notification preferences to settings":
 ```json
 [
-  {{"command": "code-review", "model": "opus-4.6"}},
-  {{"command": "cleanup", "model": "sonnet-4.6"}},
-  {{"command": "unit-tests", "model": "opus-4.5"}},
-  {{"command": "deslop", "model": "sonnet-4.5"}}
+  {{"command": "code-review", "model": "{capable_model}"}},
+  {{"command": "cleanup", "model": "{efficient_model}"}},
+  {{"command": "unit-tests", "model": "{capable_model}"}},
+  {{"command": "deslop", "model": "{efficient_model}"}}
 ]
 ```
 
 **Comprehensive / production-ready** — ticket says "Implement OAuth2 login flow — needs to be thorough and production-ready":
 ```json
 [
-  {{"command": "code-review", "model": "opus-4.6"}},
-  {{"command": "patch-security", "model": "opus-4.6"}},
-  {{"command": "unit-tests", "model": "opus-4.5"}},
-  {{"command": "integration-test", "model": "opus-4.5"}},
-  {{"command": "cleanup", "model": "sonnet-4.6"}},
-  {{"command": "deslop", "model": "sonnet-4.5"}},
-  {{"command": "review-changes", "model": "opus-4.5"}},
-  {{"command": "doc-sync", "model": "sonnet-4.5"}}
-]
-```
-
-**API change** — ticket says "Rename the /users endpoint to /accounts and update request schema":
-```json
-[
-  {{"command": "api-contract-check", "model": "opus-4.6"}},
-  {{"command": "code-review", "model": "opus-4.6"}},
-  {{"command": "unit-tests", "model": "opus-4.5"}},
-  {{"command": "doc-sync", "model": "sonnet-4.5"}}
+  {{"command": "code-review", "model": "{capable_model}"}},
+  {{"command": "patch-security", "model": "{capable_model}"}},
+  {{"command": "unit-tests", "model": "{capable_model}"}},
+  {{"command": "integration-test", "model": "{capable_model}"}},
+  {{"command": "cleanup", "model": "{efficient_model}"}},
+  {{"command": "deslop", "model": "{efficient_model}"}},
+  {{"command": "review-changes", "model": "{capable_model}"}},
+  {{"command": "doc-sync", "model": "{efficient_model}"}}
 ]
 ```
 
@@ -248,31 +244,32 @@ fn generate_command_selection_prompt(
 []
 ```
 
-**Refactor with observability** — ticket says "Refactor database layer to use connection pooling, add proper logging":
-```json
-[
-  {{"command": "code-review", "model": "opus-4.6"}},
-  {{"command": "unit-tests", "model": "opus-4.5"}},
-  {{"command": "observability-pass", "model": "sonnet-4.6"}},
-  {{"command": "cleanup", "model": "sonnet-4.6"}},
-  {{"command": "review-polish", "model": "opus-4.5"}}
-]
-```
-
 ## Instructions
 
 Based on the ticket, plan, and implementation, select which commands to run and in what order. Follow these rules:
 
 - Do NOT include `add-and-commit` — it always runs automatically at the end.
 - Only select commands that are relevant to the changes.
+- ONLY use model names from the Available Models list.
 - Order matters: put fix/review commands before final polish and documentation.
 - You may return an empty array `[]` if no QA commands are needed.
 
 IMPORTANT: Your response must contain ONLY a valid JSON array of objects with "command" and "model" keys — no prose, no markdown, no explanation. Example format:
 
-[{{"command": "code-review", "model": "opus-4.6"}}, {{"command": "cleanup", "model": "sonnet-4.6"}}]
+[{{"command": "code-review", "model": "{capable_model}"}}, {{"command": "cleanup", "model": "{efficient_model}"}}]
 "#
     )
+}
+
+/// Pick a "capable" and "efficient" model from the available list for prompt examples.
+/// The first model is assumed to be the most capable, the last the most efficient.
+/// Falls back to the first model for both if only one is available.
+fn pick_example_models<'a>(models: &[(&'a str, &'a str)]) -> (&'a str, &'a str) {
+    match models.len() {
+        0 => ("default", "default"),
+        1 => (models[0].0, models[0].0),
+        _ => (models[0].0, models[models.len() - 1].0),
+    }
 }
 
 /// Parse the agent's response to extract the command selection list.
@@ -343,6 +340,22 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect()
+    }
+
+    fn claude_models() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("opus-4.6", "Opus 4.6"),
+            ("opus-4.5", "Opus 4.5"),
+            ("sonnet-4.6", "Sonnet 4.6"),
+            ("sonnet-4.5", "Sonnet 4.5"),
+        ]
+    }
+
+    fn codex_models() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("gpt-5.3-codex", "GPT-5.3 Codex"),
+            ("gpt-5.2-codex", "GPT-5.2 Codex"),
+        ]
     }
 
     #[test]
@@ -494,7 +507,7 @@ These will ensure quality."#;
     fn prompt_includes_ticket_info() {
         let cmds = test_commands();
         let prompt =
-            generate_command_selection_prompt("Fix the bug", "There is a null pointer", None, "", "", &cmds);
+            generate_command_selection_prompt("Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models());
         assert!(prompt.contains("Fix the bug"));
         assert!(prompt.contains("There is a null pointer"));
     }
@@ -502,7 +515,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_available_commands() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `code-review`"));
         assert!(prompt.contains("- `deslop`"));
@@ -512,7 +525,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_custom_commands() {
         let cmds = vec!["cleanup".to_string(), "my-custom-deploy".to_string()];
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `my-custom-deploy`"));
     }
@@ -520,18 +533,17 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_example_workflows() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(prompt.contains("Quick bug fix"));
         assert!(prompt.contains("Standard feature"));
         assert!(prompt.contains("Comprehensive / production-ready"));
-        assert!(prompt.contains("API change"));
         assert!(prompt.contains("Trivial change"));
     }
 
     #[test]
     fn prompt_includes_user_intent_guidance() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(prompt.contains("Pay close attention to the user's intent"));
         assert!(prompt.contains("comprehensive"));
         assert!(prompt.contains("quick"));
@@ -539,17 +551,41 @@ These will ensure quality."#;
     }
 
     #[test]
-    fn prompt_includes_models() {
+    fn prompt_includes_provider_models() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
-        assert!(prompt.contains("`opus-4.6`"));
-        assert!(prompt.contains("`sonnet-4.6`"));
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        assert!(prompt.contains("`opus-4.6` (Opus 4.6)"));
+        assert!(prompt.contains("`sonnet-4.5` (Sonnet 4.5)"));
+    }
+
+    #[test]
+    fn prompt_uses_codex_models_when_provided() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
+        assert!(prompt.contains("`gpt-5.3-codex` (GPT-5.3 Codex)"));
+        assert!(prompt.contains("`gpt-5.2-codex` (GPT-5.2 Codex)"));
+        assert!(!prompt.contains("opus"), "Codex prompt should not mention opus models");
+        assert!(prompt.contains(r#""model": "gpt-5.3-codex""#), "examples should use codex models");
+        assert!(prompt.contains(r#""model": "gpt-5.2-codex""#), "examples should use codex models");
+    }
+
+    #[test]
+    fn prompt_examples_use_provider_model_names() {
+        let cmds = test_commands();
+
+        let claude_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        assert!(claude_prompt.contains(r#""model": "opus-4.6""#), "Claude examples should use opus-4.6");
+        assert!(claude_prompt.contains(r#""model": "sonnet-4.5""#), "Claude examples should use sonnet-4.5");
+
+        let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
+        assert!(codex_prompt.contains(r#""model": "gpt-5.3-codex""#), "Codex examples should use gpt-5.3-codex");
+        assert!(codex_prompt.contains(r#""model": "gpt-5.2-codex""#), "Codex examples should use gpt-5.2-codex");
     }
 
     #[test]
     fn prompt_omits_empty_plan_and_impl() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(!prompt.contains("## Plan"));
         assert!(!prompt.contains("## Implementation Summary"));
     }
@@ -558,7 +594,7 @@ These will ensure quality."#;
     fn prompt_includes_plan_and_impl_when_provided() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "T", "D", None, "Step 1: do X", "Changed file Y", &cmds,
+            "T", "D", None, "Step 1: do X", "Changed file Y", &cmds, &claude_models(),
         );
         assert!(prompt.contains("## Plan"));
         assert!(prompt.contains("Step 1: do X"));
@@ -576,6 +612,7 @@ These will ensure quality."#;
             "",
             "",
             &cmds,
+            &claude_models(),
         );
         assert!(prompt.contains("Add integration tests"));
         assert!(prompt.contains("Write integration tests for the OAuth2 flow"));
@@ -587,7 +624,7 @@ These will ensure quality."#;
     fn prompt_omits_ticket_context_when_none() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "Fix the bug", "There is a null pointer", None, "", "", &cmds,
+            "Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models(),
         );
         assert!(!prompt.contains("## Original Ticket Context"));
     }
@@ -596,7 +633,7 @@ These will ensure quality."#;
     fn prompt_omits_ticket_context_when_empty() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds,
+            "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds, &claude_models(),
         );
         assert!(!prompt.contains("## Original Ticket Context"));
     }
@@ -604,7 +641,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_uses_important_instruction_not_empty_code_fence() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
         assert!(
             prompt.contains("IMPORTANT"),
             "prompt must contain the IMPORTANT instruction"
@@ -619,6 +656,44 @@ These will ensure quality."#;
             !instructions_section.contains("```json\n[]\n```"),
             "instructions must not contain empty array code fence template"
         );
+    }
+
+    #[test]
+    fn prompt_only_model_constraint() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        assert!(prompt.contains("ONLY use model names from the Available Models list"));
+    }
+
+    // ── pick_example_models ─────────────────────────────────────
+
+    #[test]
+    fn pick_models_empty_returns_defaults() {
+        let (c, e) = pick_example_models(&[]);
+        assert_eq!(c, "default");
+        assert_eq!(e, "default");
+    }
+
+    #[test]
+    fn pick_models_single_uses_same_for_both() {
+        let models = vec![("only-model", "Only Model")];
+        let (c, e) = pick_example_models(&models);
+        assert_eq!(c, "only-model");
+        assert_eq!(e, "only-model");
+    }
+
+    #[test]
+    fn pick_models_multiple_picks_first_and_last() {
+        let (c, e) = pick_example_models(&claude_models());
+        assert_eq!(c, "opus-4.6");
+        assert_eq!(e, "sonnet-4.5");
+    }
+
+    #[test]
+    fn pick_models_codex() {
+        let (c, e) = pick_example_models(&codex_models());
+        assert_eq!(c, "gpt-5.3-codex");
+        assert_eq!(e, "gpt-5.2-codex");
     }
 
     // ── discover_available_commands ──────────────────────────────

@@ -466,4 +466,81 @@ fn extract_text_assistant_fallback_when_no_result_or_deltas() {
     assert_eq!(text, "assistant only");
 }
 
+// ── Real CLI output end-to-end tests ───────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+struct CmdSel {
+    command: String,
+    model: String,
+}
+
+#[test]
+fn extract_text_real_cli_non_streaming_response() {
+    let input = concat!(
+        r#"{"type":"system","subtype":"init","cwd":"/tmp/test","session_id":"abc","tools":[],"model":"claude-sonnet-4-6"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"model":"claude-sonnet-4-6","id":"msg_01X","type":"message","role":"assistant","content":[{"type":"text","text":"[{\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}]"}],"stop_reason":null},"session_id":"abc"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":1096,"result":"[{\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}]","session_id":"abc","total_cost_usd":0.01}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, r#"[{"command": "cleanup", "model": "sonnet-4.6"}]"#);
+
+    let parsed: Vec<CmdSel> =
+        crate::agents::json_extraction::parse_json_response(&text).unwrap();
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].command, "cleanup");
+    assert_eq!(parsed[0].model, "sonnet-4.6");
+}
+
+#[test]
+fn extract_text_real_cli_streaming_response() {
+    let input = concat!(
+        r#"{"type":"system","subtype":"init","cwd":"/tmp/test","session_id":"abc","tools":[],"model":"claude-sonnet-4-6"}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"["}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"{\"command\": \"code-review\", \"model\": \"opus-4.6\"}"}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":", {\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}"}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"]"}}}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"model":"claude-sonnet-4-6","id":"msg_02Y","type":"message","role":"assistant","content":[{"type":"text","text":"[{\"command\": \"code-review\", \"model\": \"opus-4.6\"}, {\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}]"}],"stop_reason":"end_turn"},"session_id":"abc"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"result":"I selected code-review and cleanup.","session_id":"abc","total_cost_usd":0.02}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(
+        text,
+        r#"[{"command": "code-review", "model": "opus-4.6"}, {"command": "cleanup", "model": "sonnet-4.6"}]"#,
+        "streaming deltas should be preferred over result summary"
+    );
+
+    let parsed: Vec<CmdSel> =
+        crate::agents::json_extraction::parse_json_response(&text).unwrap();
+    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed[0].command, "code-review");
+    assert_eq!(parsed[1].command, "cleanup");
+}
+
+#[test]
+fn extract_text_real_cli_response_with_prose_wrapping_json() {
+    let input = concat!(
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Based on the ticket (a simple bug fix), here are the commands:\n\n"}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"[{\"command\": \"unit-tests\", \"model\": \"sonnet-4.6\"}, {\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}]"}}}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","result":"Based on the ticket (a simple bug fix), here are the commands:\n\n[{\"command\": \"unit-tests\", \"model\": \"sonnet-4.6\"}, {\"command\": \"cleanup\", \"model\": \"sonnet-4.6\"}]","session_id":"abc"}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert!(text.contains(r#"[{"command": "unit-tests"#), "extracted text should contain the JSON array");
+
+    let parsed: Vec<CmdSel> =
+        crate::agents::json_extraction::parse_json_response(&text).unwrap();
+    assert_eq!(parsed.len(), 2, "should parse JSON even when wrapped in prose");
+    assert_eq!(parsed[0].command, "unit-tests");
+    assert_eq!(parsed[1].command, "cleanup");
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests
