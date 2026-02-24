@@ -14,7 +14,7 @@ Your job is to:
 3. **Ask precise, informed questions** based on both the user's request AND what you find in the code — avoid vague questions; ask about specific technical decisions
 4. **Gather ALL context needed** so that the final spec is a complete, self-contained document that requires NO further clarification to implement
 
-## CRITICAL: BE EXHAUSTIVE AND VERBOSE
+## CRITICAL: Capture Everything
 
 The specification you produce will be used to generate implementation tickets. Each ticket will be handed to an AI coding agent that has **NO access to this conversation** — it will ONLY see the spec and the ticket description. Therefore:
 
@@ -64,7 +64,11 @@ When you have enough information (usually 3-6 exchanges, or immediately if the r
   "spec_complete": true,
   "observations": "<markdown string — comprehensive final summary of ALL findings>",
   "structured_spec": {{
-    "requirements": "<VERBOSE, DETAILED requirements — this must be a complete description of EVERYTHING that needs to be built. Include: feature behavior, user-facing changes, API contracts, data models, state management needs, UI components, interactions, edge cases, error states, and any non-obvious requirements discovered during conversation. Write this as if it's the ONLY document the implementer will read. Multiple paragraphs are expected. Use markdown formatting for structure.>",
+    "requirements": [
+      "Requirement 1: <specific, self-contained requirement — include HTTP routes, field names, types, behavior, edge cases>",
+      "Requirement 2: <another specific requirement — e.g. 'GET /health returns 200 JSON with name and version fields'>",
+      "Requirement 3: <add as many items as needed to cover EVERY requirement completely>"
+    ],
     "decisions": [
       "Decision 1: <WHAT was decided> — <WHY this was chosen over alternatives> — <HOW it affects implementation>",
       "Decision 2: <detailed decision with rationale and implementation impact>"
@@ -73,12 +77,24 @@ When you have enough information (usually 3-6 exchanges, or immediately if the r
       "Constraint 1: <specific constraint with context — e.g., 'Must use the existing `AuthMiddleware` in `src/middleware/auth.rs` for all new endpoints because...'>",
       "Constraint 2: <detailed constraint>"
     ],
-    "technical_notes": "<EXHAUSTIVE implementation guide based on codebase exploration. This MUST include:\n\n1. **Files to create or modify** — list every file with what changes are needed\n2. **Existing patterns to follow** — reference specific files as templates (e.g., 'Follow the pattern in `src/components/TicketCard.tsx` for the new component')\n3. **Type definitions and interfaces** — existing types to reuse, new types to create, with field descriptions\n4. **Database changes** — new tables/columns, migrations needed, with schema details\n5. **API endpoints** — routes, request/response shapes, middleware, error responses\n6. **State management** — which stores to modify, new state shapes, actions needed\n7. **Integration points** — exactly which existing functions/modules to connect with and how\n8. **Testing approach** — what to test, which test patterns to follow from existing tests\n9. **Edge cases and error handling** — specific scenarios to handle\n\nBe VERBOSE. Include code snippets where helpful. Reference specific line numbers or function names from the codebase. The implementing agents will ONLY see this spec — they won't have access to our conversation.>"
+    "technical_notes": [
+      "Create <path/to/new/file.ext> — <purpose and key implementation details, e.g. 'entry point with graceful shutdown via http.Server'>",
+      "Modify <path/to/existing/file.ext> — <exactly what to change and why>",
+      "Follow pattern in <path/to/reference/file.ext> — <which aspects of the pattern to replicate>",
+      "Run: <shell command needed for setup, e.g. 'go mod init github.com/org/repo && go get github.com/gin-gonic/gin'>",
+      "Integration point: call <ExistingFunction> from <src/module.ts> to <achieve goal>",
+      "Add as many notes as needed — one concrete, actionable item per entry"
+    ]
   }}
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
+**IMPORTANT — JSON format rules:**
+- `requirements` and `technical_notes` MUST be JSON arrays of strings, not prose paragraphs
+- Each array item must be a plain string — do NOT embed markdown code fences (` ``` `) inside array values
+- Reference specific file paths, function names, and types by name within plain strings
+- `observations` and `questions` are markdown strings (free-form prose is fine there)
+- Your response must contain ONLY the JSON code block. No text before or after it.
 
 Start by exploring the codebase, then respond with the JSON block."#,
         user_input
@@ -104,7 +120,7 @@ pub fn build_conversation_prompt(user_input: &str, messages: &[ConversationMessa
 You are helping create a **comprehensive, implementation-ready software specification** through interactive conversation.
 You have access to explore the codebase to inform your responses.
 
-## CRITICAL: The Final Spec Must Be EXHAUSTIVE
+## CRITICAL: Capture Everything
 
 The specification you produce will be used to generate implementation tickets. Each ticket will be handed to an AI coding agent that has **NO access to this conversation** — it will ONLY see the spec and the ticket description. Therefore, when you write the final spec:
 
@@ -112,7 +128,6 @@ The specification you produce will be used to generate implementation tickets. E
 - **Include specific file paths**, function signatures, type definitions, and code patterns from the codebase
 - **Document ALL decisions** with full rationale — not just what, but WHY and HOW it affects implementation
 - **Describe exact integration points** — which existing functions to call, which types to reuse, which patterns to follow
-- **Be VERBOSE** — multiple paragraphs per field are expected. Err on the side of too much detail rather than too little
 
 ## User's Initial Request
 {}
@@ -144,7 +159,11 @@ When you have enough information (you understand scope, integration points, tech
   "spec_complete": true,
   "observations": "<markdown string — comprehensive final summary of ALL findings from exploration and conversation>",
   "structured_spec": {{
-    "requirements": "<VERBOSE, DETAILED requirements — a complete description of EVERYTHING that needs to be built. Include: feature behavior, user-facing changes, API contracts, data models, state management needs, UI components, interactions, edge cases, error states, and all requirements from the conversation. Write this as if it's the ONLY document the implementer will read. Multiple paragraphs expected.>",
+    "requirements": [
+      "Requirement 1: <specific, self-contained requirement — include HTTP routes, field names, types, behavior, edge cases>",
+      "Requirement 2: <another specific requirement — e.g. 'GET /health returns 200 JSON with name and version fields'>",
+      "Requirement 3: <add as many items as needed to cover EVERY requirement completely>"
+    ],
     "decisions": [
       "Decision 1: <WHAT was decided> — <WHY this was chosen> — <HOW it affects implementation>",
       "Decision 2: <detailed decision with full rationale and implementation impact>"
@@ -153,12 +172,23 @@ When you have enough information (you understand scope, integration points, tech
       "Constraint 1: <specific constraint with context and the codebase evidence for it>",
       "Constraint 2: <detailed constraint with implementation implications>"
     ],
-    "technical_notes": "<EXHAUSTIVE implementation guide. MUST include:\n\n1. **Files to create or modify** — every file with what changes are needed\n2. **Existing patterns to follow** — specific files as templates\n3. **Type definitions** — existing types to reuse, new types to create\n4. **Database changes** — tables, columns, migrations, schema details\n5. **API endpoints** — routes, request/response shapes, middleware\n6. **State management** — stores to modify, new state shapes, actions\n7. **Integration points** — existing functions/modules to connect with\n8. **Testing approach** — what to test, which patterns to follow\n9. **Edge cases and error handling** — specific scenarios\n\nBe VERBOSE. Include code snippets. Reference specific functions and line numbers from the codebase.>"
+    "technical_notes": [
+      "Create <path/to/new/file.ext> — <purpose and key implementation details>",
+      "Modify <path/to/existing/file.ext> — <exactly what to change and why>",
+      "Follow pattern in <path/to/reference/file.ext> — <which aspects of the pattern to replicate>",
+      "Integration point: call <ExistingFunction> from <src/module.ts> to <achieve goal>",
+      "Add as many notes as needed — one concrete, actionable item per entry"
+    ]
   }}
 }}
 ```
 
-IMPORTANT: Your response must contain ONLY the JSON code block. No text before or after it.
+**IMPORTANT — JSON format rules:**
+- `requirements` and `technical_notes` MUST be JSON arrays of strings, not prose paragraphs
+- Each array item must be a plain string — do NOT embed markdown code fences (` ``` `) inside array values
+- Reference specific file paths, function names, and types by name within plain strings
+- `observations` and `questions` are markdown strings (free-form prose is fine there)
+- Your response must contain ONLY the JSON code block. No text before or after it.
 
 Continue based on the user's latest response."#,
         user_input, conversation_history

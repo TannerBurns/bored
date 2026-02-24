@@ -227,10 +227,10 @@ mod tests {
   "spec_complete": true,
   "observations": "Final summary of findings",
   "structured_spec": {
-    "requirements": "Build OAuth integration",
+    "requirements": ["Build OAuth integration", "Support Google sign-in"],
     "decisions": ["Use OAuth 2.0", "Support Google"],
     "constraints": ["Must work offline"],
-    "technical_notes": "Extend existing auth module"
+    "technical_notes": ["Extend existing auth module in src/auth/"]
   }
 }
 ```"#;
@@ -239,10 +239,9 @@ mod tests {
         assert!(response.is_complete);
         assert!(response.structured_spec.is_some());
         let spec = response.structured_spec.unwrap();
-        assert!(spec.requirements.contains("OAuth"));
+        assert!(spec.requirements[0].contains("OAuth"));
         assert_eq!(spec.decisions.len(), 2);
-        // Verify technical_notes (snake_case from prompt) is preserved via serde alias
-        assert_eq!(spec.technical_notes, Some("Extend existing auth module".to_string()));
+        assert_eq!(spec.technical_notes[0], "Extend existing auth module in src/auth/");
         let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
         assert!(msg["observations"].as_str().unwrap().contains("Final summary"));
     }
@@ -297,7 +296,7 @@ mod tests {
 
     #[test]
     fn parse_structured_json_raw_no_fence() {
-        let response_text = r#"{"spec_complete": true, "structured_spec": {"requirements": "Build auth", "decisions": [], "constraints": []}}"#;
+        let response_text = r#"{"spec_complete": true, "structured_spec": {"requirements": ["Build auth"], "decisions": [], "constraints": []}}"#;
 
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
@@ -323,10 +322,10 @@ mod tests {
 {
   "spec_complete": true,
   "structured_spec": {
-    "requirements": "Build a user auth system with OAuth",
+    "requirements": ["Build a user auth system with OAuth", "Support Google and GitHub login"],
     "decisions": ["Use OAuth 2.0", "Support Google and GitHub"],
     "constraints": ["Must work offline"],
-    "technical_notes": "Consider using passport.js"
+    "technical_notes": ["Consider using passport.js", "Extend src/auth/index.ts"]
   }
 }
 ```"#;
@@ -335,7 +334,7 @@ mod tests {
         assert!(response.is_complete);
         assert!(response.structured_spec.is_some());
         let spec = response.structured_spec.unwrap();
-        assert!(spec.requirements.contains("OAuth"));
+        assert!(spec.requirements[0].contains("OAuth"));
         assert_eq!(spec.decisions.len(), 2);
     }
 
@@ -347,7 +346,7 @@ mod tests {
 {
   "spec_complete": true,
   "structured_spec": {
-    "requirements": "Build feature X",
+    "requirements": ["Build feature X"],
     "decisions": [],
     "constraints": []
   }
@@ -365,7 +364,7 @@ mod tests {
 {
   "spec_complete": true,
   "structured_spec": {
-    "requirements": "Build feature X",
+    "requirements": ["Build feature X"],
     "decisions": [],
     "constraints": []
   }
@@ -384,10 +383,10 @@ mod tests {
 {
   "spec_complete": true,
   "structured_spec": {
-    "requirements": "Build auth",
+    "requirements": ["Build auth"],
     "decisions": ["Use JWT"],
     "constraints": ["Must be fast"],
-    "technicalNotes": "Consider using middleware pattern"
+    "technicalNotes": ["Consider using middleware pattern", "Follow src/middleware/auth.ts"]
   }
 }
 ```"#;
@@ -395,7 +394,8 @@ mod tests {
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
         let spec = response.structured_spec.unwrap();
-        assert_eq!(spec.technical_notes, Some("Consider using middleware pattern".to_string()));
+        assert_eq!(spec.technical_notes[0], "Consider using middleware pattern");
+        assert_eq!(spec.technical_notes.len(), 2);
     }
 
     #[test]
@@ -404,10 +404,10 @@ mod tests {
 {
   "spec_complete": true,
   "structured_spec": {
-    "requirements": "Build API",
+    "requirements": ["Build API"],
     "decisions": ["RESTful design"],
     "constraints": ["Must handle {nested} braces"],
-    "technicalNotes": "Use pattern: { key: value }"
+    "technicalNotes": ["Use pattern: { key: value }"]
   }
 }
 ```"#;
@@ -503,14 +503,14 @@ The API follows RESTful conventions."#;
         let response_text = concat!(
             r#"{"status": "analyzed"}"#,
             " some text ",
-            r#"{"spec_complete": true, "structured_spec": {"requirements": "Build auth", "decisions": ["Use JWT"], "constraints": []}}"#,
+            r#"{"spec_complete": true, "structured_spec": {"requirements": ["Build auth"], "decisions": ["Use JWT"], "constraints": []}}"#,
         );
 
         let response = parse_response(response_text).unwrap();
         assert!(response.is_complete);
         assert!(response.structured_spec.is_some());
         let spec = response.structured_spec.unwrap();
-        assert!(spec.requirements.contains("auth"));
+        assert!(spec.requirements[0].contains("auth"));
     }
 
     // === Pretty-printed raw JSON tests (no code fence) ===
@@ -522,10 +522,10 @@ The API follows RESTful conventions."#;
   "spec_complete": true,
   "observations": "All decisions made.",
   "structured_spec": {
-    "requirements": "Build a real-time app",
+    "requirements": ["Build a real-time app", "Support 1000 concurrent users"],
     "decisions": ["Use WebSockets"],
     "constraints": ["Must scale to 1000 users"],
-    "technical_notes": "Extend existing socket module"
+    "technical_notes": ["Extend existing socket module in src/ws/", "Follow pattern in src/server.ts"]
   }
 }"#;
 
@@ -533,9 +533,9 @@ The API follows RESTful conventions."#;
         assert!(response.is_complete, "pretty-printed raw JSON should be detected as complete");
         assert!(response.structured_spec.is_some());
         let spec = response.structured_spec.unwrap();
-        assert!(spec.requirements.contains("real-time"));
+        assert!(spec.requirements[0].contains("real-time"));
         assert_eq!(spec.decisions.len(), 1);
-        assert_eq!(spec.technical_notes, Some("Extend existing socket module".to_string()));
+        assert_eq!(spec.technical_notes[0], "Extend existing socket module in src/ws/");
     }
 
     #[test]
@@ -547,10 +547,10 @@ The API follows RESTful conventions."#;
             "  \"spec_complete\": true,\n",
             "  \"observations\": \"All key technical decisions have been made.\",\n",
             "  \"structured_spec\": {\n",
-            "    \"requirements\": \"Build a cross-platform desktop app\",\n",
+            "    \"requirements\": [\"Build a cross-platform desktop app\", \"Support macOS and Windows\"],\n",
             "    \"decisions\": [\"Use Tauri v2\", \"Use React and TypeScript\"],\n",
             "    \"constraints\": [\"Must support macOS and Windows\"],\n",
-            "    \"technical_notes\": \"Extend existing patterns in src/\"\n",
+            "    \"technical_notes\": [\"Extend existing patterns in src/\", \"Follow src/components/App.tsx\"]\n",
             "  }\n",
             "}",
         );
@@ -559,9 +559,9 @@ The API follows RESTful conventions."#;
         assert!(response.is_complete, "pretty-printed raw JSON with preamble should be detected as complete");
         assert!(response.structured_spec.is_some());
         let spec = response.structured_spec.unwrap();
-        assert!(spec.requirements.contains("cross-platform"));
+        assert!(spec.requirements[0].contains("cross-platform"));
         assert_eq!(spec.decisions.len(), 2);
-        assert_eq!(spec.technical_notes, Some("Extend existing patterns in src/".to_string()));
+        assert_eq!(spec.technical_notes[0], "Extend existing patterns in src/");
     }
 
     #[test]
@@ -578,5 +578,37 @@ The API follows RESTful conventions."#;
         assert!(response.has_questions);
         let msg: serde_json::Value = serde_json::from_str(&response.message).unwrap();
         assert!(msg["questions"].as_str().unwrap().contains("Which provider"));
+    }
+
+    #[test]
+    fn parse_json_fence_with_nested_backticks_in_array_values() {
+        // Regression test: agent wraps the spec in ```json...``` and puts code examples
+        // (with their own ``` fences) inside technical_notes strings. The naive
+        // find("```") extractor would stop at the inner fence and return truncated,
+        // unparseable JSON. Brace-matching must return the full object.
+        let response_text = concat!(
+            "```json\n",
+            "{\n",
+            "  \"spec_complete\": true,\n",
+            "  \"observations\": \"Explored codebase.\",\n",
+            "  \"structured_spec\": {\n",
+            "    \"requirements\": [\"Expose GET /health returning JSON\"],\n",
+            "    \"decisions\": [\"Use Gin framework\"],\n",
+            "    \"constraints\": [\"No existing go.mod\"],\n",
+            "    \"technical_notes\": [\n",
+            "      \"Run: go mod init github.com/org/repo\",\n",
+            "      \"Create cmd/smee/main.go as entry point\"\n",
+            "    ]\n",
+            "  }\n",
+            "}\n",
+            "```",
+        );
+
+        let response = parse_response(response_text).unwrap();
+        assert!(response.is_complete, "spec_complete JSON inside a code fence must be detected as complete");
+        let spec = response.structured_spec.unwrap();
+        assert_eq!(spec.requirements[0], "Expose GET /health returning JSON");
+        assert_eq!(spec.technical_notes.len(), 2);
+        assert!(spec.technical_notes[0].contains("go mod init"));
     }
 }

@@ -386,7 +386,7 @@ fn emit_conversation_error(
 
 fn trigger_from_spec(base: &PlanTriggerConfig, spec: &StructuredSpec) -> PlanTriggerConfig {
     let mut cfg = base.clone();
-    cfg.exploration_context = spec.technical_notes.clone().unwrap_or_default();
+    cfg.exploration_context = spec.technical_notes.join("\n");
     cfg
 }
 
@@ -473,18 +473,27 @@ fn handle_spec_completion(
         let enhanced_input = format!(
             "{}\n\n---\n## Refined Requirements\n{}\n\n## Key Decisions\n{}\n\n## Constraints\n{}{}{}",
             original_user_input,
-            structured.requirements,
+            structured.requirements.iter().map(|r| format!("- {}", r)).collect::<Vec<_>>().join("\n"),
             structured.decisions.iter().map(|d| format!("- {}", d)).collect::<Vec<_>>().join("\n"),
             structured.constraints.iter().map(|c| format!("- {}", c)).collect::<Vec<_>>().join("\n"),
-            structured.technical_notes.as_ref().map(|n| format!("\n\n## Technical Notes (from codebase exploration)\n{}", n)).unwrap_or_default(),
+            if structured.technical_notes.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n\n## Technical Notes (from codebase exploration)\n{}",
+                    structured.technical_notes.iter().map(|n| format!("- {}", n)).collect::<Vec<_>>().join("\n")
+                )
+            },
             observations_section
         );
 
         let exploration_entry = crate::db::Exploration {
             query: "Codebase exploration during spec discovery".to_string(),
-            response: structured.technical_notes.clone().unwrap_or_else(|| 
+            response: if structured.technical_notes.is_empty() {
                 "Exploration completed during conversational spec discovery.".to_string()
-            ),
+            } else {
+                structured.technical_notes.join("\n")
+            },
             timestamp: chrono::Utc::now(),
         };
 

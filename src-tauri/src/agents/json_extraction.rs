@@ -11,10 +11,27 @@ use serde::de::DeserializeOwned;
 ///
 /// Handles ` ```json `, plain ` ``` `, and both `\n` / `\r\n` line endings.
 /// Returns the trimmed content inside the fence without parsing it.
+///
+/// For ` ```json ` fences, brace-matching is tried first so that triple-backtick
+/// sequences *inside* JSON string values (e.g. code examples in spec fields) do
+/// not prematurely terminate the extraction. The closing-fence string search is
+/// kept as a fallback for non-JSON content inside the fence.
 fn extract_json_code_block(text: &str) -> Option<String> {
     if let Some(fence_start) = text.find("```json") {
         let content_start = fence_start + 7;
         let content_start = skip_newline(text, content_start);
+        let remaining = &text[content_start..];
+        // Prefer balanced brace/bracket matching: immune to ``` inside JSON strings.
+        if remaining.trim_start().starts_with('{') {
+            if let Some(json) = find_balanced(remaining, '{', '}') {
+                return Some(json);
+            }
+        } else if remaining.trim_start().starts_with('[') {
+            if let Some(json) = find_balanced(remaining, '[', ']') {
+                return Some(json);
+            }
+        }
+        // Fallback: closing-fence string search (original behaviour for non-JSON fences).
         if let Some(end_offset) = text[content_start..].find("```") {
             let content = text[content_start..content_start + end_offset].trim();
             if !content.is_empty() {
@@ -365,6 +382,27 @@ mod tests {
             extract_json_code_block(text),
             Some("{\"first\":1}".to_string())
         );
+    }
+
+    #[test]
+    fn code_block_json_with_nested_backticks_in_string_value() {
+        // Agent outputs a JSON code fence whose string values contain sub-fences
+        // (e.g. code examples in spec technical_notes). The naive find("```") would
+        // stop at the inner fence; brace-matching must return the full object.
+        let text = concat!(
+            "```json\n",
+            "{\n",
+            "  \"spec_complete\": true,\n",
+            "  \"notes\": [\"Create main.go with:\\n```go\\npackage main\\n```\"]\n",
+            "}\n",
+            "```",
+        );
+        let result = extract_json_code_block(text).expect("should extract full JSON object");
+        assert!(result.contains("spec_complete"), "must contain spec_complete key");
+        assert!(result.contains("notes"), "must contain notes key");
+        // Verify the extracted string is valid JSON
+        serde_json::from_str::<serde_json::Value>(&result)
+            .expect("extracted content must be valid JSON");
     }
 
     #[test]
