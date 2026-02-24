@@ -594,5 +594,75 @@ mod tests {
             assert_eq!(parsed.constraints, spec.constraints);
             assert_eq!(parsed.technical_notes, spec.technical_notes);
         }
+
+        #[test]
+        fn deserialize_empty_requirements_array() {
+            // requirements: [] must deserialize to an empty Vec, not an error.
+            let json = r#"{
+                "requirements": [],
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(spec.requirements.is_empty(), "empty requirements array should deserialize to empty Vec");
+            assert!(spec.technical_notes.is_empty());
+        }
+
+        #[test]
+        fn deserialize_many_requirements_preserves_order() {
+            let json = r#"{
+                "requirements": ["First", "Second", "Third"],
+                "decisions": [],
+                "constraints": []
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert_eq!(spec.requirements.len(), 3);
+            assert_eq!(spec.requirements[0], "First");
+            assert_eq!(spec.requirements[1], "Second");
+            assert_eq!(spec.requirements[2], "Third");
+        }
+
+        #[test]
+        fn technical_notes_defaults_to_empty_vec_when_field_absent() {
+            // The #[serde(default)] annotation means a missing technicalNotes field
+            // should produce an empty Vec rather than a parse error.
+            let json = r#"{
+                "requirements": ["Build it"],
+                "decisions": ["Use Rust"],
+                "constraints": ["Must compile"]
+            }"#;
+            let spec: StructuredSpec = serde_json::from_str(json).unwrap();
+            assert!(
+                spec.technical_notes.is_empty(),
+                "absent technical_notes must default to empty Vec via #[serde(default)]"
+            );
+        }
+
+        #[test]
+        fn technical_notes_join_produces_newline_separated_string() {
+            // Verify the join("\n") behaviour used in trigger_from_spec and
+            // the exploration_entry.response path of handle_spec_completion.
+            let spec = StructuredSpec {
+                requirements: vec!["R1".to_string()],
+                decisions: vec![],
+                constraints: vec![],
+                technical_notes: vec!["Note A".to_string(), "Note B".to_string(), "Note C".to_string()],
+            };
+            let joined = spec.technical_notes.join("\n");
+            assert_eq!(joined, "Note A\nNote B\nNote C");
+        }
+
+        #[test]
+        fn technical_notes_join_empty_produces_empty_string() {
+            // Empty technical_notes.join("\n") must be "" so the exploration_entry
+            // fallback branch activates correctly.
+            let spec = StructuredSpec {
+                requirements: vec![],
+                decisions: vec![],
+                constraints: vec![],
+                technical_notes: vec![],
+            };
+            assert_eq!(spec.technical_notes.join("\n"), "");
+        }
     }
 }
