@@ -132,15 +132,6 @@ fn format_command_reference_returns_slash_command() {
 }
 
 #[test]
-fn check_commands_installed_project_returns_false_for_missing_dir() {
-    let temp = std::env::temp_dir().join(format!("cursor_prov_test_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temp).unwrap();
-    let p = CursorProvider::new();
-    assert!(!p.check_commands_installed_project(&temp));
-    std::fs::remove_dir_all(&temp).ok();
-}
-
-#[test]
 fn available_models_includes_claude_and_codex_models() {
     let p = CursorProvider::new();
     let models = p.available_models();

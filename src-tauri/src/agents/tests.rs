@@ -342,38 +342,7 @@ fn default_brand_color_is_none() {
     assert!(p.brand_color().is_none());
 }
 
-#[test]
-fn default_check_commands_installed_project_is_false() {
-    let p = StubProvider;
-    assert!(!p.check_commands_installed_project(std::path::Path::new("/tmp")));
-}
-
-#[test]
-fn default_check_commands_installed_user_is_false() {
-    let p = StubProvider;
-    assert!(!p.check_commands_installed_user());
-}
-
-#[test]
-fn default_install_commands_to_project_returns_empty() {
-    let p = StubProvider;
-    let result = p.install_commands_to_project(
-        std::path::Path::new("/tmp"),
-        std::path::Path::new("/src"),
-    );
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
-}
-
-#[test]
-fn default_install_commands_to_user_returns_empty() {
-    let p = StubProvider;
-    let result = p.install_commands_to_user(std::path::Path::new("/src"));
-    assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
-}
-
-// ── Provider trait surface after hooks removal ──────────────────────
+// ── Provider trait surface ──────────────────────────────────────────
 
 #[test]
 fn cursor_provider_implements_agent_provider_without_hooks() {
@@ -394,14 +363,26 @@ fn claude_provider_implements_agent_provider_without_hooks() {
 }
 
 #[test]
-fn stub_provider_has_no_hook_methods() {
+fn stub_provider_trait_object_works() {
     let p = StubProvider;
-    // After hooks removal, the trait should be implementable with only
-    // core methods (id, display_name, build_command, extract_text, etc.)
-    // and commands methods. Verify the trait object works:
     let provider: &dyn AgentProvider = &p;
     assert_eq!(provider.id(), "stub");
     assert_eq!(provider.config_dir_name(), ".stub");
     assert!(provider.brand_color().is_none());
-    assert!(!provider.check_commands_installed_user());
+}
+
+#[test]
+fn provider_trait_still_has_command_reference_methods() {
+    let p = StubProvider;
+    let provider: &dyn AgentProvider = &p;
+    assert_eq!(provider.command_instructions_subdir(), "commands");
+    assert_eq!(provider.format_command_reference("deslop"), "/deslop");
+}
+
+#[test]
+fn provider_trait_no_longer_has_install_or_check_methods() {
+    let p = StubProvider;
+    assert_eq!(p.config_dir_name(), ".stub");
+    assert_eq!(p.command_instructions_subdir(), "commands");
+    assert_eq!(p.format_command_reference("test"), "/test");
 }

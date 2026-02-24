@@ -1,9 +1,6 @@
 //! Cursor `AgentProvider` implementation.
 
-use std::path::Path;
-
 use crate::agents::cli_utils;
-use crate::agents::command_templates;
 use crate::agents::cost::{self, RunCostData};
 use crate::agents::provider::{AgentProvider, AgentRunConfig};
 
@@ -91,28 +88,4 @@ impl AgentProvider for CursorProvider {
         ]
     }
 
-    fn check_commands_installed_project(&self, repo_path: &Path) -> bool {
-        command_templates::check_project_commands_installed(repo_path, self.config_dir_name())
-    }
-
-    fn check_commands_installed_user(&self) -> bool {
-        command_templates::check_user_commands_installed(self.config_dir_name())
-    }
-
-    fn install_commands_to_project(
-        &self,
-        repo_path: &Path,
-        commands_source: &Path,
-    ) -> Result<Vec<String>, String> {
-        command_templates::install_commands(repo_path, self.config_dir_name(), commands_source)
-            .map_err(|e| format!("Failed to install {} commands: {}", self.display_name(), e))
-    }
-
-    fn install_commands_to_user(
-        &self,
-        commands_source: &Path,
-    ) -> Result<Vec<String>, String> {
-        command_templates::install_user_commands(self.config_dir_name(), commands_source)
-            .map_err(|e| format!("Failed to install {} user commands: {}", self.display_name(), e))
-    }
 }

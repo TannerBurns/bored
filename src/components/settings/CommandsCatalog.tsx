@@ -5,7 +5,6 @@ import {
   readCommandContent,
   saveCustomCommand,
   deleteCustomCommand,
-  installCatalogCommandsToAllProjects,
 } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 
@@ -223,12 +222,6 @@ export function CommandsCatalog() {
   const builtinCommands = catalog.filter((c) => c.source === 'builtin');
   const customCommands = catalog.filter((c) => c.source === 'custom');
 
-  useEffect(() => {
-    const enabledFilenames = catalog.filter((c) => c.enabled).map((c) => c.filename);
-    const disabledFilenames = catalog.filter((c) => !c.enabled).map((c) => c.filename);
-    installCatalogCommandsToAllProjects(enabledFilenames, disabledFilenames).catch(() => {});
-  }, [catalog]);
-
   const handleToggle = useCallback((id: string) => {
     const cmd = catalog.find((c) => c.id === id);
     const wasEnabled = cmd?.enabled ?? false;
@@ -242,7 +235,6 @@ export function CommandsCatalog() {
     const cmd = catalog.find((c) => c.id === id);
     if (!cmd) return;
 
-    installCatalogCommandsToAllProjects([], [cmd.filename]).catch(() => {});
     deleteCustomCommand(cmd.filename).catch(() => {});
     removeCommand(id);
   }, [catalog, removeCommand]);

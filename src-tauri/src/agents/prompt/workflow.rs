@@ -2,58 +2,33 @@
 
 use std::path::Path;
 
-use crate::agents::provider::AgentProvider;
-
-fn get_base_command(stage: &str) -> &str {
-    stage
-}
-
-/// Build the list of command file search locations from registered providers.
-///
-/// For each provider, constructs `<repo>/<config_dir>/<subdir>/<command>.md`.
-/// Appends the bundled commands directory as a final fallback.
+/// Build the ordered list of command file search locations
+/// (custom dir first, then bundled).
 pub(crate) fn build_command_search_paths(
-    base_command: &str,
-    repo_path: &Path,
-    providers: &[&dyn AgentProvider],
+    command: &str,
+    custom_commands_dir: Option<&Path>,
 ) -> Vec<std::path::PathBuf> {
-    let mut locations: Vec<std::path::PathBuf> = providers
-        .iter()
-        .map(|p| {
-            repo_path
-                .join(p.config_dir_name())
-                .join(p.command_instructions_subdir())
-                .join(format!("{}.md", base_command))
-        })
-        .collect();
+    let mut locations: Vec<std::path::PathBuf> = Vec::new();
 
-    // Fallback to our bundled command files (for code-review, code-review-fix, etc.)
+    if let Some(custom_dir) = custom_commands_dir {
+        locations.push(custom_dir.join(format!("{}.md", command)));
+    }
+
     locations.push(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/commands")
-            .join(format!("{}.md", base_command)),
+            .join(format!("{}.md", command)),
     );
 
     locations
 }
 
-/// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.)
-///
-/// Searches bundled command files only. Use `generate_command_prompt_with_providers`
-/// to also search provider-specific repo directories.
-pub fn generate_command_prompt(command: &str, repo_path: &Path) -> String {
-    generate_command_prompt_with_providers(command, repo_path, &[])
-}
-
-/// Like `generate_command_prompt`, but also searches each provider's command directory.
-pub fn generate_command_prompt_with_providers(
+/// Generate a prompt for a QA command stage (deslop, cleanup, unit-tests, etc.).
+pub fn generate_command_prompt(
     command: &str,
-    repo_path: &Path,
-    providers: &[&dyn AgentProvider],
+    custom_commands_dir: Option<&Path>,
 ) -> String {
-    let base_command = get_base_command(command);
-
-    let locations = build_command_search_paths(base_command, repo_path, providers);
+    let locations = build_command_search_paths(command, custom_commands_dir);
 
     let cmd_content = locations
         .iter()
@@ -61,7 +36,7 @@ pub fn generate_command_prompt_with_providers(
 
     if let Some(content) = cmd_content {
         format!(
-            r#"Execute the following command: /{base_command}
+            r#"Execute the following command: /{command}
 
 ## Command Instructions
 
@@ -71,7 +46,7 @@ Execute these instructions carefully. When complete, report what was done.
 "#
         )
     } else {
-        get_fallback_command_prompt(base_command)
+        get_fallback_command_prompt(command)
     }
 }
 
@@ -156,27 +131,26 @@ mod tests {
 
     #[test]
     fn generate_command_prompt_fallback_deslop() {
-        let prompt = generate_command_prompt("deslop", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("deslop", None);
         assert!(prompt.contains("deslop"));
         assert!(prompt.contains("AI-generated"));
     }
 
     #[test]
     fn generate_command_prompt_cleanup_contains_command_name() {
-        let prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("cleanup", None);
         assert!(prompt.contains("cleanup"));
     }
 
     #[test]
     fn generate_command_prompt_unit_tests_contains_command_name() {
-        let prompt = generate_command_prompt("unit-tests", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("unit-tests", None);
         assert!(prompt.contains("unit-tests"));
     }
 
     #[test]
     fn generate_command_prompt_review_changes_contains_command_name() {
-        let prompt = generate_command_prompt("review-changes", Path::new("/nonexistent"));
-        // May use bundled file or fallback - both are valid
+        let prompt = generate_command_prompt("review-changes", None);
         assert!(
             prompt.contains("review-changes") || prompt.contains("review")
         );
@@ -184,14 +158,14 @@ mod tests {
 
     #[test]
     fn generate_command_prompt_fallback_add_and_commit() {
-        let prompt = generate_command_prompt("add-and-commit", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("add-and-commit", None);
         assert!(prompt.contains("add-and-commit"));
         assert!(prompt.contains("commit"));
     }
 
     #[test]
     fn generate_command_prompt_unknown_returns_generic() {
-        let prompt = generate_command_prompt("unknown-command", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("unknown-command", None);
         assert!(prompt.contains("unknown-command"));
         assert!(prompt.contains("project's conventions"));
     }
@@ -201,72 +175,37 @@ mod tests {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let scripts_dir = manifest_dir.join("scripts/commands");
 
-        // Check if bundled command files exist
         if scripts_dir.join("code-review.md").exists() {
-            let prompt = generate_command_prompt("code-review", Path::new("/nonexistent"));
-            // Should contain content from the file, not fallback
+            let prompt = generate_command_prompt("code-review", None);
             assert!(prompt.contains("Execute the following command"));
         }
     }
 
     #[test]
-    fn format_macro_with_raw_string_interpolates_variables() {
+    fn format_string_interpolates_command_and_content() {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let cleanup_file = manifest_dir.join("scripts/commands/cleanup.md");
 
         if cleanup_file.exists() {
-            let prompt = generate_command_prompt("cleanup", Path::new("/nonexistent"));
+            let prompt = generate_command_prompt("cleanup", None);
 
             assert!(
-                !prompt.contains("{base_command}"),
-                "Variable was not interpolated - prompt contains literal '{{base_command}}'"
+                !prompt.contains("{command}"),
+                "Variable was not interpolated"
             );
             assert!(
                 !prompt.contains("{content}"),
-                "Variable was not interpolated - prompt contains literal '{{content}}'"
+                "Variable was not interpolated"
             );
             assert!(
                 prompt.contains("/cleanup"),
-                "base_command should be interpolated to '/cleanup'"
+                "command should be interpolated to '/cleanup'"
             );
             assert!(
                 prompt.contains("senior engineer"),
                 "File content should be interpolated into prompt"
             );
         }
-    }
-
-    #[test]
-    fn get_base_command_is_identity() {
-        assert_eq!(get_base_command("cleanup"), "cleanup");
-        assert_eq!(get_base_command("review-changes"), "review-changes");
-        assert_eq!(get_base_command("deslop"), "deslop");
-        assert_eq!(get_base_command("unit-tests"), "unit-tests");
-        assert_eq!(get_base_command("add-and-commit"), "add-and-commit");
-        assert_eq!(get_base_command("implement"), "implement");
-        assert_eq!(get_base_command("plan"), "plan");
-        assert_eq!(get_base_command("cleanup-advanced"), "cleanup-advanced");
-        assert_eq!(get_base_command("review-changes-detailed"), "review-changes-detailed");
-    }
-
-    #[test]
-    fn get_base_command_passes_through_new_catalog_commands() {
-        assert_eq!(get_base_command("code-review"), "code-review");
-        assert_eq!(get_base_command("code-review-fix"), "code-review-fix");
-        assert_eq!(get_base_command("add-tests"), "add-tests");
-        assert_eq!(get_base_command("fix-lint"), "fix-lint");
-        assert_eq!(get_base_command("sync-with-main"), "sync-with-main");
-        assert_eq!(get_base_command("review-polish"), "review-polish");
-        assert_eq!(get_base_command("patch-security"), "patch-security");
-        assert_eq!(get_base_command("api-contract-check"), "api-contract-check");
-        assert_eq!(get_base_command("observability-pass"), "observability-pass");
-        assert_eq!(get_base_command("integration-test"), "integration-test");
-    }
-
-    #[test]
-    fn get_base_command_passes_through_arbitrary_custom_commands() {
-        assert_eq!(get_base_command("my-custom-lint"), "my-custom-lint");
-        assert_eq!(get_base_command("deploy-preview"), "deploy-preview");
     }
 
     #[test]
@@ -277,7 +216,7 @@ mod tests {
             "api-contract-check", "observability-pass", "integration-test",
         ];
         for cmd in &new_commands {
-            let prompt = generate_command_prompt(cmd, Path::new("/nonexistent"));
+            let prompt = generate_command_prompt(cmd, None);
             assert!(
                 !prompt.is_empty(),
                 "Prompt for '{}' should not be empty",
@@ -293,56 +232,98 @@ mod tests {
 
     #[test]
     fn custom_command_name_is_not_remapped() {
-        let prompt = generate_command_prompt("cleanup-advanced", Path::new("/nonexistent"));
+        let prompt = generate_command_prompt("cleanup-advanced", None);
         assert!(
             prompt.contains("/cleanup-advanced"),
             "Custom command should use its own name, not be remapped to 'cleanup'"
         );
     }
 
-    // ── Provider-aware path building ──────────────────────────────
-
     #[test]
-    fn build_search_paths_with_providers() {
-        use crate::agents::claude::provider::ClaudeProvider;
-        use crate::agents::cursor::provider::CursorProvider;
+    fn build_search_paths_with_custom_dir() {
+        let custom = PathBuf::from("/tmp/custom-commands");
+        let paths = build_command_search_paths("deslop", Some(&custom));
 
-        let claude = ClaudeProvider::new();
-        let cursor = CursorProvider::new();
-        let providers: Vec<&dyn crate::agents::provider::AgentProvider> =
-            vec![&claude, &cursor];
-
-        let paths = build_command_search_paths("deslop", Path::new("/repo"), &providers);
-
-        // First two paths from providers, third is bundled fallback
-        assert!(paths.len() >= 3);
-        assert_eq!(paths[0], PathBuf::from("/repo/.claude/commands/deslop.md"));
-        assert_eq!(paths[1], PathBuf::from("/repo/.cursor/commands/deslop.md"));
-        // Last path is the bundled commands dir
-        assert!(paths.last().unwrap().ends_with("scripts/commands/deslop.md"));
+        assert_eq!(paths.len(), 2);
+        assert_eq!(paths[0], PathBuf::from("/tmp/custom-commands/deslop.md"));
+        assert!(paths[1].ends_with("scripts/commands/deslop.md"));
     }
 
     #[test]
-    fn build_search_paths_empty_providers() {
-        let paths = build_command_search_paths("deslop", Path::new("/repo"), &[]);
-        // Only the bundled fallback
+    fn build_search_paths_without_custom_dir() {
+        let paths = build_command_search_paths("deslop", None);
         assert_eq!(paths.len(), 1);
         assert!(paths[0].ends_with("scripts/commands/deslop.md"));
     }
 
     #[test]
-    fn generate_with_providers_falls_back_to_bundled() {
-        // With providers pointing at nonexistent dirs, should still find bundled or fallback
-        use crate::agents::claude::provider::ClaudeProvider;
-        let claude = ClaudeProvider::new();
-        let providers: Vec<&dyn crate::agents::provider::AgentProvider> = vec![&claude];
+    fn custom_command_dir_takes_priority_over_bundled() {
+        let temp_dir = std::env::temp_dir().join(format!("cmd_search_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(temp_dir.join("cleanup.md"), "# Custom cleanup override").unwrap();
 
-        let prompt = generate_command_prompt_with_providers(
-            "deslop",
-            Path::new("/nonexistent"),
-            &providers,
+        let prompt = generate_command_prompt("cleanup", Some(&temp_dir));
+        assert!(prompt.contains("Custom cleanup override"), "Custom dir should take priority");
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn custom_dir_missing_command_falls_through_to_bundled() {
+        let temp_dir = std::env::temp_dir().join(format!("cmd_fallthrough_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(temp_dir.join("unrelated.md"), "# not the command").unwrap();
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if manifest_dir.join("scripts/commands/cleanup.md").exists() {
+            let prompt = generate_command_prompt("cleanup", Some(&temp_dir));
+            assert!(
+                prompt.contains("Execute the following command"),
+                "Should fall through to bundled when custom dir lacks the command"
+            );
+        }
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn empty_custom_dir_falls_through_to_bundled() {
+        let temp_dir = std::env::temp_dir().join(format!("cmd_empty_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if manifest_dir.join("scripts/commands/deslop.md").exists() {
+            let prompt = generate_command_prompt("deslop", Some(&temp_dir));
+            assert!(
+                prompt.contains("Execute the following command"),
+                "Empty custom dir should fall through to bundled"
+            );
+        }
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn build_search_paths_custom_dir_is_first() {
+        let custom = PathBuf::from("/my/custom");
+        let paths = build_command_search_paths("test-cmd", Some(&custom));
+        assert_eq!(paths[0], PathBuf::from("/my/custom/test-cmd.md"));
+        assert!(
+            paths.last().unwrap().ends_with("scripts/commands/test-cmd.md"),
+            "Bundled should always be last"
         );
-        // Should get either a bundled file or the hardcoded deslop fallback
-        assert!(prompt.contains("deslop"));
+    }
+
+    #[test]
+    fn generate_command_prompt_none_custom_dir_uses_bundled_or_fallback() {
+        let prompt = generate_command_prompt("code-review", None);
+        assert!(
+            !prompt.is_empty(),
+            "Should produce a prompt even without custom dir"
+        );
+        assert!(
+            prompt.contains("code-review") || prompt.contains("Execute"),
+            "Should reference the command"
+        );
     }
 }

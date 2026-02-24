@@ -212,28 +212,6 @@ export async function getAvailableCommands(): Promise<string[]> {
   return invoke('get_available_commands');
 }
 
-export async function installCommandsToProject(
-  agentType: string,
-  repoPath: string
-): Promise<string[]> {
-  return invoke('install_commands_to_project', { agentType, repoPath });
-}
-
-export async function installCommandsToUser(agentType: string): Promise<string[]> {
-  return invoke('install_commands_to_user', { agentType });
-}
-
-export async function checkCommandsInstalled(
-  agentType: string,
-  repoPath: string
-): Promise<boolean> {
-  return invoke('check_commands_installed', { agentType, repoPath });
-}
-
-export async function checkUserCommandsInstalled(agentType: string): Promise<boolean> {
-  return invoke('check_user_commands_installed', { agentType });
-}
-
 export async function readCommandContent(filename: string): Promise<string> {
   return invoke('read_command_content', { filename });
 }
@@ -248,10 +226,6 @@ export async function saveCustomCommand(
 
 export async function deleteCustomCommand(filename: string): Promise<void> {
   return invoke('delete_custom_command', { filename });
-}
-
-export async function installCatalogCommandsToAllProjects(filenames: string[], removeFilenames: string[]): Promise<void> {
-  return invoke('install_catalog_commands_to_all_projects', { filenames, removeFilenames });
 }
 
 // Factory reset - clears all data from the database

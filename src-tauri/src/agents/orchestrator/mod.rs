@@ -405,6 +405,19 @@ impl WorkflowOrchestrator {
             .unwrap_or_else(|| crate::agents::models::DEFAULT_STAGE_MODEL.to_string())
     }
 
+    /// Resolve the custom commands directory from the app handle.
+    fn custom_commands_dir(&self) -> Option<PathBuf> {
+        self.app_handle.as_ref().and_then(|handle| {
+            use tauri::Manager;
+            handle
+                .path()
+                .app_data_dir()
+                .ok()
+                .map(|d| d.join("custom-commands"))
+                .filter(|d| d.exists())
+        })
+    }
+
     /// Extract text from agent output using the provider.
     pub(super) fn extract_text(&self, output: &str) -> String {
         self.provider.extract_text(output)

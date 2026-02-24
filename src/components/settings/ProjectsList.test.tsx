@@ -11,7 +11,6 @@ const mockBrowseForDirectory = vi.fn();
 const mockCheckGitStatus = vi.fn();
 const mockInitGitRepo = vi.fn();
 const mockCreateProjectFolder = vi.fn();
-const mockInstallCommandsToProject = vi.fn();
 
 vi.mock('../../lib/tauri', () => ({
   getProjects: (...args: unknown[]) => mockGetProjects(...args),
@@ -21,23 +20,9 @@ vi.mock('../../lib/tauri', () => ({
   checkGitStatus: (...args: unknown[]) => mockCheckGitStatus(...args),
   initGitRepo: (...args: unknown[]) => mockInitGitRepo(...args),
   createProjectFolder: (...args: unknown[]) => mockCreateProjectFolder(...args),
-  installCommandsToProject: (...args: unknown[]) => mockInstallCommandsToProject(...args),
 }));
 
 // ── Test data ────────────────────────────────────────────────────────
-
-const MOCK_AGENTS = [
-  { id: 'cursor', displayName: 'Cursor', isAvailable: true, version: '1.0', brandColor: null },
-  { id: 'claude', displayName: 'Claude', isAvailable: true, version: '1.0', brandColor: '#da7756' },
-];
-
-// Mock the agent registry store
-let storeAgents = MOCK_AGENTS;
-vi.mock('../../stores/agentRegistryStore', () => ({
-  useAgentRegistryStore: {
-    getState: () => ({ agents: storeAgents }),
-  },
-}));
 
 const MOCK_PROJECT = {
   id: 'proj-1',
@@ -51,17 +36,13 @@ const MOCK_PROJECT = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Set up default mocks for a successful "add existing project" flow. */
 function setupHappyPathMocks() {
   mockGetProjects.mockResolvedValue([]);
   mockBrowseForDirectory.mockResolvedValue('/test/project');
   mockCheckGitStatus.mockResolvedValue(true);
   mockCreateProject.mockResolvedValue(MOCK_PROJECT);
-  storeAgents = MOCK_AGENTS;
-  mockInstallCommandsToProject.mockResolvedValue(undefined);
 }
 
-/** Renders the component and waits for the initial load to finish. */
 async function renderAndWaitForLoad() {
   render(<ProjectsList />);
   await waitFor(() => {
@@ -69,23 +50,14 @@ async function renderAndWaitForLoad() {
   });
 }
 
-/**
- * Drive the "add existing" form through Browse -> Add Project.
- * Assumes the component is already rendered and loaded.
- */
 async function addExistingProjectViaUI() {
-  // Open the "Add Existing" form
   fireEvent.click(screen.getByText('+ Add Existing'));
-
-  // Click Browse to trigger path selection + git check
   fireEvent.click(screen.getByText('Browse'));
 
-  // Wait for git check to resolve and button to become enabled
   await waitFor(() => {
     expect(screen.getByText('Add Project')).not.toBeDisabled();
   });
 
-  // Click "Add Project" to trigger create + auto-setup
   fireEvent.click(screen.getByText('Add Project'));
 }
 
@@ -109,23 +81,9 @@ describe('ProjectsList', () => {
     expect(screen.getByText('/test/project')).toBeInTheDocument();
   });
 
-  describe('autoSetupProject — happy path', () => {
+  describe('add existing project', () => {
     beforeEach(() => {
       setupHappyPathMocks();
-    });
-
-    it('installs commands for all agents', async () => {
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      // Wait for the auto-setup to complete (getProjects called again after setup)
-      await waitFor(() => {
-        expect(mockGetProjects).toHaveBeenCalledTimes(2);
-      });
-
-      // Commands installed for each agent
-      expect(mockInstallCommandsToProject).toHaveBeenCalledWith('cursor', '/test/project');
-      expect(mockInstallCommandsToProject).toHaveBeenCalledWith('claude', '/test/project');
     });
 
     it('calls createProject with browsed name and path', async () => {
@@ -142,55 +100,16 @@ describe('ProjectsList', () => {
       });
     });
 
-    it('reloads project list after successful setup', async () => {
+    it('reloads project list after creation', async () => {
       await renderAndWaitForLoad();
 
-      // First call during mount
       expect(mockGetProjects).toHaveBeenCalledTimes(1);
 
       await addExistingProjectViaUI();
 
-      // Second call after setup completes
       await waitFor(() => {
         expect(mockGetProjects).toHaveBeenCalledTimes(2);
       });
-    });
-  });
-
-  describe('autoSetupProject — partial failure', () => {
-    it('shows warning when command install fails', async () => {
-      setupHappyPathMocks();
-      mockInstallCommandsToProject.mockImplementation((agentId: string) => {
-        if (agentId === 'claude') return Promise.reject('write error');
-        return Promise.resolve(undefined);
-      });
-
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      await waitFor(() => {
-        const errorEl = screen.getByText(/setup warnings/);
-        expect(errorEl).toBeInTheDocument();
-        expect(errorEl.textContent).toContain('Claude commands');
-      });
-    });
-  });
-
-  describe('autoSetupProject — no agents', () => {
-    it('completes without error when no agents are available', async () => {
-      setupHappyPathMocks();
-      storeAgents = [];
-
-      await renderAndWaitForLoad();
-      await addExistingProjectViaUI();
-
-      // Wait for setup to complete (getProjects reloaded after setup)
-      await waitFor(() => {
-        expect(mockGetProjects).toHaveBeenCalledTimes(2);
-      });
-
-      // No command installs attempted
-      expect(mockInstallCommandsToProject).not.toHaveBeenCalled();
     });
   });
 });

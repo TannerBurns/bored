@@ -7,11 +7,9 @@ import {
   checkGitStatus,
   initGitRepo,
   createProjectFolder,
-  installCommandsToProject,
 } from '../../lib/tauri';
 import type { Project } from '../../types';
 import { ConfirmModal } from '../common';
-import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 
 type AddMode = 'none' | 'existing' | 'create';
 
@@ -30,7 +28,6 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
   const [gitStatus, setGitStatus] = useState<'unknown' | 'checking' | 'initialized' | 'not_initialized'>('unknown');
   const [initializingGit, setInitializingGit] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
-  const [setupStatus, setSetupStatus] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
@@ -112,18 +109,13 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
         name: newName.trim(),
         path: fullPath,
       });
-      const setupWarning = await autoSetupProject(fullPath);
       resetForm();
       await loadProjects();
       onProjectsChange?.();
-      if (setupWarning) {
-        setError(setupWarning);
-      }
     } catch (e) {
       setError(`Failed to create project: ${e}`);
     } finally {
       setCreatingProject(false);
-      setSetupStatus(null);
     }
   };
 
@@ -134,30 +126,6 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
     setAddMode('none');
     setGitStatus('unknown');
     setError(null);
-    setSetupStatus(null);
-  };
-
-  const autoSetupProject = async (projectPath: string): Promise<string | null> => {
-    const warnings: string[] = [];
-
-    const agents = useAgentRegistryStore.getState().agents;
-
-    for (const agent of agents) {
-      setSetupStatus(`Installing ${agent.displayName} commands...`);
-      try {
-        await installCommandsToProject(agent.id, projectPath);
-      } catch (e) {
-        warnings.push(`${agent.displayName} commands: ${e}`);
-      }
-    }
-
-    setSetupStatus('Finalizing...');
-
-    setSetupStatus(null);
-    if (warnings.length > 0) {
-      return `Project created with some setup warnings: ${warnings.join('; ')}`;
-    }
-    return null;
   };
 
   const handleAdd = async () => {
@@ -171,18 +139,13 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
         name: newName.trim(),
         path: newPath.trim(),
       });
-      const setupWarning = await autoSetupProject(newPath.trim());
       resetForm();
       await loadProjects();
       onProjectsChange?.();
-      if (setupWarning) {
-        setError(setupWarning);
-      }
     } catch (e) {
       setError(`Failed to add project: ${e}`);
     } finally {
       setCreatingProject(false);
-      setSetupStatus(null);
     }
   };
 
@@ -310,13 +273,6 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
             </div>
           )}
 
-          {setupStatus && (
-            <div className="text-xs text-board-text-muted flex items-center gap-1.5">
-              <span className="animate-spin">⟳</span>
-              {setupStatus}
-            </div>
-          )}
-
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={handleCancel}
@@ -373,13 +329,6 @@ export function ProjectsList({ onProjectsChange }: ProjectsListProps = {}) {
               </p>
             )}
           </div>
-
-          {setupStatus && (
-            <div className="text-xs text-board-text-muted flex items-center gap-1.5">
-              <span className="animate-spin">⟳</span>
-              {setupStatus}
-            </div>
-          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <button

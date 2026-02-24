@@ -18,4 +18,4 @@ pub use ticket::{
     generate_system_prompt, generate_ticket_prompt, generate_ticket_prompt_full,
     generate_ticket_prompt_with_workflow,
 };
-pub use workflow::{generate_command_prompt, generate_command_prompt_with_providers};
+pub use workflow::generate_command_prompt;
