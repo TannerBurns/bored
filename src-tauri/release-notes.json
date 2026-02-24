@@ -1,5 +1,56 @@
 [
   {
+    "version": "0.1.0-beta.27",
+    "published_at": "2026-02-24",
+    "summary": "Bug fix release improving spec agent JSON extraction reliability and model override cost attribution accuracy",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Auto-pilot command selections persisted to run metadata and displayed in RunsHistory UI after workflow completion",
+          "Agent config stored in sub-run metadata enabling cost backfill to apply local provider overrides retroactively",
+          "StructuredSpec requirements and technical_notes changed from String to Vec<String> for discrete, actionable items that avoid embedded code fences",
+          "Dashboard model breakdown adds \"Others\" bucket when 8+ models are present"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed spec agent silently producing duplicate spec JSON without creating a spec — brace-counting now used inside json fences instead of string-searching for closing backticks",
+          "Fixed StructuredSpec deserialization failures when agents return a plain string instead of an array for requirements or technical_notes",
+          "Fixed model override cost re-keying — local provider model_usage entries are now re-keyed to the user-configured override model for correct dashboard attribution",
+          "Fixed dashboard cost aggregation inconsistencies — summary and trends now prefer per-model sums over total_cost_usd"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added JSON extraction tests for nested backticks, non-JSON fence fallback, and unbalanced brace recovery",
+          "Added StructuredSpec schema tests for empty arrays, order preservation, string-or-array deserialization, and null handling",
+          "Added cost re-keying and merge_run_metadata tests for local provider model override scenarios"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.26",
+        "highlight": "Dashboard landing page with stats, trends, and cost breakdowns; board/list view toggle; dynamic Cursor model sync"
+      },
+      {
+        "version": "0.1.0-beta.25",
+        "highlight": "Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration"
+      },
+      {
+        "version": "0.1.0-beta.24",
+        "highlight": "System tray integration with recent tickets and native OS notifications"
+      },
+      {
+        "version": "0.1.0-beta.23",
+        "highlight": "Catalog-driven command architecture with custom workflow commands per agent"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.26",
     "published_at": "2026-02-23",
     "summary": "Dashboard landing page, board/list view toggle, dynamic Cursor model sync, and dead code cleanup",
