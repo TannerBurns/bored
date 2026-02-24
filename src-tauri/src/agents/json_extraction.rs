@@ -22,6 +22,14 @@ fn extract_json_code_block(text: &str) -> Option<String> {
         let content_start = skip_newline(text, content_start);
         let remaining = &text[content_start..];
         // Prefer balanced brace/bracket matching: immune to ``` inside JSON strings.
+        //
+        // The starts_with check on the trimmed slice guards against content with preamble
+        // text that itself contains { or } characters — in that case find_balanced would
+        // latch onto the wrong delimiter and return garbage, so we skip to fence-search.
+        // When the content opens directly with { or [ (the normal agent output), brace-
+        // matching is safe and handles backticks inside string values correctly.
+        // find_balanced uses text.find(open) internally, so leading whitespace before
+        // the delimiter is handled even though we guard with trim_start().
         if remaining.trim_start().starts_with('{') {
             if let Some(json) = find_balanced(remaining, '{', '}') {
                 return Some(json);
@@ -434,6 +442,19 @@ mod tests {
         let text = "```json\n\"a plain string value\"\n```\ntrailing text";
         let result = extract_json_code_block(text).expect("fence-search fallback should find content");
         assert_eq!(result, "\"a plain string value\"");
+    }
+
+    #[test]
+    fn code_block_json_fence_preamble_with_braces_uses_fence_search() {
+        // If preamble text before the JSON contains { or }, brace-matching would
+        // latch onto the wrong delimiter and return garbage. The trim_start guard
+        // must detect that content doesn't open with { and skip to fence-search.
+        let text = "```json\nThe schema {x: y} is:\n{\"real\": true}\n```";
+        let result = extract_json_code_block(text).expect("fence-search fallback should return content");
+        // Fence-search returns everything up to the ```, including the preamble.
+        // The caller (parse_json_response) then does brace-matching on the whole block.
+        assert!(result.contains("{\"real\": true}"), "result must include the JSON object");
+        assert!(result.contains("schema"), "result includes preamble returned by fence-search");
     }
 
     #[test]
