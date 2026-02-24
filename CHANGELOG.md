@@ -2,6 +2,50 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.28] - 2026-02-24
+
+Bug fix and refactor release fixing worktree lock failures leaving runs permanently queued, auto-pilot command selection never choosing stages, and making commands app-internal instead of file-managed in projects.
+
+### Improvements
+
+- Commands are now app-internal — command content is read from bundled files and app-data custom commands at prompt-generation time and injected directly into agent prompts, eliminating all file-based command installation into project directories
+- Removed 5 AgentProvider trait methods, 5 Tauri IPC commands, and associated frontend bindings related to command file installation and checking
+- Projects can be added/removed without any file system side effects; command toggling in the catalog is instant
+- Diagnostic logging and error-level stage event emission added to the command-selection pipeline for better visibility into failures
+
+### Bug Fixes
+
+- Fixed worktree lock error leaving runs permanently queued — when a git worktree was already locked (branch checked out by user), the manual-run path now marks the run as Error, moves the ticket to Blocked, spawns a diagnostic agent, and unlocks the ticket instead of leaving the run Queued forever with a 30-minute lock
+- Fixed worktree failure in the worker path causing infinite re-queue loop — ticket is now conditionally unlocked only when move-to-Blocked succeeds, preventing immediate re-queuing when the Blocked column doesn't exist
+- Fixed auto-pilot command selection returning zero stages 100% of the time — three root causes: (1) extract_text_from_stream_json appended result event summary to streaming delta text, corrupting JSON output; (2) find_balanced only matched the first bracket pair, so prose brackets before the JSON caused parse failures; (3) stage failures were silently swallowed
+- Added multi-position bracket matching in parse_json_response so prose brackets (e.g. "[the analysis]") before the actual JSON array no longer cause parse failures
+- Fixed extract_text_from_stream_json result event text now stored separately and used as fallback only when no streaming deltas exist
+
+### Testing
+
+- Added unit tests for move_ticket_to_blocked return values and the conditional unlock behavior in both manual-run and worker paths
+- Added multi-position bracket matching tests for parse_json_response covering prose brackets before JSON arrays
+- Added orchestrator integration tests for auto-pilot command selection with corrupted and valid JSON output
+- Added Claude provider stream-json extraction tests for result event handling
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.27, here is a summary of the major features introduced in recent releases:
+
+**beta.27 — Spec JSON & Cost Attribution Fixes**
+Bug fix release improving spec agent JSON extraction reliability, StructuredSpec deserialization, and model override cost re-keying accuracy for local providers.
+
+**beta.26 — Dashboard & Board/List View**
+Dashboard landing page with summary stats, trend charts (activity, cost, tokens), model cost breakdown, and per-ticket git stats. Board/list view toggle with column select dropdown. Dynamic Cursor model sync from CLI output.
+
+**beta.25 — Auto-Pilot Workflow & Command-Based Tasks**
+Auto-pilot workflow mode where the agent dynamically decides which commands to run after implementation. Extensible command-based task system backed by the command catalog. Codex reasoning effort and multi-agent toggle.
+
+**beta.24 — System Tray & Notifications**
+System tray integration with recent tickets list and native OS notifications when tickets move to Review or Blocked. Notification toggle in General Settings.
+
+---
+
 ## [0.1.0-beta.27] - 2026-02-24
 
 Bug fix release improving spec agent JSON extraction reliability and model override cost attribution accuracy.
