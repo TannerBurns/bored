@@ -204,6 +204,7 @@ impl AgentProvider for ClaudeProvider {
 pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     let mut text_parts = Vec::new();
     let mut last_assistant_text: Option<String> = None;
+    let mut result_text: Option<String> = None;
 
     for line in stream_output.lines() {
         let line = line.trim();
@@ -230,8 +231,8 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
                         }
                     }
                     "result" => {
-                        if let Some(result) = json.get("result").and_then(|r| r.as_str()) {
-                            text_parts.push(result.to_string());
+                        if let Some(r) = json.get("result").and_then(|r| r.as_str()) {
+                            result_text = Some(r.to_string());
                         }
                     }
                     "assistant" => {
@@ -268,7 +269,7 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     if !text_parts.is_empty() {
         Some(text_parts.join(""))
     } else {
-        last_assistant_text
+        result_text.or(last_assistant_text)
     }
 }
 

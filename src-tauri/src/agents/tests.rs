@@ -184,7 +184,7 @@ fn claude_extract_text_handles_mixed_content() {
 {"type":"result","result":" Part 2"}
 "#;
     let result = provider.extract_text(stream_output);
-    assert_eq!(result, "Part 1 Part 2");
+    assert_eq!(result, "Part 1", "streaming deltas take precedence; result summary is not appended");
 }
 
 #[test]

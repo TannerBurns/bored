@@ -105,13 +105,21 @@ impl WorkflowOrchestrator {
                 let raw = run_result.captured_stdout.unwrap_or_default();
                 let text = self.extract_text(&raw);
                 let selections = parse_command_selection_response(&text, &available);
+
+                tracing::info!(
+                    "Command selection: raw={} chars, extracted={} chars, {} commands selected: {:?}",
+                    raw.len(),
+                    text.len(),
+                    selections.len(),
+                    selections.iter().map(|s| &s.command).collect::<Vec<_>>(),
+                );
+                tracing::debug!("Command selection extracted text: {}", truncate(&text, 500));
+
                 Ok(selections)
             }
             Err(e) => {
-                tracing::warn!(
-                    "Command selection stage failed, falling back to empty selection: {}",
-                    e
-                );
+                tracing::error!("Command selection stage failed: {}", e);
+                self.emit_stage_event("command-selection", "error", None, None);
                 Ok(Vec::new())
             }
         }
@@ -258,13 +266,11 @@ Based on the ticket, plan, and implementation, select which commands to run and 
 - Do NOT include `add-and-commit` — it always runs automatically at the end.
 - Only select commands that are relevant to the changes.
 - Order matters: put fix/review commands before final polish and documentation.
-- You may return an empty array if no QA commands are needed.
+- You may return an empty array `[]` if no QA commands are needed.
 
-Respond with ONLY a JSON array (no other text):
+IMPORTANT: Your response must contain ONLY a valid JSON array of objects with "command" and "model" keys — no prose, no markdown, no explanation. Example format:
 
-```json
-[]
-```
+[{{"command": "code-review", "model": "opus-4.6"}}, {{"command": "cleanup", "model": "sonnet-4.6"}}]
 "#
     )
 }
@@ -274,12 +280,17 @@ pub fn parse_command_selection_response(
     response: &str,
     available_commands: &[String],
 ) -> Vec<CommandSelection> {
-    crate::agents::json_extraction::parse_json_response::<Vec<CommandSelection>>(response)
-        .map(|s| filter_valid_selections(s, available_commands))
-        .unwrap_or_else(|| {
-            tracing::warn!("Could not parse command selection from agent response");
+    match crate::agents::json_extraction::parse_json_response::<Vec<CommandSelection>>(response) {
+        Some(raw) => filter_valid_selections(raw, available_commands),
+        None => {
+            tracing::warn!(
+                "Could not parse command selection JSON from agent response ({} chars). Response: {}",
+                response.len(),
+                truncate(response, 1000),
+            );
             Vec::new()
-        })
+        }
+    }
 }
 
 fn filter_valid_selections(
@@ -588,6 +599,26 @@ These will ensure quality."#;
             "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds,
         );
         assert!(!prompt.contains("## Original Ticket Context"));
+    }
+
+    #[test]
+    fn prompt_uses_important_instruction_not_empty_code_fence() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds);
+        assert!(
+            prompt.contains("IMPORTANT"),
+            "prompt must contain the IMPORTANT instruction"
+        );
+        assert!(
+            prompt.contains(r#""command""#) && prompt.contains(r#""model""#),
+            "prompt must show the expected JSON keys in the instruction"
+        );
+
+        let instructions_section = prompt.split("## Instructions").last().unwrap();
+        assert!(
+            !instructions_section.contains("```json\n[]\n```"),
+            "instructions must not contain empty array code fence template"
+        );
     }
 
     // ── discover_available_commands ──────────────────────────────

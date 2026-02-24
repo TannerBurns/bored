@@ -387,4 +387,83 @@ fn effective_cost_model_with_camel_case_override() {
     assert_eq!(p.effective_cost_model("opus-4.6", &map), "qwen2.5-coder");
 }
 
+// ── extract_text_from_stream_json edge cases ───────────────────
+
+#[test]
+fn extract_text_does_not_append_result_summary_to_deltas() {
+    let input = concat!(
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"[{\"command\":\"cleanup\",\"model\":\"sonnet-4.6\"}]"}}}"#,
+        "\n",
+        r#"{"type":"result","result":"I selected cleanup for the QA pipeline.","subtype":"success"}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(
+        text,
+        r#"[{"command":"cleanup","model":"sonnet-4.6"}]"#,
+        "result summary must not be appended to streaming deltas"
+    );
+}
+
+#[test]
+fn extract_text_uses_result_as_fallback_when_no_deltas() {
+    let input = r#"{"type":"result","result":"fallback text","subtype":"success"}"#;
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, "fallback text");
+}
+
+#[test]
+fn extract_text_prefers_deltas_over_result() {
+    let input = concat!(
+        r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"from delta"}}"#,
+        "\n",
+        r#"{"type":"result","result":"from result","subtype":"success"}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, "from delta");
+}
+
+#[test]
+fn extract_text_result_fallback_over_assistant() {
+    let input = concat!(
+        r#"{"type":"result","result":"result text","subtype":"success"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"assistant text"}]}}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, "result text");
+}
+
+#[test]
+fn extract_text_multiple_result_events_uses_last() {
+    let input = concat!(
+        r#"{"type":"result","result":"first result","subtype":"success"}"#,
+        "\n",
+        r#"{"type":"result","result":"second result","subtype":"success"}"#,
+    );
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, "second result", "last result event should win");
+}
+
+#[test]
+fn extract_text_no_events_returns_none() {
+    assert!(extract_text_from_stream_json("").is_none());
+    assert!(extract_text_from_stream_json("not json\njust text").is_none());
+}
+
+#[test]
+fn extract_text_result_non_string_field_ignored() {
+    let input = r#"{"type":"result","result":{"nested":"object"},"subtype":"success"}"#;
+    assert!(
+        extract_text_from_stream_json(input).is_none(),
+        "non-string result field should not produce text"
+    );
+}
+
+#[test]
+fn extract_text_assistant_fallback_when_no_result_or_deltas() {
+    let input = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"assistant only"}]}}"#;
+    let text = extract_text_from_stream_json(input).unwrap();
+    assert_eq!(text, "assistant only");
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests

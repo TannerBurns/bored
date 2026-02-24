@@ -754,3 +754,171 @@ fn extract_text_delegates_to_provider() {
 
     assert_eq!(orch.extract_text("hello world"), "hello world");
 }
+
+// -- auto-pilot command selection integration tests --
+
+#[tokio::test]
+async fn command_selection_parses_json_array() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let json = r#"[{"command":"cleanup","model":"sonnet-4.6"},{"command":"code-review","model":"opus-4.6"}]"#;
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
+
+    let selections = orch.run_command_selection_stage("plan text", "impl text").await.unwrap();
+    assert_eq!(selections.len(), 2);
+    assert_eq!(selections[0].command, "cleanup");
+    assert_eq!(selections[1].command, "code-review");
+}
+
+#[tokio::test]
+async fn command_selection_parses_code_fenced_json() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let json = "Here are the commands:\n\n```json\n[{\"command\":\"deslop\",\"model\":\"sonnet-4.5\"}]\n```\n";
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "deslop");
+}
+
+#[tokio::test]
+async fn command_selection_handles_prose_with_brackets() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let json = "Based on [the analysis] of the changes:\n[{\"command\":\"unit-tests\",\"model\":\"opus-4.5\"}]";
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "unit-tests");
+}
+
+#[tokio::test]
+async fn command_selection_handles_result_text_appended() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let json = r#"[{"command":"cleanup","model":"sonnet-4.6"}]I selected cleanup for QA."#;
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "cleanup");
+}
+
+#[tokio::test]
+async fn command_selection_returns_empty_on_stage_failure() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::new(10, "")));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert!(selections.is_empty());
+}
+
+#[tokio::test]
+async fn command_selection_filters_excluded_commands() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let json = r#"[{"command":"add-and-commit","model":"sonnet-4.6"},{"command":"cleanup","model":"sonnet-4.6"}]"#;
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "cleanup");
+}
+
+#[tokio::test]
+async fn command_selection_empty_stdout_returns_empty() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("")));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert!(selections.is_empty());
+}
+
+#[tokio::test]
+async fn command_selection_parses_empty_array() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("[]")));
+
+    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    assert!(selections.is_empty());
+}
+
+#[tokio::test]
+async fn command_selection_with_stream_json_format() {
+    use crate::agents::claude::provider::extract_text_from_stream_json;
+
+    let stream = concat!(
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"[{\"command\":\"code-review\",\"model\":\"opus-4.6\"}]"}}}"#,
+        "\n",
+        r#"{"type":"result","result":"Selected code-review.","subtype":"success"}"#,
+    );
+    let text = extract_text_from_stream_json(stream).unwrap();
+    let selections = super::auto_pilot::parse_command_selection_response(
+        &text,
+        &["code-review".to_string(), "cleanup".to_string()],
+    );
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "code-review");
+    assert_eq!(selections[0].model, "opus-4.6");
+}
+
+#[tokio::test]
+async fn command_selection_with_stream_json_multiple_deltas() {
+    use crate::agents::claude::provider::extract_text_from_stream_json;
+
+    let stream = concat!(
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"["}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"{\"command\":\"cleanup\",\"model\":\"sonnet-4.6\"}"}}}"#,
+        "\n",
+        r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"]"}}}"#,
+        "\n",
+        r#"{"type":"result","result":"Done.","subtype":"success"}"#,
+    );
+    let text = extract_text_from_stream_json(stream).unwrap();
+    assert_eq!(text, r#"[{"command":"cleanup","model":"sonnet-4.6"}]"#);
+
+    let selections = super::auto_pilot::parse_command_selection_response(
+        &text,
+        &["cleanup".to_string()],
+    );
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].command, "cleanup");
+}
