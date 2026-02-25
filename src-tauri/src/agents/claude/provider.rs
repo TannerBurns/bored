@@ -163,10 +163,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn available_models(&self) -> Vec<(&str, &str)> {
         vec![
-            ("opus-4.6", "Opus 4.6"),
-            ("opus-4.5", "Opus 4.5"),
-            ("sonnet-4.6", "Sonnet 4.6"),
-            ("sonnet-4.5", "Sonnet 4.5"),
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+            ("claude-opus-4-5", "Claude Opus 4.5"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
     }
 

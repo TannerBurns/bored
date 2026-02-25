@@ -184,10 +184,10 @@ fn extract_cost_empty_returns_none() {
 fn build_command_passes_model_through_without_mapping() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config.model = Some("opus-4.6".to_string());
+    config.model = Some("claude-opus-4-6".to_string());
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"opus-4.6".to_string()),
+        args.contains(&"claude-opus-4-6".to_string()),
         "Provider build_command should pass model name through without mapping"
     );
 }
@@ -196,21 +196,21 @@ fn build_command_passes_model_through_without_mapping() {
 fn build_command_model_override_takes_precedence() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config.model = Some("opus-4.6".to_string());
+    config.model = Some("claude-opus-4-6".to_string());
     config.agent_config.insert("model_override".into(), serde_json::json!("my-local-llama"));
     let (_, args) = p.build_command(&config);
     assert!(args.contains(&"my-local-llama".to_string()));
-    assert!(!args.contains(&"opus-4.6".to_string()));
+    assert!(!args.contains(&"claude-opus-4-6".to_string()));
 }
 
 #[test]
 fn build_command_empty_model_override_falls_back_to_stage_model() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
-    config.model = Some("sonnet-4.6".to_string());
+    config.model = Some("claude-sonnet-4-6".to_string());
     config.agent_config.insert("modelOverride".into(), serde_json::json!(""));
     let (_, args) = p.build_command(&config);
-    assert!(args.contains(&"sonnet-4.6".to_string()));
+    assert!(args.contains(&"claude-sonnet-4-6".to_string()));
 }
 
 // ── New trait methods coverage ───────────────────────────────────
@@ -246,10 +246,10 @@ fn available_models_returns_claude_models() {
     let models = p.available_models();
     assert!(!models.is_empty());
     let ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
-    assert!(ids.contains(&"opus-4.6"));
-    assert!(ids.contains(&"opus-4.5"));
-    assert!(ids.contains(&"sonnet-4.6"));
-    assert!(ids.contains(&"sonnet-4.5"));
+    assert!(ids.contains(&"claude-opus-4-6"));
+    assert!(ids.contains(&"claude-opus-4-5"));
+    assert!(ids.contains(&"claude-sonnet-4-6"));
+    assert!(ids.contains(&"claude-sonnet-4-5"));
     for (id, label) in &models {
         assert!(!id.is_empty());
         assert!(!label.is_empty());

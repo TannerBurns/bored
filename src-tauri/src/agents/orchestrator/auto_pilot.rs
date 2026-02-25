@@ -412,10 +412,10 @@ mod tests {
 
     fn claude_models() -> Vec<(&'static str, &'static str)> {
         vec![
-            ("opus-4.6", "Opus 4.6"),
-            ("opus-4.5", "Opus 4.5"),
-            ("sonnet-4.6", "Sonnet 4.6"),
-            ("sonnet-4.5", "Sonnet 4.5"),
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+            ("claude-opus-4-5", "Claude Opus 4.5"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
     }
 
@@ -622,8 +622,8 @@ These will ensure quality."#;
     fn prompt_includes_provider_models() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
-        assert!(prompt.contains("`opus-4.6` (Opus 4.6)"));
-        assert!(prompt.contains("`sonnet-4.5` (Sonnet 4.5)"));
+        assert!(prompt.contains("`claude-opus-4-6` (Claude Opus 4.6)"));
+        assert!(prompt.contains("`claude-sonnet-4-5` (Claude Sonnet 4.5)"));
     }
 
     #[test]
@@ -642,8 +642,8 @@ These will ensure quality."#;
         let cmds = test_commands();
 
         let claude_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
-        assert!(claude_prompt.contains(r#""model": "opus-4.6""#), "Claude examples should use opus-4.6");
-        assert!(claude_prompt.contains(r#""model": "sonnet-4.5""#), "Claude examples should use sonnet-4.5");
+        assert!(claude_prompt.contains(r#""model": "claude-opus-4-6""#), "Claude examples should use claude-opus-4-6");
+        assert!(claude_prompt.contains(r#""model": "claude-sonnet-4-5""#), "Claude examples should use claude-sonnet-4-5");
 
         let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
         assert!(codex_prompt.contains(r#""model": "gpt-5.3-codex""#), "Codex examples should use gpt-5.3-codex");
@@ -777,8 +777,8 @@ These will ensure quality."#;
     #[test]
     fn pick_models_multiple_picks_first_and_last() {
         let (c, e) = pick_example_models(&claude_models()).unwrap();
-        assert_eq!(c, "opus-4.6");
-        assert_eq!(e, "sonnet-4.5");
+        assert_eq!(c, "claude-opus-4-6");
+        assert_eq!(e, "claude-sonnet-4-5");
     }
 
     #[test]
