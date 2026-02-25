@@ -157,7 +157,11 @@ export const useSettingsStore = create<SettingsState>()(
                 ...current,
                 workflowStages: {
                   ...current.workflowStages,
-                  [key]: { ...current.workflowStages[key], enabled: false },
+                  [key]: {
+                    model: (current.diagnosticModel ?? getDefaultConfigForAgent(agentId).diagnosticModel) as AIModel,
+                    ...current.workflowStages[key],
+                    enabled: false,
+                  },
                 },
               },
             },

@@ -95,6 +95,16 @@ describe('useSettingsStore', () => {
         expect(after.workflowStages.deslop.enabled).toBe(false);
       });
 
+      it('disabling a non-existent stage still produces a valid config with model', () => {
+        useSettingsStore.getState().setAgentConfigStage('claude', 'ghost-stage' as never, { enabled: false });
+        const config = useSettingsStore.getState().getAgentConfig('claude');
+        const stage = config.workflowStages['ghost-stage' as never];
+        expect(stage).toBeDefined();
+        expect(stage.enabled).toBe(false);
+        expect(typeof stage.model).toBe('string');
+        expect(stage.model.length).toBeGreaterThan(0);
+      });
+
       it('disabling a required stage does NOT remove it', () => {
         useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { enabled: false });
         const config = useSettingsStore.getState().getAgentConfig('claude');
