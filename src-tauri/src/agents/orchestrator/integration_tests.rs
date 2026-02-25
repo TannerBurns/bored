@@ -1169,3 +1169,94 @@ async fn command_selection_prompt_uses_codex_models_not_claude() {
     assert!(prompt.contains("- `cleanup`"), "Commands should still be present");
     assert!(prompt.contains("- `unit-tests`"), "Commands should still be present");
 }
+
+// -- Real CLI output round-trip tests --
+// These use actual captured output from each CLI to verify the full
+// extract_text -> parse_command_selection_response pipeline produces
+// usable CommandSelection results with valid model names.
+
+fn available_commands() -> Vec<String> {
+    vec![
+        "cleanup", "code-review", "deslop", "unit-tests", "review-changes",
+        "add-tests", "fix-lint",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+#[test]
+fn real_claude_cli_output_round_trip() {
+    use crate::agents::claude::provider::extract_text_from_stream_json;
+
+    let raw = concat!(
+        r#"{"type":"system","subtype":"init","cwd":"/tmp","session_id":"s1","model":"claude-sonnet-4-6"}"#, "\n",
+        r#"{"type":"assistant","message":{"model":"claude-sonnet-4-6","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"[{\"command\": \"review-changes\", \"model\": \"sonnet-4.5\"}, {\"command\": \"unit-tests\", \"model\": \"sonnet-4.5\"}, {\"command\": \"deslop\", \"model\": \"sonnet-4.5\"}]"}],"stop_reason":null},"session_id":"s1"}"#, "\n",
+        r#"{"type":"result","subtype":"success","is_error":false,"result":"[{\"command\": \"review-changes\", \"model\": \"sonnet-4.5\"}, {\"command\": \"unit-tests\", \"model\": \"sonnet-4.5\"}, {\"command\": \"deslop\", \"model\": \"sonnet-4.5\"}]","session_id":"s1","total_cost_usd":0.013}"#,
+    );
+
+    let text = extract_text_from_stream_json(raw).unwrap();
+    let cmds = available_commands();
+    let selections = super::auto_pilot::parse_command_selection_response(&text, &cmds);
+
+    assert!(!selections.is_empty(), "Claude: should parse selections from real output");
+    for s in &selections {
+        assert!(cmds.contains(&s.command), "Claude: command '{}' must be in available list", s.command);
+        assert!(
+            ["opus-4.6", "opus-4.5", "sonnet-4.6", "sonnet-4.5"].contains(&s.model.as_str()),
+            "Claude: model '{}' must be a valid Claude model", s.model
+        );
+    }
+}
+
+#[test]
+fn real_codex_cli_output_round_trip() {
+    use crate::agents::codex::provider::CodexProvider;
+
+    let raw = concat!(
+        r#"{"type":"thread.started","thread_id":"t1"}"#, "\n",
+        r#"{"type":"turn.started"}"#, "\n",
+        r#"{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"thinking..."}}"#, "\n",
+        r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[{\"command\":\"review-changes\",\"model\":\"gpt-5.2-codex\"},{\"command\":\"code-review\",\"model\":\"gpt-5.3-codex\"},{\"command\":\"unit-tests\",\"model\":\"gpt-5.2-codex\"},{\"command\":\"add-tests\",\"model\":\"gpt-5.3-codex\"},{\"command\":\"fix-lint\",\"model\":\"gpt-5.2-codex\"}]"}}"#, "\n",
+        r#"{"type":"turn.completed","usage":{"input_tokens":7792,"cached_input_tokens":6528,"output_tokens":338}}"#,
+    );
+
+    let provider = CodexProvider::new();
+    let text = provider.extract_text(raw);
+    let cmds = available_commands();
+    let selections = super::auto_pilot::parse_command_selection_response(&text, &cmds);
+
+    assert!(!selections.is_empty(), "Codex: should parse selections from real output");
+    for s in &selections {
+        assert!(cmds.contains(&s.command), "Codex: command '{}' must be in available list", s.command);
+        assert!(
+            ["gpt-5.3-codex", "gpt-5.2-codex"].contains(&s.model.as_str()),
+            "Codex: model '{}' must be a valid Codex model", s.model
+        );
+    }
+}
+
+#[test]
+fn real_cursor_cli_output_round_trip() {
+    use crate::agents::claude::provider::extract_text_from_stream_json;
+
+    let raw = concat!(
+        r#"{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp","session_id":"s2","model":"Claude 4.6 Sonnet"}"#, "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"[{\"command\": \"code-review\", \"model\": \"sonnet-4.6\"}, {\"command\": \"fix-lint\", \"model\": \"sonnet-4.5\"}, {\"command\": \"add-tests\", \"model\": \"sonnet-4.6\"}]"}]},"session_id":"s2"}"#, "\n",
+        r#"{"type":"result","subtype":"success","duration_ms":2277,"is_error":false,"result":"[{\"command\": \"code-review\", \"model\": \"sonnet-4.6\"}, {\"command\": \"fix-lint\", \"model\": \"sonnet-4.5\"}, {\"command\": \"add-tests\", \"model\": \"sonnet-4.6\"}]","session_id":"s2"}"#,
+    );
+
+    let text = extract_text_from_stream_json(raw).unwrap();
+    let cmds = available_commands();
+    let selections = super::auto_pilot::parse_command_selection_response(&text, &cmds);
+
+    assert!(!selections.is_empty(), "Cursor: should parse selections from real output");
+    for s in &selections {
+        assert!(cmds.contains(&s.command), "Cursor: command '{}' must be in available list", s.command);
+        assert!(
+            ["opus-4.6", "opus-4.5", "sonnet-4.6", "sonnet-4.5", "gpt-5.3-codex", "gpt-5.2-codex"]
+                .contains(&s.model.as_str()),
+            "Cursor: model '{}' must be a valid Cursor model", s.model
+        );
+    }
+}
