@@ -115,27 +115,7 @@ impl WorkflowOrchestrator {
             Ok(run_result) => {
                 let raw = run_result.captured_stdout.unwrap_or_default();
                 let text = self.extract_text(&raw);
-                let mut selections = parse_command_selection_response(&text, &available);
-
-                for sel in &mut selections {
-                    match resolve_model_name(&sel.model, &provider_models) {
-                        Some(canonical) if canonical != sel.model => {
-                            tracing::info!(
-                                "Auto-pilot: normalizing model '{}' -> '{}' for command '{}'",
-                                sel.model, canonical, sel.command,
-                            );
-                            sel.model = canonical.to_string();
-                        }
-                        Some(_) => {}
-                        None => {
-                            tracing::info!(
-                                "Auto-pilot: replacing unrecognized model '{}' with fallback '{}' for command '{}'",
-                                sel.model, self.auto_pilot_model, sel.command,
-                            );
-                            sel.model.clone_from(&self.auto_pilot_model);
-                        }
-                    }
-                }
+                let selections = parse_command_selection_response(&text, &available);
 
                 tracing::info!(
                     "Command selection: raw={} chars, extracted={} chars, {} commands selected: {:?}",
@@ -346,42 +326,6 @@ fn pick_example_models<'a>(models: &[(&'a str, &'a str)]) -> Option<(&'a str, &'
         1 => Some((models[0].0, models[0].0)),
         _ => Some((models[0].0, models[models.len() - 1].0)),
     }
-}
-
-/// Try to resolve a raw model name from agent output to a canonical model ID.
-///
-/// Agents sometimes return friendly names (e.g. `"sonnet-4.5"`) instead of the
-/// canonical IDs listed in `available_models()` (e.g. `"claude-sonnet-4-5"`).
-/// This function handles that mismatch by:
-/// 1. Exact match
-/// 2. Dot-to-dash normalization (`"sonnet-4.5"` -> `"sonnet-4-5"`)
-/// 3. Suffix match with boundary check (`"sonnet-4-5"` matches `"claude-sonnet-4-5"`)
-fn resolve_model_name<'a>(raw: &str, available: &[(&'a str, &'a str)]) -> Option<&'a str> {
-    for &(id, _) in available {
-        if id == raw {
-            return Some(id);
-        }
-    }
-
-    let normalized = raw.replace('.', "-");
-    if normalized != raw {
-        for &(id, _) in available {
-            if id == normalized {
-                return Some(id);
-            }
-        }
-    }
-
-    for &(id, _) in available {
-        if id.len() > normalized.len() && id.ends_with(normalized.as_str()) {
-            let boundary = id.len() - normalized.len() - 1;
-            if id.as_bytes()[boundary] == b'-' {
-                return Some(id);
-            }
-        }
-    }
-
-    None
 }
 
 /// Parse the agent's response to extract the command selection list.
@@ -830,63 +774,6 @@ These will ensure quality."#;
         let (c, e) = pick_example_models(&codex_models()).unwrap();
         assert_eq!(c, "gpt-5.3-codex");
         assert_eq!(e, "gpt-5.2-codex");
-    }
-
-    // ── resolve_model_name ────────────────────────────────────────
-
-    #[test]
-    fn resolve_exact_match() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("claude-opus-4-6", &models), Some("claude-opus-4-6"));
-        assert_eq!(resolve_model_name("claude-sonnet-4-5", &models), Some("claude-sonnet-4-5"));
-    }
-
-    #[test]
-    fn resolve_dot_to_dash_normalization() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("claude-opus-4.6", &models), Some("claude-opus-4-6"));
-        assert_eq!(resolve_model_name("claude-sonnet-4.5", &models), Some("claude-sonnet-4-5"));
-    }
-
-    #[test]
-    fn resolve_friendly_name_to_cli_name() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("sonnet-4.5", &models), Some("claude-sonnet-4-5"));
-        assert_eq!(resolve_model_name("sonnet-4.6", &models), Some("claude-sonnet-4-6"));
-        assert_eq!(resolve_model_name("opus-4.6", &models), Some("claude-opus-4-6"));
-        assert_eq!(resolve_model_name("opus-4.5", &models), Some("claude-opus-4-5"));
-    }
-
-    #[test]
-    fn resolve_friendly_name_dashes_to_cli_name() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("sonnet-4-5", &models), Some("claude-sonnet-4-5"));
-        assert_eq!(resolve_model_name("opus-4-6", &models), Some("claude-opus-4-6"));
-    }
-
-    #[test]
-    fn resolve_codex_exact_match() {
-        let models = codex_models();
-        assert_eq!(resolve_model_name("gpt-5.3-codex", &models), Some("gpt-5.3-codex"));
-        assert_eq!(resolve_model_name("gpt-5.2-codex", &models), Some("gpt-5.2-codex"));
-    }
-
-    #[test]
-    fn resolve_unknown_returns_none() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("totally-unknown", &models), None);
-        assert_eq!(resolve_model_name("gpt-5.3-codex", &models), None);
-    }
-
-    #[test]
-    fn resolve_empty_models_returns_none() {
-        assert_eq!(resolve_model_name("anything", &[]), None);
-    }
-
-    #[test]
-    fn resolve_empty_raw_returns_none() {
-        let models = claude_models();
-        assert_eq!(resolve_model_name("", &models), None);
     }
 
     // ── discover_available_commands ──────────────────────────────
