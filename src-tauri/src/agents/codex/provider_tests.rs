@@ -28,12 +28,6 @@ fn provider_config_dir() {
 }
 
 #[test]
-fn provider_model_passthrough() {
-    let p = CodexProvider::new();
-    assert_eq!(p.map_model_name("gpt-5.3-codex"), "gpt-5.3-codex");
-}
-
-#[test]
 fn provider_available_models_not_empty() {
     let p = CodexProvider::new();
     let models = p.available_models();

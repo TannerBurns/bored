@@ -84,6 +84,15 @@ impl WorkflowOrchestrator {
 
         let provider_models = self.provider.available_models();
 
+        if provider_models.is_empty() {
+            tracing::warn!(
+                "Provider '{}' returned no available models; \
+                 auto-pilot will use '{}' for all selected commands",
+                self.provider.id(),
+                self.auto_pilot_model,
+            );
+        }
+
         let prompt = generate_command_selection_prompt(
             effective_title,
             effective_description,
@@ -147,7 +156,7 @@ fn generate_command_selection_prompt(
         models_list.push_str(&format!("- `{}` ({})\n", id, label));
     }
 
-    let (capable_model, efficient_model) = pick_example_models(available_models);
+    let example_models = pick_example_models(available_models);
 
     let ticket_context_section = match ticket_context {
         Some(ctx) if !ctx.is_empty() => {
@@ -171,6 +180,96 @@ fn generate_command_selection_prompt(
         )
     };
 
+    let (models_section, model_guidance, examples, model_constraint, footer_example) =
+        if let Some((capable, efficient)) = example_models {
+            (
+                format!("## Available Models\n\n{}\n", models_list),
+                format!(
+                    r#"**Model selection:**
+- Use more capable models (e.g., `{capable}`) for tasks requiring deep reasoning: code review, security review, complex test generation.
+- Use cheaper/faster models (e.g., `{efficient}`) for mechanical tasks: linting, cleanup, formatting, simple doc updates.
+- ONLY use model names from the Available Models list above."#
+                ),
+                format!(
+                    r#"## Example Workflows
+
+**Quick bug fix** — ticket says "Fix null pointer crash in user lookup":
+```json
+[
+  {{"command": "cleanup", "model": "{efficient}"}},
+  {{"command": "unit-tests", "model": "{efficient}"}}
+]
+```
+
+**Standard feature** — ticket says "Add email notification preferences to settings":
+```json
+[
+  {{"command": "code-review", "model": "{capable}"}},
+  {{"command": "cleanup", "model": "{efficient}"}},
+  {{"command": "unit-tests", "model": "{capable}"}},
+  {{"command": "deslop", "model": "{efficient}"}}
+]
+```
+
+**Comprehensive / production-ready** — ticket says "Implement OAuth2 login flow — needs to be thorough and production-ready":
+```json
+[
+  {{"command": "code-review", "model": "{capable}"}},
+  {{"command": "patch-security", "model": "{capable}"}},
+  {{"command": "unit-tests", "model": "{capable}"}},
+  {{"command": "integration-test", "model": "{capable}"}},
+  {{"command": "cleanup", "model": "{efficient}"}},
+  {{"command": "deslop", "model": "{efficient}"}},
+  {{"command": "review-changes", "model": "{capable}"}},
+  {{"command": "doc-sync", "model": "{efficient}"}}
+]
+```
+
+**Trivial change** — ticket says "Fix typo in README":
+```json
+[]
+```"#
+                ),
+                "- ONLY use model names from the Available Models list.\n".to_string(),
+                format!(
+                    r#"[{{"command": "code-review", "model": "{capable}"}}, {{"command": "cleanup", "model": "{efficient}"}}]"#
+                ),
+            )
+        } else {
+            (
+                String::new(),
+                String::new(),
+                r#"## Example Workflows
+
+**Quick bug fix** — ticket says "Fix null pointer crash in user lookup":
+```json
+[
+  {"command": "cleanup", "model": "auto"},
+  {"command": "unit-tests", "model": "auto"}
+]
+```
+
+**Standard feature** — ticket says "Add email notification preferences to settings":
+```json
+[
+  {"command": "code-review", "model": "auto"},
+  {"command": "cleanup", "model": "auto"},
+  {"command": "unit-tests", "model": "auto"},
+  {"command": "deslop", "model": "auto"}
+]
+```
+
+**Trivial change** — ticket says "Fix typo in README":
+```json
+[]
+```"#
+                .to_string(),
+                String::new(),
+                r#"[{"command": "code-review", "model": "auto"}, {"command": "cleanup", "model": "auto"}]"#
+                    .to_string(),
+            )
+        };
+
     format!(
         r#"You are a workflow orchestrator deciding which quality assurance commands should run after an implementation is complete. Your job is to read the ticket, plan, and implementation, then build a tailored QA workflow.
 
@@ -182,10 +281,7 @@ fn generate_command_selection_prompt(
 {ticket_context_section}{plan_section}{impl_section}## Available Commands
 
 {commands_list}
-## Available Models
-
-{models_list}
-## How to Reason About Workflow Selection
+{models_section}## How to Reason About Workflow Selection
 
 **Pay close attention to the user's intent in the ticket title and description.** The user's language signals how thorough the workflow should be:
 
@@ -200,49 +296,9 @@ fn generate_command_selection_prompt(
 - Changes to authentication, payments, or data handling need security review.
 - Public API changes need contract checks and documentation.
 
-**Model selection:**
-- Use more capable models (e.g., `{capable_model}`) for tasks requiring deep reasoning: code review, security review, complex test generation.
-- Use cheaper/faster models (e.g., `{efficient_model}`) for mechanical tasks: linting, cleanup, formatting, simple doc updates.
-- ONLY use model names from the Available Models list above.
+{model_guidance}
 
-## Example Workflows
-
-**Quick bug fix** — ticket says "Fix null pointer crash in user lookup":
-```json
-[
-  {{"command": "cleanup", "model": "{efficient_model}"}},
-  {{"command": "unit-tests", "model": "{efficient_model}"}}
-]
-```
-
-**Standard feature** — ticket says "Add email notification preferences to settings":
-```json
-[
-  {{"command": "code-review", "model": "{capable_model}"}},
-  {{"command": "cleanup", "model": "{efficient_model}"}},
-  {{"command": "unit-tests", "model": "{capable_model}"}},
-  {{"command": "deslop", "model": "{efficient_model}"}}
-]
-```
-
-**Comprehensive / production-ready** — ticket says "Implement OAuth2 login flow — needs to be thorough and production-ready":
-```json
-[
-  {{"command": "code-review", "model": "{capable_model}"}},
-  {{"command": "patch-security", "model": "{capable_model}"}},
-  {{"command": "unit-tests", "model": "{capable_model}"}},
-  {{"command": "integration-test", "model": "{capable_model}"}},
-  {{"command": "cleanup", "model": "{efficient_model}"}},
-  {{"command": "deslop", "model": "{efficient_model}"}},
-  {{"command": "review-changes", "model": "{capable_model}"}},
-  {{"command": "doc-sync", "model": "{efficient_model}"}}
-]
-```
-
-**Trivial change** — ticket says "Fix typo in README":
-```json
-[]
-```
+{examples}
 
 ## Instructions
 
@@ -250,25 +306,25 @@ Based on the ticket, plan, and implementation, select which commands to run and 
 
 - Do NOT include `add-and-commit` — it always runs automatically at the end.
 - Only select commands that are relevant to the changes.
-- ONLY use model names from the Available Models list.
-- Order matters: put fix/review commands before final polish and documentation.
+{model_constraint}- Order matters: put fix/review commands before final polish and documentation.
 - You may return an empty array `[]` if no QA commands are needed.
 
 IMPORTANT: Your response must contain ONLY a valid JSON array of objects with "command" and "model" keys — no prose, no markdown, no explanation. Example format:
 
-[{{"command": "code-review", "model": "{capable_model}"}}, {{"command": "cleanup", "model": "{efficient_model}"}}]
+{footer_example}
 "#
     )
 }
 
 /// Pick a "capable" and "efficient" model from the available list for prompt examples.
 /// The first model is assumed to be the most capable, the last the most efficient.
-/// Falls back to the first model for both if only one is available.
-fn pick_example_models<'a>(models: &[(&'a str, &'a str)]) -> (&'a str, &'a str) {
+/// Returns `None` when the list is empty — callers must omit model-specific
+/// guidance rather than injecting a bogus placeholder name.
+fn pick_example_models<'a>(models: &[(&'a str, &'a str)]) -> Option<(&'a str, &'a str)> {
     match models.len() {
-        0 => ("default", "default"),
-        1 => (models[0].0, models[0].0),
-        _ => (models[0].0, models[models.len() - 1].0),
+        0 => None,
+        1 => Some((models[0].0, models[0].0)),
+        _ => Some((models[0].0, models[models.len() - 1].0)),
     }
 }
 
@@ -344,10 +400,10 @@ mod tests {
 
     fn claude_models() -> Vec<(&'static str, &'static str)> {
         vec![
-            ("opus-4.6", "Opus 4.6"),
-            ("opus-4.5", "Opus 4.5"),
-            ("sonnet-4.6", "Sonnet 4.6"),
-            ("sonnet-4.5", "Sonnet 4.5"),
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+            ("claude-opus-4-5", "Claude Opus 4.5"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
     }
 
@@ -554,8 +610,8 @@ These will ensure quality."#;
     fn prompt_includes_provider_models() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
-        assert!(prompt.contains("`opus-4.6` (Opus 4.6)"));
-        assert!(prompt.contains("`sonnet-4.5` (Sonnet 4.5)"));
+        assert!(prompt.contains("`claude-opus-4-6` (Claude Opus 4.6)"));
+        assert!(prompt.contains("`claude-sonnet-4-5` (Claude Sonnet 4.5)"));
     }
 
     #[test]
@@ -574,8 +630,8 @@ These will ensure quality."#;
         let cmds = test_commands();
 
         let claude_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
-        assert!(claude_prompt.contains(r#""model": "opus-4.6""#), "Claude examples should use opus-4.6");
-        assert!(claude_prompt.contains(r#""model": "sonnet-4.5""#), "Claude examples should use sonnet-4.5");
+        assert!(claude_prompt.contains(r#""model": "claude-opus-4-6""#), "Claude examples should use claude-opus-4-6");
+        assert!(claude_prompt.contains(r#""model": "claude-sonnet-4-5""#), "Claude examples should use claude-sonnet-4-5");
 
         let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
         assert!(codex_prompt.contains(r#""model": "gpt-5.3-codex""#), "Codex examples should use gpt-5.3-codex");
@@ -665,33 +721,57 @@ These will ensure quality."#;
         assert!(prompt.contains("ONLY use model names from the Available Models list"));
     }
 
+    #[test]
+    fn prompt_with_empty_models_uses_auto_not_default() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &[]);
+        assert!(
+            !prompt.contains("\"default\""),
+            "prompt must not contain 'default' as a model name"
+        );
+        assert!(
+            !prompt.contains("## Available Models"),
+            "prompt should omit the Available Models section when empty"
+        );
+        assert!(
+            !prompt.contains("ONLY use model names from the Available Models list"),
+            "prompt should not include model constraint when no models are listed"
+        );
+        assert!(
+            prompt.contains(r#""model": "auto""#),
+            "empty-models prompt should use 'auto' as the placeholder model"
+        );
+        assert!(
+            prompt.contains("## Example Workflows"),
+            "prompt should still include example workflows"
+        );
+    }
+
     // ── pick_example_models ─────────────────────────────────────
 
     #[test]
-    fn pick_models_empty_returns_defaults() {
-        let (c, e) = pick_example_models(&[]);
-        assert_eq!(c, "default");
-        assert_eq!(e, "default");
+    fn pick_models_empty_returns_none() {
+        assert!(pick_example_models(&[]).is_none());
     }
 
     #[test]
     fn pick_models_single_uses_same_for_both() {
         let models = vec![("only-model", "Only Model")];
-        let (c, e) = pick_example_models(&models);
+        let (c, e) = pick_example_models(&models).unwrap();
         assert_eq!(c, "only-model");
         assert_eq!(e, "only-model");
     }
 
     #[test]
     fn pick_models_multiple_picks_first_and_last() {
-        let (c, e) = pick_example_models(&claude_models());
-        assert_eq!(c, "opus-4.6");
-        assert_eq!(e, "sonnet-4.5");
+        let (c, e) = pick_example_models(&claude_models()).unwrap();
+        assert_eq!(c, "claude-opus-4-6");
+        assert_eq!(e, "claude-sonnet-4-5");
     }
 
     #[test]
     fn pick_models_codex() {
-        let (c, e) = pick_example_models(&codex_models());
+        let (c, e) = pick_example_models(&codex_models()).unwrap();
         assert_eq!(c, "gpt-5.3-codex");
         assert_eq!(e, "gpt-5.2-codex");
     }

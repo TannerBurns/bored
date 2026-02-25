@@ -61,19 +61,6 @@ fn extract_cost_empty_returns_none() {
     assert!(cost.is_none());
 }
 
-// ── map_model_name ─────────────────────────────────────────────
-
-#[test]
-fn map_model_name_is_passthrough() {
-    let p = CursorProvider::new();
-    assert_eq!(p.map_model_name("opus-4.6"), "opus-4.6");
-    assert_eq!(p.map_model_name("opus-4.5"), "opus-4.5");
-    assert_eq!(p.map_model_name("sonnet-4.6"), "sonnet-4.6");
-    assert_eq!(p.map_model_name("sonnet-4.5"), "sonnet-4.5");
-    assert_eq!(p.map_model_name("custom-model"), "custom-model");
-    assert_eq!(p.map_model_name(""), "");
-}
-
 #[test]
 fn build_command_passes_model_through() {
     let p = CursorProvider::new();

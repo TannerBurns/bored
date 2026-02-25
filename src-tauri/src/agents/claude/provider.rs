@@ -69,9 +69,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
-        let mut config = config.clone();
-        config.model = config.model.map(|m| self.map_model_name(&m));
-        command::build_command_from_provider_config(&config)
+        command::build_command_from_provider_config(config)
     }
 
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)> {
@@ -159,20 +157,16 @@ impl AgentProvider for ClaudeProvider {
         format!(".claude/commands/{}.md", command)
     }
 
-    fn map_model_name(&self, model: &str) -> String {
-        crate::agents::models::map_model_name(model)
-    }
-
     fn brand_color(&self) -> Option<&str> {
         Some("#da7756")
     }
 
     fn available_models(&self) -> Vec<(&str, &str)> {
         vec![
-            ("opus-4.6", "Opus 4.6"),
-            ("opus-4.5", "Opus 4.5"),
-            ("sonnet-4.6", "Sonnet 4.6"),
-            ("sonnet-4.5", "Sonnet 4.5"),
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+            ("claude-opus-4-5", "Claude Opus 4.5"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
     }
 
