@@ -78,7 +78,7 @@ function addCommandToAllAgents(
       ...config,
       workflowStages: {
         ...config.workflowStages,
-        [commandId]: { enabled: true, model: (config.diagnosticModel ?? 'claude-sonnet-4-6') as AIModel },
+        [commandId]: { enabled: true, model: (config.diagnosticModel ?? getDefaultConfigForAgent(agentId).diagnosticModel) as AIModel },
       },
       stageOrder: insertStageBeforeCommit(config.stageOrder, commandId),
     };

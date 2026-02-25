@@ -346,6 +346,16 @@ describe('useSettingsStore', () => {
       expect(orderAfterSecond).toEqual(orderAfterFirst);
     });
 
+    it('addCustomCommand uses agent-appropriate default model for codex', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'codex-model-cmd', name: 'Codex Model', description: 'Test', enabled: true, source: 'custom', filename: 'codex-model-cmd.md',
+      });
+      const codexConfig = useSettingsStore.getState().getAgentConfig('codex');
+      expect(codexConfig.workflowStages['codex-model-cmd'].model).toBe('gpt-5.2-codex');
+      const claudeConfig = useSettingsStore.getState().getAgentConfig('claude');
+      expect(claudeConfig.workflowStages['codex-model-cmd'].model).toBe('claude-sonnet-4-6');
+    });
+
     it('addCustomCommand with enabled:true inserts before commit', () => {
       useSettingsStore.getState().addCustomCommand({
         id: 'custom-before-commit',
