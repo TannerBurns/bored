@@ -7,9 +7,8 @@ import {
   expandStageKey,
   buildFullExecutionOrder,
   CLAUDE_MODEL_OPTIONS,
-  MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
-  DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_CLAUDE_WORKFLOW_STAGES,
   DEFAULT_STAGE_ORDER,
   REQUIRED_STAGE_KEYS,
   RESERVED_INTERNAL_STAGE_IDS,
@@ -65,13 +64,13 @@ describe('mapStagesForCodex', () => {
   });
 
   it('preserves enabled/disabled state', () => {
-    const result = mapStagesForCodex(DEFAULT_WORKFLOW_STAGES);
+    const result = mapStagesForCodex(DEFAULT_CLAUDE_WORKFLOW_STAGES);
     expect(result.cleanup.enabled).toBe(true);
     expect(result.plan.enabled).toBe(true);
   });
 
   it('does not mutate the input', () => {
-    const input = { ...DEFAULT_WORKFLOW_STAGES };
+    const input = { ...DEFAULT_CLAUDE_WORKFLOW_STAGES };
     const originalPlan = input.plan.model;
     mapStagesForCodex(input);
     expect(input.plan.model).toBe(originalPlan);
@@ -90,7 +89,7 @@ describe('getDefaultConfigForAgent', () => {
 
   it('returns cursor config with empty settings (no thinkingEnabled)', () => {
     const config = getDefaultConfigForAgent('cursor');
-    expect(config.plannerModel).toBe('opus-4.5');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
     expect(config.settings).toEqual({});
     expect(config.settings).not.toHaveProperty('thinkingEnabled');
     expect(config.settings).not.toHaveProperty('authToken');
@@ -153,11 +152,6 @@ describe('constants', () => {
   it('CLAUDE_MODEL_OPTIONS has 4 Claude CLI models', () => {
     expect(CLAUDE_MODEL_OPTIONS).toHaveLength(4);
     expect(CLAUDE_MODEL_OPTIONS.map((o) => o.value)).toEqual(['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5']);
-  });
-
-  it('MODEL_OPTIONS has 4 short-name models', () => {
-    expect(MODEL_OPTIONS).toHaveLength(4);
-    expect(MODEL_OPTIONS.map((o) => o.value)).toEqual(['opus-4.6', 'opus-4.5', 'sonnet-4.6', 'sonnet-4.5']);
   });
 
   it('CODEX_MODEL_OPTIONS has 2 GPT models', () => {
@@ -225,20 +219,20 @@ describe('constants', () => {
     }
   });
 
-  it('DEFAULT_WORKFLOW_STAGES has entries for all stages in DEFAULT_STAGE_ORDER', () => {
+  it('DEFAULT_CLAUDE_WORKFLOW_STAGES has entries for all stages in DEFAULT_STAGE_ORDER', () => {
     for (const key of DEFAULT_STAGE_ORDER) {
-      expect(DEFAULT_WORKFLOW_STAGES[key]).toBeDefined();
-      expect(typeof DEFAULT_WORKFLOW_STAGES[key].enabled).toBe('boolean');
+      expect(DEFAULT_CLAUDE_WORKFLOW_STAGES[key]).toBeDefined();
+      expect(typeof DEFAULT_CLAUDE_WORKFLOW_STAGES[key].enabled).toBe('boolean');
     }
   });
 
-  it('DEFAULT_WORKFLOW_STAGES uses kebab-case for command keys', () => {
-    expect(DEFAULT_WORKFLOW_STAGES['code-review']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['unit-tests']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['review-changes']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['codeReview' as string]).toBeUndefined();
-    expect(DEFAULT_WORKFLOW_STAGES['unitTests' as string]).toBeUndefined();
-    expect(DEFAULT_WORKFLOW_STAGES['finalReview' as string]).toBeUndefined();
+  it('DEFAULT_CLAUDE_WORKFLOW_STAGES uses kebab-case for command keys', () => {
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['code-review']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['unit-tests']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['review-changes']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['codeReview' as string]).toBeUndefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['unitTests' as string]).toBeUndefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['finalReview' as string]).toBeUndefined();
   });
 
   it('DEFAULT_STAGE_ORDER uses kebab-case for command keys', () => {
@@ -445,11 +439,11 @@ describe('buildFullExecutionOrder', () => {
   });
 });
 
-describe('BUILTIN_CATALOG_COMMANDS / DEFAULT_WORKFLOW_STAGES consistency', () => {
-  it('every enabled builtin has a matching entry in DEFAULT_WORKFLOW_STAGES', () => {
+describe('BUILTIN_CATALOG_COMMANDS / DEFAULT_CLAUDE_WORKFLOW_STAGES consistency', () => {
+  it('every enabled builtin has a matching entry in DEFAULT_CLAUDE_WORKFLOW_STAGES', () => {
     const enabledBuiltins = BUILTIN_CATALOG_COMMANDS.filter((c) => c.enabled);
     for (const cmd of enabledBuiltins) {
-      expect(DEFAULT_WORKFLOW_STAGES[cmd.id]).toBeDefined();
+      expect(DEFAULT_CLAUDE_WORKFLOW_STAGES[cmd.id]).toBeDefined();
     }
   });
 

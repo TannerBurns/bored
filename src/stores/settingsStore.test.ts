@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useSettingsStore, WORKFLOW_STAGE_INFO, MODEL_OPTIONS, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
+import { useSettingsStore, WORKFLOW_STAGE_INFO, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
 
 describe('useSettingsStore', () => {
   beforeEach(() => {
@@ -725,13 +725,6 @@ describe('useSettingsStore', () => {
       }
     });
 
-    it('MODEL_OPTIONS includes all expected models', () => {
-      const values = MODEL_OPTIONS.map((o) => o.value);
-      expect(values).toContain('opus-4.6');
-      expect(values).toContain('opus-4.5');
-      expect(values).toContain('sonnet-4.6');
-      expect(values).toContain('sonnet-4.5');
-    });
   });
 
   describe('validation agent settings', () => {

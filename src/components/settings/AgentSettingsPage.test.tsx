@@ -59,12 +59,6 @@ vi.mock('../../stores/settingsStore', () => ({
     { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
     { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
   ],
-  MODEL_OPTIONS: [
-    { value: 'opus-4.6', label: 'Opus 4.6' },
-    { value: 'opus-4.5', label: 'Opus 4.5' },
-    { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-  ],
   CODEX_MODEL_OPTIONS: [
     { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
     { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },

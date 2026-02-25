@@ -12,7 +12,6 @@ import {
   WORKFLOW_STAGE_INFO,
   REQUIRED_STAGE_KEYS,
   CLAUDE_MODEL_OPTIONS,
-  MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   validateStageOrder,
   type AIModel,
@@ -45,8 +44,7 @@ function getModelOptions(
     return availableModels.map((m) => ({ value: m.value as AIModel, label: m.label }));
   }
   if (agentId === 'codex') return CODEX_MODEL_OPTIONS;
-  if (agentId === 'claude') return CLAUDE_MODEL_OPTIONS;
-  return MODEL_OPTIONS;
+  return CLAUDE_MODEL_OPTIONS;
 }
 
 const REQUIRED_STAGE_INFO = new Map(WORKFLOW_STAGE_INFO.map((s) => [s.key, s]));

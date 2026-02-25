@@ -4,7 +4,7 @@ import { syncAgentConfigs } from '../lib/tauri';
 
 import {
   DEFAULT_STAGE_ORDER,
-  DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_CLAUDE_WORKFLOW_STAGES,
   BUILTIN_CATALOG_COMMANDS,
   REQUIRED_STAGE_KEYS,
   getDefaultConfigForAgent,
@@ -21,7 +21,6 @@ export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, Catalog
 export type { WorkflowStageKey } from './settingsStore.types';
 export {
   CLAUDE_MODEL_OPTIONS,
-  MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   WORKFLOW_STAGE_INFO,
   DEFAULT_STAGE_ORDER,
@@ -81,7 +80,7 @@ function addCommandToAllAgents(
       ...config,
       workflowStages: {
         ...config.workflowStages,
-        [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
+        [commandId]: { enabled: true, model: (config.diagnosticModel ?? 'claude-sonnet-4-6') as AIModel },
       },
       stageOrder: insertStageBeforeCommit(config.stageOrder, commandId),
     };
@@ -383,7 +382,7 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.plannerModel === 'sonnet') state.plannerModel = 'sonnet-4.5';
         }
         if (version < 5) {
-          state.workflowStages = { ...DEFAULT_WORKFLOW_STAGES };
+          state.workflowStages = { ...DEFAULT_CLAUDE_WORKFLOW_STAGES };
         }
 
         if (version < 12) {
@@ -489,7 +488,7 @@ export const useSettingsStore = create<SettingsState>()(
                 cfg.autoPilotEnabled = false;
               }
               if (cfg.autoPilotModel === undefined) {
-                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'opus-4.6';
+                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6';
               }
             }
           }
@@ -518,8 +517,7 @@ export const useSettingsStore = create<SettingsState>()(
           const mapModel = (m: unknown) => (typeof m === 'string' && SHORT_TO_CLAUDE[m]) || m;
 
           const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
-          if (configs?.claude) {
-            const cfg = configs.claude;
+          for (const cfg of [configs?.claude, configs?.cursor].filter(Boolean) as Record<string, unknown>[]) {
             cfg.autoPilotModel = mapModel(cfg.autoPilotModel);
             cfg.plannerModel = mapModel(cfg.plannerModel);
             cfg.validationModel = mapModel(cfg.validationModel);
@@ -554,7 +552,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
-      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : agentId === 'cursor' ? 'opus-4.6' : 'claude-opus-4-6'),
+      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6'),
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,
