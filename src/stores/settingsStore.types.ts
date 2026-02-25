@@ -1,4 +1,4 @@
-export type AIModel = 'opus-4.6' | 'opus-4.5' | 'sonnet-4.6' | 'sonnet-4.5' | 'gpt-5.3-codex' | 'gpt-5.2-codex' | (string & {});
+export type AIModel = 'claude-opus-4-6' | 'claude-opus-4-5' | 'claude-sonnet-4-6' | 'claude-sonnet-4-5' | 'opus-4.6' | 'opus-4.5' | 'sonnet-4.6' | 'sonnet-4.5' | 'gpt-5.3-codex' | 'gpt-5.2-codex' | (string & {});
 
 export const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
   { value: 'opus-4.6', label: 'Opus 4.6' },
@@ -131,6 +131,20 @@ export interface AgentConfig {
   settings: Record<string, unknown>;
 }
 
+/** Claude CLI requires full model identifiers (claude-opus-4-6, not opus-4.6). */
+export const DEFAULT_CLAUDE_WORKFLOW_STAGES: WorkflowStages = {
+  branchGen:         { enabled: true, model: 'claude-sonnet-4-5' },
+  plan:              { enabled: true, model: 'claude-opus-4-6' },
+  implement:         { enabled: true, model: 'claude-opus-4-6' },
+  'code-review':     { enabled: true, model: 'claude-opus-4-6' },
+  cleanup:           { enabled: true, model: 'claude-sonnet-4-6' },
+  'unit-tests':      { enabled: true, model: 'claude-opus-4-5' },
+  'review-changes':  { enabled: true, model: 'claude-opus-4-5' },
+  deslop:            { enabled: true, model: 'claude-opus-4-5' },
+  commit:            { enabled: true, model: 'claude-sonnet-4-5' },
+};
+
+/** Cursor uses short model names (opus-4.6, sonnet-4.6). */
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = {
   branchGen:         { enabled: true, model: 'sonnet-4.6' },
   plan:              { enabled: true, model: 'opus-4.6' },
@@ -144,8 +158,8 @@ export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = {
 };
 
 export function mapModelForCodex(model: string): string {
-  if (model.startsWith('opus')) return 'gpt-5.3-codex';
-  if (model.startsWith('sonnet')) return 'gpt-5.2-codex';
+  if (model.includes('opus')) return 'gpt-5.3-codex';
+  if (model.includes('sonnet')) return 'gpt-5.2-codex';
   return model;
 }
 
@@ -176,6 +190,33 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
 
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
+  autoPilotModel: 'claude-opus-4-6',
+  workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
+  stageOrder: [...DEFAULT_STAGE_ORDER],
+  stageTimeoutHours: 1,
+  stageMaxRetries: 2,
+  codeReviewMaxIterations: 3,
+  plannerModel: 'claude-opus-4-5',
+  plannerAutoApprove: false,
+  plannerMaxExplorations: 10,
+  plannerTimeoutMinutes: 10,
+  plannerMaxRetries: 2,
+  validationModel: 'claude-sonnet-4-6',
+  validationTimeoutMinutes: 10,
+  diagnosticModel: 'claude-sonnet-4-6',
+  settings: {
+    authToken: '',
+    apiKey: '',
+    baseUrl: '',
+    modelOverride: '',
+    thinkingEnabled: true,
+    extendedContext: false,
+    chromeEnabled: false,
+  },
+};
+
+const DEFAULT_CURSOR_CONFIG: AgentConfig = {
+  autoPilotEnabled: false,
   autoPilotModel: 'opus-4.6',
   workflowStages: { ...DEFAULT_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
@@ -190,19 +231,6 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   validationModel: 'sonnet-4.6',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'sonnet-4.6',
-  settings: {
-    authToken: '',
-    apiKey: '',
-    baseUrl: '',
-    modelOverride: '',
-    thinkingEnabled: true,
-    extendedContext: false,
-    chromeEnabled: false,
-  },
-};
-
-const DEFAULT_CURSOR_CONFIG: AgentConfig = {
-  ...DEFAULT_CLAUDE_CONFIG,
   settings: {},
 };
 

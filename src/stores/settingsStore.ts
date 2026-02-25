@@ -303,7 +303,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 16,
+      version: 17,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -506,6 +506,32 @@ export const useSettingsStore = create<SettingsState>()(
           state.cursorModels = [];
         }
 
+        if (version < 17) {
+          const SHORT_TO_CLAUDE: Record<string, string> = {
+            'opus-4.6': 'claude-opus-4-6',
+            'opus-4.5': 'claude-opus-4-5',
+            'sonnet-4.6': 'claude-sonnet-4-6',
+            'sonnet-4.5': 'claude-sonnet-4-5',
+          };
+          const mapModel = (m: unknown) => (typeof m === 'string' && SHORT_TO_CLAUDE[m]) || m;
+
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs?.claude) {
+            const cfg = configs.claude;
+            cfg.autoPilotModel = mapModel(cfg.autoPilotModel);
+            cfg.plannerModel = mapModel(cfg.plannerModel);
+            cfg.validationModel = mapModel(cfg.validationModel);
+            cfg.diagnosticModel = mapModel(cfg.diagnosticModel);
+            const stages = cfg.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
+            if (stages) {
+              for (const val of Object.values(stages)) {
+                const mapped = SHORT_TO_CLAUDE[val.model];
+                if (mapped) val.model = mapped;
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -526,7 +552,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
-      autoPilotModel: config.autoPilotModel ?? 'opus-4.6',
+      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : agentId === 'cursor' ? 'opus-4.6' : 'claude-opus-4-6'),
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,

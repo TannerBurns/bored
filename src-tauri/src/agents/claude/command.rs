@@ -2,6 +2,21 @@
 
 use crate::agents::provider::AgentRunConfig;
 
+/// Map short/display model names to full Claude CLI identifiers.
+///
+/// The config layer may store short names like `opus-4.6` while the
+/// Claude CLI requires full identifiers like `claude-opus-4-6`.
+/// Names already in CLI format pass through unchanged.
+pub fn normalize_model_for_cli(model: &str) -> String {
+    match model {
+        "opus-4.6" => "claude-opus-4-6".to_string(),
+        "opus-4.5" => "claude-opus-4-5".to_string(),
+        "sonnet-4.6" => "claude-sonnet-4-6".to_string(),
+        "sonnet-4.5" => "claude-sonnet-4-5".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Push conditional CLI flags from raw booleans.
 fn push_cli_option_flags_raw(
     args: &mut Vec<String>,
@@ -47,7 +62,7 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
 
     if let Some(ref model) = effective_model {
         args.push("--model".to_string());
-        args.push(model.clone());
+        args.push(normalize_model_for_cli(model));
     }
     let thinking = api_config.thinking_enabled.unwrap_or(true);
     let extended_context = api_config.extended_context_enabled.unwrap_or(false);

@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(settings.code_review_max_iterations, 3);
         assert_eq!(settings.stage_timeout_hours, 1);
         assert_eq!(settings.stage_max_retries, 2);
-        assert_eq!(settings.diagnostic_model, "sonnet-4.6");
+        assert_eq!(settings.diagnostic_model, "claude-sonnet-4-6");
         assert!(!settings.synced, "default settings should not be marked as synced");
     }
 
@@ -224,8 +224,8 @@ mod tests {
         assert_eq!(settings.stage_max_retries, 1);
         // `synced` is not in the JSON, so it should default to false
         assert!(!settings.synced, "synced should default to false when absent from JSON");
-        // `diagnosticModel` is not in the JSON, so it should default to "sonnet-4.6"
-        assert_eq!(settings.diagnostic_model, "sonnet-4.6");
+        // `diagnosticModel` is not in the JSON, so it should default
+        assert_eq!(settings.diagnostic_model, "claude-sonnet-4-6");
     }
 
     #[test]
@@ -246,7 +246,7 @@ mod tests {
         let settings = WorkflowSettings::default();
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("diagnosticModel"));
-        assert!(json.contains("sonnet-4.6"));
+        assert!(json.contains("claude-sonnet-4-6"));
     }
 
     #[test]

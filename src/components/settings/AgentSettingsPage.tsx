@@ -213,6 +213,35 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
   );
 
   const renderStagesWithZones = () => {
+    if (config.autoPilotEnabled) {
+      const coreElements: React.ReactNode[] = [];
+      const cmdElements: React.ReactNode[] = [];
+
+      for (const key of config.stageOrder) {
+        if (REQUIRED_STAGE_KEYS.has(key)) {
+          coreElements.push(
+            <SortableStageRow key={key} stageKey={key} agentId={agentId} config={config}
+              models={models} catalogInfo={catalogMap.get(key)} modelColWidth={modelColWidth} />
+          );
+        } else if (config.workflowStages[key]) {
+          cmdElements.push(
+            <SortableStageRow key={key} stageKey={key} agentId={agentId} config={config}
+              models={models} catalogInfo={catalogMap.get(key)} modelColWidth={modelColWidth} />
+          );
+        }
+      }
+
+      return [
+        ...coreElements,
+        ...(cmdElements.length > 0 ? [
+          <ZoneSeparator key="auto-pilot-sep" label="commands (selected by auto-pilot)" />,
+          <div key="auto-pilot-cmds" className="opacity-50 pointer-events-none space-y-1">
+            {cmdElements}
+          </div>,
+        ] : []),
+      ];
+    }
+
     const elements: React.ReactNode[] = [];
     let lastRequiredKey: string | null = null;
 
@@ -287,12 +316,12 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
         )}
       </div>
 
-      <div className={cn('glass rounded-lg p-3 space-y-3', config.autoPilotEnabled && 'opacity-50 pointer-events-none')}>
+      <div className="glass rounded-lg p-3 space-y-3">
         <div>
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
           <p className="text-xs text-board-text-muted mt-0.5">
             {config.autoPilotEnabled
-              ? 'Stage configuration is managed by the agent in Auto-Pilot mode.'
+              ? 'Choose models for core stages. Commands are selected by auto-pilot.'
               : 'Toggle stages and choose models. Drag command stages to reorder.'}
           </p>
         </div>

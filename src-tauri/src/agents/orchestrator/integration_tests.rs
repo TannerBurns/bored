@@ -139,7 +139,7 @@ fn make_workflow_settings(auto_pilot: bool, synced: bool) -> Arc<Mutex<PerAgentS
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
             stage_max_retries: 2,
-            diagnostic_model: "sonnet-4.6".to_string(),
+            diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
             stage_order: Some(
                 DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
             ),
@@ -1050,7 +1050,7 @@ fn make_workflow_settings_for_agent(agent_id: &str) -> Arc<Mutex<PerAgentSetting
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
             stage_max_retries: 0,
-            diagnostic_model: "sonnet-4.6".to_string(),
+            diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
             stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
             synced: true,
         },

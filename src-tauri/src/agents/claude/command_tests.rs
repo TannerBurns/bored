@@ -156,7 +156,7 @@ fn provider_build_all_cli_options_disabled() {
 }
 
 #[test]
-fn provider_build_uses_model_as_is() {
+fn provider_build_passes_cli_names_through() {
     let test_cases = [
         "claude-opus-4-6",
         "claude-sonnet-4-5",
@@ -169,10 +169,46 @@ fn provider_build_uses_model_as_is() {
         let (_, args) = build_command_from_provider_config(&config);
         assert!(
             args.contains(&model.to_string()),
-            "Builder should pass model '{}' through unchanged",
+            "Builder should pass CLI model '{}' through unchanged",
             model
         );
     }
+}
+
+#[test]
+fn provider_build_normalizes_short_model_names() {
+    let test_cases = [
+        ("opus-4.6", "claude-opus-4-6"),
+        ("opus-4.5", "claude-opus-4-5"),
+        ("sonnet-4.6", "claude-sonnet-4-6"),
+        ("sonnet-4.5", "claude-sonnet-4-5"),
+    ];
+
+    for (short, expected) in test_cases {
+        let mut config = create_provider_config();
+        config.model = Some(short.to_string());
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(
+            args.contains(&expected.to_string()),
+            "Short name '{}' should be normalized to '{}'",
+            short, expected
+        );
+    }
+}
+
+#[test]
+fn normalize_model_for_cli_maps_short_names() {
+    assert_eq!(normalize_model_for_cli("opus-4.6"), "claude-opus-4-6");
+    assert_eq!(normalize_model_for_cli("opus-4.5"), "claude-opus-4-5");
+    assert_eq!(normalize_model_for_cli("sonnet-4.6"), "claude-sonnet-4-6");
+    assert_eq!(normalize_model_for_cli("sonnet-4.5"), "claude-sonnet-4-5");
+}
+
+#[test]
+fn normalize_model_for_cli_passes_through_full_names() {
+    assert_eq!(normalize_model_for_cli("claude-opus-4-6"), "claude-opus-4-6");
+    assert_eq!(normalize_model_for_cli("claude-sonnet-4-5"), "claude-sonnet-4-5");
+    assert_eq!(normalize_model_for_cli("unknown-model"), "unknown-model");
 }
 
 #[test]
