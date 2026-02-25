@@ -83,16 +83,16 @@ describe('useSettingsStore', () => {
         expect(config.workflowStages.plan.enabled).toBe(true);
       });
 
-      it('disabling a non-required stage removes it from stageOrder and workflowStages', () => {
+      it('disabling a non-required stage marks it as disabled', () => {
         const before = useSettingsStore.getState().getAgentConfig('claude');
         expect(before.workflowStages.deslop).toBeDefined();
-        expect(before.stageOrder).toContain('deslop');
+        expect(before.workflowStages.deslop.enabled).toBe(true);
 
         useSettingsStore.getState().setAgentConfigStage('claude', 'deslop', { enabled: false });
 
         const after = useSettingsStore.getState().getAgentConfig('claude');
-        expect(after.workflowStages.deslop).toBeUndefined();
-        expect(after.stageOrder).not.toContain('deslop');
+        expect(after.workflowStages.deslop).toBeDefined();
+        expect(after.workflowStages.deslop.enabled).toBe(false);
       });
 
       it('disabling a required stage does NOT remove it', () => {
@@ -510,10 +510,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 16', () => {
+    it('uses version 17', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(16);
+      expect(options.version).toBe(17);
     });
   });
 
@@ -737,7 +737,7 @@ describe('useSettingsStore', () => {
   describe('validation agent settings', () => {
     it('has correct default validationModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
-      expect(config.validationModel).toBe('sonnet-4.6');
+      expect(config.validationModel).toBe('claude-sonnet-4-6');
     });
   });
 
@@ -944,7 +944,7 @@ describe('useSettingsStore', () => {
   describe('diagnostic agent settings', () => {
     it('has correct default diagnosticModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
-      expect(config.diagnosticModel).toBe('sonnet-4.6');
+      expect(config.diagnosticModel).toBe('claude-sonnet-4-6');
     });
 
     it('sets diagnosticModel', () => {

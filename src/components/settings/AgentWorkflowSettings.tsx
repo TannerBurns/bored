@@ -1,6 +1,6 @@
 import {
   useSettingsStore,
-  MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
   WORKFLOW_STAGE_INFO,
   REQUIRED_STAGE_KEYS,
   type AIModel,
@@ -109,7 +109,7 @@ export function AgentWorkflowSettings() {
                   disabled={!isEnabled}
                   className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {MODEL_OPTIONS.map((opt) => (
+                  {CLAUDE_MODEL_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>

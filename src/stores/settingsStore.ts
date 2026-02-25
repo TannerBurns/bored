@@ -20,6 +20,7 @@ import {
 export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, CatalogCommand };
 export type { WorkflowStageKey } from './settingsStore.types';
 export {
+  CLAUDE_MODEL_OPTIONS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   WORKFLOW_STAGE_INFO,
@@ -152,14 +153,15 @@ export const useSettingsStore = create<SettingsState>()(
         const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
 
         if (config.enabled === false && !REQUIRED_STAGE_KEYS.has(key)) {
-          const { [key]: _, ...remainingStages } = current.workflowStages;
           set({
             agentConfigs: {
               ...configs,
               [agentId]: {
                 ...current,
-                workflowStages: remainingStages,
-                stageOrder: current.stageOrder.filter((k) => k !== key),
+                workflowStages: {
+                  ...current.workflowStages,
+                  [key]: { ...current.workflowStages[key], enabled: false },
+                },
               },
             },
           });

@@ -1,5 +1,12 @@
 export type AIModel = 'claude-opus-4-6' | 'claude-opus-4-5' | 'claude-sonnet-4-6' | 'claude-sonnet-4-5' | 'opus-4.6' | 'opus-4.5' | 'sonnet-4.6' | 'sonnet-4.5' | 'gpt-5.3-codex' | 'gpt-5.2-codex' | (string & {});
 
+export const CLAUDE_MODEL_OPTIONS: { value: AIModel; label: string }[] = [
+  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+  { value: 'claude-opus-4-5', label: 'Opus 4.5' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
+];
+
 export const MODEL_OPTIONS: { value: AIModel; label: string }[] = [
   { value: 'opus-4.6', label: 'Opus 4.6' },
   { value: 'opus-4.5', label: 'Opus 4.5' },

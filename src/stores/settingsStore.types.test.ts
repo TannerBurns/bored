@@ -6,6 +6,7 @@ import {
   validateStageOrder,
   expandStageKey,
   buildFullExecutionOrder,
+  CLAUDE_MODEL_OPTIONS,
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   DEFAULT_WORKFLOW_STAGES,
@@ -149,7 +150,12 @@ describe('getDefaultConfigForAgent', () => {
 });
 
 describe('constants', () => {
-  it('MODEL_OPTIONS has 4 Claude/Anthropic models', () => {
+  it('CLAUDE_MODEL_OPTIONS has 4 Claude CLI models', () => {
+    expect(CLAUDE_MODEL_OPTIONS).toHaveLength(4);
+    expect(CLAUDE_MODEL_OPTIONS.map((o) => o.value)).toEqual(['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5']);
+  });
+
+  it('MODEL_OPTIONS has 4 short-name models', () => {
     expect(MODEL_OPTIONS).toHaveLength(4);
     expect(MODEL_OPTIONS.map((o) => o.value)).toEqual(['opus-4.6', 'opus-4.5', 'sonnet-4.6', 'sonnet-4.5']);
   });
