@@ -41,7 +41,7 @@ describe('useSettingsStore', () => {
     beforeEach(() => {
       useSettingsStore.getState().updateAgentConfig('claude', {
         plannerAutoApprove: false,
-        plannerModel: 'opus-4.5',
+        plannerModel: 'claude-opus-4-5',
         plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
@@ -54,7 +54,7 @@ describe('useSettingsStore', () => {
     it('has correct planner defaults', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
       expect(config.plannerAutoApprove).toBe(false);
-      expect(config.plannerModel).toBe('opus-4.5');
+      expect(config.plannerModel).toBe('claude-opus-4-5');
       expect(config.plannerMaxExplorations).toBe(10);
       expect(config.plannerTimeoutMinutes).toBe(10);
       expect(config.plannerMaxRetries).toBe(2);
@@ -77,9 +77,9 @@ describe('useSettingsStore', () => {
   describe('workflow settings', () => {
     describe('setAgentConfigStage', () => {
       it('updates a single stage model', () => {
-        useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { model: 'sonnet-4.5' });
+        useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { model: 'claude-sonnet-4-5' });
         const config = useSettingsStore.getState().getAgentConfig('claude');
-        expect(config.workflowStages.plan.model).toBe('sonnet-4.5');
+        expect(config.workflowStages.plan.model).toBe('claude-sonnet-4-5');
         expect(config.workflowStages.plan.enabled).toBe(true);
       });
 
@@ -104,11 +104,11 @@ describe('useSettingsStore', () => {
 
       it('preserves other stages when updating one', () => {
         const before = { ...useSettingsStore.getState().getAgentConfig('claude').workflowStages };
-        useSettingsStore.getState().setAgentConfigStage('claude', 'commit', { model: 'sonnet-4.5' });
+        useSettingsStore.getState().setAgentConfigStage('claude', 'commit', { model: 'claude-sonnet-4-5' });
         const after = useSettingsStore.getState().getAgentConfig('claude').workflowStages;
         expect(after.plan).toEqual(before.plan);
         expect(after.implement).toEqual(before.implement);
-        expect(after.commit.model).toBe('sonnet-4.5');
+        expect(after.commit.model).toBe('claude-sonnet-4-5');
       });
 
       it('disabling per-agent does not affect other agents', () => {
@@ -951,8 +951,8 @@ describe('useSettingsStore', () => {
     });
 
     it('sets diagnosticModel', () => {
-      useSettingsStore.getState().updateAgentConfig('claude', { diagnosticModel: 'opus-4.5' });
-      expect(useSettingsStore.getState().getAgentConfig('claude').diagnosticModel).toBe('opus-4.5');
+      useSettingsStore.getState().updateAgentConfig('claude', { diagnosticModel: 'claude-opus-4-5' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').diagnosticModel).toBe('claude-opus-4-5');
     });
   });
 });
