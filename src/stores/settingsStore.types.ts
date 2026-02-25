@@ -158,8 +158,8 @@ export const DEFAULT_CODEX_WORKFLOW_STAGES: WorkflowStages = {
 };
 
 export function mapModelForCodex(model: string): string {
-  if (model.startsWith('opus')) return 'gpt-5.3-codex';
-  if (model.startsWith('sonnet')) return 'gpt-5.2-codex';
+  if (model.startsWith('opus') || model.startsWith('claude-opus')) return 'gpt-5.3-codex';
+  if (model.startsWith('sonnet') || model.startsWith('claude-sonnet')) return 'gpt-5.2-codex';
   return model;
 }
 
