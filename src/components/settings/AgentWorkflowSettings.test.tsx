@@ -9,7 +9,7 @@ const storeState = {
   agentConfigs: {
     claude: {
       workflowStages: {
-        branchGen:        { enabled: true, model: 'claude-sonnet-4-5' },
+        branchGen:        { enabled: true, model: 'claude-sonnet-4-6' },
         plan:             { enabled: true, model: 'claude-opus-4-6' },
         implement:        { enabled: true, model: 'claude-opus-4-6' },
         'code-review':    { enabled: true, model: 'claude-opus-4-6' },
@@ -17,7 +17,7 @@ const storeState = {
         'unit-tests':     { enabled: true, model: 'claude-opus-4-5' },
         'review-changes': { enabled: true, model: 'claude-opus-4-5' },
         deslop:           { enabled: true, model: 'claude-opus-4-5' },
-        commit:           { enabled: true, model: 'claude-sonnet-4-5' },
+        commit:           { enabled: true, model: 'claude-sonnet-4-6' },
       },
       stageOrder: [
         'branchGen', 'plan', 'implement',

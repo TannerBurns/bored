@@ -10,12 +10,12 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
     autoPilotEnabled: false,
     workflowStages: {
-      branchGen:        { enabled: true, model: 'claude-sonnet-4-5' },
+      branchGen:        { enabled: true, model: 'claude-sonnet-4-6' },
       plan:             { enabled: true, model: 'claude-opus-4-6' },
       implement:        { enabled: true, model: 'claude-opus-4-6' },
       'code-review':    { enabled: true, model: 'claude-opus-4-6' },
       cleanup:          { enabled: true, model: 'claude-sonnet-4-6' },
-      commit:           { enabled: true, model: 'claude-sonnet-4-5' },
+      commit:           { enabled: true, model: 'claude-sonnet-4-6' },
     },
     stageOrder: ['branchGen', 'plan', 'implement', 'code-review', 'cleanup', 'commit'],
     codeReviewMaxIterations: 3,
