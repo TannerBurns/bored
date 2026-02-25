@@ -8,8 +8,6 @@ import {
   BUILTIN_CATALOG_COMMANDS,
   REQUIRED_STAGE_KEYS,
   getDefaultConfigForAgent,
-  mapModelForCodex,
-  mapStagesForCodex,
   type AgentConfig,
   type AIModel,
   type CatalogCommand,
@@ -390,30 +388,25 @@ export const useSettingsStore = create<SettingsState>()(
           const buildConfig = (agentId: string): AgentConfig => {
             const base = getDefaultConfigForAgent(agentId);
             const isCodex = agentId === 'codex';
-            const mapModel = (m: unknown) => {
-              const model = typeof m === 'string' ? m : base.plannerModel;
-              return isCodex ? mapModelForCodex(model) : model;
-            };
             const stages = state.workflowStages as WorkflowStages | undefined;
-            const workflowStages = stages
-              ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
-              : base.workflowStages;
+            const keepOrDefault = (persisted: unknown, fallback: AIModel): AIModel =>
+              (!isCodex && typeof persisted === 'string') ? persisted as AIModel : fallback;
             return {
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
-              workflowStages,
+              workflowStages: (!isCodex && stages) ? { ...stages } : base.workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
               stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
               codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
-              plannerModel: mapModel(state.plannerModel) as AIModel,
+              plannerModel: keepOrDefault(state.plannerModel, base.plannerModel),
               plannerAutoApprove: (state.plannerAutoApprove as boolean) ?? base.plannerAutoApprove,
               plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
               plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
-              validationModel: mapModel(state.validationModel) as AIModel,
+              validationModel: keepOrDefault(state.validationModel, base.validationModel),
               validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
-              diagnosticModel: mapModel(state.diagnosticModel) as AIModel,
+              diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
               settings: agentSettings[agentId] ?? base.settings,
             };
           };

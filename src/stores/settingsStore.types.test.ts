@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  mapModelForCodex,
-  mapStagesForCodex,
   getDefaultConfigForAgent,
   validateStageOrder,
   expandStageKey,
@@ -14,73 +12,7 @@ import {
   RESERVED_INTERNAL_STAGE_IDS,
   BUILTIN_CATALOG_COMMANDS,
   WORKFLOW_STAGE_INFO,
-  type WorkflowStages,
 } from './settingsStore.types';
-
-describe('mapModelForCodex', () => {
-  it('maps claude-opus models to gpt-5.3-codex', () => {
-    expect(mapModelForCodex('claude-opus-4-6')).toBe('gpt-5.3-codex');
-    expect(mapModelForCodex('claude-opus-4-5')).toBe('gpt-5.3-codex');
-  });
-
-  it('maps claude-sonnet models to gpt-5.2-codex', () => {
-    expect(mapModelForCodex('claude-sonnet-4-6')).toBe('gpt-5.2-codex');
-    expect(mapModelForCodex('claude-sonnet-4-5')).toBe('gpt-5.2-codex');
-  });
-
-  it('maps legacy short opus/sonnet names', () => {
-    expect(mapModelForCodex('opus-4.6')).toBe('gpt-5.3-codex');
-    expect(mapModelForCodex('sonnet-4.6')).toBe('gpt-5.2-codex');
-  });
-
-  it('passes through codex-native models unchanged', () => {
-    expect(mapModelForCodex('gpt-5.3-codex')).toBe('gpt-5.3-codex');
-    expect(mapModelForCodex('gpt-5.2-codex')).toBe('gpt-5.2-codex');
-  });
-
-  it('passes through unknown models unchanged', () => {
-    expect(mapModelForCodex('custom-model')).toBe('custom-model');
-    expect(mapModelForCodex('')).toBe('');
-  });
-});
-
-describe('mapStagesForCodex', () => {
-  it('maps all stage models to codex equivalents', () => {
-    const input: WorkflowStages = {
-      branchGen:         { enabled: true, model: 'claude-sonnet-4-5' },
-      plan:              { enabled: true, model: 'claude-opus-4-6' },
-      implement:         { enabled: true, model: 'claude-opus-4-6' },
-      'code-review':     { enabled: true, model: 'claude-opus-4-5' },
-      deslop:            { enabled: false, model: 'claude-sonnet-4-6' },
-      cleanup:           { enabled: true, model: 'claude-sonnet-4-6' },
-      'unit-tests':      { enabled: false, model: 'claude-opus-4-5' },
-      'review-changes':  { enabled: true, model: 'claude-opus-4-5' },
-      commit:            { enabled: true, model: 'claude-sonnet-4-5' },
-    };
-
-    const result = mapStagesForCodex(input);
-
-    expect(result.branchGen.model).toBe('gpt-5.2-codex');
-    expect(result.plan.model).toBe('gpt-5.3-codex');
-    expect(result.implement.model).toBe('gpt-5.3-codex');
-    expect(result['code-review'].model).toBe('gpt-5.3-codex');
-    expect(result.deslop.model).toBe('gpt-5.2-codex');
-    expect(result.commit.model).toBe('gpt-5.2-codex');
-  });
-
-  it('preserves enabled/disabled state', () => {
-    const result = mapStagesForCodex(DEFAULT_CLAUDE_WORKFLOW_STAGES);
-    expect(result.cleanup.enabled).toBe(true);
-    expect(result.plan.enabled).toBe(true);
-  });
-
-  it('does not mutate the input', () => {
-    const input = { ...DEFAULT_CLAUDE_WORKFLOW_STAGES };
-    const originalPlan = input.plan.model;
-    mapStagesForCodex(input);
-    expect(input.plan.model).toBe(originalPlan);
-  });
-});
 
 describe('getDefaultConfigForAgent', () => {
   it('returns claude config with Claude-specific settings', () => {
