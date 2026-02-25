@@ -1,5 +1,52 @@
 [
   {
+    "version": "0.1.0-beta.29",
+    "published_at": "2026-02-25",
+    "summary": "Auto-pilot command selection now uses provider-specific models instead of the hardcoded global model list",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Auto-pilot command selection prompt now sources available models from the active provider instead of the hardcoded global MODEL_ENTRIES list — each agent sees its own models in examples",
+          "Prompt examples and instructions include an explicit constraint preventing the agent from hallucinating model names not available to the current provider",
+          "Simplified prompt example workflows from 6 to 4 for a more focused and concise prompt"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed auto-pilot command selection prompt always showing Claude model names regardless of which agent provider was active — Codex runs would reference models the provider couldn't use"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added Claude provider end-to-end tests for real CLI output parsing (non-streaming, streaming, prose-wrapped JSON)",
+          "Added auto-pilot prompt unit tests verifying provider-specific model names and example workflows",
+          "Added integration tests with PromptCapturingRunner and CodexStubProvider verifying dynamic prompt generation"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.28",
+        "highlight": "App-internal commands, worktree lock failure fixes, and auto-pilot command selection zero-stage fix"
+      },
+      {
+        "version": "0.1.0-beta.27",
+        "highlight": "Spec agent JSON extraction reliability, StructuredSpec deserialization fixes, and model override cost re-keying for local providers"
+      },
+      {
+        "version": "0.1.0-beta.26",
+        "highlight": "Dashboard landing page with stats, trends, and cost breakdowns; board/list view toggle; dynamic Cursor model sync"
+      },
+      {
+        "version": "0.1.0-beta.25",
+        "highlight": "Auto-pilot workflow mode, extensible command-based tasks, and Codex CLI configuration"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.28",
     "published_at": "2026-02-24",
     "summary": "Bug fix and refactor release fixing worktree lock failures, auto-pilot command selection, and making commands app-internal",

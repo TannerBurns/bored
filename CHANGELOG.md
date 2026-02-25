@@ -2,6 +2,46 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.29] - 2026-02-25
+
+Bug fix release making auto-pilot command selection use provider-specific models instead of the hardcoded global model list, so each agent's prompt examples and model constraints match its actual provider.
+
+### Improvements
+
+- Auto-pilot command selection prompt now sources available models from the active provider via `available_models()` instead of the hardcoded global `MODEL_ENTRIES` list — Codex runs see Codex models in examples, Claude runs see Claude models
+- `pick_example_models` helper selects the most capable (first) and most efficient (last) model from the provider's list for prompt example workflows, falling back gracefully for single-model or empty lists
+- Prompt examples and instructions now include an explicit "ONLY use model names from the Available Models list" constraint preventing the agent from hallucinating model names not available to the current provider
+- Simplified prompt example workflows from 6 to 4 (removed API change and refactor-with-observability examples) for a more focused and concise prompt
+
+### Bug Fixes
+
+- Fixed auto-pilot command selection prompt always showing Claude model names (opus, sonnet) regardless of which agent provider was active — Codex runs would reference models the provider couldn't use, leading to invalid selections
+
+### Testing
+
+- Added 3 Claude provider end-to-end tests for real CLI output parsing covering non-streaming responses, streaming delta responses, and prose-wrapped JSON extraction
+- Added 7 auto-pilot prompt unit tests verifying provider-specific model names appear in the prompt, Codex models replace Claude models when the Codex provider is active, and example workflows use the correct model names
+- Added 4 `pick_example_models` unit tests covering empty, single, and multi-model provider lists
+- Added ~310 lines of integration tests with a `PromptCapturingRunner` and `CodexStubProvider` verifying that `run_command_selection_stage` builds truly dynamic prompts with provider-specific models
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.28, here is a summary of the major features introduced in recent releases:
+
+**beta.28 — App-Internal Commands & Worktree Fixes**
+Commands are now app-internal instead of file-managed in projects. Fixed worktree lock failures leaving runs permanently queued and auto-pilot command selection returning zero stages.
+
+**beta.27 — Spec JSON & Cost Attribution Fixes**
+Bug fix release improving spec agent JSON extraction reliability, StructuredSpec deserialization, and model override cost re-keying accuracy for local providers.
+
+**beta.26 — Dashboard & Board/List View**
+Dashboard landing page with summary stats, trend charts (activity, cost, tokens), model cost breakdown, and per-ticket git stats. Board/list view toggle with column select dropdown. Dynamic Cursor model sync from CLI output.
+
+**beta.25 — Auto-Pilot Workflow & Command-Based Tasks**
+Auto-pilot workflow mode where the agent dynamically decides which commands to run after implementation. Extensible command-based task system backed by the command catalog. Codex reasoning effort and multi-agent toggle.
+
+---
+
 ## [0.1.0-beta.28] - 2026-02-24
 
 Bug fix and refactor release fixing worktree lock failures leaving runs permanently queued, auto-pilot command selection never choosing stages, and making commands app-internal instead of file-managed in projects.
