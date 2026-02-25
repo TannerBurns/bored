@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::agents::command_templates;
+
 /// Build the ordered list of command file search locations
 /// (custom dir first, then bundled).
 pub(crate) fn build_command_search_paths(
@@ -14,11 +16,9 @@ pub(crate) fn build_command_search_paths(
         locations.push(custom_dir.join(format!("{}.md", command)));
     }
 
-    locations.push(
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("scripts/commands")
-            .join(format!("{}.md", command)),
-    );
+    if let Some(bundled_dir) = command_templates::get_bundled_commands_path() {
+        locations.push(bundled_dir.join(format!("{}.md", command)));
+    }
 
     locations
 }

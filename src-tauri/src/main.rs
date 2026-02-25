@@ -156,6 +156,36 @@ fn main() {
             tracing::info!("Bored starting up...");
             tracing::info!("App data directory: {:?}", app_data_dir);
 
+            // Resolve bundled command templates from Tauri resources so that
+            // production builds can find them (CARGO_MANIFEST_DIR doesn't exist
+            // outside the dev source tree).
+            match app
+                .path()
+                .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
+            {
+                Ok(resource_commands) if resource_commands.exists() => {
+                    tracing::info!(
+                        "Bundled commands resource path: {:?}",
+                        resource_commands
+                    );
+                    bored::agents::command_templates::init_resource_commands_path(
+                        resource_commands,
+                    );
+                }
+                Ok(resource_commands) => {
+                    tracing::warn!(
+                        "Bundled commands resource path resolved but does not exist: {:?}",
+                        resource_commands
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to resolve bundled commands resource path: {}",
+                        e
+                    );
+                }
+            }
+
             // Create window first to show loading screen while initialization continues
             let window_url = if cfg!(debug_assertions) {
                 WebviewUrl::External("http://localhost:1420".parse().unwrap())
