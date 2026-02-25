@@ -1,6 +1,6 @@
 import {
   useSettingsStore,
-  MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
   type AIModel,
 } from '../../stores/settingsStore';
 
@@ -30,7 +30,7 @@ export function ValidationAgentSettings() {
             onChange={(e) => updateConfig('claude', { validationModel: e.target.value as AIModel })}
             className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           >
-            {MODEL_OPTIONS.map((opt) => (
+            {CLAUDE_MODEL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

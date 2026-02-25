@@ -1,87 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import {
-  mapModelForCodex,
-  mapStagesForCodex,
   getDefaultConfigForAgent,
   validateStageOrder,
   expandStageKey,
   buildFullExecutionOrder,
-  MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
-  DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_CLAUDE_WORKFLOW_STAGES,
   DEFAULT_STAGE_ORDER,
   REQUIRED_STAGE_KEYS,
   RESERVED_INTERNAL_STAGE_IDS,
   BUILTIN_CATALOG_COMMANDS,
   WORKFLOW_STAGE_INFO,
-  type WorkflowStages,
 } from './settingsStore.types';
-
-describe('mapModelForCodex', () => {
-  it('maps opus models to gpt-5.3-codex', () => {
-    expect(mapModelForCodex('opus-4.6')).toBe('gpt-5.3-codex');
-    expect(mapModelForCodex('opus-4.5')).toBe('gpt-5.3-codex');
-  });
-
-  it('maps sonnet models to gpt-5.2-codex', () => {
-    expect(mapModelForCodex('sonnet-4.6')).toBe('gpt-5.2-codex');
-    expect(mapModelForCodex('sonnet-4.5')).toBe('gpt-5.2-codex');
-  });
-
-  it('passes through codex-native models unchanged', () => {
-    expect(mapModelForCodex('gpt-5.3-codex')).toBe('gpt-5.3-codex');
-    expect(mapModelForCodex('gpt-5.2-codex')).toBe('gpt-5.2-codex');
-  });
-
-  it('passes through unknown models unchanged', () => {
-    expect(mapModelForCodex('custom-model')).toBe('custom-model');
-    expect(mapModelForCodex('')).toBe('');
-  });
-});
-
-describe('mapStagesForCodex', () => {
-  it('maps all stage models to codex equivalents', () => {
-    const input: WorkflowStages = {
-      branchGen:         { enabled: true, model: 'sonnet-4.6' },
-      plan:              { enabled: true, model: 'opus-4.6' },
-      implement:         { enabled: true, model: 'opus-4.6' },
-      'code-review':     { enabled: true, model: 'opus-4.5' },
-      deslop:            { enabled: false, model: 'sonnet-4.6' },
-      cleanup:           { enabled: true, model: 'sonnet-4.6' },
-      'unit-tests':      { enabled: false, model: 'opus-4.5' },
-      'review-changes':  { enabled: true, model: 'opus-4.5' },
-      commit:            { enabled: true, model: 'sonnet-4.6' },
-    };
-
-    const result = mapStagesForCodex(input);
-
-    expect(result.branchGen.model).toBe('gpt-5.2-codex');
-    expect(result.plan.model).toBe('gpt-5.3-codex');
-    expect(result.implement.model).toBe('gpt-5.3-codex');
-    expect(result['code-review'].model).toBe('gpt-5.3-codex');
-    expect(result.deslop.model).toBe('gpt-5.2-codex');
-    expect(result.commit.model).toBe('gpt-5.2-codex');
-  });
-
-  it('preserves enabled/disabled state', () => {
-    const result = mapStagesForCodex(DEFAULT_WORKFLOW_STAGES);
-    expect(result.cleanup.enabled).toBe(true);
-    expect(result.plan.enabled).toBe(true);
-  });
-
-  it('does not mutate the input', () => {
-    const input = { ...DEFAULT_WORKFLOW_STAGES };
-    const originalPlan = input.plan.model;
-    mapStagesForCodex(input);
-    expect(input.plan.model).toBe(originalPlan);
-  });
-});
 
 describe('getDefaultConfigForAgent', () => {
   it('returns claude config with Claude-specific settings', () => {
     const config = getDefaultConfigForAgent('claude');
-    expect(config.plannerModel).toBe('opus-4.5');
-    expect(config.diagnosticModel).toBe('sonnet-4.6');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
+    expect(config.diagnosticModel).toBe('claude-sonnet-4-6');
     expect(config.settings).toHaveProperty('authToken');
     expect(config.settings).toHaveProperty('thinkingEnabled');
     expect(config.settings).toHaveProperty('chromeEnabled');
@@ -89,7 +26,7 @@ describe('getDefaultConfigForAgent', () => {
 
   it('returns cursor config with empty settings (no thinkingEnabled)', () => {
     const config = getDefaultConfigForAgent('cursor');
-    expect(config.plannerModel).toBe('opus-4.5');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
     expect(config.settings).toEqual({});
     expect(config.settings).not.toHaveProperty('thinkingEnabled');
     expect(config.settings).not.toHaveProperty('authToken');
@@ -107,7 +44,7 @@ describe('getDefaultConfigForAgent', () => {
 
   it('returns claude-based defaults for unknown agent', () => {
     const config = getDefaultConfigForAgent('unknown-agent');
-    expect(config.plannerModel).toBe('opus-4.5');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
     expect(config.settings).toEqual({});
   });
 
@@ -117,9 +54,9 @@ describe('getDefaultConfigForAgent', () => {
     a.plannerModel = 'modified';
     a.settings.authToken = 'modified';
     a.workflowStages.plan.model = 'modified';
-    expect(b.plannerModel).toBe('opus-4.5');
+    expect(b.plannerModel).toBe('claude-opus-4-5');
     expect(b.settings.authToken).toBe('');
-    expect(b.workflowStages.plan.model).toBe('opus-4.6');
+    expect(b.workflowStages.plan.model).toBe('claude-opus-4-6');
   });
 
   it('does not include workflowPreset in configs', () => {
@@ -149,9 +86,9 @@ describe('getDefaultConfigForAgent', () => {
 });
 
 describe('constants', () => {
-  it('MODEL_OPTIONS has 4 Claude/Anthropic models', () => {
-    expect(MODEL_OPTIONS).toHaveLength(4);
-    expect(MODEL_OPTIONS.map((o) => o.value)).toEqual(['opus-4.6', 'opus-4.5', 'sonnet-4.6', 'sonnet-4.5']);
+  it('CLAUDE_MODEL_OPTIONS has 4 Claude CLI models', () => {
+    expect(CLAUDE_MODEL_OPTIONS).toHaveLength(4);
+    expect(CLAUDE_MODEL_OPTIONS.map((o) => o.value)).toEqual(['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5']);
   });
 
   it('CODEX_MODEL_OPTIONS has 2 GPT models', () => {
@@ -219,20 +156,20 @@ describe('constants', () => {
     }
   });
 
-  it('DEFAULT_WORKFLOW_STAGES has entries for all stages in DEFAULT_STAGE_ORDER', () => {
+  it('DEFAULT_CLAUDE_WORKFLOW_STAGES has entries for all stages in DEFAULT_STAGE_ORDER', () => {
     for (const key of DEFAULT_STAGE_ORDER) {
-      expect(DEFAULT_WORKFLOW_STAGES[key]).toBeDefined();
-      expect(typeof DEFAULT_WORKFLOW_STAGES[key].enabled).toBe('boolean');
+      expect(DEFAULT_CLAUDE_WORKFLOW_STAGES[key]).toBeDefined();
+      expect(typeof DEFAULT_CLAUDE_WORKFLOW_STAGES[key].enabled).toBe('boolean');
     }
   });
 
-  it('DEFAULT_WORKFLOW_STAGES uses kebab-case for command keys', () => {
-    expect(DEFAULT_WORKFLOW_STAGES['code-review']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['unit-tests']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['review-changes']).toBeDefined();
-    expect(DEFAULT_WORKFLOW_STAGES['codeReview' as string]).toBeUndefined();
-    expect(DEFAULT_WORKFLOW_STAGES['unitTests' as string]).toBeUndefined();
-    expect(DEFAULT_WORKFLOW_STAGES['finalReview' as string]).toBeUndefined();
+  it('DEFAULT_CLAUDE_WORKFLOW_STAGES uses kebab-case for command keys', () => {
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['code-review']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['unit-tests']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['review-changes']).toBeDefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['codeReview' as string]).toBeUndefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['unitTests' as string]).toBeUndefined();
+    expect(DEFAULT_CLAUDE_WORKFLOW_STAGES['finalReview' as string]).toBeUndefined();
   });
 
   it('DEFAULT_STAGE_ORDER uses kebab-case for command keys', () => {
@@ -439,11 +376,11 @@ describe('buildFullExecutionOrder', () => {
   });
 });
 
-describe('BUILTIN_CATALOG_COMMANDS / DEFAULT_WORKFLOW_STAGES consistency', () => {
-  it('every enabled builtin has a matching entry in DEFAULT_WORKFLOW_STAGES', () => {
+describe('BUILTIN_CATALOG_COMMANDS / DEFAULT_CLAUDE_WORKFLOW_STAGES consistency', () => {
+  it('every enabled builtin has a matching entry in DEFAULT_CLAUDE_WORKFLOW_STAGES', () => {
     const enabledBuiltins = BUILTIN_CATALOG_COMMANDS.filter((c) => c.enabled);
     for (const cmd of enabledBuiltins) {
-      expect(DEFAULT_WORKFLOW_STAGES[cmd.id]).toBeDefined();
+      expect(DEFAULT_CLAUDE_WORKFLOW_STAGES[cmd.id]).toBeDefined();
     }
   });
 

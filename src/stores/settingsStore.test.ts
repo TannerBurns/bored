@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useSettingsStore, WORKFLOW_STAGE_INFO, MODEL_OPTIONS, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
+import { useSettingsStore, WORKFLOW_STAGE_INFO, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
 
 describe('useSettingsStore', () => {
   beforeEach(() => {
@@ -41,7 +41,7 @@ describe('useSettingsStore', () => {
     beforeEach(() => {
       useSettingsStore.getState().updateAgentConfig('claude', {
         plannerAutoApprove: false,
-        plannerModel: 'opus-4.5',
+        plannerModel: 'claude-opus-4-5',
         plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
@@ -54,7 +54,7 @@ describe('useSettingsStore', () => {
     it('has correct planner defaults', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
       expect(config.plannerAutoApprove).toBe(false);
-      expect(config.plannerModel).toBe('opus-4.5');
+      expect(config.plannerModel).toBe('claude-opus-4-5');
       expect(config.plannerMaxExplorations).toBe(10);
       expect(config.plannerTimeoutMinutes).toBe(10);
       expect(config.plannerMaxRetries).toBe(2);
@@ -77,22 +77,32 @@ describe('useSettingsStore', () => {
   describe('workflow settings', () => {
     describe('setAgentConfigStage', () => {
       it('updates a single stage model', () => {
-        useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { model: 'sonnet-4.5' });
+        useSettingsStore.getState().setAgentConfigStage('claude', 'plan', { model: 'claude-sonnet-4-5' });
         const config = useSettingsStore.getState().getAgentConfig('claude');
-        expect(config.workflowStages.plan.model).toBe('sonnet-4.5');
+        expect(config.workflowStages.plan.model).toBe('claude-sonnet-4-5');
         expect(config.workflowStages.plan.enabled).toBe(true);
       });
 
-      it('disabling a non-required stage removes it from stageOrder and workflowStages', () => {
+      it('disabling a non-required stage marks it as disabled', () => {
         const before = useSettingsStore.getState().getAgentConfig('claude');
         expect(before.workflowStages.deslop).toBeDefined();
-        expect(before.stageOrder).toContain('deslop');
+        expect(before.workflowStages.deslop.enabled).toBe(true);
 
         useSettingsStore.getState().setAgentConfigStage('claude', 'deslop', { enabled: false });
 
         const after = useSettingsStore.getState().getAgentConfig('claude');
-        expect(after.workflowStages.deslop).toBeUndefined();
-        expect(after.stageOrder).not.toContain('deslop');
+        expect(after.workflowStages.deslop).toBeDefined();
+        expect(after.workflowStages.deslop.enabled).toBe(false);
+      });
+
+      it('disabling a non-existent stage still produces a valid config with model', () => {
+        useSettingsStore.getState().setAgentConfigStage('claude', 'ghost-stage' as never, { enabled: false });
+        const config = useSettingsStore.getState().getAgentConfig('claude');
+        const stage = config.workflowStages['ghost-stage' as never];
+        expect(stage).toBeDefined();
+        expect(stage.enabled).toBe(false);
+        expect(typeof stage.model).toBe('string');
+        expect(stage.model.length).toBeGreaterThan(0);
       });
 
       it('disabling a required stage does NOT remove it', () => {
@@ -104,11 +114,11 @@ describe('useSettingsStore', () => {
 
       it('preserves other stages when updating one', () => {
         const before = { ...useSettingsStore.getState().getAgentConfig('claude').workflowStages };
-        useSettingsStore.getState().setAgentConfigStage('claude', 'commit', { model: 'sonnet-4.5' });
+        useSettingsStore.getState().setAgentConfigStage('claude', 'commit', { model: 'claude-sonnet-4-5' });
         const after = useSettingsStore.getState().getAgentConfig('claude').workflowStages;
         expect(after.plan).toEqual(before.plan);
         expect(after.implement).toEqual(before.implement);
-        expect(after.commit.model).toBe('sonnet-4.5');
+        expect(after.commit.model).toBe('claude-sonnet-4-5');
       });
 
       it('disabling per-agent does not affect other agents', () => {
@@ -346,6 +356,16 @@ describe('useSettingsStore', () => {
       expect(orderAfterSecond).toEqual(orderAfterFirst);
     });
 
+    it('addCustomCommand uses agent-appropriate default model for codex', () => {
+      useSettingsStore.getState().addCustomCommand({
+        id: 'codex-model-cmd', name: 'Codex Model', description: 'Test', enabled: true, source: 'custom', filename: 'codex-model-cmd.md',
+      });
+      const codexConfig = useSettingsStore.getState().getAgentConfig('codex');
+      expect(codexConfig.workflowStages['codex-model-cmd'].model).toBe('gpt-5.2-codex');
+      const claudeConfig = useSettingsStore.getState().getAgentConfig('claude');
+      expect(claudeConfig.workflowStages['codex-model-cmd'].model).toBe('claude-sonnet-4-6');
+    });
+
     it('addCustomCommand with enabled:true inserts before commit', () => {
       useSettingsStore.getState().addCustomCommand({
         id: 'custom-before-commit',
@@ -510,10 +530,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 16', () => {
+    it('uses version 17', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(16);
+      expect(options.version).toBe(17);
     });
   });
 
@@ -725,19 +745,12 @@ describe('useSettingsStore', () => {
       }
     });
 
-    it('MODEL_OPTIONS includes all expected models', () => {
-      const values = MODEL_OPTIONS.map((o) => o.value);
-      expect(values).toContain('opus-4.6');
-      expect(values).toContain('opus-4.5');
-      expect(values).toContain('sonnet-4.6');
-      expect(values).toContain('sonnet-4.5');
-    });
   });
 
   describe('validation agent settings', () => {
     it('has correct default validationModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
-      expect(config.validationModel).toBe('sonnet-4.6');
+      expect(config.validationModel).toBe('claude-sonnet-4-6');
     });
   });
 
@@ -944,12 +957,12 @@ describe('useSettingsStore', () => {
   describe('diagnostic agent settings', () => {
     it('has correct default diagnosticModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
-      expect(config.diagnosticModel).toBe('sonnet-4.6');
+      expect(config.diagnosticModel).toBe('claude-sonnet-4-6');
     });
 
     it('sets diagnosticModel', () => {
-      useSettingsStore.getState().updateAgentConfig('claude', { diagnosticModel: 'opus-4.5' });
-      expect(useSettingsStore.getState().getAgentConfig('claude').diagnosticModel).toBe('opus-4.5');
+      useSettingsStore.getState().updateAgentConfig('claude', { diagnosticModel: 'claude-opus-4-5' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').diagnosticModel).toBe('claude-opus-4-5');
     });
   });
 });

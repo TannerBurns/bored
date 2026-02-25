@@ -10,25 +10,25 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
     autoPilotEnabled: false,
     workflowStages: {
-      branchGen:        { enabled: true, model: 'sonnet-4.6' },
-      plan:             { enabled: true, model: 'opus-4.6' },
-      implement:        { enabled: true, model: 'opus-4.6' },
-      'code-review':    { enabled: true, model: 'opus-4.6' },
-      cleanup:          { enabled: true, model: 'sonnet-4.6' },
-      commit:           { enabled: true, model: 'sonnet-4.6' },
+      branchGen:        { enabled: true, model: 'claude-sonnet-4-6' },
+      plan:             { enabled: true, model: 'claude-opus-4-6' },
+      implement:        { enabled: true, model: 'claude-opus-4-6' },
+      'code-review':    { enabled: true, model: 'claude-opus-4-6' },
+      cleanup:          { enabled: true, model: 'claude-sonnet-4-6' },
+      commit:           { enabled: true, model: 'claude-sonnet-4-6' },
     },
     stageOrder: ['branchGen', 'plan', 'implement', 'code-review', 'cleanup', 'commit'],
     codeReviewMaxIterations: 3,
     stageTimeoutHours: 1,
     stageMaxRetries: 2,
-    plannerModel: 'opus-4.5',
+    plannerModel: 'claude-opus-4-5',
     plannerAutoApprove: false,
     plannerMaxExplorations: 10,
     plannerTimeoutMinutes: 10,
     plannerMaxRetries: 2,
-    validationModel: 'sonnet-4.6',
+    validationModel: 'claude-sonnet-4-6',
     validationTimeoutMinutes: 10,
-    diagnosticModel: 'sonnet-4.6',
+    diagnosticModel: 'claude-sonnet-4-6',
     settings: {},
     ...overrides,
   };
@@ -53,11 +53,11 @@ const storeState = {
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: (selector?: (s: typeof storeState) => unknown) =>
     selector ? selector(storeState) : storeState,
-  MODEL_OPTIONS: [
-    { value: 'opus-4.6', label: 'Opus 4.6' },
-    { value: 'opus-4.5', label: 'Opus 4.5' },
-    { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
+  CLAUDE_MODEL_OPTIONS: [
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
   ],
   CODEX_MODEL_OPTIONS: [
     { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
@@ -212,9 +212,9 @@ describe('AgentSettingsPage', () => {
     it('changes stage model via select', () => {
       render(<AgentSettingsPage agentId="claude" />);
       const selects = screen.getAllByRole('combobox');
-      const planSelect = selects.find((s) => (s as HTMLSelectElement).value === 'opus-4.6');
+      const planSelect = selects.find((s) => (s as HTMLSelectElement).value === 'claude-opus-4-6');
       if (planSelect) {
-        fireEvent.change(planSelect, { target: { value: 'sonnet-4.5' } });
+        fireEvent.change(planSelect, { target: { value: 'claude-sonnet-4-5' } });
         expect(mockSetStage).toHaveBeenCalled();
       }
     });
@@ -222,7 +222,7 @@ describe('AgentSettingsPage', () => {
     it('stage config section is dimmed when auto-pilot is enabled', () => {
       storeState.agentConfigs.claude = makeConfig({ autoPilotEnabled: true });
       render(<AgentSettingsPage agentId="claude" />);
-      const desc = screen.getByText('Stage configuration is managed by the agent in Auto-Pilot mode.');
+      const desc = screen.getByText('Choose models for core stages. Commands are selected by auto-pilot.');
       expect(desc).toBeInTheDocument();
     });
   });

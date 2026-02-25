@@ -9,15 +9,15 @@ const storeState = {
   agentConfigs: {
     claude: {
       workflowStages: {
-        branchGen:        { enabled: true, model: 'sonnet-4.6' },
-        plan:             { enabled: true, model: 'opus-4.6' },
-        implement:        { enabled: true, model: 'opus-4.6' },
-        'code-review':    { enabled: true, model: 'opus-4.6' },
-        cleanup:          { enabled: true, model: 'sonnet-4.6' },
-        'unit-tests':     { enabled: true, model: 'opus-4.5' },
-        'review-changes': { enabled: true, model: 'opus-4.5' },
-        deslop:           { enabled: true, model: 'opus-4.5' },
-        commit:           { enabled: true, model: 'sonnet-4.6' },
+        branchGen:        { enabled: true, model: 'claude-sonnet-4-6' },
+        plan:             { enabled: true, model: 'claude-opus-4-6' },
+        implement:        { enabled: true, model: 'claude-opus-4-6' },
+        'code-review':    { enabled: true, model: 'claude-opus-4-6' },
+        cleanup:          { enabled: true, model: 'claude-sonnet-4-6' },
+        'unit-tests':     { enabled: true, model: 'claude-opus-4-5' },
+        'review-changes': { enabled: true, model: 'claude-opus-4-5' },
+        deslop:           { enabled: true, model: 'claude-opus-4-5' },
+        commit:           { enabled: true, model: 'claude-sonnet-4-6' },
       },
       stageOrder: [
         'branchGen', 'plan', 'implement',
@@ -43,11 +43,11 @@ const storeState = {
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: (selector?: (s: typeof storeState) => unknown) =>
     selector ? selector(storeState) : storeState,
-  MODEL_OPTIONS: [
-    { value: 'opus-4.6', label: 'Opus 4.6' },
-    { value: 'opus-4.5', label: 'Opus 4.5' },
-    { value: 'sonnet-4.6', label: 'Sonnet 4.6' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
+  CLAUDE_MODEL_OPTIONS: [
+    { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
+    { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
   ],
   WORKFLOW_STAGE_INFO: [
     { key: 'branchGen', label: 'Branch Name', description: 'Generate branch name', required: true },

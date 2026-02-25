@@ -151,11 +151,22 @@ impl Database {
                     continue;
                 }
 
-                let model = ticket_model.as_deref().unwrap_or(crate::agents::models::DEFAULT_STAGE_MODEL);
-
                 let parsed_metadata = metadata_json
                     .as_deref()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+
+                // Prefer the stage_model stored at execution time (captures per-stage
+                // overrides from workflow settings). Fall back to ticket model, then
+                // the global default.
+                let stored_stage_model: Option<String> = parsed_metadata
+                    .as_ref()
+                    .and_then(|m| m.get("stage_model"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let model = stored_stage_model
+                    .as_deref()
+                    .or(ticket_model.as_deref())
+                    .unwrap_or(crate::agents::models::DEFAULT_STAGE_MODEL);
 
                 let stored_agent_config: Option<std::collections::HashMap<String, serde_json::Value>> =
                     parsed_metadata

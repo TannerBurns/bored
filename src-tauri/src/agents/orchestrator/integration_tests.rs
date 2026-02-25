@@ -110,13 +110,15 @@ fn seed_parent_run(db: &Database, ticket_id: &str) -> String {
 
 fn make_workflow_settings(auto_pilot: bool, synced: bool) -> Arc<Mutex<PerAgentSettings>> {
     let mut map = HashMap::new();
+    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
+    let diag = crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL;
     let default_stages: HashMap<String, StageConfig> = [
-        ("branchGen", "sonnet-4.6"),
-        ("plan", "opus-4.6"),
-        ("implement", "opus-4.6"),
-        ("code-review", "opus-4.6"),
-        ("cleanup", "sonnet-4.6"),
-        ("commit", "sonnet-4.6"),
+        ("branchGen", diag),
+        ("plan", stage),
+        ("implement", stage),
+        ("code-review", stage),
+        ("cleanup", diag),
+        ("commit", diag),
     ]
     .into_iter()
     .map(|(k, m)| {
@@ -139,7 +141,7 @@ fn make_workflow_settings(auto_pilot: bool, synced: bool) -> Arc<Mutex<PerAgentS
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
             stage_max_retries: 2,
-            diagnostic_model: "sonnet-4.6".to_string(),
+            diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
             stage_order: Some(
                 DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
             ),
@@ -349,7 +351,7 @@ fn is_stage_enabled_returns_false_for_disabled() {
             "code-review".to_string(),
             StageConfig {
                 enabled: false,
-                model: "opus-4.6".to_string(),
+                model: crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
             },
         );
     }
@@ -380,9 +382,9 @@ fn get_stage_model_returns_configured_model() {
     let settings = make_workflow_settings(false, true);
     let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
 
-    assert_eq!(orch.get_stage_model("plan"), "opus-4.6");
-    assert_eq!(orch.get_stage_model("branch-gen"), "sonnet-4.6");
-    assert_eq!(orch.get_stage_model("add-and-commit"), "sonnet-4.6");
+    assert_eq!(orch.get_stage_model("plan"), crate::agents::models::DEFAULT_STAGE_MODEL);
+    assert_eq!(orch.get_stage_model("branch-gen"), crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL);
+    assert_eq!(orch.get_stage_model("add-and-commit"), crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL);
 }
 
 #[test]
@@ -393,8 +395,8 @@ fn get_stage_model_maps_code_review_fix_to_code_review() {
     let settings = make_workflow_settings(false, true);
     let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
 
-    assert_eq!(orch.get_stage_model("code-review"), "opus-4.6");
-    assert_eq!(orch.get_stage_model("code-review-fix"), "opus-4.6");
+    assert_eq!(orch.get_stage_model("code-review"), crate::agents::models::DEFAULT_STAGE_MODEL);
+    assert_eq!(orch.get_stage_model("code-review-fix"), crate::agents::models::DEFAULT_STAGE_MODEL);
 }
 
 #[test]
@@ -1031,11 +1033,13 @@ fn make_config_with_provider(
 
 fn make_workflow_settings_for_agent(agent_id: &str) -> Arc<Mutex<PerAgentSettings>> {
     let mut map = HashMap::new();
+    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
+    let diag = crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL;
     let default_stages: HashMap<String, StageConfig> = [
-        ("branchGen", "sonnet-4.6"),
-        ("plan", "opus-4.6"),
-        ("implement", "opus-4.6"),
-        ("commit", "sonnet-4.6"),
+        ("branchGen", diag),
+        ("plan", stage),
+        ("implement", stage),
+        ("commit", diag),
     ]
     .into_iter()
     .map(|(k, m)| (k.to_string(), StageConfig { enabled: true, model: m.to_string() }))
@@ -1050,7 +1054,7 @@ fn make_workflow_settings_for_agent(agent_id: &str) -> Arc<Mutex<PerAgentSetting
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
             stage_max_retries: 0,
-            diagnostic_model: "sonnet-4.6".to_string(),
+            diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
             stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
             synced: true,
         },

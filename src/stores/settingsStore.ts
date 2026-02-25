@@ -4,12 +4,10 @@ import { syncAgentConfigs } from '../lib/tauri';
 
 import {
   DEFAULT_STAGE_ORDER,
-  DEFAULT_WORKFLOW_STAGES,
+  DEFAULT_CLAUDE_WORKFLOW_STAGES,
   BUILTIN_CATALOG_COMMANDS,
   REQUIRED_STAGE_KEYS,
   getDefaultConfigForAgent,
-  mapModelForCodex,
-  mapStagesForCodex,
   type AgentConfig,
   type AIModel,
   type CatalogCommand,
@@ -20,7 +18,7 @@ import {
 export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, CatalogCommand };
 export type { WorkflowStageKey } from './settingsStore.types';
 export {
-  MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   WORKFLOW_STAGE_INFO,
   DEFAULT_STAGE_ORDER,
@@ -80,7 +78,7 @@ function addCommandToAllAgents(
       ...config,
       workflowStages: {
         ...config.workflowStages,
-        [commandId]: { enabled: true, model: 'sonnet-4.6' as AIModel },
+        [commandId]: { enabled: true, model: (config.diagnosticModel ?? getDefaultConfigForAgent(agentId).diagnosticModel) as AIModel },
       },
       stageOrder: insertStageBeforeCommit(config.stageOrder, commandId),
     };
@@ -152,14 +150,19 @@ export const useSettingsStore = create<SettingsState>()(
         const current = configs[agentId] ?? getDefaultConfigForAgent(agentId);
 
         if (config.enabled === false && !REQUIRED_STAGE_KEYS.has(key)) {
-          const { [key]: _, ...remainingStages } = current.workflowStages;
           set({
             agentConfigs: {
               ...configs,
               [agentId]: {
                 ...current,
-                workflowStages: remainingStages,
-                stageOrder: current.stageOrder.filter((k) => k !== key),
+                workflowStages: {
+                  ...current.workflowStages,
+                  [key]: {
+                    model: (current.diagnosticModel ?? getDefaultConfigForAgent(agentId).diagnosticModel) as AIModel,
+                    ...current.workflowStages[key],
+                    enabled: false,
+                  },
+                },
               },
             },
           });
@@ -303,7 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 16,
+      version: 17,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -381,7 +384,7 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.plannerModel === 'sonnet') state.plannerModel = 'sonnet-4.5';
         }
         if (version < 5) {
-          state.workflowStages = { ...DEFAULT_WORKFLOW_STAGES };
+          state.workflowStages = { ...DEFAULT_CLAUDE_WORKFLOW_STAGES };
         }
 
         if (version < 12) {
@@ -389,30 +392,25 @@ export const useSettingsStore = create<SettingsState>()(
           const buildConfig = (agentId: string): AgentConfig => {
             const base = getDefaultConfigForAgent(agentId);
             const isCodex = agentId === 'codex';
-            const mapModel = (m: unknown) => {
-              const model = typeof m === 'string' ? m : base.plannerModel;
-              return isCodex ? mapModelForCodex(model) : model;
-            };
             const stages = state.workflowStages as WorkflowStages | undefined;
-            const workflowStages = stages
-              ? (isCodex ? mapStagesForCodex(stages) : { ...stages })
-              : base.workflowStages;
+            const keepOrDefault = (persisted: unknown, fallback: AIModel): AIModel =>
+              (!isCodex && typeof persisted === 'string') ? persisted as AIModel : fallback;
             return {
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
-              workflowStages,
+              workflowStages: (!isCodex && stages) ? { ...stages } : base.workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
               stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
               codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
-              plannerModel: mapModel(state.plannerModel) as AIModel,
+              plannerModel: keepOrDefault(state.plannerModel, base.plannerModel),
               plannerAutoApprove: (state.plannerAutoApprove as boolean) ?? base.plannerAutoApprove,
               plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
               plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
-              validationModel: mapModel(state.validationModel) as AIModel,
+              validationModel: keepOrDefault(state.validationModel, base.validationModel),
               validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
-              diagnosticModel: mapModel(state.diagnosticModel) as AIModel,
+              diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
               settings: agentSettings[agentId] ?? base.settings,
             };
           };
@@ -487,7 +485,7 @@ export const useSettingsStore = create<SettingsState>()(
                 cfg.autoPilotEnabled = false;
               }
               if (cfg.autoPilotModel === undefined) {
-                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'opus-4.6';
+                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6';
               }
             }
           }
@@ -504,6 +502,31 @@ export const useSettingsStore = create<SettingsState>()(
           }
           state.cursorModelsSynced = false;
           state.cursorModels = [];
+        }
+
+        if (version < 17) {
+          const SHORT_TO_CLAUDE: Record<string, string> = {
+            'opus-4.6': 'claude-opus-4-6',
+            'opus-4.5': 'claude-opus-4-5',
+            'sonnet-4.6': 'claude-sonnet-4-6',
+            'sonnet-4.5': 'claude-sonnet-4-5',
+          };
+          const mapModel = (m: unknown) => (typeof m === 'string' && SHORT_TO_CLAUDE[m]) || m;
+
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          for (const cfg of [configs?.claude, configs?.cursor].filter(Boolean) as Record<string, unknown>[]) {
+            cfg.autoPilotModel = mapModel(cfg.autoPilotModel);
+            cfg.plannerModel = mapModel(cfg.plannerModel);
+            cfg.validationModel = mapModel(cfg.validationModel);
+            cfg.diagnosticModel = mapModel(cfg.diagnosticModel);
+            const stages = cfg.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
+            if (stages) {
+              for (const val of Object.values(stages)) {
+                const mapped = SHORT_TO_CLAUDE[val.model];
+                if (mapped) val.model = mapped;
+              }
+            }
+          }
         }
 
         return state as unknown as SettingsState;
@@ -526,7 +549,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
-      autoPilotModel: config.autoPilotModel ?? 'opus-4.6',
+      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6'),
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,

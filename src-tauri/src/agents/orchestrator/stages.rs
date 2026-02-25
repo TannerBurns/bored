@@ -226,7 +226,10 @@ impl WorkflowOrchestrator {
             let stdout = result.captured_stdout.as_deref().unwrap_or("");
             let cost_data = self.extract_cost(stdout, &stage_model, duration_secs);
 
-            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
+            let mut metadata = serde_json::json!({
+                "duration_secs": duration_secs,
+                "stage_model": &stage_model,
+            });
 
             if let Some(ref cost) = cost_data {
                 metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
