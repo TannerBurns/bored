@@ -178,34 +178,39 @@ fn extract_cost_empty_returns_none() {
     assert!(p.extract_cost("", "opus-4.6", 0.0).is_none());
 }
 
-// ── map_model_name ─────────────────────────────────────────────
+// ── model override ────────────────────────────────────────────
 
 #[test]
-fn map_model_name_maps_known_models() {
-    let p = ClaudeProvider::new();
-    assert_eq!(p.map_model_name("opus-4.6"), "claude-opus-4-6");
-    assert_eq!(p.map_model_name("opus-4.5"), "claude-opus-4-5");
-    assert_eq!(p.map_model_name("sonnet-4.6"), "claude-sonnet-4-6");
-    assert_eq!(p.map_model_name("sonnet-4.5"), "claude-sonnet-4-5");
-}
-
-#[test]
-fn map_model_name_passes_through_unknown() {
-    let p = ClaudeProvider::new();
-    assert_eq!(p.map_model_name("custom-model"), "custom-model");
-    assert_eq!(p.map_model_name("claude-opus-4-6"), "claude-opus-4-6");
-}
-
-#[test]
-fn build_command_maps_model_name_end_to_end() {
+fn build_command_passes_model_through_without_mapping() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.model = Some("opus-4.6".to_string());
     let (_, args) = p.build_command(&config);
     assert!(
-        args.contains(&"claude-opus-4-6".to_string()),
-        "Provider build_command should map opus-4.6 -> claude-opus-4-6"
+        args.contains(&"opus-4.6".to_string()),
+        "Provider build_command should pass model name through without mapping"
     );
+}
+
+#[test]
+fn build_command_model_override_takes_precedence() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.model = Some("opus-4.6".to_string());
+    config.agent_config.insert("model_override".into(), serde_json::json!("my-local-llama"));
+    let (_, args) = p.build_command(&config);
+    assert!(args.contains(&"my-local-llama".to_string()));
+    assert!(!args.contains(&"opus-4.6".to_string()));
+}
+
+#[test]
+fn build_command_empty_model_override_falls_back_to_stage_model() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.model = Some("sonnet-4.6".to_string());
+    config.agent_config.insert("modelOverride".into(), serde_json::json!(""));
+    let (_, args) = p.build_command(&config);
+    assert!(args.contains(&"sonnet-4.6".to_string()));
 }
 
 // ── New trait methods coverage ───────────────────────────────────

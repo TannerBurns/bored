@@ -36,12 +36,19 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         "--dangerously-skip-permissions".to_string(),
     ];
 
-    if let Some(ref model) = config.model {
+    let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
+
+    let effective_model = api_config
+        .model_override
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .or_else(|| config.model.clone());
+
+    if let Some(ref model) = effective_model {
         args.push("--model".to_string());
         args.push(model.clone());
     }
-
-    let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
     let thinking = api_config.thinking_enabled.unwrap_or(true);
     let extended_context = api_config.extended_context_enabled.unwrap_or(false);
     let chrome = api_config.chrome_enabled.unwrap_or(false);

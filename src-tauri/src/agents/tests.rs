@@ -329,14 +329,6 @@ impl AgentProvider for StubProvider {
 }
 
 #[test]
-fn default_map_model_name_is_passthrough() {
-    let p = StubProvider;
-    assert_eq!(p.map_model_name("opus-4.6"), "opus-4.6");
-    assert_eq!(p.map_model_name("custom-model"), "custom-model");
-    assert_eq!(p.map_model_name(""), "");
-}
-
-#[test]
 fn default_brand_color_is_none() {
     let p = StubProvider;
     assert!(p.brand_color().is_none());

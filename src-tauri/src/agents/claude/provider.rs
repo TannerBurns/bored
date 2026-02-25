@@ -69,9 +69,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn build_command(&self, config: &AgentRunConfig) -> (String, Vec<String>) {
-        let mut config = config.clone();
-        config.model = config.model.map(|m| self.map_model_name(&m));
-        command::build_command_from_provider_config(&config)
+        command::build_command_from_provider_config(config)
     }
 
     fn build_env_vars(&self, config: &AgentRunConfig) -> Vec<(String, String)> {
@@ -157,10 +155,6 @@ impl AgentProvider for ClaudeProvider {
 
     fn format_command_reference(&self, command: &str) -> String {
         format!(".claude/commands/{}.md", command)
-    }
-
-    fn map_model_name(&self, model: &str) -> String {
-        crate::agents::models::map_model_name(model)
     }
 
     fn brand_color(&self) -> Option<&str> {
