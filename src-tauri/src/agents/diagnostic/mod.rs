@@ -56,6 +56,7 @@ pub async fn run_diagnostic_agent(
     }
 
     let prompt = build_diagnostic_prompt(&context);
+    let agent_config_for_cost = agent_config.clone();
     let config = AgentRunConfig {
         agent_id,
         ticket_id: ticket_id.to_string(),
@@ -68,6 +69,8 @@ pub async fn run_diagnostic_agent(
     };
 
     let provider_for_extract = provider.clone();
+    let model_for_cost = config.model.clone();
+    let start_time = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {
         spawner::run_agent_via_provider(&*provider, &config, None)
     }).await;
@@ -94,6 +97,33 @@ pub async fn run_diagnostic_agent(
                 extracted_text.as_deref(),
             ) {
                 tracing::warn!("Failed to update diagnostic run status: {}", e);
+            }
+
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            let stage_model = model_for_cost
+                .as_deref()
+                .unwrap_or(crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL);
+            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*provider_for_extract,
+                stdout,
+                stage_model,
+                &agent_config_for_cost,
+                duration_secs,
+            );
+            let mut metadata = serde_json::json!({
+                "duration_secs": duration_secs,
+                "stage_model": stage_model,
+            });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if !agent_config_for_cost.is_empty() {
+                metadata["agent_config"] =
+                    serde_json::to_value(&agent_config_for_cost).unwrap_or_default();
+            }
+            if let Err(e) = db.set_run_metadata(&run.id, &metadata) {
+                tracing::warn!("Failed to save diagnostic run metadata: {}", e);
             }
 
             tracing::info!(
