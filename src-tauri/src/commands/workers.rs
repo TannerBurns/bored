@@ -186,20 +186,10 @@ pub async fn get_worker_queue_status(
 
 #[tauri::command]
 pub async fn get_commands_path(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
     use crate::agents::command_templates;
-    let path = command_templates::get_bundled_commands_path();
-    if let Some(p) = path {
-        return Ok(Some(p.to_string_lossy().to_string()));
-    }
-    use tauri::Manager;
-    let resource_path = app
-        .path()
-        .resolve("scripts/commands", tauri::path::BaseDirectory::Resource)
-        .ok()
-        .filter(|p| p.exists());
-    Ok(resource_path.map(|p| p.to_string_lossy().to_string()))
+    Ok(command_templates::get_bundled_commands_path().map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
