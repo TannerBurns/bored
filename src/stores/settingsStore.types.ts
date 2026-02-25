@@ -144,6 +144,19 @@ export const DEFAULT_CLAUDE_WORKFLOW_STAGES: WorkflowStages = {
   commit:            { enabled: true, model: 'claude-sonnet-4-5' },
 };
 
+/** Codex uses its own native model identifiers. */
+export const DEFAULT_CODEX_WORKFLOW_STAGES: WorkflowStages = {
+  branchGen:         { enabled: true, model: 'gpt-5.2-codex' },
+  plan:              { enabled: true, model: 'gpt-5.3-codex' },
+  implement:         { enabled: true, model: 'gpt-5.3-codex' },
+  'code-review':     { enabled: true, model: 'gpt-5.3-codex' },
+  cleanup:           { enabled: true, model: 'gpt-5.2-codex' },
+  'unit-tests':      { enabled: true, model: 'gpt-5.3-codex' },
+  'review-changes':  { enabled: true, model: 'gpt-5.3-codex' },
+  deslop:            { enabled: true, model: 'gpt-5.3-codex' },
+  commit:            { enabled: true, model: 'gpt-5.2-codex' },
+};
+
 /** Cursor uses short model names (opus-4.6, sonnet-4.6). */
 export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = {
   branchGen:         { enabled: true, model: 'sonnet-4.6' },
@@ -158,8 +171,8 @@ export const DEFAULT_WORKFLOW_STAGES: WorkflowStages = {
 };
 
 export function mapModelForCodex(model: string): string {
-  if (model.includes('opus')) return 'gpt-5.3-codex';
-  if (model.includes('sonnet')) return 'gpt-5.2-codex';
+  if (model.startsWith('opus')) return 'gpt-5.3-codex';
+  if (model.startsWith('sonnet')) return 'gpt-5.2-codex';
   return model;
 }
 
@@ -237,7 +250,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'gpt-5.3-codex',
-  workflowStages: mapStagesForCodex(DEFAULT_WORKFLOW_STAGES),
+  workflowStages: { ...DEFAULT_CODEX_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
   stageMaxRetries: 2,

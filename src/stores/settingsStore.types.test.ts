@@ -80,8 +80,8 @@ describe('mapStagesForCodex', () => {
 describe('getDefaultConfigForAgent', () => {
   it('returns claude config with Claude-specific settings', () => {
     const config = getDefaultConfigForAgent('claude');
-    expect(config.plannerModel).toBe('opus-4.5');
-    expect(config.diagnosticModel).toBe('sonnet-4.6');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
+    expect(config.diagnosticModel).toBe('claude-sonnet-4-6');
     expect(config.settings).toHaveProperty('authToken');
     expect(config.settings).toHaveProperty('thinkingEnabled');
     expect(config.settings).toHaveProperty('chromeEnabled');
@@ -107,7 +107,7 @@ describe('getDefaultConfigForAgent', () => {
 
   it('returns claude-based defaults for unknown agent', () => {
     const config = getDefaultConfigForAgent('unknown-agent');
-    expect(config.plannerModel).toBe('opus-4.5');
+    expect(config.plannerModel).toBe('claude-opus-4-5');
     expect(config.settings).toEqual({});
   });
 
@@ -117,9 +117,9 @@ describe('getDefaultConfigForAgent', () => {
     a.plannerModel = 'modified';
     a.settings.authToken = 'modified';
     a.workflowStages.plan.model = 'modified';
-    expect(b.plannerModel).toBe('opus-4.5');
+    expect(b.plannerModel).toBe('claude-opus-4-5');
     expect(b.settings.authToken).toBe('');
-    expect(b.workflowStages.plan.model).toBe('opus-4.6');
+    expect(b.workflowStages.plan.model).toBe('claude-opus-4-6');
   });
 
   it('does not include workflowPreset in configs', () => {
