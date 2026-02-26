@@ -3,6 +3,7 @@ import type { AgentRun, RunCostData } from '../../../types';
 import type { RunEvent } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
+import { SafetyCommitNotice } from '../../common/SafetyCommitNotice';
 
 function getWorkflowLabel(run: AgentRun): string {
   const mode = (run.metadata as Record<string, unknown> | undefined)?.workflow_mode;
@@ -202,6 +203,7 @@ function CurrentRunSection({
               <p><span className="font-medium">Started:</span> {new Date(currentRun.startedAt).toLocaleString()}</p>
             </div>
 
+            <SafetyCommitNotice run={currentRun} className="mt-3" />
             <AutoPilotSelections run={currentRun} />
             
             {/* Sub-runs for multi-stage workflows */}
@@ -451,6 +453,7 @@ function ExpandedRunDetails({
         )}
       </div>
 
+      <SafetyCommitNotice run={run} className="mt-3" />
       <AutoPilotSelections run={run} />
 
       {/* Sub-runs for multi-stage workflows */}

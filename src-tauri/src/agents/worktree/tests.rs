@@ -603,6 +603,212 @@ fn test_create_initial_commit_with_existing_files() {
     std::fs::remove_dir_all(&temp_dir).ok();
 }
 
+// --- safety_commit_if_needed tests ---
+
+#[test]
+fn test_safety_commit_clean_worktree_returns_none() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_clean_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-123");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_dirty_worktree_returns_hash() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_dirty_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::write(temp_dir.join("new_file.txt"), "uncommitted work").unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-456");
+    assert!(result.is_ok());
+    let hash = result.unwrap();
+    assert!(hash.is_some(), "Expected a commit hash, got None");
+    assert!(!hash.as_ref().unwrap().is_empty());
+
+    // Worktree should now be clean
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "Worktree should be clean after safety commit"
+    );
+
+    // Verify the commit message contains the run ID
+    let log = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    let message = String::from_utf8_lossy(&log.stdout);
+    assert!(
+        message.contains("run-456"),
+        "Commit message should contain run ID, got: {}",
+        message.trim()
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_staged_changes_returns_hash() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_staged_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::write(temp_dir.join("staged.txt"), "staged content").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "staged.txt"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-789");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some());
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_nonexistent_path_returns_none() {
+    let path = std::env::temp_dir().join(format!("nonexistent_{}", uuid::Uuid::new_v4()));
+    let result = manage::safety_commit_if_needed(&path, "run-000");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+}
+
+#[test]
+fn test_safety_commit_modified_file_returns_hash() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_modified_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    // Modify an existing tracked file
+    std::fs::write(temp_dir.join("README.md"), "modified content").unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-mod");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some());
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_deleted_file_returns_hash() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_deleted_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::remove_file(temp_dir.join("README.md")).unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-del");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some());
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_message_format() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_msg_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::write(temp_dir.join("change.txt"), "content").unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "abc-123-def");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some());
+
+    let log = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    let message = String::from_utf8_lossy(&log.stdout).trim().to_string();
+    assert_eq!(
+        message,
+        "bored: auto-save uncommitted changes from run abc-123-def"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_idempotent_second_call_returns_none() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_idempotent_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::fs::write(temp_dir.join("file.txt"), "content").unwrap();
+
+    let first = manage::safety_commit_if_needed(&temp_dir, "run-first");
+    assert!(first.is_ok());
+    assert!(first.unwrap().is_some());
+
+    let second = manage::safety_commit_if_needed(&temp_dir, "run-second");
+    assert!(second.is_ok());
+    assert_eq!(second.unwrap(), None, "Second call on clean worktree should return None");
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_safety_commit_mixed_changes() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("safety_commit_mixed_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    // Create a tracked file, commit it, then set up mixed state
+    std::fs::write(temp_dir.join("tracked.txt"), "original").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "add tracked"])
+        .current_dir(&temp_dir)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .unwrap();
+
+    // Now create mixed state: new file + modified file + deleted file
+    std::fs::write(temp_dir.join("new_file.txt"), "new").unwrap();
+    std::fs::write(temp_dir.join("tracked.txt"), "modified").unwrap();
+    std::fs::remove_file(temp_dir.join("README.md")).unwrap();
+
+    let result = manage::safety_commit_if_needed(&temp_dir, "run-mixed");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_some());
+
+    // Worktree should be clean after
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "Worktree should be clean after safety commit with mixed changes"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
 // --- resolve_remote_default_branch tests ---
 
 /// Helper: initialize a git repo at `path` with one commit.

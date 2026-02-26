@@ -172,6 +172,103 @@ pub fn get_worktree_repo_path(worktree_path: &str) -> Option<PathBuf> {
     Some(repo_path.to_path_buf())
 }
 
+/// Check for uncommitted changes in a worktree and auto-commit them before removal.
+///
+/// Returns `Ok(Some(commit_hash))` if a safety commit was created,
+/// `Ok(None)` if the worktree was clean, or `Err` if the commit failed.
+/// This prevents data loss when the agent's commit stage fails or is skipped.
+pub fn safety_commit_if_needed(worktree_path: &Path, run_id: &str) -> Result<Option<String>, WorktreeError> {
+    if !worktree_path.exists() {
+        return Ok(None);
+    }
+
+    let status_output = git_command()
+        .args(["status", "--porcelain"])
+        .current_dir(worktree_path)
+        .output()?;
+
+    if !status_output.status.success() {
+        let stderr = String::from_utf8_lossy(&status_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: "Failed to check worktree status".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: status_output.status.code(),
+            operation: "git status --porcelain".to_string(),
+        });
+    }
+
+    let status_text = String::from_utf8_lossy(&status_output.stdout);
+    if status_text.trim().is_empty() {
+        return Ok(None);
+    }
+
+    tracing::info!(
+        "Worktree at {} has uncommitted changes, creating safety commit for run {}",
+        worktree_path.display(),
+        run_id
+    );
+
+    let add_output = git_command()
+        .args(["add", "-A"])
+        .current_dir(worktree_path)
+        .output()?;
+
+    if !add_output.status.success() {
+        let stderr = String::from_utf8_lossy(&add_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: "Failed to stage changes for safety commit".to_string(),
+            stderr: stderr.trim().to_string(),
+            exit_code: add_output.status.code(),
+            operation: "git add -A".to_string(),
+        });
+    }
+
+    let message = format!("bored: auto-save uncommitted changes from run {}", run_id);
+    let commit_output = git_command()
+        .args(["commit", "-m", &message])
+        .env("GIT_AUTHOR_NAME", "Bored Agent")
+        .env("GIT_AUTHOR_EMAIL", "agent@bored.local")
+        .env("GIT_COMMITTER_NAME", "Bored Agent")
+        .env("GIT_COMMITTER_EMAIL", "agent@bored.local")
+        .current_dir(worktree_path)
+        .output()?;
+
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        let message = if stderr.contains("nothing to commit") {
+            "Status showed uncommitted changes but commit found nothing; possible race or gitignore mismatch".to_string()
+        } else {
+            "Failed to create safety commit".to_string()
+        };
+        return Err(WorktreeError::GitError {
+            message,
+            stderr: stderr.trim().to_string(),
+            exit_code: commit_output.status.code(),
+            operation: "git commit (safety)".to_string(),
+        });
+    }
+
+    let hash_output = git_command()
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(worktree_path)
+        .output()?;
+
+    let commit_hash = if hash_output.status.success() {
+        String::from_utf8_lossy(&hash_output.stdout).trim().to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    tracing::info!(
+        "Safety commit {} created for run {} at {}",
+        commit_hash,
+        run_id,
+        worktree_path.display()
+    );
+
+    Ok(Some(commit_hash))
+}
+
 /// Attempt to force-remove a stale worktree in our temp directory.
 pub fn force_remove_stale_worktree(
     repo_path: &Path,
