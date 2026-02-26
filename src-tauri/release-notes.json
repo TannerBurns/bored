@@ -1,5 +1,111 @@
 [
   {
+    "version": "0.1.0-beta.32",
+    "published_at": "2026-02-26",
+    "summary": "Safety commits before worktree removal to prevent silent data loss, and a tokens/cost toggle on the Dashboard Top Models chart",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Safety commit before worktree removal — auto-saves uncommitted agent work before removing worktrees, preventing silent data loss when the commit stage fails, times out, or is skipped",
+          "SafetyCommitNotice component surfaces auto-saved commits with commit hash in run history and run details",
+          "Tokens/cost toggle on Dashboard Top Models chart — sort and scale bars by total tokens or cost USD with persisted preference"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "ChartCard extended with headerActions prop for custom header controls",
+          "Safety commit metadata (commit hash, timestamp) stored in run metadata for audit trail",
+          "Git identity set via environment variables for safety commits to avoid modifying shared repo config"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed silent data loss when remove_worktree discarded all uncommitted agent work after commit stage failure",
+          "Fixed safety commit masking anomalous state — now returns error when status/commit disagree"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 9 Rust tests for safety_commit_if_needed covering clean/dirty worktrees, staged changes, mixed changes, and idempotency",
+          "Added 8 frontend tests for SafetyCommitNotice in RunsHistory and RunDetailsPanel"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.31",
+        "highlight": "CLI model identifier standardization (claude-opus-4-6 format), production bundled command fix, and core stage model selectors with auto-pilot"
+      },
+      {
+        "version": "0.1.0-beta.29",
+        "highlight": "Provider-specific auto-pilot models and prompt constraint preventing hallucinated model names"
+      },
+      {
+        "version": "0.1.0-beta.28",
+        "highlight": "App-internal commands, worktree lock failure fixes, and auto-pilot zero-stage fix"
+      },
+      {
+        "version": "0.1.0-beta.27",
+        "highlight": "Spec agent JSON extraction reliability, StructuredSpec deserialization fixes, and model override cost re-keying for local providers"
+      }
+    ]
+  },
+  {
+    "version": "0.1.0-beta.31",
+    "published_at": "2026-02-25",
+    "summary": "Core stage model configuration fixes, CLI model identifier standardization, and production bundled command template resolution",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Core workflow stages now configurable even when auto-pilot is enabled — model selectors for branch-gen, plan, implement, and commit always visible",
+          "CLI model identifiers standardized to full names (claude-opus-4-6) across all agents with v17 settings migration",
+          "Agent-specific model option lists — Claude uses full CLI identifiers, Cursor uses dynamic CLI sync, Codex uses GPT-specific names",
+          "Bundled command templates resolve in production builds via Tauri resource path fallback"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed bundled commands returning None in production — CARGO_MANIFEST_DIR only existed in dev; auto-pilot fell back to 5 of 16 commands",
+          "Fixed Claude CLI rejecting short model names — added normalize_model_for_cli mapping",
+          "Fixed model dropdowns showing no selection for Claude agents due to config/option name mismatch",
+          "Fixed cost attribution using wrong model with self-hosted overrides — sub-runs now store resolved stage_model",
+          "Fixed custom command fallback hardcoding Claude model for Codex agents",
+          "Fixed branchGen/commit defaults using sonnet-4-5 instead of sonnet-4-6"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added model normalization, v17 migration, custom command defaults, and stage config edge case tests"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.29",
+        "highlight": "Provider-specific auto-pilot models and prompt constraint preventing hallucinated model names"
+      },
+      {
+        "version": "0.1.0-beta.28",
+        "highlight": "App-internal commands, worktree lock failure fixes, and auto-pilot zero-stage fix"
+      },
+      {
+        "version": "0.1.0-beta.27",
+        "highlight": "Spec agent JSON extraction reliability, StructuredSpec deserialization fixes, and model override cost re-keying for local providers"
+      },
+      {
+        "version": "0.1.0-beta.26",
+        "highlight": "Dashboard landing page with stats, trends, and cost breakdowns; board/list view toggle; dynamic Cursor model sync"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.29",
     "published_at": "2026-02-25",
     "summary": "Auto-pilot command selection now uses provider-specific models instead of the hardcoded global model list",

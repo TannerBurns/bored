@@ -2,6 +2,101 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.32] - 2026-02-26
+
+Safety commits before worktree removal to prevent silent data loss, and a tokens/cost toggle on the Dashboard Top Models chart.
+
+### New Features
+
+- Safety commit before worktree removal — automatically saves uncommitted agent work before removing worktrees, preventing silent data loss when the add-and-commit stage fails, times out, is disabled, or the workflow errors before reaching it
+- SafetyCommitNotice UI component — surfaces auto-saved commits with commit hash in both the ticket modal run history and run details panel so users know when a safety commit was needed
+- Tokens/cost toggle on Dashboard Top Models chart — persisted segmented control lets users sort and scale bars by total token consumption or cost in USD, surfacing different insights (e.g. high-token low-cost models)
+
+### Improvements
+
+- ChartCard component extended with a headerActions prop for custom header controls
+- Safety commit metadata (commit hash, timestamp) stored in run metadata_json for audit trail and UI rendering
+- Git identity set via environment variables (GIT_AUTHOR_NAME/EMAIL) for safety commits, scoped to the single process invocation to avoid modifying shared repo config on systems without global git user settings
+
+### Bug Fixes
+
+- Fixed silent data loss when remove_worktree ran with --force and permanently discarded all uncommitted agent work after the commit stage failed or was skipped
+- Fixed safety commit returning Ok(None) instead of Err when git status showed uncommitted changes but git commit reported "nothing to commit" — anomalous state is now surfaced as an error for log visibility
+
+### Testing
+
+- Added 9 Rust tests for safety_commit_if_needed covering clean worktrees, dirty worktrees, staged changes, modified files, deleted files, mixed changes, idempotency, nonexistent paths, and commit message format
+- Added 8 frontend tests for SafetyCommitNotice rendering in RunsHistory and RunDetailsPanel components
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.31, here is a summary of the major features introduced in recent releases:
+
+**beta.31 — CLI Model Identifiers & Production Command Fix**
+Standardized all model identifiers to full CLI names (claude-opus-4-6 instead of opus-4.6) with v17 settings migration. Fixed bundled command templates not resolving in production builds. Core workflow stages now configurable even when auto-pilot is enabled.
+
+**beta.29 — Provider-Specific Auto-Pilot Models**
+Auto-pilot command selection now sources models from the active provider instead of a hardcoded global list. Prompt constraint prevents agents from hallucinating model names.
+
+**beta.28 — App-Internal Commands & Worktree Fixes**
+Commands are now app-internal instead of file-managed in projects. Fixed worktree lock failures leaving runs permanently queued and auto-pilot command selection returning zero stages.
+
+**beta.27 — Spec JSON & Cost Attribution Fixes**
+Bug fix release improving spec agent JSON extraction reliability, StructuredSpec deserialization, and model override cost re-keying accuracy for local providers.
+
+---
+
+## [0.1.0-beta.31] - 2026-02-25
+
+Core stage model configuration fixes, CLI model identifier standardization across all agents, and production bundled command template resolution.
+
+### Improvements
+
+- Core workflow stages (branch-gen, plan, implement, commit) now have configurable model selectors in the settings UI even when auto-pilot is enabled — core stages always run and need configurable models regardless of auto-pilot mode
+- CLI model identifiers standardized to full names (claude-opus-4-6 instead of opus-4.6) across all agents with v17 settings migration that upgrades persisted configs for both Claude and Cursor agents
+- Agent-specific model option lists — Claude uses full CLI identifiers (CLAUDE_MODEL_OPTIONS), Cursor pulls from dynamic CLI sync, Codex uses GPT-specific names (CODEX_MODEL_OPTIONS)
+- Bundled command templates now resolve correctly in production builds via OnceLock-based Tauri resource path fallback initialized during app setup, replacing compile-time CARGO_MANIFEST_DIR that only worked in dev mode
+- Removed dead mapModelForCodex/mapStagesForCodex functions and 10 associated tests — Codex gets its own defaults via getDefaultConfigForAgent instead of runtime mapping from Claude names
+- Diagnostic agent now stores cost data, agent_config, and stage_model in run metadata for accurate cost backfill with local provider overrides
+
+### Bug Fixes
+
+- Fixed bundled command templates returning None in production builds — env!("CARGO_MANIFEST_DIR") baked the developer's absolute source path into the binary; auto-pilot discovered zero commands and prompt generation fell back to hardcoded stubs covering only 5 of 16 commands
+- Fixed TS2783 duplicate 'model' property in workflow stage config causing TypeScript strict-mode build failures
+- Fixed Claude CLI rejecting short model names (opus-4.6) by adding normalize_model_for_cli mapping to full CLI identifiers (claude-opus-4-6)
+- Fixed model dropdown showing no selected value for Claude agents — config values used full CLI names but dropdown options only had short names
+- Fixed mapModelForCodex matching claude-prefixed model names — includes('opus') incorrectly matched 'claude-opus-4-6'; reverted to startsWith for legacy migration only
+- Fixed cost attribution using wrong model when self-hosted overrides are active — sub-runs now store resolved stage_model in metadata for accurate backfill
+- Fixed custom command fallback hardcoding Claude model for all agents — now derives default from agent-specific getDefaultConfigForAgent
+- Fixed disabling a non-existent stage key producing invalid WorkflowStageConfig without a model field
+- Fixed branchGen/commit default model using claude-sonnet-4-5 instead of claude-sonnet-4-6 — unintentional version downgrade affecting new users
+
+### Testing
+
+- Added normalize_model_for_cli tests for Claude command builder covering short name to CLI identifier mapping
+- Added v17 migration tests covering both Claude and Cursor config upgrade paths
+- Added addCommandToAllAgents tests verifying Codex gets gpt-5.2-codex and Claude gets claude-sonnet-4-6 defaults
+- Added edge case test for disabling non-existent stage config keys
+- Added orchestrator integration test helpers updated to use model constants instead of hardcoded short names
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.29, here is a summary of the major features introduced in recent releases:
+
+**beta.29 — Provider-Specific Auto-Pilot Models**
+Auto-pilot command selection now sources models from the active provider instead of a hardcoded global list. Prompt constraint prevents agents from hallucinating model names.
+
+**beta.28 — App-Internal Commands & Worktree Fixes**
+Commands are now app-internal instead of file-managed in projects. Fixed worktree lock failures leaving runs permanently queued and auto-pilot command selection returning zero stages.
+
+**beta.27 — Spec JSON & Cost Attribution Fixes**
+Bug fix release improving spec agent JSON extraction reliability, StructuredSpec deserialization, and model override cost re-keying accuracy for local providers.
+
+**beta.26 — Dashboard & Board/List View**
+Dashboard landing page with summary stats, trend charts (activity, cost, tokens), model cost breakdown, and per-ticket git stats. Board/list view toggle with column select dropdown. Dynamic Cursor model sync from CLI output.
+
+---
+
 ## [0.1.0-beta.29] - 2026-02-25
 
 Bug fix release making auto-pilot command selection use provider-specific models instead of the hardcoded global model list, so each agent's prompt examples and model constraints match its actual provider.
