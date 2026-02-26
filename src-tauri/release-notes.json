@@ -1,5 +1,63 @@
 [
   {
+    "version": "0.1.0-beta.34",
+    "published_at": "2026-02-26",
+    "summary": "Full-page ticket detail view with tabbed content, persistent sidebar, and keyboard navigation replacing the modal overlay",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Full-page ticket detail view — replaces the single-column modal overlay with a tabbed layout and persistent sidebar, giving each ticket a dedicated page",
+          "Four content tabs: Overview (description + next steps), Task (task queue + epic panel), Agent (status + runs + logs), Activity (comments)",
+          "Right sidebar with ticket metadata (project, branch, labels, status), quick actions (build, edit, delete), and cost summary",
+          "Breadcrumb navigation with prev/next ticket nav (Alt+Arrow) and Escape to go back",
+          "Fullscreen diff overlay on NextStepsPanel with Escape to close",
+          "Branch name copy-to-clipboard button in sidebar",
+          "Tab badges: pending task count on Task tab, running indicator on Agent tab, clarification dot on Activity tab for blocked tickets"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Removed max-height constraints from RunsHistory and LogTimelineView for full viewport usage in the new layout",
+          "NextStepsPanel fullscreen overlay uses capture-phase Escape handler to avoid conflicting with the parent view",
+          "DescriptionSection and CommentsSection accept defaultExpanded prop so the detail view starts with content visible"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed hook ordering in CommentsSection — useState/useEffect calls scattered among non-hook code",
+          "Fixed keydown listener re-registering every render in TicketDetailView due to unstable editState object reference in useEffect dependency array"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 32 new tests: DescriptionSection (6), CommentsSection defaultExpanded (3), NextStepsPanel fullscreen (3), TicketDetailHeader (11), AgentTab (4), TasksTab (5)"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.33",
+        "highlight": "Visual log timeline view with real-time streaming, subagent context badges, and multi-agent log format support"
+      },
+      {
+        "version": "0.1.0-beta.32",
+        "highlight": "Safety commit before worktree removal preventing silent data loss, SafetyCommitNotice UI, and tokens/cost toggle on Dashboard Top Models chart"
+      },
+      {
+        "version": "0.1.0-beta.31",
+        "highlight": "CLI model identifier standardization (claude-opus-4-6 format), production bundled command fix, and core stage model selectors with auto-pilot"
+      },
+      {
+        "version": "0.1.0-beta.29",
+        "highlight": "Provider-specific auto-pilot models and prompt constraint preventing hallucinated model names"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.33",
     "published_at": "2026-02-26",
     "summary": "Visual log timeline view with real-time streaming, subagent context, and multi-agent log format support",
