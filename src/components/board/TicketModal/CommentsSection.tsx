@@ -25,8 +25,14 @@ export function CommentsSection({
   clearInputTrigger,
   defaultExpanded,
 }: CommentsSectionProps) {
+  const ticketComments = comments.filter((c) => c.ticketId === ticketId);
+  const hasClarification = ticketComments.some(
+    (c) => c.metadata?.type === 'clarification'
+  );
+
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(defaultExpanded ? false : !hasClarification);
 
   // Clear the inline input when the trigger changes (e.g., after modal submission)
   useEffect(() => {
@@ -35,12 +41,12 @@ export function CommentsSection({
     }
   }, [clearInputTrigger]);
 
-  const ticketComments = comments.filter((c) => c.ticketId === ticketId);
-
-  // Auto-expand if any comments have clarification metadata
-  const hasClarification = ticketComments.some(
-    (c) => c.metadata?.type === 'clarification'
-  );
+  // Auto-expand when a clarification comment arrives after mount
+  useEffect(() => {
+    if (hasClarification) {
+      setIsCollapsed(false);
+    }
+  }, [hasClarification]);
 
   const handleAddComment = async () => {
     if (!newComment.trim()) return;
@@ -52,15 +58,6 @@ export function CommentsSection({
       setIsSubmitting(false);
     }
   };
-
-  const [isCollapsed, setIsCollapsed] = useState(defaultExpanded ? false : !hasClarification);
-
-  // Auto-expand when a clarification comment arrives after mount
-  useEffect(() => {
-    if (hasClarification) {
-      setIsCollapsed(false);
-    }
-  }, [hasClarification]);
 
   return (
     <div>
