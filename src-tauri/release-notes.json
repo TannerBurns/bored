@@ -1,5 +1,65 @@
 [
   {
+    "version": "0.1.0-beta.33",
+    "published_at": "2026-02-26",
+    "summary": "Visual log timeline view with real-time streaming, subagent context, and multi-agent log format support",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Visual log timeline view — structured timeline replaces the raw text log dump, parsing NDJSON events from all three agents (Claude, Cursor, Codex) into categorized, color-coded entries with Timeline/Raw Logs tab toggle and expandable detail views",
+          "Real-time log streaming — auto-expands the current run on start and polls for new events while active, so logs appear in real-time instead of requiring a modal close-and-reopen",
+          "Subagent context in log timeline — distinguishes main agent from subagent entries with a purple badge showing subagent type (Explore, Plan) and task description"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Subagent task descriptions mapped from Task tool calls and displayed in timeline badges with subagent_type preferred over description for labeling",
+          "Cost parsing reads from top-level total_cost_usd in Claude result events and includes cache tokens in the input count",
+          "Cursor agent tool_call and thinking log formats now parsed — handles the different JSON shape Cursor CLI emits compared to Claude",
+          "Non-string tool result content (array of content blocks) handled in log parser alongside string and object forms"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed logs only appearing after closing and reopening the ticket modal — replaced disconnected polling with integrated polling in useRunsHistory",
+          "Fixed loadingEvents state not resetting when collapsing a run, causing a stale loading spinner on next expand",
+          "Fixed poll errors clearing previously-loaded events — added hasFetchedOnce flag to distinguish initial vs transient failures",
+          "Fixed cost parsing reading from wrong location in Claude result events and missing cache tokens from input count",
+          "Fixed Cursor agent tool_call events not being parsed due to different JSON shape from Claude",
+          "Fixed non-string tool result content causing parse failures when content was an array of content blocks"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 51 parseLogEvents tests covering Claude/Cursor/Codex format parsing, event filtering, tool summaries, and malformed JSON",
+          "Added 7 new useRunsHistory tests (19 total) covering auto-expand, polling, error resilience, and cleanup on collapse"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.32",
+        "highlight": "Safety commit before worktree removal preventing silent data loss, SafetyCommitNotice UI, and tokens/cost toggle on Dashboard Top Models chart"
+      },
+      {
+        "version": "0.1.0-beta.31",
+        "highlight": "CLI model identifier standardization (claude-opus-4-6 format), production bundled command fix, and core stage model selectors with auto-pilot"
+      },
+      {
+        "version": "0.1.0-beta.29",
+        "highlight": "Provider-specific auto-pilot models and prompt constraint preventing hallucinated model names"
+      },
+      {
+        "version": "0.1.0-beta.28",
+        "highlight": "App-internal commands, worktree lock failure fixes, and auto-pilot zero-stage fix"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.32",
     "published_at": "2026-02-26",
     "summary": "Safety commits before worktree removal to prevent silent data loss, and a tokens/cost toggle on the Dashboard Top Models chart",
