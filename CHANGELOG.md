@@ -2,6 +2,53 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.34] - 2026-02-26
+
+Full-page ticket detail view replacing the single-column modal overlay with tabbed content, a persistent sidebar, and keyboard navigation.
+
+### New Features
+
+- Full-page ticket detail view — replaces the single-column TicketModal overlay with a tabbed layout and persistent sidebar, giving each ticket a dedicated page instead of a constrained modal
+- Four content tabs: Overview (description + next steps), Task (task queue + epic panel), Agent (status + runs + logs), Activity (comments) — information is organized by concern instead of stacked in a single scroll
+- Right sidebar with ticket metadata (project, branch, labels, status), quick actions (build, edit, delete), and cost summary always visible alongside tab content
+- Breadcrumb navigation (Back / Board / Ticket) with prev/next ticket navigation within the same column via Alt+Arrow keys, and Escape to go back
+- Fullscreen diff overlay on the NextStepsPanel with Escape to close for reviewing changes at full viewport size
+- Branch name copy-to-clipboard button in the sidebar for quick terminal use
+- Tab badges: pending task count on the Task tab, running indicator on the Agent tab, and clarification dot on the Activity tab for blocked tickets
+
+### Improvements
+
+- Removed max-height constraints from RunsHistory and LogTimelineView so agent logs use the full viewport in the new layout instead of being capped at 90vh
+- NextStepsPanel fullscreen overlay uses a capture-phase Escape handler to avoid conflicting with the parent view's Escape-to-close behavior
+- DescriptionSection and CommentsSection accept a defaultExpanded prop so the detail view starts with content visible instead of collapsed
+
+### Bug Fixes
+
+- Fixed hook ordering in CommentsSection — useState and useEffect calls were scattered among non-hook variable calculations and function definitions, making future conditional-logic additions error-prone
+- Fixed keydown listener re-registering on every render in TicketDetailView — useTicketEdit returned a fresh object literal on every render, causing the useEffect to tear down and re-add the keydown listener; destructured to stable primitives in the dependency array
+
+### Testing
+
+- Added 32 new tests: DescriptionSection (6), CommentsSection defaultExpanded (3), NextStepsPanel fullscreen (3), TicketDetailHeader (11), AgentTab (4), TasksTab (5)
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.33, here is a summary of the major features introduced in recent releases:
+
+**beta.33 — Visual Log Timeline & Real-Time Streaming**
+Visual log timeline view replacing the raw text log dump with categorized, color-coded entries from all three agents. Real-time log streaming with subagent context badges. 51 parseLogEvents tests.
+
+**beta.32 — Safety Commits & Dashboard Tokens/Cost Toggle**
+Safety commit before worktree removal automatically saves uncommitted agent work before removing worktrees, preventing silent data loss. SafetyCommitNotice surfaces auto-saved commits in the UI. Tokens/cost toggle on Dashboard Top Models chart.
+
+**beta.31 — CLI Model Identifiers & Production Command Fix**
+Standardized all model identifiers to full CLI names (claude-opus-4-6 instead of opus-4.6) with v17 settings migration. Fixed bundled command templates not resolving in production builds. Core workflow stages now configurable even when auto-pilot is enabled.
+
+**beta.29 — Provider-Specific Auto-Pilot Models**
+Auto-pilot command selection now sources models from the active provider instead of a hardcoded global list. Prompt constraint prevents agents from hallucinating model names.
+
+---
+
 ## [0.1.0-beta.33] - 2026-02-26
 
 Visual log timeline view with real-time streaming, subagent context, and multi-agent log format support.
