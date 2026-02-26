@@ -173,22 +173,32 @@ function parseClaudeEvent(
     case 'result': {
       const usage = json.usage as Record<string, unknown> | undefined;
       const resultText = json.result as string | undefined;
+      const topLevelCost = json.total_cost_usd as number | undefined;
       let costData: TimelineEntry['costData'] = undefined;
 
-      if (usage) {
+      if (usage || topLevelCost) {
+        const inputTokens = (usage?.input_tokens as number) ?? 0;
+        const cacheRead = (usage?.cache_read_input_tokens as number) ?? 0;
+        const cacheCreation = (usage?.cache_creation_input_tokens as number) ?? 0;
+        const outputTokens = (usage?.output_tokens as number) ?? 0;
         costData = {
-          inputTokens: (usage.input_tokens as number) ?? 0,
-          outputTokens: (usage.output_tokens as number) ?? 0,
-          totalCostUsd: (usage.total_cost_usd as number) ?? 0,
+          inputTokens: inputTokens + cacheRead + cacheCreation,
+          outputTokens,
+          totalCostUsd: topLevelCost ?? 0,
         };
       }
+
+      const totalTokens = costData ? costData.inputTokens + costData.outputTokens : 0;
+      const costStr = costData && costData.totalCostUsd > 0
+        ? `$${costData.totalCostUsd < 0.01 ? costData.totalCostUsd.toFixed(4) : costData.totalCostUsd.toFixed(2)}`
+        : '';
 
       return {
         id,
         type: 'result',
         timestamp,
         summary: costData
-          ? `Result — ${costData.inputTokens + costData.outputTokens} tokens, $${costData.totalCostUsd.toFixed(4)}`
+          ? `Result — ${totalTokens.toLocaleString()} tokens${costStr ? `, ${costStr}` : ''}`
           : 'Result',
         content: resultText,
         costData,
