@@ -4,6 +4,7 @@ import type { RunEvent } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
 import { SafetyCommitNotice } from '../../common/SafetyCommitNotice';
+import { LogTimelineView } from './LogTimeline/LogTimelineView';
 
 function getWorkflowLabel(run: AgentRun): string {
   const mode = (run.metadata as Record<string, unknown> | undefined)?.workflow_mode;
@@ -76,26 +77,13 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   };
 }
 
-/** Normalize eventType which can be string or {custom: "value"} */
-function getEventTypeString(eventType: unknown): string {
-  if (typeof eventType === 'string') return eventType;
-  if (typeof eventType === 'object' && eventType !== null) {
-    const obj = eventType as Record<string, unknown>;
-    if ('custom' in obj) return String(obj.custom);
-    const keys = Object.keys(obj);
-    if (keys.length === 1) return String(obj[keys[0]]);
-    return JSON.stringify(eventType);
-  }
-  return String(eventType);
-}
-
 export interface RunsHistoryProps {
   agentRuns: AgentRun[];
   lockedByRunId?: string;
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 export function RunsHistory({
@@ -143,7 +131,7 @@ interface CurrentRunSectionProps {
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 function CurrentRunSection({
@@ -212,7 +200,7 @@ function CurrentRunSection({
             )}
             
             {/* Logs */}
-            <RunEventsDisplay runEvents={runEvents} loadingEvents={loadingEvents} />
+            <LogTimelineView events={runEvents} agentType={currentRun.agentType} loadingEvents={loadingEvents} />
           </div>
         )}
       </div>
@@ -226,7 +214,7 @@ interface PreviousRunsSectionProps {
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 function PreviousRunsSection({
@@ -472,52 +460,7 @@ function ExpandedRunDetails({
       )}
 
       {/* Logs */}
-      <RunEventsDisplay runEvents={runEvents} loadingEvents={loadingEvents} />
-    </div>
-  );
-}
-
-interface RunEventsDisplayProps {
-  runEvents: RunEvent[];
-  loadingEvents: boolean;
-}
-
-function RunEventsDisplay({ runEvents, loadingEvents }: RunEventsDisplayProps) {
-  const logEvents = runEvents.filter(e => {
-    const type = getEventTypeString(e.eventType);
-    return type === 'log_stdout' || type === 'log_stderr';
-  });
-
-  return (
-    <div className="mt-2">
-      <p className="text-xs font-medium text-board-text-muted mb-1">
-        Logs ({loadingEvents ? '...' : logEvents.length} lines):
-      </p>
-      {loadingEvents ? (
-        <p className="text-xs text-board-text-muted">Loading...</p>
-      ) : logEvents.length === 0 ? (
-        <p className="text-xs text-board-text-muted italic">No output logs recorded</p>
-      ) : (
-        <div className="bg-black/80 rounded p-2 max-h-60 overflow-y-auto font-mono text-xs">
-          {logEvents.map((event) => {
-            const payload = event.payload as { raw?: string } | null;
-            const content = payload?.raw || '';
-            const eventTypeStr = getEventTypeString(event.eventType);
-            const isStderr = eventTypeStr === 'log_stderr';
-            return (
-              <div 
-                key={event.id} 
-                className={cn(
-                  'whitespace-pre-wrap break-all',
-                  isStderr ? 'text-red-400' : 'text-green-400'
-                )}
-              >
-                {content}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <LogTimelineView events={runEvents} agentType={run.agentType} loadingEvents={loadingEvents} />
     </div>
   );
 }
