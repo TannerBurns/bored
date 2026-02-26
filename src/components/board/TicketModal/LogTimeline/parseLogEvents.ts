@@ -33,6 +33,35 @@ function extractToolSummary(item: Record<string, unknown>): { toolName: string; 
   return { toolName: name, toolInput: detail, summary };
 }
 
+/** Extract tool name and detail from Cursor's tool_call format.
+ *  The tool_call object has a single key like "shellToolCall", "readToolCall", etc. */
+function extractCursorToolCallSummary(
+  toolCallObj: Record<string, unknown>,
+): { toolName: string; toolInput?: string; summary: string } {
+  const key = Object.keys(toolCallObj)[0] ?? '';
+  const toolName = key.replace(/ToolCall$/, '') || 'tool';
+  const displayName = toolName.charAt(0).toUpperCase() + toolName.slice(1);
+
+  const inner = toolCallObj[key] as Record<string, unknown> | undefined;
+  const args = inner?.args as Record<string, unknown> | undefined;
+
+  const detail =
+    args?.path as string ??
+    args?.command as string ??
+    args?.pattern as string ??
+    args?.globPattern as string ??
+    args?.query as string ??
+    undefined;
+
+  // Strip long worktree prefixes from paths for readability
+  const shortDetail = detail?.replace(/^\/(?:private\/)?var\/folders\/.*?\/worktrees\/[^/]+\//, '') ?? detail;
+
+  const summary = shortDetail
+    ? `${displayName}: ${truncate(shortDetail, 60)}`
+    : `Using ${displayName}`;
+  return { toolName: displayName, toolInput: shortDetail, summary };
+}
+
 // ---------------------------------------------------------------------------
 // Claude / Cursor (stream-json format)
 // ---------------------------------------------------------------------------
@@ -168,7 +197,30 @@ function parseClaudeEvent(
       };
     }
 
-    // Streaming deltas — skip individually, will be coalesced below
+    // Cursor emits tool_call events with subtype started/completed
+    case 'tool_call': {
+      const subtype = json.subtype as string | undefined;
+      const toolCallObj = json.tool_call as Record<string, unknown> | undefined;
+      if (!toolCallObj) return null;
+
+      // Only show "started" to avoid duplicate entries per call
+      if (subtype !== 'started') return null;
+
+      const { toolName, toolInput, summary } = extractCursorToolCallSummary(toolCallObj);
+      return {
+        id,
+        type: 'tool_use',
+        timestamp,
+        summary,
+        toolName,
+        toolInput,
+        rawJson: raw,
+        isStderr,
+      };
+    }
+
+    // Cursor thinking deltas — skip individually (too frequent per-token)
+    case 'thinking':
     case 'content_block_delta':
     case 'stream_event':
       return null;
