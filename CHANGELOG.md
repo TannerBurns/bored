@@ -2,6 +2,57 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.33] - 2026-02-26
+
+Visual log timeline view with real-time streaming, subagent context, and multi-agent log format support.
+
+### New Features
+
+- Visual log timeline view — structured timeline replaces the raw text log dump, parsing NDJSON log events from all three agents (Claude, Cursor, Codex) into categorized, color-coded entries (system, assistant, tool calls, tool results, user input, cost/result) with a Timeline/Raw Logs tab toggle and expandable entries showing full content and raw JSON
+- Real-time log streaming — auto-expands the current run on start and polls for new events while active, so logs appear in real-time instead of requiring a close-and-reopen of the ticket modal
+- Subagent context in log timeline — distinguishes main agent entries from subagent entries using parent_tool_use_id, with a purple "subagent" badge showing subagent type (Explore, Plan) and task description (e.g. "subagent · Find usage · Haiku 4.5")
+
+### Improvements
+
+- Subagent task descriptions mapped from Task tool calls and displayed in timeline badges with the subagent_type field preferred over description for labeling
+- Cost parsing reads from top-level total_cost_usd in Claude result events and includes cache_read/cache_creation tokens in the input token count
+- Cursor agent tool_call and thinking log formats now parsed — handles the different JSON shape Cursor CLI emits compared to Claude, extracting tool names from keys (e.g. shellToolCall -> Shell) and stripping worktree prefixes from paths
+- Non-string tool result content (array of content blocks) handled in log parser alongside string and object forms
+- Consolidated duplicate getEventTypeString into parseLogEvents module and corrected handleRunClick prop type from Promise<void> to void
+
+### Bug Fixes
+
+- Fixed logs only appearing after closing and reopening the ticket modal — useAgentEvents polled but was never consumed, and useRunsHistory loaded once; replaced with integrated polling in useRunsHistory when the expanded run is active
+- Fixed loadingEvents state not resetting when collapsing a run, causing a stale loading spinner to flash on the next expand
+- Fixed poll tick errors clearing previously-loaded events from the UI — added hasFetchedOnce flag to distinguish initial load errors from transient poll failures
+- Fixed cost parsing reading from wrong location in Claude result events (usage.total_cost_usd vs top-level total_cost_usd) and missing cache tokens from input count
+- Fixed Cursor agent tool_call events not being parsed due to different JSON shape from Claude
+- Fixed non-string tool result content causing parse failures when the content field was an array of content blocks
+
+### Testing
+
+- Added 51 parseLogEvents tests covering Claude/Cursor/Codex format parsing, event filtering, tool summary extraction, malformed JSON handling, and agent type routing
+- Added 7 new useRunsHistory tests (19 total) covering auto-expand on lockedByRunId change, polling at interval for active runs, poll error resilience, and polling cleanup on collapse
+- Updated RunsHistory component test assertions to match LogTimelineView output
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.32, here is a summary of the major features introduced in recent releases:
+
+**beta.32 — Safety Commits & Dashboard Tokens/Cost Toggle**
+Safety commit before worktree removal automatically saves uncommitted agent work before removing worktrees, preventing silent data loss. SafetyCommitNotice surfaces auto-saved commits in the UI. Tokens/cost toggle on Dashboard Top Models chart.
+
+**beta.31 — CLI Model Identifiers & Production Command Fix**
+Standardized all model identifiers to full CLI names (claude-opus-4-6 instead of opus-4.6) with v17 settings migration. Fixed bundled command templates not resolving in production builds. Core workflow stages now configurable even when auto-pilot is enabled.
+
+**beta.29 — Provider-Specific Auto-Pilot Models**
+Auto-pilot command selection now sources models from the active provider instead of a hardcoded global list. Prompt constraint prevents agents from hallucinating model names.
+
+**beta.28 — App-Internal Commands & Worktree Fixes**
+Commands are now app-internal instead of file-managed in projects. Fixed worktree lock failures leaving runs permanently queued and auto-pilot command selection returning zero stages.
+
+---
+
 ## [0.1.0-beta.32] - 2026-02-26
 
 Safety commits before worktree removal to prevent silent data loss, and a tokens/cost toggle on the Dashboard Top Models chart.
