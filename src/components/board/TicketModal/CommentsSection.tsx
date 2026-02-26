@@ -12,6 +12,8 @@ export interface CommentsSectionProps {
   onOpenCreateCommentModal: (initialContent: string) => void;
   /** When this value changes, the inline comment input will be cleared */
   clearInputTrigger?: number;
+  /** Start with comments expanded (default: collapsed unless clarification exists) */
+  defaultExpanded?: boolean;
 }
 
 export function CommentsSection({
@@ -21,6 +23,7 @@ export function CommentsSection({
   onOpenFullscreenComment,
   onOpenCreateCommentModal,
   clearInputTrigger,
+  defaultExpanded,
 }: CommentsSectionProps) {
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,7 +53,7 @@ export function CommentsSection({
     }
   };
 
-  const [isCollapsed, setIsCollapsed] = useState(!hasClarification);
+  const [isCollapsed, setIsCollapsed] = useState(defaultExpanded ? false : !hasClarification);
 
   // Auto-expand when a clarification comment arrives after mount
   useEffect(() => {

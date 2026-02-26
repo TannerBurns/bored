@@ -7,6 +7,7 @@ export interface DescriptionSectionProps {
   editDescription: string;
   setEditDescription: (desc: string) => void;
   onOpenFullscreen: () => void;
+  defaultExpanded?: boolean;
 }
 
 export function DescriptionSection({
@@ -15,8 +16,9 @@ export function DescriptionSection({
   editDescription,
   setEditDescription,
   onOpenFullscreen,
+  defaultExpanded,
 }: DescriptionSectionProps) {
-  const [isCollapsed, setIsCollapsed] = useState(!isEditing);
+  const [isCollapsed, setIsCollapsed] = useState(defaultExpanded ? false : !isEditing);
 
   return (
     <div>

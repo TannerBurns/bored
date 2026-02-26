@@ -2,13 +2,12 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
-import { TicketModal } from './components/board/TicketModal';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView } from './components/views';
+import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView, TicketDetailView } from './components/views';
 import { ValidationView } from './components/validation';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
@@ -176,112 +175,124 @@ function App() {
       <Sidebar
         navItems={NAV_ITEMS}
         activeItem={activeNav}
-        onItemClick={setActiveNav}
+        onItemClick={(id) => {
+          if (isTicketModalOpen) closeTicketModal();
+          setActiveNav(id);
+        }}
         boards={boards}
         currentBoard={currentBoard}
-        onBoardSelect={handleBoardSelect}
+        onBoardSelect={(boardId) => {
+          if (isTicketModalOpen) closeTicketModal();
+          handleBoardSelect(boardId);
+        }}
         onCreateBoard={() => setIsCreateBoardModalOpen(true)}
         onRenameBoard={handleRenameBoard}
         onDeleteBoard={requestDeleteBoard}
-        onSettingsClick={() => setActiveNav('settings')}
+        onSettingsClick={() => {
+          if (isTicketModalOpen) closeTicketModal();
+          setActiveNav('settings');
+        }}
       />
 
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
-        <Header
-          title={
-            activeNav === 'dashboard'
-              ? 'Dashboard'
-              : activeNav === 'boards' && currentBoard 
-                ? currentBoard.name 
-                : activeNav === 'specs' 
-                  ? 'AI Specs' 
-                  : 'Bored'
-          }
-          subtitle={undefined}
-          action={
-            activeNav === 'boards' && boards.length > 0 ? (
-              <button
-                onClick={openCreateModal}
-                className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                New
-              </button>
-            ) : undefined
-          }
-        />
-
-        {activeNav === 'dashboard' && <DashboardView />}
-
-        {activeNav === 'boards' && (
-          <BoardsView
-            isDataLoaded={isDataLoaded}
-            hasBoards={boards.length > 0}
-            currentBoardId={currentBoard?.id}
+        {isTicketModalOpen && selectedTicket ? (
+          <TicketDetailView
+            ticket={selectedTicket}
             columns={columns}
-            tickets={tickets}
-            projectMap={projectMap}
-            onTicketMove={handleTicketMove}
-            onTicketClick={handleTicketClick}
-            onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
+            comments={comments}
+            boardName={currentBoard?.name ?? 'Board'}
+            onClose={closeTicketModal}
+            onUpdate={handleUpdateTicket}
+            onAddComment={handleAddComment}
+            onUpdateComment={handleUpdateComment}
+            onRunWithAgent={handleRunWithAgent}
+            onValidate={handleValidateFromTicket}
+            onDelete={handleDeleteTicket}
+            onAgentComplete={handleAgentComplete}
           />
+        ) : (
+          <>
+            <Header
+              title={
+                activeNav === 'dashboard'
+                  ? 'Dashboard'
+                  : activeNav === 'boards' && currentBoard 
+                    ? currentBoard.name 
+                    : activeNav === 'specs' 
+                      ? 'AI Specs' 
+                      : 'Bored'
+              }
+              subtitle={undefined}
+              action={
+                activeNav === 'boards' && boards.length > 0 ? (
+                  <button
+                    onClick={openCreateModal}
+                    className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    New
+                  </button>
+                ) : undefined
+              }
+            />
+
+            {activeNav === 'dashboard' && <DashboardView />}
+
+            {activeNav === 'boards' && (
+              <BoardsView
+                isDataLoaded={isDataLoaded}
+                hasBoards={boards.length > 0}
+                currentBoardId={currentBoard?.id}
+                columns={columns}
+                tickets={tickets}
+                projectMap={projectMap}
+                onTicketMove={handleTicketMove}
+                onTicketClick={handleTicketClick}
+                onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
+              />
+            )}
+
+            {activeNav === 'specs' && (
+              <SpecsView
+                currentBoard={currentBoard}
+                onCreateSpecClick={() => setIsCreateSpecModalOpen(true)}
+              />
+            )}
+
+            {activeNav === 'agents' && (
+              <AgentsView recentRuns={recentRuns} />
+            )}
+
+            {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
+
+            {activeNav === 'validation' && (
+              <ValidationView
+                initialTicketId={validationTicketId ?? undefined}
+                initialAgentType={validationAgentType ?? undefined}
+                onConsumedInitial={() => {
+                  setValidationTicketId(null);
+                  setValidationAgentType(null);
+                }}
+              />
+            )}
+
+            {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
+          </>
         )}
-
-        {activeNav === 'specs' && (
-          <SpecsView
-            currentBoard={currentBoard}
-            onCreateSpecClick={() => setIsCreateSpecModalOpen(true)}
-          />
-        )}
-
-        {activeNav === 'agents' && (
-          <AgentsView recentRuns={recentRuns} />
-        )}
-
-        {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
-
-        {activeNav === 'validation' && (
-          <ValidationView
-            initialTicketId={validationTicketId ?? undefined}
-            initialAgentType={validationAgentType ?? undefined}
-            onConsumedInitial={() => {
-              setValidationTicketId(null);
-              setValidationAgentType(null);
-            }}
-          />
-        )}
-
-        {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
       </main>
-
-      {isTicketModalOpen && selectedTicket && (
-        <TicketModal
-          ticket={selectedTicket}
-          columns={columns}
-          comments={comments}
-          onClose={closeTicketModal}
-          onUpdate={handleUpdateTicket}
-          onAddComment={handleAddComment}
-          onUpdateComment={handleUpdateComment}
-          onRunWithAgent={handleRunWithAgent}
-          onValidate={handleValidateFromTicket}
-          onDelete={handleDeleteTicket}
-          onAgentComplete={handleAgentComplete}
-        />
-      )}
 
       {isCreateModalOpen && currentBoard && (
         <CreateTicketModal

@@ -111,6 +111,52 @@ describe('CommentsSection auto-expand', () => {
     expect(heading).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('starts expanded when defaultExpanded is true (no clarification)', () => {
+    const comment = makeComment({ metadata: { type: 'plan' } });
+    render(
+      <CommentsSection
+        ticketId="t1"
+        comments={[comment]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+        defaultExpanded
+      />
+    );
+    const heading = screen.getByRole('button', { name: /Comments/ });
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('starts expanded when defaultExpanded is true and comments are empty', () => {
+    render(
+      <CommentsSection
+        ticketId="t1"
+        comments={[]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+        defaultExpanded
+      />
+    );
+    const heading = screen.getByRole('button', { name: /Comments/ });
+    expect(heading).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('stays collapsed without defaultExpanded and no clarification', () => {
+    render(
+      <CommentsSection
+        ticketId="t1"
+        comments={[]}
+        onAddComment={noop}
+        onOpenFullscreenComment={vi.fn()}
+        onOpenCreateCommentModal={vi.fn()}
+        defaultExpanded={false}
+      />
+    );
+    const heading = screen.getByRole('button', { name: /Comments/ });
+    expect(heading).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('does not re-collapse if user manually expanded and clarification is removed', () => {
     const clarification = makeComment({ metadata: { type: 'clarification' } });
     const { rerender } = render(
