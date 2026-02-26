@@ -226,6 +226,10 @@ pub fn safety_commit_if_needed(worktree_path: &Path, run_id: &str) -> Result<Opt
     let message = format!("bored: auto-save uncommitted changes from run {}", run_id);
     let commit_output = git_command()
         .args(["commit", "-m", &message])
+        .env("GIT_AUTHOR_NAME", "Bored Agent")
+        .env("GIT_AUTHOR_EMAIL", "agent@bored.local")
+        .env("GIT_COMMITTER_NAME", "Bored Agent")
+        .env("GIT_COMMITTER_EMAIL", "agent@bored.local")
         .current_dir(worktree_path)
         .output()?;
 
