@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { NextStepsPanel } from './NextStepsPanel';
 import type { Ticket, Column } from '../../../types';
 
+const mockGetBranchDiffFiles = vi.fn().mockResolvedValue([]);
+const mockPushBranch = vi.fn();
+const mockCreatePullRequest = vi.fn();
+
 vi.mock('../../../stores/validationStore', () => ({
   useValidationStore: () => ({
-    pushBranch: vi.fn(),
-    createPullRequest: vi.fn(),
-    getBranchDiffFiles: vi.fn().mockResolvedValue([]),
+    pushBranch: mockPushBranch,
+    createPullRequest: mockCreatePullRequest,
+    getBranchDiffFiles: mockGetBranchDiffFiles,
   }),
 }));
 
@@ -168,6 +172,45 @@ describe('NextStepsPanel', () => {
         />
       );
       expect(screen.getByRole('button', { name: /view diff|loading diff/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('diff fullscreen', () => {
+    async function renderAndWaitForLoad(ticketOverrides: Partial<Ticket> = {}) {
+      await act(async () => {
+        render(
+          <NextStepsPanel
+            ticket={makeTicket({ columnId: 'col-review', ...ticketOverrides })}
+            columns={makeColumns()}
+          />
+        );
+      });
+    }
+
+    it('shows expand button when diff is visible inline', async () => {
+      await renderAndWaitForLoad();
+      fireEvent.click(screen.getByText(/View diff/));
+      expect(screen.getByTitle('Expand diff')).toBeInTheDocument();
+    });
+
+    it('opens fullscreen overlay when expand is clicked', async () => {
+      await renderAndWaitForLoad({ branchName: 'feat/test' });
+      fireEvent.click(screen.getByText(/View diff/));
+      fireEvent.click(screen.getByTitle('Expand diff'));
+      expect(screen.getByText('Diff')).toBeInTheDocument();
+      expect(screen.getByTitle('Close fullscreen')).toBeInTheDocument();
+      expect(screen.getAllByText('feat/test').length).toBeGreaterThan(0);
+    });
+
+    it('closes fullscreen overlay when close is clicked', async () => {
+      await renderAndWaitForLoad();
+      fireEvent.click(screen.getByText(/View diff/));
+      fireEvent.click(screen.getByTitle('Expand diff'));
+      expect(screen.getByText('Diff')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTitle('Close fullscreen'));
+      expect(screen.getByTitle('Expand diff')).toBeInTheDocument();
+      expect(screen.queryByTitle('Close fullscreen')).not.toBeInTheDocument();
     });
   });
 });

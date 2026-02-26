@@ -14,12 +14,25 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
   const [pushStatus, setPushStatus] = useState<{ message: string; success: boolean } | null>(null);
   const [prStatus, setPrStatus] = useState<{ message: string; url?: string; success: boolean } | null>(null);
   const [diffVisible, setDiffVisible] = useState(false);
+  const [diffFullscreen, setDiffFullscreen] = useState(false);
   const [diffFiles, setDiffFiles] = useState<FileDiff[] | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
+
+  useEffect(() => {
+    if (!diffFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        setDiffFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handler, { capture: true });
+    return () => window.removeEventListener('keydown', handler, { capture: true });
+  }, [diffFullscreen]);
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const columnName = currentColumn?.name;
@@ -171,15 +184,74 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
             <path d="m6 9 6 6 6-6" />
           </svg>
         </button>
-        {diffVisible && (
-          <div className="border-t border-board-border max-h-64 overflow-auto">
-            {diffError && (
-              <div className="p-3 text-xs text-red-400">{diffError}</div>
-            )}
-            {diffFiles && <FileDiffViewer files={diffFiles} className="max-h-60" />}
+        {diffVisible && !diffFullscreen && (
+          <div className="border-t border-board-border">
+            <div className="flex items-center justify-end px-2 py-1 border-b border-board-border/50">
+              <button
+                type="button"
+                onClick={() => setDiffFullscreen(true)}
+                className="p-1 text-board-text-muted hover:text-board-text transition-colors rounded hover:bg-board-surface"
+                title="Expand diff"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+            </div>
+            <div className="max-h-80 overflow-auto">
+              {diffError && (
+                <div className="p-3 text-xs text-red-400">{diffError}</div>
+              )}
+              {diffFiles && <FileDiffViewer files={diffFiles} className="max-h-72" />}
+            </div>
           </div>
         )}
       </div>
+
+      {/* Fullscreen diff overlay */}
+      {diffVisible && diffFullscreen && (
+        <div className="fixed inset-0 z-50 flex flex-col" style={{ backgroundColor: 'var(--app-board-bg-solid)' }}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-board-border flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-board-text">Diff</h2>
+              {diffFiles && diffFiles.length > 0 && (() => {
+                const totalAdd = diffFiles.reduce((s, f) => s + f.additions, 0);
+                const totalDel = diffFiles.reduce((s, f) => s + f.deletions, 0);
+                return (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className="text-emerald-400">+{totalAdd}</span>
+                    <span className="text-red-400">-{totalDel}</span>
+                    <span className="text-board-text-muted">({diffFiles.length} file{diffFiles.length !== 1 ? 's' : ''})</span>
+                  </span>
+                );
+              })()}
+              <span className="text-xs text-board-text-muted font-mono">
+                {ticket.branchName}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDiffFullscreen(false)}
+              className="p-1.5 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
+              title="Close fullscreen"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto">
+            {diffError && (
+              <div className="p-3 text-xs text-red-400">{diffError}</div>
+            )}
+            {diffFiles && <FileDiffViewer files={diffFiles} />}
+          </div>
+        </div>
+      )}
 
       {pushStatus && (
         <div className={`text-xs p-2 rounded ${pushStatus.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>

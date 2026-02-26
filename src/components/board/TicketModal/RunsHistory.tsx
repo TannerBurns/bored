@@ -241,7 +241,7 @@ function PreviousRunsSection({
       <h3 className="text-sm font-medium text-board-text-muted mb-2">
         Previous Runs ({parentRuns.length})
       </h3>
-      <div className="space-y-2 max-h-[192px] overflow-y-auto pr-1">
+      <div className="space-y-2">
         {parentRuns.map((run) => {
           const subRuns = subRunsByParent[run.id] || [];
           const isMultiStage = subRuns.length > 0;

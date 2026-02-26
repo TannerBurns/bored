@@ -191,7 +191,7 @@ function RawLogsView({ events }: { events: RunEvent[] }) {
   }
 
   return (
-    <div className="bg-black/80 rounded p-2 max-h-80 overflow-y-auto font-mono text-xs">
+    <div className="bg-black/80 rounded p-2 max-h-[70vh] overflow-y-auto font-mono text-xs">
       {logEvents.map((event) => {
         const payload = event.payload as { raw?: string } | null;
         const content = payload?.raw || '';
@@ -294,7 +294,7 @@ export function LogTimelineView({ events, agentType, loadingEvents }: LogTimelin
 
       {/* Content */}
       {activeTab === 'timeline' ? (
-        <div ref={scrollRef} className="max-h-80 overflow-y-auto pr-1">
+        <div ref={scrollRef} className="max-h-[70vh] overflow-y-auto pr-1">
           {timelineEntries.map((entry) => (
             <TimelineRow key={entry.id} entry={entry} baseTimestamp={baseTimestamp} />
           ))}
