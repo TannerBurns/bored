@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../../../../lib/logger';
 import type { AgentRun } from '../../../../types';
 import type { RunEvent } from '../types';
+
+const POLL_INTERVAL_MS = 1500;
 
 export interface UseRunsHistoryOptions {
   ticketId: string;
@@ -23,6 +25,7 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const prevLockedRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const loadRuns = async () => {
@@ -38,25 +41,62 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
     loadRuns();
   }, [ticketId, lockedByRunId]);
 
+  // Auto-expand the current run when a new run starts
+  useEffect(() => {
+    if (lockedByRunId && lockedByRunId !== prevLockedRef.current) {
+      setExpandedRunId(lockedByRunId);
+      setRunEvents([]);
+      setLoadingEvents(true);
+    }
+    prevLockedRef.current = lockedByRunId;
+  }, [lockedByRunId]);
+
+  // Poll events while the expanded run is the active (locked) run
+  useEffect(() => {
+    const runId = expandedRunId;
+    if (!runId) return;
+
+    let cancelled = false;
+
+    const fetchEvents = async () => {
+      try {
+        const events = await invoke<RunEvent[]>('get_run_events', { runId });
+        if (!cancelled) {
+          setRunEvents(events);
+          setLoadingEvents(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          logger.error('Failed to poll run events:', err);
+          setLoadingEvents(false);
+        }
+      }
+    };
+
+    fetchEvents();
+
+    const isActiveRun = runId === lockedByRunId;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    if (isActiveRun) {
+      interval = setInterval(fetchEvents, POLL_INTERVAL_MS);
+    }
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [expandedRunId, lockedByRunId]);
+
   const handleRunClick = useCallback(async (runId: string) => {
     if (expandedRunId === runId) {
-      // Collapse if already expanded
       setExpandedRunId(null);
       setRunEvents([]);
       return;
     }
-    
+
     setExpandedRunId(runId);
     setLoadingEvents(true);
-    try {
-      const events = await invoke<RunEvent[]>('get_run_events', { runId });
-      setRunEvents(events);
-    } catch (err) {
-      logger.error('Failed to load run events:', err);
-      setRunEvents([]);
-    } finally {
-      setLoadingEvents(false);
-    }
   }, [expandedRunId]);
 
   return {
