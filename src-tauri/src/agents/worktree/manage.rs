@@ -235,11 +235,13 @@ pub fn safety_commit_if_needed(worktree_path: &Path, run_id: &str) -> Result<Opt
 
     if !commit_output.status.success() {
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
-        if stderr.contains("nothing to commit") {
-            return Ok(None);
-        }
+        let message = if stderr.contains("nothing to commit") {
+            "Status showed uncommitted changes but commit found nothing; possible race or gitignore mismatch".to_string()
+        } else {
+            "Failed to create safety commit".to_string()
+        };
         return Err(WorktreeError::GitError {
-            message: "Failed to create safety commit".to_string(),
+            message,
             stderr: stderr.trim().to_string(),
             exit_code: commit_output.status.code(),
             operation: "git commit (safety)".to_string(),
