@@ -23,6 +23,8 @@ export interface TimelineEntry {
   };
   /** Whether this event came from a subagent (e.g. Claude Task tool) */
   isSubagent?: boolean;
+  /** Short description of the subagent task (from the Task tool's input.description) */
+  subagentLabel?: string;
   /** Model used for this event (useful for distinguishing subagent models) */
   model?: string;
   rawJson: string;

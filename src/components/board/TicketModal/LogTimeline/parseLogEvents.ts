@@ -82,6 +82,7 @@ function parseClaudeEvent(
   id: string,
   timestamp: string,
   isStderr: boolean,
+  taskDescriptions: Map<string, string>,
 ): TimelineEntry[] {
   const msgType = json.type as string | undefined;
   if (!msgType) return [];
@@ -89,9 +90,24 @@ function parseClaudeEvent(
   // Detect main agent vs subagent via parent_tool_use_id
   const parentToolUseId = json.parent_tool_use_id as string | null | undefined;
   const isSubagent = parentToolUseId != null && parentToolUseId !== '';
+  const subagentLabel = (isSubagent && parentToolUseId) ? taskDescriptions.get(parentToolUseId) : undefined;
   const msg = json.message as Record<string, unknown> | undefined;
   const rawModel = (msg?.model as string) ?? undefined;
   const model = shortModelName(rawModel);
+
+  // When main agent calls Task, record the description for subagent labeling
+  if (!isSubagent && Array.isArray(msg?.content)) {
+    for (const block of msg.content as Record<string, unknown>[]) {
+      if (block.type === 'tool_use' && block.name === 'Task') {
+        const toolId = block.id as string | undefined;
+        const input = block.input as Record<string, unknown> | undefined;
+        const desc = input?.description as string | undefined;
+        if (toolId && desc) {
+          taskDescriptions.set(toolId, desc);
+        }
+      }
+    }
+  }
 
   switch (msgType) {
     case 'system': {
@@ -122,6 +138,7 @@ function parseClaudeEvent(
             toolName,
             toolInput,
             isSubagent,
+            subagentLabel,
             model,
             rawJson: raw,
             isStderr,
@@ -136,6 +153,7 @@ function parseClaudeEvent(
               summary: truncate(text.replace(/\n/g, ' '), 120),
               content: text,
               isSubagent,
+              subagentLabel,
               model,
               rawJson: raw,
               isStderr,
@@ -150,7 +168,7 @@ function parseClaudeEvent(
     case 'user': {
       const contentArr = msg?.content as unknown[];
       if (!Array.isArray(contentArr)) {
-        return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, model, rawJson: raw, isStderr }];
+        return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, subagentLabel, model, rawJson: raw, isStderr }];
       }
 
       const firstBlock = contentArr[0] as Record<string, unknown> | undefined;
@@ -177,13 +195,14 @@ function parseClaudeEvent(
           summary: truncate(`Result: ${resultContent.replace(/\n/g, ' ')}`, 120),
           content: resultContent,
           isSubagent,
+          subagentLabel,
           model,
           rawJson: raw,
           isStderr,
         }];
       }
 
-      return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, model, rawJson: raw, isStderr }];
+      return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, subagentLabel, model, rawJson: raw, isStderr }];
     }
 
     case 'result': {
@@ -333,6 +352,8 @@ function parseCodexEvent(
 export function parseLogEvents(events: RunEvent[], agentType: string): TimelineEntry[] {
   const isCodex = agentType === 'codex';
   const entries: TimelineEntry[] = [];
+  // Maps Task tool_use IDs to their description for subagent labeling
+  const taskDescriptions = new Map<string, string>();
 
   for (const event of events) {
     const typeStr = getEventTypeString(event.eventType);
@@ -380,7 +401,7 @@ export function parseLogEvents(events: RunEvent[], agentType: string): TimelineE
 
     const parsed = isCodex
       ? parseCodexEvent(raw, json, event.id, event.createdAt, isStderr)
-      : parseClaudeEvent(raw, json, event.id, event.createdAt, isStderr);
+      : parseClaudeEvent(raw, json, event.id, event.createdAt, isStderr, taskDescriptions);
 
     entries.push(...parsed);
   }
