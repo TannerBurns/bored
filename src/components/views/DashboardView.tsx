@@ -15,7 +15,7 @@ import { useDashboardData, type TimeRange } from '../../hooks/useDashboardData';
 import { cn } from '../../lib/utils';
 import { getAgentDisplayName, getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { TicketIcon, TaskIcon, DollarIcon, TokenIcon, CommitIcon, CodeIcon, RunIcon, ClockIcon, CycleIcon, CostPerIcon } from './DashboardIcons';
 
 type RenderLabel = TooltipProps<number, string>['labelFormatter'];
@@ -37,6 +37,23 @@ const CHART_COLORS = {
 const BAR_COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
 
 const FALLBACK_AGENT_COLOR = '#8b5cf6';
+
+type TopModelsMode = 'tokens' | 'cost';
+const TOP_MODELS_MODE_KEY = 'bored:top-models-mode';
+
+function loadTopModelsMode(): TopModelsMode {
+  try {
+    const raw = localStorage.getItem(TOP_MODELS_MODE_KEY);
+    if (raw === 'tokens' || raw === 'cost') return raw;
+  } catch { /* ignore */ }
+  return 'tokens';
+}
+
+function persistTopModelsMode(mode: TopModelsMode) {
+  try {
+    localStorage.setItem(TOP_MODELS_MODE_KEY, mode);
+  } catch { /* ignore */ }
+}
 
 function getAgentColor(agentType: string, agents: { id: string; brandColor: string | null }[]): string {
   const match = agents.find((a) => a.id === agentType);
@@ -105,6 +122,12 @@ export function DashboardView() {
   const agents = useAgentRegistryStore((s) => s.agents);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   useEffect(() => { loadAgents(); }, [loadAgents]);
+
+  const [topModelsMode, setTopModelsMode] = useState<TopModelsMode>(loadTopModelsMode);
+  const handleTopModelsModeChange = useCallback((mode: TopModelsMode) => {
+    setTopModelsMode(mode);
+    persistTopModelsMode(mode);
+  }, []);
 
   if (isLoading && !summary) {
     return (
@@ -355,13 +378,43 @@ export function DashboardView() {
           {/* Breakdowns row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Top models */}
-            {modelBreakdown.length > 0 && (
-              <ChartCard title="Top Models">
+            {modelBreakdown.length > 0 && (() => {
+              const byTokens = topModelsMode === 'tokens';
+              const sorted = [...modelBreakdown].sort((a, b) =>
+                byTokens
+                  ? (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens)
+                  : b.costUsd - a.costUsd
+              );
+              const getValue = (m: typeof sorted[0]) =>
+                byTokens ? m.inputTokens + m.outputTokens : m.costUsd;
+              const maxValue = getValue(sorted[0]) || 1;
+
+              return (
+              <ChartCard
+                title="Top Models"
+                headerActions={
+                  <div className="flex items-center rounded-md glass-subtle p-0.5 gap-0.5">
+                    {(['tokens', 'cost'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => handleTopModelsModeChange(mode)}
+                        className={cn(
+                          'px-2 py-0.5 text-xs rounded transition-colors duration-150',
+                          topModelsMode === mode
+                            ? 'bg-board-accent text-white'
+                            : 'text-board-text-muted hover:text-board-text'
+                        )}
+                      >
+                        {mode === 'tokens' ? 'Tokens' : 'Cost'}
+                      </button>
+                    ))}
+                  </div>
+                }
+              >
                 <div className="space-y-2.5">
-                  {modelBreakdown.slice(0, 8).map((model, i) => {
-                    const maxCost = modelBreakdown[0]?.costUsd || 1;
-                    const barPct = Math.max(2, (model.costUsd / maxCost) * 100);
+                  {sorted.slice(0, 8).map((model, i) => {
                     const totalTokens = model.inputTokens + model.outputTokens;
+                    const barPct = Math.max(2, (getValue(model) / maxValue) * 100);
                     return (
                       <div key={model.model} className="space-y-1">
                         <div className="flex items-center justify-between text-sm">
@@ -369,11 +422,11 @@ export function DashboardView() {
                             {model.model}
                           </span>
                           <div className="flex items-center gap-3 flex-shrink-0 text-xs">
-                            <span className="text-board-text-muted">
-                              {formatNumber(totalTokens)} tok
-                            </span>
-                            <span className="font-mono font-medium text-board-text">
+                            <span className={byTokens ? 'text-board-text-muted' : 'font-mono font-medium text-board-text'}>
                               {formatCost(model.costUsd)}
+                            </span>
+                            <span className={byTokens ? 'font-mono font-medium text-board-text' : 'text-board-text-muted'}>
+                              {formatNumber(totalTokens)} tok
                             </span>
                           </div>
                         </div>
@@ -390,12 +443,12 @@ export function DashboardView() {
                       </div>
                     );
                   })}
-                  {modelBreakdown.length > 8 && (() => {
-                    const rest = modelBreakdown.slice(8);
+                  {sorted.length > 8 && (() => {
+                    const rest = sorted.slice(8);
                     const othersCost = rest.reduce((sum, m) => sum + m.costUsd, 0);
                     const othersTok = rest.reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0);
-                    const maxCost = modelBreakdown[0]?.costUsd || 1;
-                    const barPct = Math.max(2, (othersCost / maxCost) * 100);
+                    const othersValue = byTokens ? othersTok : othersCost;
+                    const barPct = Math.max(2, (othersValue / maxValue) * 100);
                     return (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between text-sm">
@@ -403,11 +456,11 @@ export function DashboardView() {
                             Others ({rest.length})
                           </span>
                           <div className="flex items-center gap-3 flex-shrink-0 text-xs">
-                            <span className="text-board-text-muted">
-                              {formatNumber(othersTok)} tok
-                            </span>
-                            <span className="font-mono font-medium text-board-text">
+                            <span className={byTokens ? 'text-board-text-muted' : 'font-mono font-medium text-board-text'}>
                               {formatCost(othersCost)}
+                            </span>
+                            <span className={byTokens ? 'font-mono font-medium text-board-text' : 'text-board-text-muted'}>
+                              {formatNumber(othersTok)} tok
                             </span>
                           </div>
                         </div>
@@ -426,7 +479,8 @@ export function DashboardView() {
                   })()}
                 </div>
               </ChartCard>
-            )}
+              );
+            })()}
 
             {/* Agent distribution */}
             {agentBreakdown.length > 0 && (
@@ -527,13 +581,18 @@ function StatCard({
 function ChartCard({
   title,
   children,
+  headerActions,
 }: {
   title: string;
   children: React.ReactNode;
+  headerActions?: React.ReactNode;
 }) {
   return (
     <div className="glass rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-board-text mb-3">{title}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-board-text">{title}</h3>
+        {headerActions}
+      </div>
       {children}
     </div>
   );
