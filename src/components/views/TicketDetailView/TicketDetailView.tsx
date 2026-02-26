@@ -144,6 +144,8 @@ export function TicketDetailView({
     }
   }, [currentIndex, columnTickets, openTicketModal]);
 
+  const { isEditing, setIsEditing, resetEditState } = editState;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -155,9 +157,9 @@ export function TicketDetailView({
       }
 
       if (e.key === 'Escape') {
-        if (editState.isEditing) {
-          editState.setIsEditing(false);
-          editState.resetEditState();
+        if (isEditing) {
+          setIsEditing(false);
+          resetEditState();
         } else {
           onClose();
         }
@@ -171,7 +173,9 @@ export function TicketDetailView({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    editState,
+    isEditing,
+    setIsEditing,
+    resetEditState,
     onClose,
     currentIndex,
     columnTickets.length,
