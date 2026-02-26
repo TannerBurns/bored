@@ -97,6 +97,7 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
     if (expandedRunId === runId) {
       setExpandedRunId(null);
       setRunEvents([]);
+      setLoadingEvents(false);
       return;
     }
 
