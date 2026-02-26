@@ -112,7 +112,21 @@ function parseClaudeEvent(
       // Tool results are delivered as user messages with tool_use_id
       const firstBlock = contentArr[0] as Record<string, unknown> | undefined;
       if (firstBlock?.tool_use_id) {
-        const resultContent = firstBlock.content as string ?? '';
+        let resultContent: string;
+        const rawContent = firstBlock.content;
+        if (typeof rawContent === 'string') {
+          resultContent = rawContent;
+        } else if (Array.isArray(rawContent)) {
+          resultContent = rawContent
+            .map((b: unknown) => {
+              const block = b as Record<string, unknown>;
+              return block.type === 'text' ? (block.text as string) : '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        } else {
+          resultContent = rawContent ? JSON.stringify(rawContent) : '';
+        }
         return {
           id,
           type: 'tool_result',
