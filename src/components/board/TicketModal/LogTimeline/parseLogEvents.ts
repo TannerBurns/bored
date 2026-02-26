@@ -95,15 +95,17 @@ function parseClaudeEvent(
   const rawModel = (msg?.model as string) ?? undefined;
   const model = shortModelName(rawModel);
 
-  // When main agent calls Task, record the description for subagent labeling
+  // When main agent calls Task, record the subagent type for labeling
   if (!isSubagent && Array.isArray(msg?.content)) {
     for (const block of msg.content as Record<string, unknown>[]) {
       if (block.type === 'tool_use' && block.name === 'Task') {
         const toolId = block.id as string | undefined;
         const input = block.input as Record<string, unknown> | undefined;
+        const subagentType = input?.subagent_type as string | undefined;
         const desc = input?.description as string | undefined;
-        if (toolId && desc) {
-          taskDescriptions.set(toolId, desc);
+        const label = subagentType ?? desc;
+        if (toolId && label) {
+          taskDescriptions.set(toolId, label);
         }
       }
     }
