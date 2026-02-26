@@ -104,6 +104,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 Some(&format!("Failed to start task: {}", e)),
             );
             let _ = db.unlock_ticket(&ticket_id);
+            safety_commit_and_record(&db, &worktree_info.path, &run_id);
             let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
@@ -173,6 +174,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     if let Err(e) = db.unlock_ticket(&ticket_id) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
     }
+
+    safety_commit_and_record(&db, &worktree_info.path, &run_id);
 
     if let Err(e) = worktree::remove_worktree(&worktree_info.path, &main_repo_path) {
         tracing::error!("Failed to remove worktree {}: {}", worktree_info.path.display(), e);
@@ -257,6 +260,38 @@ fn handle_workflow_result(
             if let Err(emit_err) = window.emit("agent-error", &event) {
                 tracing::error!("Failed to emit agent-error event: {}", emit_err);
             }
+        }
+    }
+}
+
+/// Attempt a safety commit in the worktree and record it in run metadata.
+fn safety_commit_and_record(db: &Database, worktree_path: &std::path::Path, run_id: &str) {
+    match worktree::safety_commit_if_needed(worktree_path, run_id) {
+        Ok(Some(commit_hash)) => {
+            tracing::warn!(
+                "Safety commit created for run {}: {} (agent did not commit all changes)",
+                run_id,
+                commit_hash
+            );
+            match db.get_run(run_id) {
+                Ok(existing) => {
+                    let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
+                    meta["safety_commit"] = serde_json::json!({
+                        "commit_hash": commit_hash,
+                        "created_at": chrono::Utc::now().to_rfc3339(),
+                    });
+                    if let Err(e) = db.set_run_metadata(run_id, &meta) {
+                        tracing::error!("Failed to store safety commit metadata for run {}: {}", run_id, e);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Safety commit succeeded but failed to record metadata for run {}: {}", run_id, e);
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            tracing::error!("Safety commit failed for run {}: {}", run_id, e);
         }
     }
 }

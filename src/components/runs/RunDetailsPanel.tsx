@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { getAgentRun } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import { getAgentDisplayName } from '../common/AgentIcons';
+import { SafetyCommitNotice } from '../common/SafetyCommitNotice';
 import type { AgentRun, RunStatus } from '../../types';
 
 interface AgentLogEvent {
@@ -266,6 +267,8 @@ export function RunDetailsPanel({ runId, onClose }: RunDetailsPanelProps) {
           <div ref={logsEndRef} />
         </div>
       </div>
+
+      <SafetyCommitNotice run={run} className="mx-4 mb-2" />
 
       {/* Summary Footer */}
       {run.summaryMd && (

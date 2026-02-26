@@ -273,6 +273,60 @@ describe('RunsHistory', () => {
     });
   });
 
+  describe('safety commit notice', () => {
+    it('does not show notice when metadata is undefined', () => {
+      renderHistory({
+        agentRuns: [createRun({ metadata: undefined })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+    });
+
+    it('does not show notice when metadata has no safety_commit', () => {
+      renderHistory({
+        agentRuns: [createRun({ metadata: { workflow_mode: 'auto_pilot' } })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+    });
+
+    it('shows notice with commit hash when safety_commit present', () => {
+      renderHistory({
+        agentRuns: [createRun({
+          metadata: { safety_commit: { commit_hash: 'abc1234', created_at: '2025-06-15T12:00:00Z' } },
+        })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText('abc1234')).toBeInTheDocument();
+    });
+
+    it('shows notice without hash when commit_hash is missing', () => {
+      renderHistory({
+        agentRuns: [createRun({
+          metadata: { safety_commit: { created_at: '2025-06-15T12:00:00Z' } },
+        })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.queryByText('Commit:')).not.toBeInTheDocument();
+    });
+
+    it('shows notice in current run section', () => {
+      renderHistory({
+        agentRuns: [createRun({
+          id: 'active',
+          status: 'running',
+          metadata: { safety_commit: { commit_hash: 'def5678' } },
+        })],
+        lockedByRunId: 'active',
+        expandedRunId: 'active',
+      });
+      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText('def5678')).toBeInTheDocument();
+    });
+  });
+
   describe('multiple previous runs', () => {
     it('shows correct count', () => {
       const runs = [

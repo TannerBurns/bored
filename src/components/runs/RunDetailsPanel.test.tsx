@@ -121,4 +121,45 @@ describe('RunDetailsPanel', () => {
       expect(screen.getByText('/home/user/project')).toBeInTheDocument();
     });
   });
+
+  describe('safety commit notice', () => {
+    it('does not show notice when no safety_commit in metadata', async () => {
+      vi.mocked(getAgentRun).mockResolvedValue(mockRun);
+
+      render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Run run-123')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+    });
+
+    it('shows notice with commit hash when safety_commit present', async () => {
+      vi.mocked(getAgentRun).mockResolvedValue({
+        ...mockRun,
+        metadata: { safety_commit: { commit_hash: 'fa9b3c1', created_at: '2025-06-15T12:00:00Z' } },
+      });
+
+      render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      });
+      expect(screen.getByText('fa9b3c1')).toBeInTheDocument();
+    });
+
+    it('shows notice without hash when commit_hash is missing', async () => {
+      vi.mocked(getAgentRun).mockResolvedValue({
+        ...mockRun,
+        metadata: { safety_commit: { created_at: '2025-06-15T12:00:00Z' } },
+      });
+
+      render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Commit:')).not.toBeInTheDocument();
+    });
+  });
 });
