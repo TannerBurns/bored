@@ -129,7 +129,7 @@ function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimes
           </span>
           {entry.isSubagent && (
             <span className="text-[9px] px-1 py-px rounded bg-purple-400/15 text-purple-400 flex-shrink-0">
-              sub{entry.model ? ` · ${entry.model}` : ''}
+              subagent{entry.model ? ` · ${entry.model}` : ''}
             </span>
           )}
           {!entry.isSubagent && entry.model && (
