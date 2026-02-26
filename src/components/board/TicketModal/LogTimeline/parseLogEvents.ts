@@ -1,7 +1,7 @@
 import type { RunEvent } from '../types';
 import type { TimelineEntry, TimelineEntryType } from './types';
 
-function getEventTypeString(eventType: unknown): string {
+export function getEventTypeString(eventType: unknown): string {
   if (typeof eventType === 'string') return eventType;
   if (typeof eventType === 'object' && eventType !== null) {
     const obj = eventType as Record<string, unknown>;
@@ -61,10 +61,6 @@ function extractCursorToolCallSummary(
     : `Using ${displayName}`;
   return { toolName: displayName, toolInput: shortDetail, summary };
 }
-
-// ---------------------------------------------------------------------------
-// Claude / Cursor (stream-json format)
-// ---------------------------------------------------------------------------
 
 function parseClaudeEvent(
   raw: string,
@@ -240,10 +236,6 @@ function parseClaudeEvent(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Codex format
-// ---------------------------------------------------------------------------
-
 function parseCodexEvent(
   raw: string,
   json: Record<string, unknown>,
@@ -318,10 +310,6 @@ function parseCodexEvent(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 export function parseLogEvents(events: RunEvent[], agentType: string): TimelineEntry[] {
   const isCodex = agentType === 'codex';
   const entries: TimelineEntry[] = [];
@@ -338,7 +326,6 @@ export function parseLogEvents(events: RunEvent[], agentType: string): TimelineE
 
     const trimmed = raw.trim();
 
-    // Non-JSON lines
     if (!trimmed.startsWith('{')) {
       if (trimmed) {
         const entryType: TimelineEntryType = isStderr ? 'error' : 'system';

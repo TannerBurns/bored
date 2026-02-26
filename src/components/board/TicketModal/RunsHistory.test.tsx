@@ -216,7 +216,7 @@ describe('RunsHistory', () => {
         expandedRunId: 'run-1',
         runEvents: events,
       });
-      expect(screen.getByText(/Logs \(2 lines\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Raw Logs \(2\)/)).toBeInTheDocument();
     });
 
     it('shows loading state', () => {
@@ -225,7 +225,7 @@ describe('RunsHistory', () => {
         expandedRunId: 'run-1',
         loadingEvents: true,
       });
-      expect(screen.getByText('Loading...')).toBeInTheDocument();
+      expect(screen.getByText('Loading logs...')).toBeInTheDocument();
     });
 
     it('shows log content', () => {

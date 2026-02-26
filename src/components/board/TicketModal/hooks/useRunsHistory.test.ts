@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useRunsHistory } from './useRunsHistory';
 import type { AgentRun } from '../../../../types';
@@ -156,12 +156,15 @@ describe('useRunsHistory', () => {
         expect(result.current.agentRuns).toHaveLength(1);
       });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
       expect(result.current.expandedRunId).toBe('run-1');
-      expect(result.current.runEvents).toEqual(mockEvents);
+
+      await waitFor(() => {
+        expect(result.current.runEvents).toEqual(mockEvents);
+      });
       expect(mockInvoke).toHaveBeenCalledWith('get_run_events', {
         runId: 'run-1',
       });
@@ -183,14 +186,16 @@ describe('useRunsHistory', () => {
         expect(result.current.agentRuns).toHaveLength(1);
       });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
-      expect(result.current.expandedRunId).toBe('run-1');
+      await waitFor(() => {
+        expect(result.current.expandedRunId).toBe('run-1');
+      });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
       expect(result.current.expandedRunId).toBeNull();
@@ -213,14 +218,16 @@ describe('useRunsHistory', () => {
         expect(result.current.agentRuns).toHaveLength(1);
       });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
-      expect(result.current.runEvents).toHaveLength(2);
+      await waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(2);
+      });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
       expect(result.current.runEvents).toEqual([]);
@@ -246,19 +253,19 @@ describe('useRunsHistory', () => {
 
       expect(result.current.loadingEvents).toBe(false);
 
-      let clickPromise: Promise<void>;
       act(() => {
-        clickPromise = result.current.handleRunClick('run-1');
+        result.current.handleRunClick('run-1');
       });
 
       expect(result.current.loadingEvents).toBe(true);
 
       await act(async () => {
         resolveEvents!([]);
-        await clickPromise;
       });
 
-      expect(result.current.loadingEvents).toBe(false);
+      await waitFor(() => {
+        expect(result.current.loadingEvents).toBe(false);
+      });
     });
 
     it('handles event load error gracefully', async () => {
@@ -274,13 +281,16 @@ describe('useRunsHistory', () => {
         expect(result.current.agentRuns).toHaveLength(1);
       });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
       expect(result.current.expandedRunId).toBe('run-1');
+
+      await waitFor(() => {
+        expect(result.current.loadingEvents).toBe(false);
+      });
       expect(result.current.runEvents).toEqual([]);
-      expect(result.current.loadingEvents).toBe(false);
     });
 
     it('switches to different run', async () => {
@@ -304,19 +314,23 @@ describe('useRunsHistory', () => {
         expect(result.current.agentRuns).toHaveLength(2);
       });
 
-      await act(async () => {
-        await result.current.handleRunClick('run-1');
+      act(() => {
+        result.current.handleRunClick('run-1');
       });
 
+      await waitFor(() => {
+        expect(result.current.runEvents[0]?.id).toBe('e1');
+      });
       expect(result.current.expandedRunId).toBe('run-1');
-      expect(result.current.runEvents[0]?.id).toBe('e1');
 
-      await act(async () => {
-        await result.current.handleRunClick('run-2');
+      act(() => {
+        result.current.handleRunClick('run-2');
       });
 
+      await waitFor(() => {
+        expect(result.current.runEvents[0]?.id).toBe('e2');
+      });
       expect(result.current.expandedRunId).toBe('run-2');
-      expect(result.current.runEvents[0]?.id).toBe('e2');
     });
   });
 
@@ -339,6 +353,223 @@ describe('useRunsHistory', () => {
       });
 
       expect(result.current.agentRuns).toEqual(newRuns);
+    });
+  });
+
+  describe('auto-expand on lockedByRunId change', () => {
+    it('auto-expands when lockedByRunId is set', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1', status: 'running' })];
+      const mockEvents = [createMockEvent()];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockEvents);
+
+      const { result, rerender } = renderHook(
+        ({ lockedByRunId }) =>
+          useRunsHistory({ ticketId: 'ticket-1', lockedByRunId }),
+        { initialProps: { lockedByRunId: undefined as string | undefined } }
+      );
+
+      await waitFor(() => {
+        expect(result.current.agentRuns).toHaveLength(1);
+      });
+
+      rerender({ lockedByRunId: 'run-1' });
+
+      await waitFor(() => {
+        expect(result.current.expandedRunId).toBe('run-1');
+      });
+    });
+
+    it('resets events when lockedByRunId changes to a new run', async () => {
+      const mockRuns = [
+        createMockRun({ id: 'run-1', status: 'running' }),
+        createMockRun({ id: 'run-2', status: 'running' }),
+      ];
+      const events1 = [createMockEvent({ id: 'e1' })];
+      const events2 = [createMockEvent({ id: 'e2' })];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(events1)
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(events2);
+
+      const { result, rerender } = renderHook(
+        ({ lockedByRunId }) =>
+          useRunsHistory({ ticketId: 'ticket-1', lockedByRunId }),
+        { initialProps: { lockedByRunId: 'run-1' as string | undefined } }
+      );
+
+      await waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(1);
+        expect(result.current.runEvents[0]?.id).toBe('e1');
+      });
+
+      rerender({ lockedByRunId: 'run-2' });
+
+      await waitFor(() => {
+        expect(result.current.expandedRunId).toBe('run-2');
+      });
+    });
+
+    it('does not re-expand when lockedByRunId stays the same', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1', status: 'running' })];
+      const mockEvents = [createMockEvent()];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockEvents);
+
+      const { result, rerender } = renderHook(
+        ({ lockedByRunId }) =>
+          useRunsHistory({ ticketId: 'ticket-1', lockedByRunId }),
+        { initialProps: { lockedByRunId: 'run-1' as string | undefined } }
+      );
+
+      await waitFor(() => {
+        expect(result.current.expandedRunId).toBe('run-1');
+      });
+
+      act(() => {
+        result.current.handleRunClick('run-1');
+      });
+
+      expect(result.current.expandedRunId).toBeNull();
+
+      rerender({ lockedByRunId: 'run-1' });
+
+      expect(result.current.expandedRunId).toBeNull();
+    });
+  });
+
+  describe('event polling', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('polls events at interval for active run', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1', status: 'running' })];
+      const events1 = [createMockEvent({ id: 'e1' })];
+      const events2 = [createMockEvent({ id: 'e1' }), createMockEvent({ id: 'e2' })];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(events1)
+        .mockResolvedValueOnce(events2);
+
+      const { result } = renderHook(() =>
+        useRunsHistory({ ticketId: 'ticket-1', lockedByRunId: 'run-1' })
+      );
+
+      await vi.waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(1);
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      await vi.waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(2);
+      });
+    });
+
+    it('does not poll for non-active (historical) runs', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1' })];
+      const mockEvents = [createMockEvent()];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockEvents);
+
+      const { result } = renderHook(() =>
+        useRunsHistory({ ticketId: 'ticket-1' })
+      );
+
+      await vi.waitFor(() => {
+        expect(result.current.agentRuns).toHaveLength(1);
+      });
+
+      act(() => {
+        result.current.handleRunClick('run-1');
+      });
+
+      await vi.waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(1);
+      });
+
+      const callCountAfterLoad = mockInvoke.mock.calls.length;
+
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      expect(mockInvoke.mock.calls.length).toBe(callCountAfterLoad);
+    });
+
+    it('preserves events when a poll tick fails', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1', status: 'running' })];
+      const mockEvents = [createMockEvent({ id: 'e1' })];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockEvents)
+        .mockRejectedValueOnce(new Error('Transient network error'));
+
+      const { result } = renderHook(() =>
+        useRunsHistory({ ticketId: 'ticket-1', lockedByRunId: 'run-1' })
+      );
+
+      await vi.waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(1);
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      await vi.waitFor(() => {
+        expect(result.current.loadingEvents).toBe(false);
+      });
+
+      expect(result.current.runEvents).toHaveLength(1);
+      expect(result.current.runEvents[0].id).toBe('e1');
+    });
+
+    it('stops polling when run is collapsed', async () => {
+      const mockRuns = [createMockRun({ id: 'run-1', status: 'running' })];
+      const mockEvents = [createMockEvent()];
+
+      mockInvoke
+        .mockResolvedValueOnce(mockRuns)
+        .mockResolvedValueOnce(mockEvents);
+
+      const { result } = renderHook(() =>
+        useRunsHistory({ ticketId: 'ticket-1', lockedByRunId: 'run-1' })
+      );
+
+      await vi.waitFor(() => {
+        expect(result.current.runEvents).toHaveLength(1);
+      });
+
+      act(() => {
+        result.current.handleRunClick('run-1');
+      });
+
+      const callCountAfterCollapse = mockInvoke.mock.calls.length;
+
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      expect(mockInvoke.mock.calls.length).toBe(callCountAfterCollapse);
     });
   });
 });

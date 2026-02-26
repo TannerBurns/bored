@@ -6,18 +6,18 @@ import type { RunEvent } from '../types';
 
 const POLL_INTERVAL_MS = 1500;
 
-export interface UseRunsHistoryOptions {
+interface UseRunsHistoryOptions {
   ticketId: string;
   lockedByRunId?: string;
 }
 
-export interface UseRunsHistoryReturn {
+interface UseRunsHistoryReturn {
   agentRuns: AgentRun[];
   setAgentRuns: React.Dispatch<React.SetStateAction<AgentRun[]>>;
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOptions): UseRunsHistoryReturn {
@@ -57,6 +57,7 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
     if (!runId) return;
 
     let cancelled = false;
+    let hasFetchedOnce = false;
 
     const fetchEvents = async () => {
       try {
@@ -64,10 +65,14 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
         if (!cancelled) {
           setRunEvents(events);
           setLoadingEvents(false);
+          hasFetchedOnce = true;
         }
       } catch (err) {
         if (!cancelled) {
           logger.error('Failed to poll run events:', err);
+          if (!hasFetchedOnce) {
+            setRunEvents([]);
+          }
           setLoadingEvents(false);
         }
       }
@@ -88,7 +93,7 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
     };
   }, [expandedRunId, lockedByRunId]);
 
-  const handleRunClick = useCallback(async (runId: string) => {
+  const handleRunClick = useCallback((runId: string) => {
     if (expandedRunId === runId) {
       setExpandedRunId(null);
       setRunEvents([]);

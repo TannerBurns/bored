@@ -2,11 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { cn } from '../../../../lib/utils';
 import type { RunEvent } from '../types';
 import type { TimelineEntry, TimelineEntryType } from './types';
-import { parseLogEvents } from './parseLogEvents';
-
-// ---------------------------------------------------------------------------
-// Inline SVG icons (no external icon library)
-// ---------------------------------------------------------------------------
+import { parseLogEvents, getEventTypeString } from './parseLogEvents';
 
 function IconSystem({ className }: { className?: string }) {
   return (
@@ -65,10 +61,6 @@ function IconError({ className }: { className?: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Config per entry type
-// ---------------------------------------------------------------------------
-
 const TYPE_CONFIG: Record<TimelineEntryType, {
   icon: React.ComponentType<{ className?: string }>;
   dotColor: string;
@@ -85,10 +77,6 @@ const TYPE_CONFIG: Record<TimelineEntryType, {
   streaming:   { icon: IconAssistant,  dotColor: 'bg-blue-300',    textColor: 'text-blue-300',    label: 'Streaming' },
 };
 
-// ---------------------------------------------------------------------------
-// Relative timestamp helper
-// ---------------------------------------------------------------------------
-
 function relativeTime(ts: string, baseTs: string): string {
   const base = new Date(baseTs).getTime();
   const current = new Date(ts).getTime();
@@ -100,10 +88,6 @@ function relativeTime(ts: string, baseTs: string): string {
   const remSecs = Math.floor(secs % 60);
   return `+${mins}m${remSecs}s`;
 }
-
-// ---------------------------------------------------------------------------
-// Single timeline entry row
-// ---------------------------------------------------------------------------
 
 function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimestamp: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -184,22 +168,6 @@ function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimes
   );
 }
 
-// ---------------------------------------------------------------------------
-// Raw logs tab (moved from RunEventsDisplay)
-// ---------------------------------------------------------------------------
-
-function getEventTypeString(eventType: unknown): string {
-  if (typeof eventType === 'string') return eventType;
-  if (typeof eventType === 'object' && eventType !== null) {
-    const obj = eventType as Record<string, unknown>;
-    if ('custom' in obj) return String(obj.custom);
-    const keys = Object.keys(obj);
-    if (keys.length === 1) return String(obj[keys[0]]);
-    return JSON.stringify(eventType);
-  }
-  return String(eventType);
-}
-
 function RawLogsView({ events }: { events: RunEvent[] }) {
   const logEvents = events.filter(e => {
     const type = getEventTypeString(e.eventType);
@@ -233,11 +201,7 @@ function RawLogsView({ events }: { events: RunEvent[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export interface LogTimelineViewProps {
+interface LogTimelineViewProps {
   events: RunEvent[];
   agentType: string;
   loadingEvents: boolean;

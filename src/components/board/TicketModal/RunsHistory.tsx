@@ -83,7 +83,7 @@ export interface RunsHistoryProps {
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 export function RunsHistory({
@@ -131,7 +131,7 @@ interface CurrentRunSectionProps {
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 function CurrentRunSection({
@@ -214,7 +214,7 @@ interface PreviousRunsSectionProps {
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
-  handleRunClick: (runId: string) => Promise<void>;
+  handleRunClick: (runId: string) => void;
 }
 
 function PreviousRunsSection({
