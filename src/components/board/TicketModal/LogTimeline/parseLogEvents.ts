@@ -62,44 +62,67 @@ function extractCursorToolCallSummary(
   return { toolName: displayName, toolInput: shortDetail, summary };
 }
 
+/** Shorten a model ID for display (e.g. "claude-haiku-4-5-20251001" -> "Haiku 4.5") */
+function shortModelName(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  const m = model.toLowerCase();
+  for (const family of ['opus', 'sonnet', 'haiku']) {
+    if (m.includes(family)) {
+      const label = family.charAt(0).toUpperCase() + family.slice(1);
+      const ver = m.match(/(\d+[\d.]*\d)/)?.[1];
+      return ver ? `${label} ${ver}` : label;
+    }
+  }
+  return model;
+}
+
 function parseClaudeEvent(
   raw: string,
   json: Record<string, unknown>,
   id: string,
   timestamp: string,
   isStderr: boolean,
-): TimelineEntry | null {
+): TimelineEntry[] {
   const msgType = json.type as string | undefined;
-  if (!msgType) return null;
+  if (!msgType) return [];
+
+  // Detect main agent vs subagent via parent_tool_use_id
+  const parentToolUseId = json.parent_tool_use_id as string | null | undefined;
+  const isSubagent = parentToolUseId != null && parentToolUseId !== '';
+  const msg = json.message as Record<string, unknown> | undefined;
+  const rawModel = (msg?.model as string) ?? undefined;
+  const model = shortModelName(rawModel);
 
   switch (msgType) {
     case 'system': {
       const subtype = json.subtype as string | undefined;
+      const sysModel = json.model as string | undefined;
       if (subtype === 'init') {
-        return { id, type: 'system', timestamp, summary: 'Agent starting...', rawJson: raw, isStderr };
+        const label = sysModel ? `Agent starting... (${sysModel})` : 'Agent starting...';
+        return [{ id, type: 'system', timestamp, summary: label, model: sysModel, rawJson: raw, isStderr }];
       }
-      return { id, type: 'system', timestamp, summary: `System: ${subtype ?? 'event'}`, rawJson: raw, isStderr };
+      return [{ id, type: 'system', timestamp, summary: `System: ${subtype ?? 'event'}`, rawJson: raw, isStderr }];
     }
 
     case 'assistant': {
-      const contentArr = (
-        (json.message as Record<string, unknown>)?.content as unknown[]
-      );
-      if (!Array.isArray(contentArr)) return null;
+      const contentArr = msg?.content as unknown[];
+      if (!Array.isArray(contentArr)) return [];
 
       const entries: TimelineEntry[] = [];
 
-      for (const block of contentArr) {
-        const b = block as Record<string, unknown>;
+      for (let i = 0; i < contentArr.length; i++) {
+        const b = contentArr[i] as Record<string, unknown>;
         if (b.type === 'tool_use') {
           const { toolName, toolInput, summary } = extractToolSummary(b);
           entries.push({
-            id: `${id}-tool-${toolName}`,
+            id: `${id}-tool-${i}-${toolName}`,
             type: 'tool_use',
             timestamp,
             summary,
             toolName,
             toolInput,
+            isSubagent,
+            model,
             rawJson: raw,
             isStderr,
           });
@@ -107,11 +130,13 @@ function parseClaudeEvent(
           const text = b.text as string;
           if (text) {
             entries.push({
-              id: `${id}-text`,
+              id: `${id}-text-${i}`,
               type: 'assistant',
               timestamp,
               summary: truncate(text.replace(/\n/g, ' '), 120),
               content: text,
+              isSubagent,
+              model,
               rawJson: raw,
               isStderr,
             });
@@ -119,22 +144,15 @@ function parseClaudeEvent(
         }
       }
 
-      // Return first entry if single, or the tool_use if mixed with text
-      // (assistant text + tool_use in same message — tool_use is more interesting)
-      if (entries.length === 0) return null;
-      if (entries.length === 1) return entries[0];
-      return entries.find(e => e.type === 'tool_use') ?? entries[0];
+      return entries;
     }
 
     case 'user': {
-      const contentArr = (
-        (json.message as Record<string, unknown>)?.content as unknown[]
-      );
+      const contentArr = msg?.content as unknown[];
       if (!Array.isArray(contentArr)) {
-        return { id, type: 'user', timestamp, summary: 'User input', rawJson: raw, isStderr };
+        return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, model, rawJson: raw, isStderr }];
       }
 
-      // Tool results are delivered as user messages with tool_use_id
       const firstBlock = contentArr[0] as Record<string, unknown> | undefined;
       if (firstBlock?.tool_use_id) {
         let resultContent: string;
@@ -152,18 +170,20 @@ function parseClaudeEvent(
         } else {
           resultContent = rawContent ? JSON.stringify(rawContent) : '';
         }
-        return {
+        return [{
           id,
           type: 'tool_result',
           timestamp,
           summary: truncate(`Result: ${resultContent.replace(/\n/g, ' ')}`, 120),
           content: resultContent,
+          isSubagent,
+          model,
           rawJson: raw,
           isStderr,
-        };
+        }];
       }
 
-      return { id, type: 'user', timestamp, summary: 'User input', rawJson: raw, isStderr };
+      return [{ id, type: 'user', timestamp, summary: 'User input', isSubagent, model, rawJson: raw, isStderr }];
     }
 
     case 'result': {
@@ -189,7 +209,7 @@ function parseClaudeEvent(
         ? `$${costData.totalCostUsd < 0.01 ? costData.totalCostUsd.toFixed(4) : costData.totalCostUsd.toFixed(2)}`
         : '';
 
-      return {
+      return [{
         id,
         type: 'result',
         timestamp,
@@ -200,20 +220,20 @@ function parseClaudeEvent(
         costData,
         rawJson: raw,
         isStderr,
-      };
+      }];
     }
 
     // Cursor emits tool_call events with subtype started/completed
     case 'tool_call': {
       const subtype = json.subtype as string | undefined;
       const toolCallObj = json.tool_call as Record<string, unknown> | undefined;
-      if (!toolCallObj) return null;
+      if (!toolCallObj) return [];
 
       // Only show "started" to avoid duplicate entries per call
-      if (subtype !== 'started') return null;
+      if (subtype !== 'started') return [];
 
       const { toolName, toolInput, summary } = extractCursorToolCallSummary(toolCallObj);
-      return {
+      return [{
         id,
         type: 'tool_use',
         timestamp,
@@ -222,17 +242,17 @@ function parseClaudeEvent(
         toolInput,
         rawJson: raw,
         isStderr,
-      };
+      }];
     }
 
     // Cursor thinking deltas — skip individually (too frequent per-token)
     case 'thinking':
     case 'content_block_delta':
     case 'stream_event':
-      return null;
+      return [];
 
     default:
-      return null;
+      return [];
   }
 }
 
@@ -242,19 +262,19 @@ function parseCodexEvent(
   id: string,
   timestamp: string,
   isStderr: boolean,
-): TimelineEntry | null {
+): TimelineEntry[] {
   const msgType = json.type as string | undefined;
-  if (!msgType) return null;
+  if (!msgType) return [];
 
   if (msgType === 'item.completed') {
     const item = json.item as Record<string, unknown> | undefined;
-    if (!item) return null;
+    if (!item) return [];
 
     const itemType = item.type as string;
 
     if (itemType === 'agent_message') {
       const text = item.text as string ?? '';
-      return {
+      return [{
         id,
         type: 'assistant',
         timestamp,
@@ -262,13 +282,13 @@ function parseCodexEvent(
         content: text,
         rawJson: raw,
         isStderr,
-      };
+      }];
     }
 
     if (itemType === 'command_execution') {
       const output = item.aggregated_output as string ?? '';
       const cmd = item.command as string ?? 'shell';
-      return {
+      return [{
         id,
         type: 'tool_use',
         timestamp,
@@ -278,10 +298,10 @@ function parseCodexEvent(
         toolInput: cmd,
         rawJson: raw,
         isStderr,
-      };
+      }];
     }
 
-    return null;
+    return [];
   }
 
   if (msgType === 'turn.completed') {
@@ -294,7 +314,7 @@ function parseCodexEvent(
       costData = { inputTokens: input, outputTokens: output, totalCostUsd: 0 };
     }
 
-    return {
+    return [{
       id,
       type: 'result',
       timestamp,
@@ -304,10 +324,10 @@ function parseCodexEvent(
       costData,
       rawJson: raw,
       isStderr,
-    };
+    }];
   }
 
-  return null;
+  return [];
 }
 
 export function parseLogEvents(events: RunEvent[], agentType: string): TimelineEntry[] {
@@ -362,9 +382,7 @@ export function parseLogEvents(events: RunEvent[], agentType: string): TimelineE
       ? parseCodexEvent(raw, json, event.id, event.createdAt, isStderr)
       : parseClaudeEvent(raw, json, event.id, event.createdAt, isStderr);
 
-    if (parsed) {
-      entries.push(parsed);
-    }
+    entries.push(...parsed);
   }
 
   return entries;

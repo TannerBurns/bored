@@ -106,6 +106,7 @@ function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimes
       <div className={cn(
         'absolute left-0 top-1 w-[15px] h-[15px] rounded-full border-2 border-board-bg flex items-center justify-center',
         config.dotColor,
+        entry.isSubagent && 'ring-1 ring-purple-400/50',
       )} />
 
       {/* Content */}
@@ -115,6 +116,7 @@ function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimes
           'w-full text-left rounded px-2 py-1.5 transition-colors',
           hasExpandableContent && 'hover:bg-board-card-hover cursor-pointer',
           !hasExpandableContent && 'cursor-default',
+          entry.isSubagent && 'border-l-2 border-purple-400/30',
         )}
       >
         <div className="flex items-center gap-2 min-w-0">
@@ -125,6 +127,16 @@ function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimes
           <span className={cn('text-xs font-medium', config.textColor)}>
             {config.label}
           </span>
+          {entry.isSubagent && (
+            <span className="text-[9px] px-1 py-px rounded bg-purple-400/15 text-purple-400 flex-shrink-0">
+              sub{entry.model ? ` · ${entry.model}` : ''}
+            </span>
+          )}
+          {!entry.isSubagent && entry.model && (
+            <span className="text-[9px] text-board-text-muted flex-shrink-0">
+              {entry.model}
+            </span>
+          )}
           <span className="text-xs text-board-text-secondary truncate min-w-0">
             {entry.summary}
           </span>

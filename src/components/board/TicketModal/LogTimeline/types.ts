@@ -21,6 +21,10 @@ export interface TimelineEntry {
     outputTokens: number;
     totalCostUsd: number;
   };
+  /** Whether this event came from a subagent (e.g. Claude Task tool) */
+  isSubagent?: boolean;
+  /** Model used for this event (useful for distinguishing subagent models) */
+  model?: string;
   rawJson: string;
   isStderr: boolean;
 }

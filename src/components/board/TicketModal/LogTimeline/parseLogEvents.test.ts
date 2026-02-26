@@ -214,7 +214,7 @@ describe('parseLogEvents', () => {
       expect(entries[0].summary).toContain('read_file');
     });
 
-    it('prefers tool_use over text when both present in assistant message', () => {
+    it('returns all content blocks when text and tool_use are both present', () => {
       const entries = parseLogEvents(
         [mkEvent({
           payload: jsonPayload({
@@ -230,8 +230,40 @@ describe('parseLogEvents', () => {
         'claude',
       );
 
-      expect(entries).toHaveLength(1);
-      expect(entries[0].type).toBe('tool_use');
+      expect(entries).toHaveLength(2);
+      expect(entries[0].type).toBe('assistant');
+      expect(entries[1].type).toBe('tool_use');
+    });
+
+    it('returns all tool_use blocks when multiple are present', () => {
+      const entries = parseLogEvents(
+        [mkEvent({
+          payload: jsonPayload({
+            type: 'assistant',
+            message: {
+              content: [
+                { type: 'text', text: 'I will read both files.' },
+                { type: 'tool_use', name: 'read_file', input: { path: '/src/a.ts' } },
+                { type: 'tool_use', name: 'read_file', input: { path: '/src/b.ts' } },
+                { type: 'tool_use', name: 'write_file', input: { path: '/src/c.ts' } },
+              ],
+            },
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(4);
+      expect(entries[0].type).toBe('assistant');
+      expect(entries[1].type).toBe('tool_use');
+      expect(entries[1].toolInput).toBe('/src/a.ts');
+      expect(entries[2].type).toBe('tool_use');
+      expect(entries[2].toolInput).toBe('/src/b.ts');
+      expect(entries[3].type).toBe('tool_use');
+      expect(entries[3].toolInput).toBe('/src/c.ts');
+
+      const ids = entries.map(e => e.id);
+      expect(new Set(ids).size).toBe(ids.length);
     });
 
     it('returns null for assistant with no content array', () => {
