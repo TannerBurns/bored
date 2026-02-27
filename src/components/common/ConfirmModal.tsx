@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Modal } from './Modal';
 import { Button } from './Button';
 
@@ -27,6 +27,11 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleCancel = () => {
     if (isLoading) return;
@@ -39,11 +44,17 @@ export function ConfirmModal({
     setIsLoading(true);
     try {
       await onConfirm();
-      onOpenChange(false);
+      if (mountedRef.current) {
+        onOpenChange(false);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Something went wrong');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 

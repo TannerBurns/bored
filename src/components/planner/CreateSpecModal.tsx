@@ -539,10 +539,7 @@ Use Markdown for formatting:
       message="You have unsaved changes. Are you sure you want to discard them?"
       confirmLabel="Discard"
       variant="danger"
-      onConfirm={() => {
-        setShowDiscardConfirm(false);
-        onOpenChange(false);
-      }}
+      onConfirm={() => onOpenChange(false)}
       onCancel={() => setShowDiscardConfirm(false)}
     />
     </>
