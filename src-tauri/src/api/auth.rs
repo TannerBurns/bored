@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use super::state::AppState;
 
-pub const AUTH_HEADER: &str = "X-AgentKanban-Token";
+pub const AUTH_HEADER: &str = "X-Bored-Token";
 
 #[derive(Debug, Deserialize)]
 pub struct TokenQuery {
