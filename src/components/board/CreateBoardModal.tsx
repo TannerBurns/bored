@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '../common/Modal';
 import { Input } from '../common/Input';
-import { cn } from '../../lib/utils';
+import { Button } from '../common/Button';
 import { useBoardStore } from '../../stores/boardStore';
 
 interface CreateBoardModalProps {
@@ -69,23 +69,12 @@ export function CreateBoardModal({ open, onOpenChange }: CreateBoardModalProps) 
         />
 
         <div className="flex justify-end gap-2 mt-6">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="px-4 py-2 text-board-text-muted hover:text-board-text transition-colors"
-          >
+          <Button type="button" variant="ghost" onClick={handleClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || !name.trim()}
-            className={cn(
-              'px-4 py-2 bg-board-accent text-white rounded-lg transition-colors',
-              'hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed'
-            )}
-          >
+          </Button>
+          <Button type="submit" disabled={!name.trim()} loading={isSubmitting}>
             {isSubmitting ? 'Creating...' : 'Create Board'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

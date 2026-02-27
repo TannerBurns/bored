@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { getAgentIcon, getAgentBrandColor } from '../common';
 import { useSpecStore } from '../../stores/specStore';
@@ -38,10 +39,24 @@ export function CreateSpecModal({
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const { availability } = useCliAvailability();
   
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
   // Markdown editor state
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const isDirty = useMemo(() => {
+    return name.trim() !== '' || userInput.trim() !== '' || targetBoardId !== '';
+  }, [name, userInput, targetBoardId]);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && isDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onOpenChange(nextOpen);
+    }
+  };
 
   // Load projects and boards when modal opens
   useEffect(() => {
@@ -279,7 +294,7 @@ You can use:
 
   return (
     <>
-    <Modal open={open} onOpenChange={onOpenChange} title="New Spec" size="2xl" preventClose={isFullscreen}>
+    <Modal open={open} onOpenChange={handleOpenChange} title="New Spec" size="2xl" preventClose={isFullscreen}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-board-text-secondary mb-1">
@@ -507,7 +522,7 @@ Use Markdown for formatting:
         )}
 
         <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="secondary" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
           <Button type="submit" disabled={isLoading}>
@@ -517,6 +532,19 @@ Use Markdown for formatting:
       </form>
     </Modal>
     {fullscreenEditor}
+    <ConfirmModal
+      open={showDiscardConfirm}
+      onOpenChange={setShowDiscardConfirm}
+      title="Discard Changes"
+      message="You have unsaved changes. Are you sure you want to discard them?"
+      confirmLabel="Discard"
+      variant="danger"
+      onConfirm={() => {
+        setShowDiscardConfirm(false);
+        onOpenChange(false);
+      }}
+      onCancel={() => setShowDiscardConfirm(false)}
+    />
     </>
   );
 }
