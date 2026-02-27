@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Button } from '../common/Button';
+import { Input } from '../common/Input';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { cn } from '../../lib/utils';
 import { getTaskTypeLabel } from '../../types';
@@ -196,10 +198,12 @@ export function FullscreenTaskModal({
               </div>
             )}
             {/* Close button */}
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onClose}
-              className="p-2 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
               aria-label="Close"
+              className="p-2"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -215,7 +219,7 @@ export function FullscreenTaskModal({
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -228,12 +232,11 @@ export function FullscreenTaskModal({
                 <label className="block text-sm font-medium text-board-text-muted mb-2">
                   Title
                 </label>
-                <input
+                <Input
                   ref={titleRef}
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-4 py-3 bg-board-surface-raised rounded-lg text-board-text text-sm focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                   placeholder="Task title..."
                 />
               </div>
@@ -302,27 +305,16 @@ export function FullscreenTaskModal({
           <div className="flex gap-2">
             {isEditMode && (
               <>
-                <button
-                  onClick={handleCancel}
-                  className="px-4 py-2 text-board-text-muted text-sm hover:text-board-text transition-colors"
-                >
+                <Button variant="ghost" size="sm" onClick={handleCancel}>
                   Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
-                >
+                </Button>
+                <Button size="sm" loading={isSaving} onClick={handleSave}>
                   {isSaving ? 'Saving...' : 'Save Changes'}
-                </button>
+                </Button>
               </>
             )}
             {canReset && !isEditMode && (
-              <button
-                onClick={handleReset}
-                disabled={isResetting}
-                className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
+              <Button size="sm" loading={isResetting} onClick={handleReset}>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="14"
@@ -338,7 +330,7 @@ export function FullscreenTaskModal({
                   <path d="M3 3v5h5" />
                 </svg>
                 {isResetting ? 'Resetting...' : 'Reset to Pending'}
-              </button>
+              </Button>
             )}
           </div>
         </div>

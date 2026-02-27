@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Button } from './Button';
 import { Modal } from './Modal';
 import type { ReleaseNote } from '../../types';
 
@@ -177,12 +178,9 @@ export function ReleaseNotesModal({
 
         {/* Dismiss button */}
         <div className="flex justify-end pt-2">
-          <button
-            onClick={() => handleOpenChange(false)}
-            className="px-4 py-2 text-sm font-medium bg-board-accent text-white rounded-lg hover:bg-board-accent-hover transition-colors shadow-sm"
-          >
+          <Button onClick={() => handleOpenChange(false)}>
             Got it
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { cn } from '../../lib/utils';
 import { getProjects } from '../../lib/tauri';
 import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
+import { ConfirmModal } from '../common/ConfirmModal';
+import { Button } from '../common/Button';
+import { Input } from '../common/Input';
 import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 
 interface CreateTicketModalProps {
@@ -33,11 +35,25 @@ export function CreateTicketModal({
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
   // Epic state
   const [isEpic, setIsEpic] = useState(false);
   const [epicId, setEpicId] = useState('');
   const [epics, setEpics] = useState<Ticket[]>([]);
   const [epicsLoading, setEpicsLoading] = useState(true);
+
+  const isDirty = useMemo(() => {
+    return (
+      title.trim() !== '' ||
+      description.trim() !== '' ||
+      labelsInput.trim() !== '' ||
+      branchName.trim() !== '' ||
+      priority !== 'medium' ||
+      isEpic ||
+      epicId !== ''
+    );
+  }, [title, description, labelsInput, branchName, priority, isEpic, epicId]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -114,9 +130,17 @@ export function CreateTicketModal({
     }
   };
 
+  const handleRequestClose = () => {
+    if (isDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      onClose();
+      handleRequestClose();
     }
   };
 
@@ -128,7 +152,7 @@ export function CreateTicketModal({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleRequestClose}
       />
 
       {/* Modal */}
@@ -137,11 +161,13 @@ export function CreateTicketModal({
           {/* Header */}
           <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-board-border">
             <h2 className="text-lg font-semibold text-board-text">Create Ticket</h2>
-            <button
+            <Button
               type="button"
-              onClick={onClose}
-              className="p-1 text-board-text-muted hover:text-board-text transition-colors"
+              variant="ghost"
+              size="sm"
+              onClick={handleRequestClose}
               aria-label="Close"
+              className="p-1"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -157,7 +183,7 @@ export function CreateTicketModal({
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </button>
+            </Button>
           </div>
 
           {/* Content - scrollable */}
@@ -177,13 +203,12 @@ export function CreateTicketModal({
               >
                 Title <span className="text-status-error">*</span>
               </label>
-              <input
+              <Input
                 id="title"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What needs to be done?"
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
                 autoFocus
               />
             </div>
@@ -286,13 +311,12 @@ export function CreateTicketModal({
               >
                 Labels (comma-separated)
               </label>
-              <input
+              <Input
                 id="labels"
                 type="text"
                 value={labelsInput}
                 onChange={(e) => setLabelsInput(e.target.value)}
                 placeholder="bug, frontend, urgent"
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
             </div>
 
@@ -328,13 +352,12 @@ export function CreateTicketModal({
               >
                 Branch Name (optional)
               </label>
-              <input
+              <Input
                 id="branchName"
                 type="text"
                 value={branchName}
                 onChange={(e) => setBranchName(e.target.value)}
                 placeholder="feat/JIRA-123/add-feature"
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               />
               <p className="mt-1 text-xs text-board-text-muted">
                 Leave empty for AI-generated branch name on first run
@@ -412,23 +435,20 @@ export function CreateTicketModal({
 
           {/* Footer */}
           <div className="flex-shrink-0 flex justify-end gap-2 p-4 border-t border-board-border">
-            <button
+            <Button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-board-text-muted hover:text-board-text transition-colors"
+              variant="ghost"
+              onClick={handleRequestClose}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={isSubmitting || !title.trim()}
-              className={cn(
-                'px-4 py-2 bg-board-accent text-white rounded-lg transition-colors',
-                'hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
+              disabled={!title.trim()}
+              loading={isSubmitting}
             >
               {isSubmitting ? 'Creating...' : 'Create Ticket'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -442,6 +462,18 @@ export function CreateTicketModal({
           setDescription(newDescription);
         }}
         ticketTitle={title || 'New Ticket'}
+      />
+
+      {/* Discard unsaved changes confirmation */}
+      <ConfirmModal
+        open={showDiscardConfirm}
+        onOpenChange={setShowDiscardConfirm}
+        title="Discard Changes"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmLabel="Discard"
+        variant="danger"
+        onConfirm={onClose}
+        onCancel={() => setShowDiscardConfirm(false)}
       />
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, ReactNode } from 'react';
+import { Button } from './Button';
 import { MarkdownViewer } from './MarkdownViewer';
 import { cn } from '../../lib/utils';
 
@@ -188,10 +189,12 @@ export function FullscreenEditorModal({
               </div>
             )}
             {/* Close button */}
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onClose}
-              className="p-2 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
               aria-label="Close"
+              className="p-2"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -207,7 +210,7 @@ export function FullscreenEditorModal({
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -243,19 +246,12 @@ export function FullscreenEditorModal({
           </div>
           {isEditMode && (
             <div className="flex gap-2">
-              <button
-                onClick={handleCancel}
-                className="px-4 py-2 text-board-text-muted text-sm hover:text-board-text transition-colors"
-              >
+              <Button variant="ghost" size="sm" onClick={handleCancel}>
                 Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
-              >
+              </Button>
+              <Button size="sm" loading={isSaving} onClick={handleSave}>
                 {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
+              </Button>
             </div>
           )}
         </div>

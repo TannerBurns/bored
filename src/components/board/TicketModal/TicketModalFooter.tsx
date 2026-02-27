@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BuildWithDropdown } from '../BuildWithDropdown';
+import { Button } from '../../common/Button';
 import type { Ticket, Column } from '../../../types';
 
 export interface TicketModalFooterProps {
@@ -78,53 +79,33 @@ export function TicketModalFooter({
             <span className="text-sm text-board-text-muted self-center mr-2">
               Delete this ticket?
             </span>
-            <button
-              onClick={() => setShowDeleteConfirm(false)}
-              className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
-            >
+            <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
               Cancel
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="px-3 py-1.5 bg-status-error text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button variant="danger" size="sm" loading={isDeleting} onClick={handleDelete}>
               {isDeleting ? 'Deleting...' : 'Confirm Delete'}
-            </button>
+            </Button>
           </>
         ) : (
           <>
             {onDelete && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="px-3 py-1.5 text-status-error text-sm hover:bg-status-error/10 rounded-lg transition-colors"
-              >
+              <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)} className="text-status-error hover:bg-status-error/10 hover:text-status-error">
                 Delete
-              </button>
+              </Button>
             )}
             {isEditing ? (
               <>
-                <button
-                  onClick={onCancelEdit}
-                  className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
-                >
+                <Button variant="ghost" size="sm" onClick={onCancelEdit}>
                   Cancel
-                </button>
-                <button
-                  onClick={onSave}
-                  disabled={isSaving}
-                  className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
-                >
+                </Button>
+                <Button size="sm" loading={isSaving} onClick={onSave}>
                   {isSaving ? 'Saving...' : 'Save'}
-                </button>
+                </Button>
               </>
             ) : (
-              <button
-                onClick={onStartEdit}
-                className="px-3 py-1.5 text-board-text-muted text-sm hover:text-board-text transition-colors"
-              >
+              <Button variant="ghost" size="sm" onClick={onStartEdit}>
                 Edit
-              </button>
+              </Button>
             )}
           </>
         )}

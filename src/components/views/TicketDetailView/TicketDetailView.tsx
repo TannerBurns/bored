@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getProjects } from '../../../lib/tauri';
 import { logger } from '../../../lib/logger';
 import { cn } from '../../../lib/utils';
@@ -57,6 +57,7 @@ export function TicketDetailView({
   onAgentComplete,
 }: TicketDetailViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
@@ -202,10 +203,32 @@ export function TicketDetailView({
         {/* Left: Tab content */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           {/* Tab bar */}
-          <div className="flex-shrink-0 flex items-center gap-1 border-b border-board-border px-1 mb-0">
-            {TABS.map((tab) => (
+          <div
+            className="flex-shrink-0 flex items-center gap-1 border-b border-board-border px-1 mb-0"
+            role="tablist"
+            onKeyDown={(e) => {
+              const idx = TABS.findIndex((t) => t.id === activeTab);
+              let next: number | null = null;
+              if (e.key === 'ArrowRight') next = (idx + 1) % TABS.length;
+              else if (e.key === 'ArrowLeft') next = (idx - 1 + TABS.length) % TABS.length;
+              else if (e.key === 'Home') next = 0;
+              else if (e.key === 'End') next = TABS.length - 1;
+              if (next !== null) {
+                e.preventDefault();
+                setActiveTab(TABS[next].id);
+                tabRefs.current[next]?.focus();
+              }
+            }}
+          >
+            {TABS.map((tab, i) => (
               <button
                 key={tab.id}
+                ref={(el) => { tabRefs.current[i] = el; }}
+                role="tab"
+                id={`tab-${tab.id}`}
+                aria-selected={activeTab === tab.id}
+                aria-controls={`tabpanel-${tab.id}`}
+                tabIndex={activeTab === tab.id ? 0 : -1}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
                   'relative px-4 py-2.5 text-sm font-medium transition-colors',
@@ -236,7 +259,13 @@ export function TicketDetailView({
           </div>
 
           {/* Tab content (scrollable) */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div
+            className="flex-1 overflow-y-auto p-4"
+            role="tabpanel"
+            id={`tabpanel-${activeTab}`}
+            aria-labelledby={`tab-${activeTab}`}
+            tabIndex={0}
+          >
             {activeTab === 'overview' && (
               <OverviewTab
                 ticket={ticket}

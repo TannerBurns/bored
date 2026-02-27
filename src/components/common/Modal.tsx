@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { ReactNode } from 'react';
 import { cn } from '../../lib/utils';
+import { Button } from './Button';
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
@@ -67,8 +68,10 @@ export function Modal({ open, onOpenChange, title, description, children, size =
           <div className="mt-4">{children}</div>
           {!preventClose && (
             <Dialog.Close asChild>
-              <button
-                className="absolute right-4 top-4 p-2 rounded-xl text-board-text-muted hover:text-board-text hover:bg-board-card-hover transition-all duration-200 hover:scale-105"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-4 top-4 p-2"
                 aria-label="Close"
               >
                 <svg
@@ -85,7 +88,7 @@ export function Modal({ open, onOpenChange, title, description, children, size =
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-              </button>
+              </Button>
             </Dialog.Close>
           )}
         </Dialog.Content>

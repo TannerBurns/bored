@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { Button } from '../common/Button';
+import { Input } from '../common/Input';
 import { cn } from '../../lib/utils';
 import { useBoardStore } from '../../stores/boardStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -453,10 +455,12 @@ function FullscreenAddTaskModal({
           <h2 className="text-lg font-semibold text-board-text">
             Add New Task
           </h2>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onClose}
-            className="p-2 text-board-text-muted hover:text-board-text transition-colors rounded-lg hover:bg-board-surface"
             aria-label="Close"
+            className="p-2"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -472,7 +476,7 @@ function FullscreenAddTaskModal({
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </button>
+          </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -480,11 +484,10 @@ function FullscreenAddTaskModal({
             <label className="block text-sm font-medium text-board-text-muted mb-2">
               Title
             </label>
-            <input
+            <Input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-4 py-3 bg-board-surface-raised rounded-lg text-board-text text-sm focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
               placeholder="Task title..."
               autoFocus
             />
@@ -507,19 +510,12 @@ function FullscreenAddTaskModal({
             Press <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Cmd+Enter</kbd> to save, <kbd className="px-1.5 py-0.5 bg-board-surface rounded text-board-text-secondary">Esc</kbd> to cancel
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-board-text-muted text-sm hover:text-board-text transition-colors"
-            >
+            <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving || !title.trim()}
-              className="px-4 py-2 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button size="sm" disabled={!title.trim()} loading={isSaving} onClick={handleSave}>
               {isSaving ? 'Adding...' : 'Add Task'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
