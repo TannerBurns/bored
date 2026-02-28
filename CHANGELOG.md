@@ -2,6 +2,52 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.35] - 2026-02-27
+
+Detour branch worktree for active branch conflicts and UI consistency improvements across modals, accessibility, and component standardization.
+
+### New Features
+
+- Detour branch worktree — when the user has a ticket's branch checked out, the agent now creates a temporary "detour" branch and works in an isolated worktree instead of failing with an "already checked out" error; a detour-sync stage merges the target branch before completion, and the ticket's branch is fast-forwarded to the detour HEAD during cleanup
+- Detour merge recovery comments — when the detour merge-back fails or the target branch has diverged, a system comment is posted on the ticket with the detour branch name and git commands for manual recovery
+
+### Improvements
+
+- WAI-ARIA Tabs pattern in TicketDetailView — added role, aria-selected, aria-controls, tabpanel attributes, and keyboard navigation with Arrow/Home/End keys for accessibility
+- Unsaved-changes guard on CreateTicketModal and CreateSpecModal — escape, backdrop click, and cancel now show a discard confirmation when form fields have been modified instead of silently discarding input
+- ConfirmModal extended to support async onConfirm with loading state, error display, and close prevention during in-flight operations
+- Button component extended with a loading prop that shows an animated spinner and disables interaction during async operations
+- Replaced raw `<button>` and `<input>` elements with Button and Input components across 11 files for consistent styling (rounded-xl, focus-visible:ring, active:scale, hover shadows, loading states)
+- Renamed API auth header from X-AgentKanban-Token to X-Bored-Token to align with the current project name
+- Removed duplicate "Boards" nav item from sidebar that appeared twice with different semantics
+
+### Bug Fixes
+
+- Fixed ConfirmModal state updates after parent unmount — added mountedRef guard to prevent React warnings and potential memory leaks when async onConfirm triggers a parent modal to close
+- Fixed detour merge leaving orphaned branches when the target branch diverged — detour branch is now preserved for manual merge with recovery instructions posted as a ticket comment
+
+### Testing
+
+- Added 11 new Rust tests covering merge_detour_into_target (fast-forward, diverged, nothing-to-merge, error paths, post-sync merge), delete_branch, WorktreeInfo field defaults, and detour worktree creation
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.34, here is a summary of the major features introduced in recent releases:
+
+**beta.34 — Full-Page Ticket Detail View**
+Full-page ticket detail view replacing the modal overlay with tabbed content (Overview, Task, Agent, Activity), a persistent sidebar with metadata and quick actions, and keyboard navigation with Alt+Arrow prev/next and Escape to go back.
+
+**beta.33 — Visual Log Timeline & Real-Time Streaming**
+Visual log timeline view replacing the raw text log dump with categorized, color-coded entries from all three agents. Real-time log streaming with subagent context badges. 51 parseLogEvents tests.
+
+**beta.32 — Safety Commits & Dashboard Tokens/Cost Toggle**
+Safety commit before worktree removal automatically saves uncommitted agent work before removing worktrees, preventing silent data loss. SafetyCommitNotice surfaces auto-saved commits in the UI. Tokens/cost toggle on Dashboard Top Models chart.
+
+**beta.31 — CLI Model Identifiers & Production Command Fix**
+Standardized all model identifiers to full CLI names (claude-opus-4-6 instead of opus-4.6) with v17 settings migration. Fixed bundled command templates not resolving in production builds. Core workflow stages now configurable even when auto-pilot is enabled.
+
+---
+
 ## [0.1.0-beta.34] - 2026-02-26
 
 Full-page ticket detail view replacing the single-column modal overlay with tabbed content, a persistent sidebar, and keyboard navigation.
