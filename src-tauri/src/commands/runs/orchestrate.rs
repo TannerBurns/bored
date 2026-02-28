@@ -247,14 +247,20 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         }
     }
 
-    // Record merge result in safety_commit metadata (if a safety commit was created)
+    // Record detour merge result in run metadata
     if worktree_info.target_branch.is_some() {
         if let Ok(existing) = db.get_run(&run_id) {
             let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
             if let Some(sc) = meta.get_mut("safety_commit") {
                 sc["merged_to_target"] = serde_json::json!(detour_merged);
-                let _ = db.set_run_metadata(&run_id, &meta);
+            } else {
+                meta["safety_commit"] = serde_json::json!({
+                    "merged_to_target": detour_merged,
+                    "target_branch": &worktree_info.target_branch,
+                    "detour_branch": &worktree_info.branch_name,
+                });
             }
+            let _ = db.set_run_metadata(&run_id, &meta);
         }
     }
 
