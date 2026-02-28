@@ -4,6 +4,9 @@ import type { AgentRun } from '../../types';
 interface SafetyCommit {
   commit_hash?: string;
   created_at?: string;
+  target_branch?: string;
+  detour_branch?: string;
+  merged_to_target?: boolean;
 }
 
 export function SafetyCommitNotice({ run, className }: { run: AgentRun; className?: string }) {
@@ -11,6 +14,7 @@ export function SafetyCommitNotice({ run, className }: { run: AgentRun; classNam
   if (!meta?.safety_commit) return null;
 
   const sc = meta.safety_commit as SafetyCommit;
+  const isDetour = !!sc.target_branch;
 
   return (
     <div className={cn('p-2.5 bg-amber-500/10 rounded-lg border border-amber-500/25', className)}>
@@ -21,7 +25,25 @@ export function SafetyCommitNotice({ run, className }: { run: AgentRun; classNam
         Changes auto-saved
       </p>
       <p className="text-xs text-amber-400/80 mt-1">
-        Some changes were not committed by the agent and were automatically saved.
+        {isDetour && sc.merged_to_target ? (
+          <>
+            Changes auto-saved and merged into{' '}
+            <code className="bg-amber-500/15 px-1 py-0.5 rounded text-amber-300">{sc.target_branch}</code>.
+          </>
+        ) : isDetour && sc.merged_to_target === false ? (
+          <>
+            Changes auto-saved to branch{' '}
+            <code className="bg-amber-500/15 px-1 py-0.5 rounded text-amber-300">{sc.detour_branch}</code>.
+            {' '}Merge into{' '}
+            <code className="bg-amber-500/15 px-1 py-0.5 rounded text-amber-300">{sc.target_branch}</code>
+            {' '}manually with{' '}
+            <code className="bg-amber-500/15 px-1 py-0.5 rounded text-amber-300">git merge {sc.detour_branch}</code>.
+          </>
+        ) : (
+          <>
+            Some changes were not committed by the agent and were automatically saved.
+          </>
+        )}
         {sc.commit_hash && (
           <span className="ml-1">
             Commit: <code className="bg-amber-500/15 px-1 py-0.5 rounded text-amber-300">{sc.commit_hash}</code>

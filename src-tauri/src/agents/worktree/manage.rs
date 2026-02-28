@@ -374,8 +374,12 @@ pub fn force_remove_stale_worktree(
 /// Result of merging a detour branch into its target.
 #[derive(Debug)]
 pub enum DetourMergeResult {
-    /// Successfully fast-forwarded the target branch.
+    /// Successfully fast-forwarded the target branch and updated the working tree.
     Merged { new_head: String },
+    /// Fast-forwarded the target branch via update-ref, but the user's working tree
+    /// was not updated because they have uncommitted changes. They need to run
+    /// `git reset --hard HEAD` (or stash first) to see the agent's work.
+    MergedWorkingTreeDirty { new_head: String },
     /// The detour branch had no new commits beyond the fork point.
     NothingToMerge,
     /// The target branch diverged and is not an ancestor of the detour HEAD.
@@ -465,7 +469,54 @@ pub fn merge_detour_into_target(
         });
     }
 
-    // Fast-forward the target branch to the detour HEAD
+    // Determine whether the target branch is the user's active checkout
+    let checked_out_branch = git_command()
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    let target_is_checked_out = checked_out_branch.as_deref() == Some(target_branch);
+
+    if target_is_checked_out {
+        // Check if the user's working tree is clean
+        let status_output = git_command()
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()?;
+        let working_tree_clean = status_output.status.success()
+            && String::from_utf8_lossy(&status_output.stdout).trim().is_empty();
+
+        if working_tree_clean {
+            // Best path: git merge --ff-only updates branch pointer + working tree + index
+            let merge_output = git_command()
+                .args(["merge", "--ff-only", detour_branch])
+                .current_dir(repo_path)
+                .output()?;
+
+            if merge_output.status.success() {
+                tracing::info!(
+                    "Fast-forward merged '{}' into checked-out '{}' (HEAD: {})",
+                    detour_branch,
+                    target_branch,
+                    &detour_head[..8.min(detour_head.len())]
+                );
+                return Ok(DetourMergeResult::Merged { new_head: detour_head });
+            }
+
+            // merge --ff-only failed unexpectedly; fall through to update-ref
+            let stderr = String::from_utf8_lossy(&merge_output.stderr);
+            tracing::warn!(
+                "git merge --ff-only failed ({}), falling back to update-ref",
+                stderr.trim()
+            );
+        }
+    }
+
+    // Either the target isn't checked out, the tree is dirty, or merge --ff-only failed.
+    // Use update-ref which always works but doesn't touch the working tree.
     let update_output = git_command()
         .args([
             "update-ref",
@@ -488,14 +539,21 @@ pub fn merge_detour_into_target(
         });
     }
 
-    tracing::info!(
-        "Fast-forwarded '{}' to {} (from detour '{}')",
-        target_branch,
-        &detour_head[..8.min(detour_head.len())],
-        detour_branch
-    );
-
-    Ok(DetourMergeResult::Merged { new_head: detour_head })
+    if target_is_checked_out {
+        tracing::info!(
+            "Fast-forwarded '{}' via update-ref to {} (working tree not updated — user has uncommitted changes)",
+            target_branch,
+            &detour_head[..8.min(detour_head.len())]
+        );
+        Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head })
+    } else {
+        tracing::info!(
+            "Fast-forwarded '{}' via update-ref to {} (not checked out)",
+            target_branch,
+            &detour_head[..8.min(detour_head.len())]
+        );
+        Ok(DetourMergeResult::Merged { new_head: detour_head })
+    }
 }
 
 /// Delete a branch by name (best effort).
