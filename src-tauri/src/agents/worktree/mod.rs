@@ -20,4 +20,7 @@ pub use create::{
 };
 pub use error::{DiagnosticType, WorktreeError};
 pub use git::{create_initial_commit, get_repo_root, is_git_repo, repo_has_commits};
-pub use manage::{cleanup_stale_worktrees, list_worktrees, remove_worktree, safety_commit_if_needed};
+pub use manage::{
+    cleanup_stale_worktrees, delete_branch, list_worktrees, merge_detour_into_target,
+    remove_worktree, safety_commit_if_needed, DetourMergeResult,
+};

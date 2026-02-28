@@ -431,6 +431,7 @@ impl Worker {
             worktree_branch,
             branch_already_created,
             is_temp_branch,
+            target_branch: worktree.target_branch.clone(),
             timeout_secs: self.config.agent_timeout_secs,
             agent_config: self.config.agent_config.clone(),
             code_review_max_iterations: resolved.code_review_max_iterations,
@@ -466,6 +467,51 @@ impl Worker {
         // Unlock the ticket
         self.db.unlock_ticket(&ticket.id)?;
 
+        // Merge detour branch back into target if this was a detour worktree
+        if let (Some(ref target), Some(ref fork_point)) =
+            (&worktree.target_branch, &worktree.detour_fork_point)
+        {
+            match worktree::merge_detour_into_target(
+                &worktree.repo_path,
+                &worktree.branch_name,
+                target,
+                fork_point,
+            ) {
+                Ok(worktree::DetourMergeResult::Merged { ref new_head }) => {
+                    tracing::info!(
+                        "Worker {} merged detour {} into {} (HEAD: {})",
+                        self.id,
+                        worktree.branch_name,
+                        target,
+                        new_head
+                    );
+                }
+                Ok(worktree::DetourMergeResult::NothingToMerge) => {
+                    tracing::info!(
+                        "Worker {} detour {} had no new commits",
+                        self.id,
+                        worktree.branch_name
+                    );
+                }
+                Ok(worktree::DetourMergeResult::Diverged { .. }) => {
+                    tracing::warn!(
+                        "Worker {} target {} diverged from detour {}; leaving detour for manual merge",
+                        self.id,
+                        target,
+                        worktree.branch_name
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Worker {} failed to merge detour {}: {}",
+                        self.id,
+                        worktree.branch_name,
+                        e
+                    );
+                }
+            }
+        }
+
         // Clean up worktree
         if let Err(e) = worktree::remove_worktree(&worktree.path, &worktree.repo_path) {
             tracing::warn!(
@@ -479,6 +525,11 @@ impl Worker {
                 self.id,
                 worktree.path.display()
             );
+        }
+
+        // Delete the detour branch now that the worktree is removed
+        if worktree.target_branch.is_some() {
+            worktree::delete_branch(&worktree.repo_path, &worktree.branch_name);
         }
 
         // Update worker status

@@ -42,6 +42,9 @@ pub struct OrchestratorConfig {
     pub branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     pub is_temp_branch: bool,
+    /// When the agent is working on a detour branch (because the ticket's branch is already
+    /// checked out by the user), this holds the original branch name to merge back into.
+    pub target_branch: Option<String>,
     /// Agent-specific configuration map (auth tokens, API keys, etc.)
     pub agent_config: HashMap<String, serde_json::Value>,
     /// Stage to resume from (when resuming a paused ticket).

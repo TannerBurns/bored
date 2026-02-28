@@ -107,6 +107,12 @@ pub struct WorktreeInfo {
     pub repo_path: PathBuf,
     /// Whether this is a temporary branch (not the ticket's permanent branch)
     pub is_temp_branch: bool,
+    /// When using a detour branch (because the target branch is already checked out),
+    /// this stores the original branch name that the work should be merged into after completion.
+    pub target_branch: Option<String>,
+    /// Commit hash of `target_branch` when the detour was created.
+    /// Used to verify fast-forward safety before merging back.
+    pub detour_fork_point: Option<String>,
 }
 
 /// Get the default base directory for worktrees
@@ -256,6 +262,8 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                     branch_name: config.branch_name.clone(),
                     repo_path: repo_root,
                     is_temp_branch: false,
+                    target_branch: None,
+                    detour_fork_point: None,
                 });
             }
 
@@ -289,6 +297,8 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                                 branch_name: config.branch_name.clone(),
                                 repo_path: repo_root,
                                 is_temp_branch: false,
+                                target_branch: None,
+                                detour_fork_point: None,
                             });
                         } else {
                             let final_stderr = String::from_utf8_lossy(&final_retry.stderr);
@@ -322,25 +332,19 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
                         });
                     }
                 } else {
-                    // Not our worktree, require user intervention
-                    tracing::error!(
-                        "Branch {} is checked out in an external worktree at {}. User intervention required.",
+                    // Not our worktree (user's checkout) — create a detour branch
+                    tracing::info!(
+                        "Branch {} is checked out in user's working directory at {}. Creating detour branch.",
                         config.branch_name,
                         worktree_location
                     );
 
-                    return Err(WorktreeError::GitError {
-                        message: format!(
-                            "Branch '{}' is already checked out in another worktree at {}. \
-                            This worktree was not created by Bored and may contain work in progress. \
-                            Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
-                            (2) use 'git worktree prune' if the directory no longer exists.",
-                            config.branch_name, worktree_location, worktree_location
-                        ),
-                        stderr: prune_retry_stderr.trim().to_string(),
-                        exit_code: prune_retry_output.status.code(),
-                        operation: format!("git worktree add -B {} {}", config.branch_name, worktree_path.display()),
-                    });
+                    return create_detour_worktree(
+                        &repo_root,
+                        &config.branch_name,
+                        &config.run_id,
+                        worktree_path.parent().unwrap_or(&repo_root),
+                    );
                 }
             }
 
@@ -379,6 +383,8 @@ pub fn create_worktree(config: &WorktreeConfig) -> Result<WorktreeInfo, Worktree
         branch_name: config.branch_name.clone(),
         repo_path: repo_root,
         is_temp_branch: false,
+        target_branch: None,
+        detour_fork_point: None,
     })
 }
 
@@ -528,6 +534,8 @@ pub fn create_worktree_with_existing_branch(
                                         branch_name: branch_name.to_string(),
                                         repo_path: repo_root,
                                         is_temp_branch: false,
+                                        target_branch: None,
+                                        detour_fork_point: None,
                                     });
                                 } else {
                                     let final_stderr = String::from_utf8_lossy(&final_retry.stderr);
@@ -558,25 +566,19 @@ pub fn create_worktree_with_existing_branch(
                                 });
                             }
                         } else {
-                            // Not our worktree, require user intervention
-                            tracing::error!(
-                                "Branch {} is checked out in an external worktree at {}. User intervention required.",
+                            // Not our worktree (user's checkout) — create a detour branch
+                            tracing::info!(
+                                "Branch {} is checked out in user's working directory at {}. Creating detour branch.",
                                 branch_name,
                                 worktree_location
                             );
 
-                            return Err(WorktreeError::GitError {
-                                message: format!(
-                                    "Branch '{}' is already checked out in another worktree at {}. \
-                                    This worktree was not created by Bored and may contain work in progress. \
-                                    Please either: (1) remove the existing worktree with 'git worktree remove {}', or \
-                                    (2) use 'git worktree prune' if the directory no longer exists.",
-                                    branch_name, worktree_location, worktree_location
-                                ),
-                                stderr: retry_stderr.trim().to_string(),
-                                exit_code: retry_output.status.code(),
-                                operation: format!("git worktree add {} {}", worktree_path.display(), branch_name),
-                            });
+                            return create_detour_worktree(
+                                &repo_root,
+                                branch_name,
+                                run_id,
+                                &base,
+                            );
                         }
                     } else {
                         // Different error after retry
@@ -725,5 +727,66 @@ pub fn create_worktree_with_existing_branch(
         branch_name: branch_name.to_string(),
         repo_path: repo_root,
         is_temp_branch: false,
+        target_branch: None,
+        detour_fork_point: None,
     })
+}
+
+/// Create a detour worktree when the target branch is already checked out by the user.
+///
+/// Records the fork point so the cleanup can fast-forward the target branch after
+/// the agent's detour-sync stage merges any diverged changes.
+fn create_detour_worktree(
+    repo_root: &Path,
+    target_branch: &str,
+    run_id: &str,
+    base_dir: &Path,
+) -> Result<WorktreeInfo, WorktreeError> {
+    let fork_output = git_command()
+        .args(["rev-parse", &format!("refs/heads/{}", target_branch)])
+        .current_dir(repo_root)
+        .output()?;
+
+    let fork_point = if fork_output.status.success() {
+        String::from_utf8_lossy(&fork_output.stdout).trim().to_string()
+    } else {
+        let stderr = String::from_utf8_lossy(&fork_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: format!("Failed to resolve target branch '{}' for detour", target_branch),
+            stderr: stderr.trim().to_string(),
+            exit_code: fork_output.status.code(),
+            operation: format!("git rev-parse refs/heads/{}", target_branch),
+        });
+    };
+
+    let short_run_id = &run_id[..8.min(run_id.len())];
+    let detour_branch = format!("agent-detour/{}", short_run_id);
+
+    tracing::info!(
+        "Creating detour branch '{}' from '{}' (fork point: {})",
+        detour_branch,
+        target_branch,
+        &fork_point[..8.min(fork_point.len())]
+    );
+
+    let detour_config = WorktreeConfig {
+        repo_path: repo_root.to_path_buf(),
+        branch_name: detour_branch,
+        run_id: run_id.to_string(),
+        base_dir: Some(base_dir.to_path_buf()),
+        base_branch: Some(target_branch.to_string()),
+    };
+
+    let mut info = create_worktree(&detour_config)?;
+    info.target_branch = Some(target_branch.to_string());
+    info.detour_fork_point = Some(fork_point);
+
+    tracing::info!(
+        "Detour worktree created at {} on branch {} (target: {})",
+        info.path.display(),
+        info.branch_name,
+        target_branch
+    );
+
+    Ok(info)
 }

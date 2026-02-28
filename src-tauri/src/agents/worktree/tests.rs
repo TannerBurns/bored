@@ -1029,3 +1029,456 @@ fn test_resolve_remote_default_branch_custom_branch_via_symbolic_ref() {
 
     std::fs::remove_dir_all(&base).ok();
 }
+
+// --- merge_detour_into_target tests ---
+
+/// Helper: create a git commit with a given message and file content.
+fn commit_file(repo: &std::path::Path, filename: &str, content: &str, message: &str) {
+    std::fs::write(repo.join(filename), content).unwrap();
+    std::process::Command::new("git")
+        .args(["add", filename])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(repo)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .unwrap();
+}
+
+/// Helper: get the HEAD commit hash of a branch.
+fn branch_head(repo: &std::path::Path, branch: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", &format!("refs/heads/{}", branch)])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn test_merge_detour_nothing_to_merge_same_commit() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_nothing_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    // Create a detour branch at the same commit as main
+    std::process::Command::new("git")
+        .args(["branch", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    let fork_point = branch_head(&temp_dir, "main");
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/abc12345",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::NothingToMerge => {}
+        other => panic!("Expected NothingToMerge, got {:?}", other),
+    }
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_fast_forward_success() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_ff_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create a detour branch and add a commit to it
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    commit_file(&temp_dir, "detour_work.txt", "agent work", "agent commit");
+    let detour_head = branch_head(&temp_dir, "agent-detour/abc12345");
+
+    // Switch back to main
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    // Verify main is still at fork point
+    assert_eq!(branch_head(&temp_dir, "main"), fork_point);
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/abc12345",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::Merged { ref new_head } => {
+            assert_eq!(new_head, &detour_head);
+        }
+        other => panic!("Expected Merged, got {:?}", other),
+    }
+
+    // Verify main now points to the detour's commit
+    assert_eq!(branch_head(&temp_dir, "main"), detour_head);
+
+    // Branch should still exist (merge_detour_into_target doesn't delete it)
+    let branch_check = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "refs/heads/agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        branch_check.status.success(),
+        "Detour branch should still exist (deleted separately after worktree removal)"
+    );
+
+    // Now test delete_branch separately
+    assert!(manage::delete_branch(&temp_dir, "agent-detour/abc12345"));
+
+    // Verify it's gone
+    let branch_check2 = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "refs/heads/agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        !branch_check2.status.success(),
+        "Detour branch should be deleted after delete_branch"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_diverged_returns_diverged() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_diverged_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create detour branch and add a commit
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "detour_work.txt", "agent work", "detour commit");
+
+    // Switch back to main and add a DIFFERENT commit (causes divergence)
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "user_work.txt", "user work", "user commit");
+
+    let main_head = branch_head(&temp_dir, "main");
+    assert_ne!(main_head, fork_point, "main should have moved");
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/abc12345",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::Diverged { ref current_head } => {
+            assert_eq!(current_head, &main_head);
+        }
+        other => panic!("Expected Diverged, got {:?}", other),
+    }
+
+    // Main should NOT have moved
+    assert_eq!(branch_head(&temp_dir, "main"), main_head);
+
+    // Detour branch should still exist
+    let branch_check = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", "refs/heads/agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    assert!(
+        branch_check.status.success(),
+        "Detour branch should be preserved when diverged"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_error_nonexistent_target() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_no_target_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    std::process::Command::new("git")
+        .args(["branch", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/abc12345",
+        "nonexistent-branch",
+        "fake-fork-point",
+    );
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_msg = format!("{}", err);
+    assert!(
+        err_msg.contains("nonexistent-branch"),
+        "Error should mention the missing branch: {}",
+        err_msg
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_error_nonexistent_detour() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_no_detour_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "nonexistent-detour",
+        "main",
+        "fake-fork-point",
+    );
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    let err_msg = format!("{}", err);
+    assert!(
+        err_msg.contains("nonexistent-detour"),
+        "Error should mention the missing detour branch: {}",
+        err_msg
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_after_agent_sync_merge() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_synced_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create detour branch and add a commit
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "detour_work.txt", "agent work", "detour commit");
+
+    // Switch to main and add a commit (causes divergence)
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "user_work.txt", "user work", "user commit");
+
+    // Simulate agent's detour-sync: merge main into detour
+    std::process::Command::new("git")
+        .args(["checkout", "agent-detour/abc12345"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    let merge_output = std::process::Command::new("git")
+        .args(["merge", "main", "-m", "merge main into detour"])
+        .current_dir(&temp_dir)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@test.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@test.com")
+        .output()
+        .unwrap();
+    assert!(merge_output.status.success(), "Merge should succeed");
+
+    let detour_head = branch_head(&temp_dir, "agent-detour/abc12345");
+
+    // Switch back so we can do the merge-back
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    // Now merge_detour_into_target should succeed because main is an ancestor
+    // of the merge commit on the detour
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/abc12345",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::Merged { ref new_head } => {
+            assert_eq!(new_head, &detour_head);
+        }
+        other => panic!("Expected Merged after agent sync, got {:?}", other),
+    }
+
+    // Main should now be at the merge commit
+    assert_eq!(branch_head(&temp_dir, "main"), detour_head);
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+// --- create_detour_worktree tests ---
+
+#[test]
+fn test_create_detour_worktree_sets_target_and_fork_point() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_create_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let main_head = branch_head(&temp_dir, "main");
+
+    let worktree_base =
+        std::env::temp_dir().join(format!("detour_wt_base_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&worktree_base).unwrap();
+
+    let run_id = "abcdef12-3456-7890-abcd-ef1234567890";
+    let config = create::WorktreeConfig {
+        repo_path: temp_dir.clone(),
+        branch_name: "agent-detour/abcdef12".to_string(),
+        run_id: run_id.to_string(),
+        base_dir: Some(worktree_base.clone()),
+        base_branch: Some("main".to_string()),
+    };
+
+    let result = create::create_worktree(&config);
+    assert!(result.is_ok(), "create_worktree should succeed: {:?}", result.err());
+
+    let mut info = result.unwrap();
+    // Simulate what create_detour_worktree does after calling create_worktree
+    info.target_branch = Some("main".to_string());
+    info.detour_fork_point = Some(main_head.clone());
+
+    assert_eq!(info.target_branch.as_deref(), Some("main"));
+    assert_eq!(info.detour_fork_point.as_deref(), Some(main_head.as_str()));
+    assert_eq!(info.branch_name, "agent-detour/abcdef12");
+    assert!(info.path.starts_with(&worktree_base));
+
+    // Clean up
+    let _ = manage::remove_worktree(&info.path, &temp_dir);
+    std::fs::remove_dir_all(&temp_dir).ok();
+    std::fs::remove_dir_all(&worktree_base).ok();
+}
+
+#[test]
+fn test_worktree_info_defaults_none_for_non_detour() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("wt_defaults_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let worktree_base =
+        std::env::temp_dir().join(format!("wt_defaults_base_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&worktree_base).unwrap();
+
+    let config = create::WorktreeConfig {
+        repo_path: temp_dir.clone(),
+        branch_name: "normal-branch".to_string(),
+        run_id: "run-id-12345678".to_string(),
+        base_dir: Some(worktree_base.clone()),
+        base_branch: None,
+    };
+
+    let result = create::create_worktree(&config);
+    assert!(result.is_ok());
+
+    let info = result.unwrap();
+    assert_eq!(info.target_branch, None);
+    assert_eq!(info.detour_fork_point, None);
+
+    let _ = manage::remove_worktree(&info.path, &temp_dir);
+    std::fs::remove_dir_all(&temp_dir).ok();
+    std::fs::remove_dir_all(&worktree_base).ok();
+}
+
+#[test]
+fn test_merge_detour_multiple_commits_fast_forward() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_multi_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create detour and add multiple commits
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/multi"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "file1.txt", "work 1", "commit 1");
+    commit_file(&temp_dir, "file2.txt", "work 2", "commit 2");
+    commit_file(&temp_dir, "file3.txt", "work 3", "commit 3");
+
+    let detour_head = branch_head(&temp_dir, "agent-detour/multi");
+
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/multi",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::Merged { ref new_head } => {
+            assert_eq!(new_head, &detour_head);
+        }
+        other => panic!("Expected Merged, got {:?}", other),
+    }
+
+    // All three files should be accessible on main now
+    assert_eq!(branch_head(&temp_dir, "main"), detour_head);
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_delete_branch_nonexistent_returns_false() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("delete_noexist_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    assert!(!manage::delete_branch(&temp_dir, "nonexistent-branch"));
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}

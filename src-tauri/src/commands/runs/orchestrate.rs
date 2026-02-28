@@ -81,6 +81,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     let cancel_handles_for_cleanup = cancel_handles.clone();
     let orchestrator_working_path = worktree_info.path.clone();
     let is_temp_branch = worktree_info.is_temp_branch;
+    let target_branch = worktree_info.target_branch.clone();
 
     let worktree_branch = Some(branch_name);
     let branch_already_created = true;
@@ -143,6 +144,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         worktree_branch,
         branch_already_created,
         is_temp_branch,
+        target_branch,
         agent_config,
         resume_from_stage,
         previous_run_id,
@@ -177,8 +179,54 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
 
     safety_commit_and_record(&db, &worktree_info.path, &run_id);
 
+    // Merge detour branch back into target if this was a detour worktree
+    if let (Some(ref target), Some(ref fork_point)) =
+        (&worktree_info.target_branch, &worktree_info.detour_fork_point)
+    {
+        match worktree::merge_detour_into_target(
+            &main_repo_path,
+            &worktree_info.branch_name,
+            target,
+            fork_point,
+        ) {
+            Ok(worktree::DetourMergeResult::Merged { ref new_head }) => {
+                tracing::info!(
+                    "Merged detour {} into {} (HEAD: {})",
+                    worktree_info.branch_name,
+                    target,
+                    new_head
+                );
+            }
+            Ok(worktree::DetourMergeResult::NothingToMerge) => {
+                tracing::info!(
+                    "Detour {} had no new commits",
+                    worktree_info.branch_name
+                );
+            }
+            Ok(worktree::DetourMergeResult::Diverged { .. }) => {
+                tracing::warn!(
+                    "Target {} diverged from detour {}; leaving detour for manual merge",
+                    target,
+                    worktree_info.branch_name
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to merge detour {}: {}",
+                    worktree_info.branch_name,
+                    e
+                );
+            }
+        }
+    }
+
     if let Err(e) = worktree::remove_worktree(&worktree_info.path, &main_repo_path) {
         tracing::error!("Failed to remove worktree {}: {}", worktree_info.path.display(), e);
+    }
+
+    // Delete the detour branch now that the worktree is removed
+    if worktree_info.target_branch.is_some() {
+        worktree::delete_branch(&main_repo_path, &worktree_info.branch_name);
     }
 }
 

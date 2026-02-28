@@ -58,6 +58,7 @@ impl WorkflowOrchestrator {
             }
         }
 
+        self.run_detour_sync_if_needed().await?;
         self.finish_workflow("Multi-stage");
         Ok(())
     }
@@ -111,6 +112,7 @@ impl WorkflowOrchestrator {
 
         self.run_commit_stage().await?;
 
+        self.run_detour_sync_if_needed().await?;
         self.finish_workflow("Auto-pilot");
         Ok(())
     }
@@ -355,6 +357,43 @@ impl WorkflowOrchestrator {
             &generate_command_prompt(cmd, custom_dir.as_deref()),
         )
         .await?;
+        Ok(())
+    }
+
+    /// If working on a detour branch, merge the target branch to incorporate any
+    /// changes the user may have pushed while the agent was working.
+    async fn run_detour_sync_if_needed(&self) -> Result<(), String> {
+        let target = match &self.target_branch {
+            Some(t) => t.clone(),
+            None => return Ok(()),
+        };
+
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+
+        tracing::info!(
+            "Running detour-sync: merging '{}' into current branch",
+            target
+        );
+
+        let prompt = format!(
+            r#"Merge the branch `{target}` into the current branch to synchronize changes.
+
+## Instructions
+1. Run `git merge {target}`
+2. If there are merge conflicts, resolve them carefully:
+   - Examine each conflicting file
+   - Choose the correct resolution based on the intent of both sets of changes
+   - Stage resolved files with `git add`
+   - Complete the merge with `git commit`
+3. If the merge completes cleanly (no conflicts), you're done.
+4. If the branch is already up to date, no action is needed.
+
+Do NOT make any other code changes. Only perform the merge."#
+        );
+
+        self.run_stage("detour-sync", &prompt).await?;
         Ok(())
     }
 }
