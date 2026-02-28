@@ -480,8 +480,6 @@ pub fn merge_detour_into_target(
 
     let target_is_checked_out = checked_out_branch.as_deref() == Some(target_branch);
 
-    let mut working_tree_dirty = false;
-
     if target_is_checked_out {
         // Check if the user's working tree is clean
         let status_output = git_command()
@@ -514,8 +512,6 @@ pub fn merge_detour_into_target(
                 "git merge --ff-only failed ({}), falling back to update-ref",
                 stderr.trim()
             );
-        } else {
-            working_tree_dirty = true;
         }
     }
 
@@ -543,55 +539,13 @@ pub fn merge_detour_into_target(
         });
     }
 
-    if target_is_checked_out && working_tree_dirty {
+    if target_is_checked_out {
         tracing::info!(
-            "Fast-forwarded '{}' via update-ref to {} (working tree not updated — user has uncommitted changes)",
+            "Fast-forwarded '{}' via update-ref to {} (working tree not updated)",
             target_branch,
             &detour_head[..8.min(detour_head.len())]
         );
         Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head })
-    } else if target_is_checked_out {
-        // Working tree was clean earlier but merge --ff-only failed.
-        // Re-check before reset --hard to avoid discarding changes the user
-        // may have created in the interim.
-        let still_clean = git_command()
-            .args(["status", "--porcelain"])
-            .current_dir(repo_path)
-            .output()
-            .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim().is_empty())
-            .unwrap_or(false);
-
-        if !still_clean {
-            tracing::info!(
-                "Fast-forwarded '{}' via update-ref to {} (working tree became dirty before reset)",
-                target_branch,
-                &detour_head[..8.min(detour_head.len())]
-            );
-            return Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head });
-        }
-
-        let reset_result = git_command()
-            .args(["reset", "--hard", "HEAD"])
-            .current_dir(repo_path)
-            .output();
-        match reset_result {
-            Ok(ref output) if output.status.success() => {
-                tracing::info!(
-                    "Fast-forwarded '{}' via update-ref to {} and synced clean working tree via reset",
-                    target_branch,
-                    &detour_head[..8.min(detour_head.len())]
-                );
-                Ok(DetourMergeResult::Merged { new_head: detour_head })
-            }
-            _ => {
-                tracing::warn!(
-                    "Fast-forwarded '{}' via update-ref to {} but failed to sync working tree via reset",
-                    target_branch,
-                    &detour_head[..8.min(detour_head.len())]
-                );
-                Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head })
-            }
-        }
     } else {
         tracing::info!(
             "Fast-forwarded '{}' via update-ref to {} (not checked out)",
