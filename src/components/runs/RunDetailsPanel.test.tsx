@@ -161,5 +161,21 @@ describe('RunDetailsPanel', () => {
       });
       expect(screen.queryByText('Commit:')).not.toBeInTheDocument();
     });
+
+    it('shows clean detour merge notice when merged without safety commit', async () => {
+      vi.mocked(getAgentRun).mockResolvedValue({
+        ...mockRun,
+        metadata: { safety_commit: { merged_to_target: true, target_branch: 'feat/xyz', detour_branch: 'agent-detour/abc12345' } },
+      });
+
+      render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Merged to target')).toBeInTheDocument();
+      });
+      expect(screen.getByText(/Agent's work merged into/)).toBeInTheDocument();
+      expect(screen.getByText('feat/xyz')).toBeInTheDocument();
+      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+    });
   });
 });

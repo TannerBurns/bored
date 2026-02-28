@@ -105,7 +105,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 Some(&format!("Failed to start task: {}", e)),
             );
             let _ = db.unlock_ticket(&ticket_id);
-            safety_commit_and_record(&db, &worktree_info.path, &run_id);
+            let _ = safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None);
             let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
@@ -177,7 +177,13 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
     }
 
-    safety_commit_and_record(&db, &worktree_info.path, &run_id);
+    let safety_commit_info = safety_commit_and_record(
+        &db,
+        &worktree_info.path,
+        &run_id,
+        worktree_info.target_branch.as_deref(),
+        worktree_info.target_branch.as_ref().map(|_| worktree_info.branch_name.as_str()),
+    );
 
     // Merge detour branch back into target if this was a detour worktree
     let mut detour_merged = false;
@@ -198,6 +204,26 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                     new_head
                 );
                 detour_merged = true;
+            }
+            Ok(worktree::DetourMergeResult::MergedWorkingTreeDirty { ref new_head }) => {
+                tracing::info!(
+                    "Merged detour {} into {} via update-ref (HEAD: {}, working tree not updated — dirty)",
+                    worktree_info.branch_name,
+                    target,
+                    new_head
+                );
+                detour_merged = true;
+                post_detour_dirty_worktree_comment(&db, &ticket_id, target);
+            }
+            Ok(worktree::DetourMergeResult::MergedWorkingTreeStale { ref new_head }) => {
+                tracing::info!(
+                    "Merged detour {} into {} via update-ref (HEAD: {}, working tree stale — ff-merge failed)",
+                    worktree_info.branch_name,
+                    target,
+                    new_head
+                );
+                detour_merged = true;
+                post_detour_stale_worktree_comment(&db, &ticket_id, target);
             }
             Ok(worktree::DetourMergeResult::NothingToMerge) => {
                 tracing::info!(
@@ -228,6 +254,30 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                     &format!("Merge failed: {}", e),
                 );
             }
+        }
+    }
+
+    // Record detour merge result in run metadata (only when merge was actually attempted)
+    if let (Some(ref target_branch), Some(_)) =
+        (&worktree_info.target_branch, &worktree_info.detour_fork_point)
+    {
+        if let Ok(existing) = db.get_run(&run_id) {
+            let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
+            if let Some(sc) = meta.get_mut("safety_commit") {
+                sc["merged_to_target"] = serde_json::json!(detour_merged);
+            } else {
+                let mut sc = serde_json::json!({
+                    "merged_to_target": detour_merged,
+                    "target_branch": target_branch,
+                    "detour_branch": &worktree_info.branch_name,
+                });
+                if let Some((ref hash, ref created_at)) = safety_commit_info {
+                    sc["commit_hash"] = serde_json::json!(hash);
+                    sc["created_at"] = serde_json::json!(created_at);
+                }
+                meta["safety_commit"] = sc;
+            }
+            let _ = db.set_run_metadata(&run_id, &meta);
         }
     }
 
@@ -324,9 +374,18 @@ fn handle_workflow_result(
 }
 
 /// Attempt a safety commit in the worktree and record it in run metadata.
-fn safety_commit_and_record(db: &Database, worktree_path: &std::path::Path, run_id: &str) {
+/// When detour context is provided, the metadata includes the branch names
+/// so the UI can show context-aware messaging.
+fn safety_commit_and_record(
+    db: &Database,
+    worktree_path: &std::path::Path,
+    run_id: &str,
+    target_branch: Option<&str>,
+    detour_branch: Option<&str>,
+) -> Option<(String, String)> {
     match worktree::safety_commit_if_needed(worktree_path, run_id) {
         Ok(Some(commit_hash)) => {
+            let created_at = chrono::Utc::now().to_rfc3339();
             tracing::warn!(
                 "Safety commit created for run {}: {} (agent did not commit all changes)",
                 run_id,
@@ -335,10 +394,17 @@ fn safety_commit_and_record(db: &Database, worktree_path: &std::path::Path, run_
             match db.get_run(run_id) {
                 Ok(existing) => {
                     let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
-                    meta["safety_commit"] = serde_json::json!({
+                    let mut sc = serde_json::json!({
                         "commit_hash": commit_hash,
-                        "created_at": chrono::Utc::now().to_rfc3339(),
+                        "created_at": &created_at,
                     });
+                    if let Some(tb) = target_branch {
+                        sc["target_branch"] = serde_json::json!(tb);
+                    }
+                    if let Some(db_name) = detour_branch {
+                        sc["detour_branch"] = serde_json::json!(db_name);
+                    }
+                    meta["safety_commit"] = sc;
                     if let Err(e) = db.set_run_metadata(run_id, &meta) {
                         tracing::error!("Failed to store safety commit metadata for run {}: {}", run_id, e);
                     }
@@ -347,10 +413,12 @@ fn safety_commit_and_record(db: &Database, worktree_path: &std::path::Path, run_
                     tracing::warn!("Safety commit succeeded but failed to record metadata for run {}: {}", run_id, e);
                 }
             }
+            Some((commit_hash, created_at))
         }
-        Ok(None) => {}
+        Ok(None) => None,
         Err(e) => {
             tracing::error!("Safety commit failed for run {}: {}", run_id, e);
+            None
         }
     }
 }
@@ -385,6 +453,60 @@ fn post_detour_recovery_comment(
     }) {
         tracing::error!(
             "Failed to post detour recovery comment for ticket {}: {}",
+            ticket_id, e
+        );
+    }
+}
+
+/// Post a system comment when the detour merged via update-ref but the user's
+/// working tree wasn't updated because they have uncommitted changes.
+fn post_detour_dirty_worktree_comment(db: &Database, ticket_id: &str, target_branch: &str) {
+    let body = format!(
+        "## Working Tree Out of Sync\n\n\
+         The agent's work has been merged into `{target_branch}`, but your working tree \
+         was not updated because you have uncommitted changes.\n\n\
+         To see the agent's changes, run:\n\
+         ```bash\n\
+         git stash           # save your changes\n\
+         git reset --hard HEAD\n\
+         git stash pop        # re-apply your changes\n\
+         ```"
+    );
+
+    if let Err(e) = db.create_comment(&CreateComment {
+        ticket_id: ticket_id.to_string(),
+        author_type: AuthorType::System,
+        body_md: body,
+        metadata: Some(serde_json::json!({ "type": "detour-working-tree-dirty" })),
+    }) {
+        tracing::error!(
+            "Failed to post dirty-worktree comment for ticket {}: {}",
+            ticket_id, e
+        );
+    }
+}
+
+/// Post a system comment when the detour merged via update-ref but the working
+/// tree wasn't updated because merge --ff-only failed (the tree itself is clean).
+fn post_detour_stale_worktree_comment(db: &Database, ticket_id: &str, target_branch: &str) {
+    let body = format!(
+        "## Working Tree Out of Sync\n\n\
+         The agent's work has been merged into `{target_branch}`, but your working tree \
+         could not be updated automatically.\n\n\
+         To see the agent's changes, run:\n\
+         ```bash\n\
+         git reset --hard HEAD\n\
+         ```"
+    );
+
+    if let Err(e) = db.create_comment(&CreateComment {
+        ticket_id: ticket_id.to_string(),
+        author_type: AuthorType::System,
+        body_md: body,
+        metadata: Some(serde_json::json!({ "type": "detour-working-tree-stale" })),
+    }) {
+        tracing::error!(
+            "Failed to post stale-worktree comment for ticket {}: {}",
             ticket_id, e
         );
     }

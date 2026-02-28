@@ -325,6 +325,31 @@ describe('RunsHistory', () => {
       expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
       expect(screen.getByText('def5678')).toBeInTheDocument();
     });
+
+    it('shows clean detour merge notice when merged_to_target is true without commit_hash', () => {
+      renderHistory({
+        agentRuns: [createRun({
+          metadata: { safety_commit: { merged_to_target: true, target_branch: 'feat/abc', detour_branch: 'agent-detour/abc12345' } },
+        })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('Merged to target')).toBeInTheDocument();
+      expect(screen.getByText(/Agent's work merged into/)).toBeInTheDocument();
+      expect(screen.getByText('feat/abc')).toBeInTheDocument();
+      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+    });
+
+    it('shows failed detour merge notice without commit_hash', () => {
+      renderHistory({
+        agentRuns: [createRun({
+          metadata: { safety_commit: { merged_to_target: false, target_branch: 'feat/abc', detour_branch: 'agent-detour/abc12345' } },
+        })],
+        expandedRunId: 'run-1',
+      });
+      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText(/Agent's work is on branch/)).toBeInTheDocument();
+      expect(screen.getByText('agent-detour/abc12345')).toBeInTheDocument();
+    });
   });
 
   describe('multiple previous runs', () => {

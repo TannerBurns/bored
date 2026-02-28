@@ -1482,3 +1482,109 @@ fn test_delete_branch_nonexistent_returns_false() {
 
     std::fs::remove_dir_all(&temp_dir).ok();
 }
+
+#[test]
+fn test_merge_detour_dirty_worktree_returns_dirty_variant() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_dirty_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create detour branch with a commit
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/dirty"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "agent.txt", "agent work", "agent commit");
+    let detour_head = branch_head(&temp_dir, "agent-detour/dirty");
+
+    // Switch back to main and create an uncommitted file (dirty working tree)
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    std::fs::write(temp_dir.join("uncommitted.txt"), "wip").unwrap();
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/dirty",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::MergedWorkingTreeDirty { ref new_head } => {
+            assert_eq!(new_head, &detour_head);
+        }
+        other => panic!("Expected MergedWorkingTreeDirty, got {:?}", other),
+    }
+
+    // Branch ref should have moved
+    assert_eq!(branch_head(&temp_dir, "main"), detour_head);
+
+    // But the agent's file should NOT be in the working tree (update-ref doesn't touch files)
+    assert!(
+        !temp_dir.join("agent.txt").exists(),
+        "agent.txt should not appear in working tree (update-ref doesn't update files)"
+    );
+
+    // The user's uncommitted file should still be there
+    assert!(temp_dir.join("uncommitted.txt").exists());
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn test_merge_detour_clean_worktree_updates_files() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("detour_clean_{}", uuid::Uuid::new_v4()));
+    init_repo_with_commit(&temp_dir);
+
+    let fork_point = branch_head(&temp_dir, "main");
+
+    // Create detour branch with a commit
+    std::process::Command::new("git")
+        .args(["checkout", "-b", "agent-detour/clean"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+    commit_file(&temp_dir, "agent.txt", "agent work", "agent commit");
+    let detour_head = branch_head(&temp_dir, "agent-detour/clean");
+
+    // Switch back to main (clean working tree)
+    std::process::Command::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp_dir)
+        .output()
+        .unwrap();
+
+    let result = manage::merge_detour_into_target(
+        &temp_dir,
+        "agent-detour/clean",
+        "main",
+        &fork_point,
+    );
+
+    assert!(result.is_ok());
+    match result.unwrap() {
+        manage::DetourMergeResult::Merged { ref new_head } => {
+            assert_eq!(new_head, &detour_head);
+        }
+        other => panic!("Expected Merged (via ff merge), got {:?}", other),
+    }
+
+    // Branch ref should have moved
+    assert_eq!(branch_head(&temp_dir, "main"), detour_head);
+
+    // The agent's file SHOULD be in the working tree (merge --ff-only updates files)
+    assert!(
+        temp_dir.join("agent.txt").exists(),
+        "agent.txt should appear in working tree after ff merge"
+    );
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+}

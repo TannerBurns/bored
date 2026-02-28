@@ -488,6 +488,28 @@ impl Worker {
                     );
                     detour_merged = true;
                 }
+                Ok(worktree::DetourMergeResult::MergedWorkingTreeDirty { ref new_head }) => {
+                    tracing::info!(
+                        "Worker {} merged detour {} into {} via update-ref (HEAD: {}, working tree not updated — dirty)",
+                        self.id,
+                        worktree.branch_name,
+                        target,
+                        new_head
+                    );
+                    detour_merged = true;
+                    post_detour_dirty_worktree_comment(&self.db, &ticket.id, target);
+                }
+                Ok(worktree::DetourMergeResult::MergedWorkingTreeStale { ref new_head }) => {
+                    tracing::info!(
+                        "Worker {} merged detour {} into {} via update-ref (HEAD: {}, working tree stale — ff-merge failed)",
+                        self.id,
+                        worktree.branch_name,
+                        target,
+                        new_head
+                    );
+                    detour_merged = true;
+                    post_detour_stale_worktree_comment(&self.db, &ticket.id, target);
+                }
                 Ok(worktree::DetourMergeResult::NothingToMerge) => {
                     tracing::info!(
                         "Worker {} detour {} had no new commits",
@@ -606,6 +628,60 @@ fn post_detour_recovery_comment(
     }) {
         tracing::error!(
             "Failed to post detour recovery comment for ticket {}: {}",
+            ticket_id, e
+        );
+    }
+}
+
+/// Post a system comment when the detour merged via update-ref but the user's
+/// working tree wasn't updated because they have uncommitted changes.
+fn post_detour_dirty_worktree_comment(db: &Database, ticket_id: &str, target_branch: &str) {
+    let body = format!(
+        "## Working Tree Out of Sync\n\n\
+         The agent's work has been merged into `{target_branch}`, but your working tree \
+         was not updated because you have uncommitted changes.\n\n\
+         To see the agent's changes, run:\n\
+         ```bash\n\
+         git stash           # save your changes\n\
+         git reset --hard HEAD\n\
+         git stash pop        # re-apply your changes\n\
+         ```"
+    );
+
+    if let Err(e) = db.create_comment(&CreateComment {
+        ticket_id: ticket_id.to_string(),
+        author_type: AuthorType::System,
+        body_md: body,
+        metadata: Some(serde_json::json!({ "type": "detour-working-tree-dirty" })),
+    }) {
+        tracing::error!(
+            "Failed to post dirty-worktree comment for ticket {}: {}",
+            ticket_id, e
+        );
+    }
+}
+
+/// Post a system comment when the detour merged via update-ref but the working
+/// tree wasn't updated because merge --ff-only failed (the tree itself is clean).
+fn post_detour_stale_worktree_comment(db: &Database, ticket_id: &str, target_branch: &str) {
+    let body = format!(
+        "## Working Tree Out of Sync\n\n\
+         The agent's work has been merged into `{target_branch}`, but your working tree \
+         could not be updated automatically.\n\n\
+         To see the agent's changes, run:\n\
+         ```bash\n\
+         git reset --hard HEAD\n\
+         ```"
+    );
+
+    if let Err(e) = db.create_comment(&CreateComment {
+        ticket_id: ticket_id.to_string(),
+        author_type: AuthorType::System,
+        body_md: body,
+        metadata: Some(serde_json::json!({ "type": "detour-working-tree-stale" })),
+    }) {
+        tracing::error!(
+            "Failed to post stale-worktree comment for ticket {}: {}",
             ticket_id, e
         );
     }
