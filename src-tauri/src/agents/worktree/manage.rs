@@ -370,3 +370,156 @@ pub fn force_remove_stale_worktree(
 
     Ok(true)
 }
+
+/// Result of merging a detour branch into its target.
+#[derive(Debug)]
+pub enum DetourMergeResult {
+    /// Successfully fast-forwarded the target branch.
+    Merged { new_head: String },
+    /// The detour branch had no new commits beyond the fork point.
+    NothingToMerge,
+    /// The target branch diverged and is not an ancestor of the detour HEAD.
+    /// This should be rare after the agent's detour-sync stage, but serves as a safety net.
+    Diverged { current_head: String },
+}
+
+/// Merge a detour branch back into its target branch using `git update-ref`.
+///
+/// The agent's detour-sync stage should have already merged the target into the detour,
+/// so this is typically a clean fast-forward. Uses `merge-base --is-ancestor` to verify
+/// safety before updating the ref.
+///
+/// The detour branch is **not** deleted here because it is typically still checked out
+/// in the worktree at this point. Call [`delete_branch`] after removing the worktree.
+pub fn merge_detour_into_target(
+    repo_path: &Path,
+    detour_branch: &str,
+    target_branch: &str,
+    fork_point: &str,
+) -> Result<DetourMergeResult, WorktreeError> {
+    tracing::debug!(
+        "Merging detour '{}' into '{}' (fork point: {})",
+        detour_branch,
+        target_branch,
+        &fork_point[..8.min(fork_point.len())]
+    );
+
+    // Resolve current target branch HEAD
+    let target_output = git_command()
+        .args(["rev-parse", &format!("refs/heads/{}", target_branch)])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !target_output.status.success() {
+        let stderr = String::from_utf8_lossy(&target_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: format!("Failed to resolve target branch '{}'", target_branch),
+            stderr: stderr.trim().to_string(),
+            exit_code: target_output.status.code(),
+            operation: format!("git rev-parse refs/heads/{}", target_branch),
+        });
+    }
+    let target_head = String::from_utf8_lossy(&target_output.stdout).trim().to_string();
+
+    // Resolve detour branch HEAD
+    let detour_output = git_command()
+        .args(["rev-parse", &format!("refs/heads/{}", detour_branch)])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !detour_output.status.success() {
+        let stderr = String::from_utf8_lossy(&detour_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: format!("Failed to resolve detour branch '{}'", detour_branch),
+            stderr: stderr.trim().to_string(),
+            exit_code: detour_output.status.code(),
+            operation: format!("git rev-parse refs/heads/{}", detour_branch),
+        });
+    }
+    let detour_head = String::from_utf8_lossy(&detour_output.stdout).trim().to_string();
+
+    // If they point to the same commit, nothing to merge
+    if target_head == detour_head {
+        tracing::info!("Detour and target are at the same commit, nothing to merge");
+        return Ok(DetourMergeResult::NothingToMerge);
+    }
+
+    // Verify the target is an ancestor of the detour (safe to fast-forward).
+    // After the agent's detour-sync stage, the detour should incorporate all target commits.
+    let ancestor_check = git_command()
+        .args(["merge-base", "--is-ancestor", &target_head, &detour_head])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !ancestor_check.status.success() {
+        tracing::warn!(
+            "Target branch '{}' ({}) is not an ancestor of detour '{}' ({}). \
+             Leaving detour branch for manual merge.",
+            target_branch,
+            &target_head[..8.min(target_head.len())],
+            detour_branch,
+            &detour_head[..8.min(detour_head.len())]
+        );
+        return Ok(DetourMergeResult::Diverged {
+            current_head: target_head,
+        });
+    }
+
+    // Fast-forward the target branch to the detour HEAD
+    let update_output = git_command()
+        .args([
+            "update-ref",
+            &format!("refs/heads/{}", target_branch),
+            &detour_head,
+        ])
+        .current_dir(repo_path)
+        .output()?;
+
+    if !update_output.status.success() {
+        let stderr = String::from_utf8_lossy(&update_output.stderr);
+        return Err(WorktreeError::GitError {
+            message: format!(
+                "Failed to fast-forward '{}' to detour HEAD",
+                target_branch
+            ),
+            stderr: stderr.trim().to_string(),
+            exit_code: update_output.status.code(),
+            operation: format!("git update-ref refs/heads/{} {}", target_branch, detour_head),
+        });
+    }
+
+    tracing::info!(
+        "Fast-forwarded '{}' to {} (from detour '{}')",
+        target_branch,
+        &detour_head[..8.min(detour_head.len())],
+        detour_branch
+    );
+
+    Ok(DetourMergeResult::Merged { new_head: detour_head })
+}
+
+/// Delete a branch by name (best effort).
+///
+/// Returns `true` if the branch was deleted, `false` if deletion failed
+/// (e.g. the branch doesn't exist or is still checked out).
+pub fn delete_branch(repo_path: &Path, branch_name: &str) -> bool {
+    match git_command()
+        .args(["branch", "-D", branch_name])
+        .current_dir(repo_path)
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            tracing::info!("Deleted branch '{}'", branch_name);
+            true
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("Failed to delete branch '{}': {}", branch_name, stderr.trim());
+            false
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run git branch -D '{}': {}", branch_name, e);
+            false
+        }
+    }
+}

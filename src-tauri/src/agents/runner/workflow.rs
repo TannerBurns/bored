@@ -32,6 +32,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         worktree_branch: config.worktree_branch.clone(),
         branch_already_created: config.branch_already_created,
         is_temp_branch: config.is_temp_branch,
+        target_branch: config.target_branch.clone(),
         agent_config: config.agent_config.clone(),
         resume_from_stage: config.resume_from_stage.clone(),
         previous_run_id: config.previous_run_id.clone(),

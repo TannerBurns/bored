@@ -97,6 +97,9 @@ pub struct WorkflowOrchestrator {
     branch_already_created: bool,
     /// Whether the worktree branch is a temporary name that should be renamed to an AI-generated name.
     is_temp_branch: bool,
+    /// When the agent is working on a detour branch (because the ticket's branch is already
+    /// checked out by the user), this holds the original branch name to merge back into.
+    target_branch: Option<String>,
     /// Agent-specific configuration map (auth tokens, API keys, etc.)
     agent_config: HashMap<String, serde_json::Value>,
     /// Maximum iterations for the code review loop
@@ -261,6 +264,7 @@ impl WorkflowOrchestrator {
             worktree_branch: config.worktree_branch,
             branch_already_created: config.branch_already_created,
             is_temp_branch: config.is_temp_branch,
+            target_branch: config.target_branch,
             agent_config: config.agent_config,
             code_review_max_iterations,
             stage_timeout_secs,
