@@ -17,7 +17,7 @@ use tokio::time::sleep;
 
 use super::runner::{self, CancelHandlesMap, RunnerConfig};
 use super::worktree;
-use crate::db::{Database, RunStatus, Ticket};
+use crate::db::{AuthorType, CreateComment, Database, RunStatus, Ticket};
 
 // Submodules
 pub(crate) mod branching;
@@ -468,6 +468,7 @@ impl Worker {
         self.db.unlock_ticket(&ticket.id)?;
 
         // Merge detour branch back into target if this was a detour worktree
+        let mut detour_merged = false;
         if let (Some(ref target), Some(ref fork_point)) =
             (&worktree.target_branch, &worktree.detour_fork_point)
         {
@@ -485,6 +486,7 @@ impl Worker {
                         target,
                         new_head
                     );
+                    detour_merged = true;
                 }
                 Ok(worktree::DetourMergeResult::NothingToMerge) => {
                     tracing::info!(
@@ -492,6 +494,7 @@ impl Worker {
                         self.id,
                         worktree.branch_name
                     );
+                    detour_merged = true;
                 }
                 Ok(worktree::DetourMergeResult::Diverged { .. }) => {
                     tracing::warn!(
@@ -500,6 +503,10 @@ impl Worker {
                         target,
                         worktree.branch_name
                     );
+                    post_detour_recovery_comment(
+                        &self.db, &ticket.id, &worktree.branch_name, target,
+                        "The target branch has diverged since the agent started working.",
+                    );
                 }
                 Err(e) => {
                     tracing::error!(
@@ -507,6 +514,10 @@ impl Worker {
                         self.id,
                         worktree.branch_name,
                         e
+                    );
+                    post_detour_recovery_comment(
+                        &self.db, &ticket.id, &worktree.branch_name, target,
+                        &format!("Merge failed: {}", e),
                     );
                 }
             }
@@ -527,8 +538,8 @@ impl Worker {
             );
         }
 
-        // Delete the detour branch now that the worktree is removed
-        if worktree.target_branch.is_some() {
+        // Only delete the detour branch if the merge succeeded; preserve it for manual merge otherwise
+        if detour_merged {
             worktree::delete_branch(&worktree.repo_path, &worktree.branch_name);
         }
 
@@ -563,6 +574,41 @@ impl Worker {
         Err("No project configured for ticket".into())
     }
 
+}
+
+/// Post a system comment on the ticket notifying the user that the detour
+/// branch could not be merged automatically and providing recovery steps.
+fn post_detour_recovery_comment(
+    db: &Database,
+    ticket_id: &str,
+    detour_branch: &str,
+    target_branch: &str,
+    reason: &str,
+) {
+    let body = format!(
+        "## Detour Branch Needs Manual Merge\n\n\
+         {reason}\n\n\
+         The agent's work is preserved on branch `{detour_branch}`.\n\n\
+         ### Recovery steps\n\
+         ```bash\n\
+         git checkout {target_branch}\n\
+         git merge {detour_branch}\n\
+         # resolve any conflicts, then:\n\
+         git branch -d {detour_branch}\n\
+         ```"
+    );
+
+    if let Err(e) = db.create_comment(&CreateComment {
+        ticket_id: ticket_id.to_string(),
+        author_type: AuthorType::System,
+        body_md: body,
+        metadata: Some(serde_json::json!({ "type": "detour-merge-failed" })),
+    }) {
+        tracing::error!(
+            "Failed to post detour recovery comment for ticket {}: {}",
+            ticket_id, e
+        );
+    }
 }
 
 #[cfg(test)]
