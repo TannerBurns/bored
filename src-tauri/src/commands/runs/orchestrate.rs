@@ -105,7 +105,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 Some(&format!("Failed to start task: {}", e)),
             );
             let _ = db.unlock_ticket(&ticket_id);
-            safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None);
+            let _ = safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None);
             let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
@@ -177,7 +177,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
     }
 
-    safety_commit_and_record(
+    let safety_commit_hash = safety_commit_and_record(
         &db,
         &worktree_info.path,
         &run_id,
@@ -254,11 +254,16 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
             if let Some(sc) = meta.get_mut("safety_commit") {
                 sc["merged_to_target"] = serde_json::json!(detour_merged);
             } else {
-                meta["safety_commit"] = serde_json::json!({
+                let mut sc = serde_json::json!({
                     "merged_to_target": detour_merged,
                     "target_branch": &worktree_info.target_branch,
                     "detour_branch": &worktree_info.branch_name,
                 });
+                if let Some(ref hash) = safety_commit_hash {
+                    sc["commit_hash"] = serde_json::json!(hash);
+                    sc["created_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                }
+                meta["safety_commit"] = sc;
             }
             let _ = db.set_run_metadata(&run_id, &meta);
         }
@@ -365,7 +370,7 @@ fn safety_commit_and_record(
     run_id: &str,
     target_branch: Option<&str>,
     detour_branch: Option<&str>,
-) {
+) -> Option<String> {
     match worktree::safety_commit_if_needed(worktree_path, run_id) {
         Ok(Some(commit_hash)) => {
             tracing::warn!(
@@ -395,10 +400,12 @@ fn safety_commit_and_record(
                     tracing::warn!("Safety commit succeeded but failed to record metadata for run {}: {}", run_id, e);
                 }
             }
+            Some(commit_hash)
         }
-        Ok(None) => {}
+        Ok(None) => None,
         Err(e) => {
             tracing::error!("Safety commit failed for run {}: {}", run_id, e);
+            None
         }
     }
 }
