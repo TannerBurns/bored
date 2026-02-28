@@ -1,5 +1,62 @@
 [
   {
+    "version": "0.1.0-beta.35",
+    "published_at": "2026-02-27",
+    "summary": "Detour branch worktree for active branch conflicts and UI consistency improvements across modals, accessibility, and component standardization",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Detour branch worktree — when you have a ticket's branch checked out, the agent now creates a temporary \"detour\" branch and works in an isolated worktree instead of failing; a detour-sync stage merges the target branch before completion, and the ticket's branch is fast-forwarded during cleanup",
+          "Detour merge recovery comments — when the detour merge-back fails or diverges, a system comment is posted on the ticket with the detour branch name and git commands for manual recovery"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "WAI-ARIA Tabs pattern in TicketDetailView — keyboard navigation with Arrow/Home/End keys and proper ARIA roles for accessibility",
+          "Unsaved-changes guard on CreateTicketModal and CreateSpecModal — escape, backdrop click, and cancel now show a discard confirmation when form fields have been modified",
+          "ConfirmModal extended to support async onConfirm with loading state, error display, and close prevention during in-flight operations",
+          "Button component extended with loading prop showing an animated spinner during async operations",
+          "Replaced raw button and input elements with Button and Input components across 11 files for consistent styling",
+          "Renamed API auth header from X-AgentKanban-Token to X-Bored-Token",
+          "Removed duplicate Boards nav item from sidebar"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed ConfirmModal state updates after parent unmount — added mountedRef guard to prevent React warnings when async onConfirm triggers parent modal close",
+          "Fixed detour merge leaving orphaned branches when the target branch diverged — detour branch preserved for manual merge with recovery instructions"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 11 Rust tests covering merge_detour_into_target (fast-forward, diverged, nothing-to-merge, error paths), delete_branch, WorktreeInfo defaults, and detour worktree creation"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.34",
+        "highlight": "Full-page ticket detail view with tabbed content (Overview, Task, Agent, Activity), persistent sidebar, and keyboard navigation replacing the modal overlay"
+      },
+      {
+        "version": "0.1.0-beta.33",
+        "highlight": "Visual log timeline view with real-time streaming, subagent context badges, and multi-agent log format support"
+      },
+      {
+        "version": "0.1.0-beta.32",
+        "highlight": "Safety commit before worktree removal preventing silent data loss, SafetyCommitNotice UI, and tokens/cost toggle on Dashboard Top Models chart"
+      },
+      {
+        "version": "0.1.0-beta.31",
+        "highlight": "CLI model identifier standardization (claude-opus-4-6 format), production bundled command fix, and core stage model selectors with auto-pilot"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.34",
     "published_at": "2026-02-26",
     "summary": "Full-page ticket detail view with tabbed content, persistent sidebar, and keyboard navigation replacing the modal overlay",
