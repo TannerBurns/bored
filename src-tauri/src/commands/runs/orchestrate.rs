@@ -177,7 +177,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
     }
 
-    let safety_commit_hash = safety_commit_and_record(
+    let safety_commit_info = safety_commit_and_record(
         &db,
         &worktree_info.path,
         &run_id,
@@ -261,9 +261,9 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                     "target_branch": target_branch,
                     "detour_branch": &worktree_info.branch_name,
                 });
-                if let Some(ref hash) = safety_commit_hash {
+                if let Some((ref hash, ref created_at)) = safety_commit_info {
                     sc["commit_hash"] = serde_json::json!(hash);
-                    sc["created_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                    sc["created_at"] = serde_json::json!(created_at);
                 }
                 meta["safety_commit"] = sc;
             }
@@ -372,9 +372,10 @@ fn safety_commit_and_record(
     run_id: &str,
     target_branch: Option<&str>,
     detour_branch: Option<&str>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     match worktree::safety_commit_if_needed(worktree_path, run_id) {
         Ok(Some(commit_hash)) => {
+            let created_at = chrono::Utc::now().to_rfc3339();
             tracing::warn!(
                 "Safety commit created for run {}: {} (agent did not commit all changes)",
                 run_id,
@@ -385,7 +386,7 @@ fn safety_commit_and_record(
                     let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
                     let mut sc = serde_json::json!({
                         "commit_hash": commit_hash,
-                        "created_at": chrono::Utc::now().to_rfc3339(),
+                        "created_at": &created_at,
                     });
                     if let Some(tb) = target_branch {
                         sc["target_branch"] = serde_json::json!(tb);
@@ -402,7 +403,7 @@ fn safety_commit_and_record(
                     tracing::warn!("Safety commit succeeded but failed to record metadata for run {}: {}", run_id, e);
                 }
             }
-            Some(commit_hash)
+            Some((commit_hash, created_at))
         }
         Ok(None) => None,
         Err(e) => {
