@@ -1,5 +1,66 @@
 [
   {
+    "version": "0.1.0-beta.36",
+    "published_at": "2026-02-28",
+    "summary": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Smart detour merge — when the target branch is checked out and the working tree is clean, the agent uses git merge --ff-only to update files in-place instead of update-ref which only moved the branch pointer; falls back to update-ref when uncommitted changes exist",
+          "Outcome-specific detour notifications — ticket comments are posted for each merge outcome (clean merge, dirty working tree with stash instructions, stale working tree needing reset) so you always know what happened and what to do next",
+          "MergedWorkingTreeStale variant distinguishes clean-tree ff-merge failures from dirty-tree fallbacks, preventing misleading stash advice when only git reset --hard HEAD is needed"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "SafetyCommitNotice shows branch-aware messaging with emerald success styling for clean detour merges, distinct from the amber warning used for safety-commit scenarios",
+          "Safety commit metadata enriched with detour context (target_branch, detour_branch, merged_to_target) for context-specific UI messaging",
+          "Safety commit hash and original created_at timestamp preserved when the first metadata DB write fails",
+          "Detour merge metadata guard aligned with merge guard to require both target_branch and detour_fork_point"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed git update-ref not updating the user's working tree when the target branch was checked out — files were invisible until manual git reset --hard HEAD",
+          "Eliminated TOCTOU data-loss race by removing git reset --hard from the automated path — destructive operations left to the user via system comment instructions",
+          "Fixed false \"uncommitted changes\" message when ff-merge fails with a clean tree — now posts stale-tree instructions without unnecessary stash advice",
+          "Fixed safety commit hash permanently lost when the first set_run_metadata DB write failed",
+          "Fixed detour merge metadata recording when detour_fork_point was missing — no merge metadata recorded for unattempted merges",
+          "Fixed incomplete safety_commit metadata when no actual safety commit existed — now writes merged_to_target even when the agent committed all its work cleanly"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 2 Rust tests for dirty and clean worktree detour merge variants",
+          "Added 3 SafetyCommitNotice frontend tests for branch-aware and outcome-specific messaging",
+          "Added RunDetailsPanel test for clean detour merge rendering"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.35",
+        "highlight": "Detour branch worktree for active branch conflicts with UI consistency improvements across modals, accessibility, and component standardization"
+      },
+      {
+        "version": "0.1.0-beta.34",
+        "highlight": "Full-page ticket detail view with tabbed content (Overview, Task, Agent, Activity), persistent sidebar, and keyboard navigation replacing the modal overlay"
+      },
+      {
+        "version": "0.1.0-beta.33",
+        "highlight": "Visual log timeline view with real-time streaming, subagent context badges, and multi-agent log format support"
+      },
+      {
+        "version": "0.1.0-beta.32",
+        "highlight": "Safety commit before worktree removal preventing silent data loss, SafetyCommitNotice UI, and tokens/cost toggle on Dashboard Top Models chart"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.35",
     "published_at": "2026-02-27",
     "summary": "Detour branch worktree for active branch conflicts and UI consistency improvements across modals, accessibility, and component standardization",

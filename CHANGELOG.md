@@ -2,6 +2,57 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.36] - 2026-02-28
+
+Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination.
+
+### New Features
+
+- Smart detour merge — when the user has the target branch checked out and the working tree is clean, the agent uses `git merge --ff-only` to update files in-place instead of `git update-ref` which only moved the branch pointer without updating the working tree; falls back to `update-ref` when the user has uncommitted changes
+- Outcome-specific detour notifications — ticket comments are posted for each merge outcome (clean merge, dirty working tree with stash instructions, stale working tree needing only a reset) so the user always knows what happened and what to do next
+- MergedWorkingTreeStale variant distinguishes clean-tree ff-merge failures from dirty-tree fallbacks, preventing misleading "uncommitted changes" advice when only `git reset --hard HEAD` is needed
+
+### Improvements
+
+- SafetyCommitNotice shows branch-aware messaging with emerald success styling and a checkmark icon for clean detour merges, distinct from the amber warning used for safety-commit scenarios
+- Safety commit metadata enriched with detour context (target_branch, detour_branch, merged_to_target) so the UI can render context-specific messaging for all detour outcomes
+- Safety commit hash and original created_at timestamp preserved when the first metadata DB write fails — the hash is returned from `safety_commit_and_record` and re-used in fallback metadata construction
+- Detour merge metadata recording guard aligned with the merge guard to require both target_branch and detour_fork_point, preventing misleading `merged_to_target: false` for unattempted merges
+- Used `if let Some(ref target_branch)` destructuring instead of `is_some()` + raw `Option<String>` serialization for robust metadata JSON construction
+
+### Bug Fixes
+
+- Fixed `git update-ref` not updating the user's working tree when the target branch was checked out — files were invisible until manual `git reset --hard HEAD`
+- Eliminated TOCTOU data-loss race in detour merge by removing `git reset --hard HEAD` from the automated path — destructive operations are now left to the user via system comment instructions
+- Fixed false "uncommitted changes" message when ff-merge fails with a clean tree — now correctly posts stale-tree instructions without unnecessary stash advice
+- Fixed safety commit hash being permanently lost when the first `set_run_metadata` DB write failed — the hash is now returned from the function and merged into fallback metadata
+- Fixed detour merge metadata recording when `detour_fork_point` was missing — no merge metadata is recorded for unattempted merges instead of showing a misleading `merged_to_target: false`
+- Fixed detour merge recording creating incomplete safety_commit metadata when no actual safety commit existed — now writes merged_to_target even when the agent committed all its work cleanly
+
+### Testing
+
+- Added 2 new Rust tests: test_merge_detour_dirty_worktree_returns_dirty_variant and test_merge_detour_clean_worktree_updates_files
+- Added 3 new SafetyCommitNotice frontend tests for branch-aware and outcome-specific messaging
+- Added RunDetailsPanel test for clean detour merge rendering
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.35, here is a summary of the major features introduced in recent releases:
+
+**beta.35 — Detour Branch Worktree & UI Consistency**
+Detour branch worktree for active branch conflicts — the agent creates a temporary detour branch and works in an isolated worktree instead of failing when the user has the target branch checked out. UI consistency improvements across 11 files with Button/Input component standardization, WAI-ARIA tabs accessibility, and unsaved-changes guards on modals.
+
+**beta.34 — Full-Page Ticket Detail View**
+Full-page ticket detail view replacing the modal overlay with tabbed content (Overview, Task, Agent, Activity), a persistent sidebar with metadata and quick actions, and keyboard navigation with Alt+Arrow prev/next and Escape to go back.
+
+**beta.33 — Visual Log Timeline & Real-Time Streaming**
+Visual log timeline view replacing the raw text log dump with categorized, color-coded entries from all three agents. Real-time log streaming with subagent context badges. 51 parseLogEvents tests.
+
+**beta.32 — Safety Commits & Dashboard Tokens/Cost Toggle**
+Safety commit before worktree removal automatically saves uncommitted agent work before removing worktrees, preventing silent data loss. SafetyCommitNotice surfaces auto-saved commits in the UI. Tokens/cost toggle on Dashboard Top Models chart.
+
+---
+
 ## [0.1.0-beta.35] - 2026-02-27
 
 Detour branch worktree for active branch conflicts and UI consistency improvements across modals, accessibility, and component standardization.
