@@ -248,7 +248,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
     }
 
     // Record detour merge result in run metadata
-    if worktree_info.target_branch.is_some() {
+    if let Some(ref target_branch) = worktree_info.target_branch {
         if let Ok(existing) = db.get_run(&run_id) {
             let mut meta = existing.metadata.unwrap_or_else(|| serde_json::json!({}));
             if let Some(sc) = meta.get_mut("safety_commit") {
@@ -256,7 +256,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
             } else {
                 let mut sc = serde_json::json!({
                     "merged_to_target": detour_merged,
-                    "target_branch": &worktree_info.target_branch,
+                    "target_branch": target_branch,
                     "detour_branch": &worktree_info.branch_name,
                 });
                 if let Some(ref hash) = safety_commit_hash {
