@@ -551,7 +551,25 @@ pub fn merge_detour_into_target(
         );
         Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head })
     } else if target_is_checked_out {
-        // Working tree was clean but merge --ff-only failed; safe to sync via reset.
+        // Working tree was clean earlier but merge --ff-only failed.
+        // Re-check before reset --hard to avoid discarding changes the user
+        // may have created in the interim.
+        let still_clean = git_command()
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .unwrap_or(false);
+
+        if !still_clean {
+            tracing::info!(
+                "Fast-forwarded '{}' via update-ref to {} (working tree became dirty before reset)",
+                target_branch,
+                &detour_head[..8.min(detour_head.len())]
+            );
+            return Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head });
+        }
+
         let reset_result = git_command()
             .args(["reset", "--hard", "HEAD"])
             .current_dir(repo_path)
