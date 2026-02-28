@@ -378,8 +378,12 @@ pub enum DetourMergeResult {
     Merged { new_head: String },
     /// Fast-forwarded the target branch via update-ref, but the user's working tree
     /// was not updated because they have uncommitted changes. They need to run
-    /// `git reset --hard HEAD` (or stash first) to see the agent's work.
+    /// `git stash && git reset --hard HEAD && git stash pop` to see the agent's work.
     MergedWorkingTreeDirty { new_head: String },
+    /// Fast-forwarded the target branch via update-ref, but the working tree was not
+    /// updated because `merge --ff-only` failed unexpectedly (the tree itself is clean).
+    /// The user just needs `git reset --hard HEAD` to sync — no stash required.
+    MergedWorkingTreeStale { new_head: String },
     /// The detour branch had no new commits beyond the fork point.
     NothingToMerge,
     /// The target branch diverged and is not an ancestor of the detour HEAD.
@@ -480,6 +484,8 @@ pub fn merge_detour_into_target(
 
     let target_is_checked_out = checked_out_branch.as_deref() == Some(target_branch);
 
+    let mut working_tree_dirty = false;
+
     if target_is_checked_out {
         // Check if the user's working tree is clean
         let status_output = git_command()
@@ -512,6 +518,8 @@ pub fn merge_detour_into_target(
                 "git merge --ff-only failed ({}), falling back to update-ref",
                 stderr.trim()
             );
+        } else {
+            working_tree_dirty = true;
         }
     }
 
@@ -539,13 +547,20 @@ pub fn merge_detour_into_target(
         });
     }
 
-    if target_is_checked_out {
+    if target_is_checked_out && working_tree_dirty {
         tracing::info!(
-            "Fast-forwarded '{}' via update-ref to {} (working tree not updated)",
+            "Fast-forwarded '{}' via update-ref to {} (working tree not updated — user has uncommitted changes)",
             target_branch,
             &detour_head[..8.min(detour_head.len())]
         );
         Ok(DetourMergeResult::MergedWorkingTreeDirty { new_head: detour_head })
+    } else if target_is_checked_out {
+        tracing::info!(
+            "Fast-forwarded '{}' via update-ref to {} (working tree not updated — merge --ff-only failed)",
+            target_branch,
+            &detour_head[..8.min(detour_head.len())]
+        );
+        Ok(DetourMergeResult::MergedWorkingTreeStale { new_head: detour_head })
     } else {
         tracing::info!(
             "Fast-forwarded '{}' via update-ref to {} (not checked out)",
