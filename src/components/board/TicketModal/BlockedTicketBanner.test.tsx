@@ -4,12 +4,25 @@ import { BlockedTicketBanner } from './BlockedTicketBanner';
 import type { Ticket, Column, Comment, Task } from '../../../types';
 
 const mockResetTask = vi.fn();
+const mockLoadBoardData = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../stores/boardStore', () => ({
-  useBoardStore: () => ({ resetTask: mockResetTask }),
+  useBoardStore: () => ({ resetTask: mockResetTask, loadBoardData: mockLoadBoardData }),
 }));
 
 vi.mock('../../common/MarkdownViewer', () => ({
   MarkdownViewer: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('../BuildWithDropdown', () => ({
+  BuildWithDropdown: ({ label, onSelect, disabled }: { label: string; onSelect: (agent: string) => void; disabled: boolean }) => (
+    <button data-testid="build-with-dropdown" disabled={disabled} onClick={() => onSelect('claude')}>
+      {label}
+    </button>
+  ),
 }));
 
 function makeColumns(): Column[] {
@@ -125,7 +138,7 @@ describe('BlockedTicketBanner', () => {
     );
     expect(screen.getByText('Clarification Needed')).toBeInTheDocument();
     expect(screen.getByTestId('md')).toHaveTextContent('What framework?');
-    expect(screen.getByText(/Update the ticket description above/)).toBeInTheDocument();
+    expect(screen.getByText(/merge your answers into the ticket description/)).toBeInTheDocument();
   });
 
   it('renders follow-up task guidance when task_order_index > 0', () => {
@@ -142,9 +155,9 @@ describe('BlockedTicketBanner', () => {
         onUpdate={mockOnUpdate}
       />
     );
-    expect(screen.getByText(/Edit the blocked task/)).toBeInTheDocument();
+    expect(screen.getByText(/merge your answers into the task/)).toBeInTheDocument();
     expect(screen.getByText('Add auth')).toBeInTheDocument();
-    expect(screen.queryByText(/Update the ticket description/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/merge your answers into the ticket description/)).not.toBeInTheDocument();
   });
 
   it('shows follow-up guidance without title when task not found', () => {
@@ -160,8 +173,7 @@ describe('BlockedTicketBanner', () => {
         onUpdate={mockOnUpdate}
       />
     );
-    expect(screen.getByText(/Edit the blocked task/)).toBeInTheDocument();
-    expect(screen.getByText(/below to update your instructions/)).toBeInTheDocument();
+    expect(screen.getByText(/merge your answers into the task/)).toBeInTheDocument();
   });
 
   it('uses the latest clarification comment when multiple exist', () => {
@@ -330,6 +342,170 @@ describe('BlockedTicketBanner', () => {
         />
       );
       expect(screen.getByText('Clarification Needed')).toBeInTheDocument();
+    });
+  });
+
+  describe('rewrite and resolve flow', () => {
+    it('renders textarea for user response', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      expect(screen.getByPlaceholderText('Answer the questions above...')).toBeInTheDocument();
+      expect(screen.getByText('Your response')).toBeInTheDocument();
+    });
+
+    it('renders BuildWithDropdown with correct label', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      const dropdown = screen.getByTestId('build-with-dropdown');
+      expect(dropdown).toBeInTheDocument();
+      expect(dropdown).toHaveTextContent('Rewrite & Resolve');
+    });
+
+    it('disables rewrite dropdown when textarea is empty', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      const dropdown = screen.getByTestId('build-with-dropdown');
+      expect(dropdown).toBeDisabled();
+    });
+
+    it('enables rewrite dropdown when textarea has content', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      const textarea = screen.getByPlaceholderText('Answer the questions above...');
+      fireEvent.change(textarea, { target: { value: 'Use React' } });
+
+      const dropdown = screen.getByTestId('build-with-dropdown');
+      expect(dropdown).not.toBeDisabled();
+    });
+
+    it('disables rewrite dropdown when textarea is only whitespace', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      const textarea = screen.getByPlaceholderText('Answer the questions above...');
+      fireEvent.change(textarea, { target: { value: '   ' } });
+
+      const dropdown = screen.getByTestId('build-with-dropdown');
+      expect(dropdown).toBeDisabled();
+    });
+
+    it('calls invoke with correct params when rewrite is triggered', async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Answer the questions above...');
+      fireEvent.change(textarea, { target: { value: 'Use React' } });
+
+      const dropdown = screen.getByTestId('build-with-dropdown');
+      fireEvent.click(dropdown);
+
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith('resolve_clarification', {
+          ticketId: 't1',
+          userResponse: 'Use React',
+          agentType: 'claude',
+        });
+      });
+    });
+
+    it('calls loadBoardData after successful rewrite', async () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Answer the questions above...');
+      fireEvent.change(textarea, { target: { value: 'Use React' } });
+
+      fireEvent.click(screen.getByTestId('build-with-dropdown'));
+
+      await waitFor(() => {
+        expect(mockLoadBoardData).toHaveBeenCalledWith('b1');
+      });
+    });
+
+    it('displays error when invoke fails', async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      vi.mocked(invoke).mockRejectedValueOnce('Agent spawn failed');
+
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+
+      const textarea = screen.getByPlaceholderText('Answer the questions above...');
+      fireEvent.change(textarea, { target: { value: 'Use React' } });
+
+      fireEvent.click(screen.getByTestId('build-with-dropdown'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Agent spawn failed')).toBeInTheDocument();
+      });
+    });
+
+    it('shows "or" separator between rewrite and resolve buttons', () => {
+      render(
+        <BlockedTicketBanner
+          ticket={makeTicket()}
+          columns={makeColumns()}
+          comments={[makeClarificationComment()]}
+          tasks={[makeTask()]}
+          onUpdate={mockOnUpdate}
+        />
+      );
+      expect(screen.getByText('or')).toBeInTheDocument();
     });
   });
 

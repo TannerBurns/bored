@@ -47,6 +47,36 @@ Write ONLY the clarification message, no preamble.
     )
 }
 
+/// Build the prompt for rewriting a task spec after the user answers clarification questions.
+pub fn build_spec_rewrite_prompt(
+    original_description: &str,
+    clarification_questions: &str,
+    user_answers: &str,
+) -> String {
+    format!(
+        r#"You are rewriting a task specification. The original task was unclear in some areas, so the user was asked clarification questions and has now provided answers. Your job is to produce a single, clear, detailed task specification that incorporates all the information.
+
+## Original Task Description
+{original_description}
+
+## Clarification Questions That Were Asked
+{clarification_questions}
+
+## User's Answers
+{user_answers}
+
+## Instructions
+- Produce a single, self-contained task specification that merges the original description with the user's answers
+- Preserve ALL original intent and requirements from the original description
+- Incorporate the user's answers naturally into the specification — do not leave them as a separate Q&A section
+- Resolve any ambiguities using the user's answers
+- Be specific and actionable — the resulting spec should be ready for an engineer to implement without further questions
+- Do NOT include meta-commentary about what changed or why
+- Write ONLY the rewritten specification, no preamble or explanation
+"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +99,49 @@ mod tests {
 
         assert!(prompt.contains("Should we use React or Vue?"));
         assert!(prompt.contains("clarification message"));
+    }
+
+    #[test]
+    fn build_spec_rewrite_prompt_contains_all_sections() {
+        let prompt = build_spec_rewrite_prompt(
+            "Add dark mode toggle",
+            "Should we use CSS variables or Tailwind?",
+            "Use Tailwind dark: classes",
+        );
+
+        assert!(prompt.contains("Add dark mode toggle"));
+        assert!(prompt.contains("Should we use CSS variables or Tailwind?"));
+        assert!(prompt.contains("Use Tailwind dark: classes"));
+        assert!(prompt.contains("Original Task Description"));
+        assert!(prompt.contains("Clarification Questions That Were Asked"));
+        assert!(prompt.contains("User's Answers"));
+        assert!(prompt.contains("Instructions"));
+    }
+
+    #[test]
+    fn build_spec_rewrite_prompt_handles_empty_inputs() {
+        let prompt = build_spec_rewrite_prompt("", "", "");
+        assert!(prompt.contains("Original Task Description"));
+        assert!(prompt.contains("User's Answers"));
+    }
+
+    #[test]
+    fn build_spec_rewrite_prompt_preserves_multiline_content() {
+        let desc = "Step 1: Do A\nStep 2: Do B\nStep 3: Do C";
+        let questions = "Which database?\nWhat auth method?";
+        let answers = "PostgreSQL\nOAuth2 with Google";
+        let prompt = build_spec_rewrite_prompt(desc, questions, answers);
+
+        assert!(prompt.contains("Step 1: Do A\nStep 2: Do B\nStep 3: Do C"));
+        assert!(prompt.contains("Which database?\nWhat auth method?"));
+        assert!(prompt.contains("PostgreSQL\nOAuth2 with Google"));
+    }
+
+    #[test]
+    fn build_spec_rewrite_prompt_includes_instructions() {
+        let prompt = build_spec_rewrite_prompt("task", "question", "answer");
+        assert!(prompt.contains("self-contained task specification"));
+        assert!(prompt.contains("Preserve ALL original intent"));
+        assert!(prompt.contains("no preamble or explanation"));
     }
 }

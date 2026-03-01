@@ -2,9 +2,12 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
+use crate::agents::plan_validation::{rewrite_task_with_clarification, PlanValidationConfig};
+use crate::agents::registry::AgentRegistry;
+use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::{
-    AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority,
-    Ticket, UpdateTicket, WorkflowType,
+    AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority, Ticket,
+    UpdateTicket, WorkflowType,
 };
 use crate::db::models::{TaskStatus, TaskType, UpdateTask};
 
@@ -456,3 +459,254 @@ pub async fn resume_ticket(
     Ok(stage)
 }
 
+/// Resolve a clarification by rewriting the task spec with an LLM, then move to Ready.
+#[tauri::command]
+pub async fn resolve_clarification(
+    ticket_id: String,
+    user_response: String,
+    agent_type: Option<String>,
+    db: State<'_, Arc<Database>>,
+    agent_settings: State<'_, AgentSettingsManager>,
+    registry: State<'_, AgentRegistry>,
+) -> Result<Ticket, String> {
+    tracing::info!(
+        "Resolving clarification for ticket {} (response={} chars)",
+        ticket_id,
+        user_response.len()
+    );
+
+    let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+
+    let project_id = ticket
+        .project_id
+        .as_ref()
+        .ok_or_else(|| "Ticket has no project assigned".to_string())?;
+    let project = db
+        .get_project(project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Project '{}' not found", project_id))?;
+
+    let comments = db.get_comments(&ticket_id).map_err(|e| e.to_string())?;
+    let clarification_comment = comments
+        .iter()
+        .filter(|c| c.author_type != AuthorType::User)
+        .filter(|c| {
+            c.metadata
+                .as_ref()
+                .and_then(|m| m.get("type"))
+                .and_then(|v| v.as_str())
+                == Some("clarification")
+        })
+        .next_back()
+        .ok_or_else(|| "No clarification comment found for this ticket".to_string())?;
+
+    let clarification_questions = extract_clarification_body(&clarification_comment.body_md);
+    let original_description = ticket.description_md.clone();
+
+    let agent_id = agent_type.unwrap_or_else(|| registry.default_agent_id());
+    let provider = registry
+        .get(&agent_id)
+        .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
+    let agent_config = agent_settings.agent_config_for(&agent_id);
+
+    let parent_run_id = uuid::Uuid::new_v4().to_string();
+    let config = PlanValidationConfig {
+        db: db.inner().clone(),
+        parent_run_id,
+        ticket_id: ticket_id.clone(),
+        repo_path: std::path::PathBuf::from(&project.path),
+        model: ticket.model.clone(),
+        agent_id,
+        provider,
+        agent_config,
+        timeout_secs: 120,
+    };
+
+    let rewritten_spec = rewrite_task_with_clarification(
+        &config,
+        &original_description,
+        &clarification_questions,
+        &user_response,
+    )
+    .await
+    .map_err(|e| format!("Failed to rewrite spec: {}", e))?;
+
+    let update = UpdateTicket {
+        description_md: Some(rewritten_spec.clone()),
+        title: None,
+        priority: None,
+        labels: None,
+        project_id: None,
+        workflow_type: None,
+        model: None,
+        branch_name: None,
+        column_id: None,
+        is_epic: None,
+        epic_id: None,
+        order_in_epic: None,
+        depends_on_epic_id: None,
+        depends_on_epic_ids: vec![],
+        spec_version_id: None,
+    };
+    db.update_ticket(&ticket_id, &update)
+        .map_err(|e| e.to_string())?;
+
+    // Sync to initial task (same logic as update_ticket)
+    if let Ok(tasks) = db.get_tasks_for_ticket(&ticket_id) {
+        let mut synced_task_id: Option<String> = None;
+
+        if let Some(initial_task) = tasks.iter().find(|t| {
+            t.order_index == 0
+                && t.task_type == TaskType::Custom
+                && (t.status == TaskStatus::Pending || t.status == TaskStatus::Failed)
+        }) {
+            let new_status = if initial_task.status == TaskStatus::Failed {
+                Some(TaskStatus::Pending)
+            } else {
+                None
+            };
+            if let Err(e) = db.update_task(
+                &initial_task.id,
+                &UpdateTask {
+                    title: None,
+                    content: Some(rewritten_spec),
+                    status: new_status,
+                    run_id: None,
+                },
+            ) {
+                tracing::warn!("Failed to sync rewritten spec to initial task: {}", e);
+            } else {
+                synced_task_id = Some(initial_task.id.clone());
+            }
+        }
+
+        // Reset any other failed tasks (skip the initial task already handled above)
+        for task in tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Failed && synced_task_id.as_ref() != Some(&t.id))
+        {
+            if let Err(e) = db.update_task(
+                &task.id,
+                &UpdateTask {
+                    title: None,
+                    content: None,
+                    status: Some(TaskStatus::Pending),
+                    run_id: None,
+                },
+            ) {
+                tracing::warn!("Failed to reset failed task {}: {}", task.id, e);
+            }
+        }
+    }
+
+    // Move ticket to Ready
+    let columns = db
+        .get_columns(&ticket.board_id)
+        .map_err(|e| e.to_string())?;
+    let ready_column = columns
+        .iter()
+        .find(|c| c.name == "Ready")
+        .ok_or_else(|| "Ready column not found".to_string())?;
+
+    db.move_ticket(&ticket_id, &ready_column.id)
+        .map_err(|e| e.to_string())?;
+
+    tracing::info!(
+        "Clarification resolved for ticket {} — moved to Ready",
+        ticket_id
+    );
+
+    db.get_ticket(&ticket_id).map_err(|e| e.to_string())
+}
+
+/// Extract the clarification body from the full comment markdown.
+/// The format is: "## Clarification Needed\n\n{body}\n\n---\n*footer*"
+fn extract_clarification_body(body_md: &str) -> String {
+    let header_end = body_md.find("\n\n");
+    let footer_start = body_md.rfind("\n\n---\n");
+    if let (Some(h), Some(f)) = (header_end, footer_start) {
+        if f > h {
+            return body_md[h + 2..f].trim().to_string();
+        }
+    }
+    body_md.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod extract_clarification_body_tests {
+        use super::*;
+
+        #[test]
+        fn standard_format() {
+            let body =
+                "## Clarification Needed\n\nWhat framework should we use?\n\n---\n*Update the ticket.*";
+            assert_eq!(
+                extract_clarification_body(body),
+                "What framework should we use?"
+            );
+        }
+
+        #[test]
+        fn multiline_body() {
+            let body = "## Clarification Needed\n\n1. Which DB?\n2. What auth?\n\n---\n*footer*";
+            assert_eq!(
+                extract_clarification_body(body),
+                "1. Which DB?\n2. What auth?"
+            );
+        }
+
+        #[test]
+        fn no_structure_returns_full_text() {
+            let body = "plain text with no header or footer";
+            assert_eq!(extract_clarification_body(body), body);
+        }
+
+        #[test]
+        fn empty_string() {
+            assert_eq!(extract_clarification_body(""), "");
+        }
+
+        #[test]
+        fn header_only_no_footer() {
+            let body = "## Header\n\nSome body text without a footer";
+            assert_eq!(extract_clarification_body(body), body);
+        }
+
+        #[test]
+        fn footer_before_header_returns_full_text() {
+            let body = "\n\n---\n*footer*\n\nsome text after";
+            assert_eq!(extract_clarification_body(body), body);
+        }
+
+        #[test]
+        fn body_with_extra_whitespace_is_trimmed() {
+            let body =
+                "## Header\n\n   spaced content   \n\n---\n*footer*";
+            assert_eq!(
+                extract_clarification_body(body),
+                "spaced content"
+            );
+        }
+
+        #[test]
+        fn body_with_multiple_paragraphs() {
+            let body = "## Clarification Needed\n\nParagraph one.\n\nParagraph two.\n\n---\n*footer*";
+            assert_eq!(
+                extract_clarification_body(body),
+                "Paragraph one.\n\nParagraph two."
+            );
+        }
+
+        #[test]
+        fn body_with_markdown_formatting() {
+            let body = "## Clarification\n\n- **Option A**: React\n- **Option B**: Vue\n\n---\n*Edit the ticket.*";
+            assert_eq!(
+                extract_clarification_body(body),
+                "- **Option A**: React\n- **Option B**: Vue"
+            );
+        }
+    }
+}
