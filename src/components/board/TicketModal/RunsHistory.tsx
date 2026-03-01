@@ -339,7 +339,7 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
 
   const hasTodos = implementationTodos && implementationTodos.length > 0;
   const implementSubRuns = hasTodos ? sorted.filter(r => r.stage === 'implement') : [];
-  const completedImpl = implementSubRuns.filter(r => r.status === 'finished').length;
+  const completedImpl = hasTodos ? implementationTodos.filter(t => t.status === 'completed').length : 0;
   const totalImpl = hasTodos ? implementationTodos.length : 0;
 
   // Build display rows: non-implement runs shown individually,
