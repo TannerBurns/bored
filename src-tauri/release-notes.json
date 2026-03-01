@@ -1,5 +1,73 @@
 [
   {
+    "version": "0.1.0-beta.37",
+    "published_at": "2026-03-01",
+    "summary": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Implementation todo workflow — new plan-decompose stage breaks implementation plans into 3–10 focused todos; the implement stage iterates over each with scoped prompts instead of running a single monolithic implementation",
+          "ImplementationChecklist UI — live-updating checklist with per-todo status icons (pending, in-progress, completed, failed), progress bar, and expandable descriptions",
+          "Grouped implementation sub-runs — multiple implement sub-runs collapsed into a single \"Implementation (X/Y)\" row in the stages list",
+          "Clarification rewrite-and-resolve flow — answer agent clarification questions inline in the BlockedTicketBanner and select an agent to automatically rewrite the ticket spec, replacing manual description editing",
+          "New resolve_clarification and get_implementation_todos Tauri commands"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Todo-based implementation produces higher-quality output by breaking large plans into small, scoped steps with individual agent calls",
+          "Resume support for todo-based implementation — completed, failed, and in-progress todos correctly handled on resume with retry for failed/in-progress items",
+          "Combined implementation output accumulated across all todos for auto-pilot command selection context",
+          "Duplicate stage outputs concatenated instead of overwritten for complete workflow summaries",
+          "Graceful fallback to single-implement behavior when decomposition fails or returns 1 or fewer todos",
+          "BlockedTicketBanner updated with response textarea and BuildWithDropdown for agent selection"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed inconsistent progress counts between SubRunsList and ImplementationChecklist — both now derive from todo statuses",
+          "Fixed resumed workflows re-executing already-completed todos",
+          "Fixed todo statuses not copying to current run when resuming from a previous run",
+          "Fixed combined_output not seeding from previous implement output on resume",
+          "Fixed failed todos permanently skipped on resume instead of being retried",
+          "Fixed plan-decompose missing from frontend RESERVED_INTERNAL_STAGE_IDS",
+          "Fixed mark_todo_status silently failing when metadata load returned None"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 9 extract_clarification_body tests and 4 build_spec_rewrite_prompt tests",
+          "Added 9 BlockedTicketBanner tests for the rewrite-and-resolve UI flow",
+          "Added ImplementationChecklist component tests covering status rendering and progress bar",
+          "Added RunsHistory tests for grouped implementation sub-run display",
+          "Added integration tests for stage output concatenation, in-progress/failed todo resume, and output seeding on resume"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.36",
+        "highlight": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination"
+      },
+      {
+        "version": "0.1.0-beta.35",
+        "highlight": "Detour branch worktree for active branch conflicts with UI consistency improvements across modals, accessibility, and component standardization"
+      },
+      {
+        "version": "0.1.0-beta.34",
+        "highlight": "Full-page ticket detail view with tabbed content (Overview, Task, Agent, Activity), persistent sidebar, and keyboard navigation replacing the modal overlay"
+      },
+      {
+        "version": "0.1.0-beta.33",
+        "highlight": "Visual log timeline view with real-time streaming, subagent context badges, and multi-agent log format support"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.36",
     "published_at": "2026-02-28",
     "summary": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination",

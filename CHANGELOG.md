@@ -2,6 +2,72 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.37] - 2026-03-01
+
+Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow that lets users answer agent questions inline and have the spec automatically rewritten.
+
+### New Features
+
+- Implementation todo workflow — new plan-decompose stage breaks implementation plans into 3–10 focused, independently implementable todos via an agent call; the implement stage then iterates over each todo with scoped prompts instead of running a single monolithic implementation
+- ImplementationChecklist UI component — live-updating checklist with per-todo status icons (pending, in-progress, completed, failed), progress bar, and expandable descriptions showing what the agent is working on
+- Grouped implementation sub-runs — multiple implement sub-runs are collapsed into a single "Implementation (X/Y)" row in the stages list instead of showing individual entries
+- Clarification rewrite-and-resolve flow — when a ticket is blocked for clarification, users can type answers to the agent's questions inline in the BlockedTicketBanner and select an agent to automatically rewrite the ticket spec incorporating the answers, replacing the previous manual description-editing workflow
+- `get_implementation_todos` Tauri command for loading todos from run metadata (previous runs and initial state)
+- `resolve_clarification` Tauri command that spawns an agent to merge the original description, clarification questions, and user answers into a rewritten spec
+
+### Improvements
+
+- Todo-based implementation produces higher-quality output by breaking large plans into small, scoped steps with individual agent calls instead of a single monolithic prompt
+- Resume support for todo-based implementation — completed, failed, and in-progress todos are correctly handled on resume; failed and in-progress todos are retried, completed todos are skipped with their output preserved
+- Combined implementation output accumulated across all todos for auto-pilot command selection, so the QA agent sees the full implementation context instead of only the last todo's output
+- Duplicate stage outputs concatenated instead of overwritten — `get_completed_stage_outputs` now appends outputs when the same stage name appears in multiple sub-runs, fixing incomplete workflow summaries and auto-pilot resume context
+- `mark_todo_status` returns a boolean indicating persistence success; `completed_count` only increments when the status is actually written to the database
+- Graceful fallback — if plan decomposition fails or returns 1 or fewer todos, the original single-implement behavior is preserved
+- BlockedTicketBanner updated with a response textarea and BuildWithDropdown for agent selection, keeping "Resolve & Move to Ready" as a manual fallback
+
+### Bug Fixes
+
+- Fixed implementation sub-run progress showing inconsistent counts between SubRunsList and ImplementationChecklist — both now derive progress from todo statuses instead of sub-run counts
+- Fixed `current_todo_title` emitting the next todo's title after completion instead of an empty string, creating a momentary mismatch between title and status
+- Fixed resumed workflows re-executing already-completed todos — saved statuses are loaded before the implementation loop and completed/failed todos are skipped
+- Fixed `completed_count` using loop index instead of actual completed count on resume, inflating progress when skipping completed or failed todos
+- Fixed todo statuses not copying to the current run when resuming from a previous run, causing all todos to appear as Pending
+- Fixed `combined_output` not seeding from previous implement output on resume, causing auto-pilot command selection to lose context from earlier implementation work
+- Fixed in-progress todos silently re-executing on resume without logging or state cleanup — now explicitly reset to Pending with a warning log
+- Fixed failed todos permanently skipped on resume instead of being retried
+- Fixed `plan-decompose` missing from frontend `RESERVED_INTERNAL_STAGE_IDS`, allowing custom command ID collision with the backend stage name
+- Fixed `mark_todo_status` silently failing when metadata load returned None — now logs a warning with run ID, status, and todo index
+
+### Testing
+
+- Added 9 unit tests for `extract_clarification_body` covering all edge cases
+- Added 4 unit tests for `build_spec_rewrite_prompt` covering description, questions, and answer formatting
+- Added 9 BlockedTicketBanner tests for the new rewrite-and-resolve UI flow
+- Added ImplementationChecklist component tests (116 lines) covering status rendering, progress bar, and expandable descriptions
+- Added RunsHistory tests for grouped implementation sub-run display
+- Added 2 integration tests for `get_completed_stage_outputs` concatenation with duplicate stage keys
+- Added integration test for in-progress todo reset-to-Pending on resume
+- Added integration test for failed todo retry on resume
+- Added integration test for resumed output including both previous and new todo outputs
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.36, here is a summary of the major features introduced in recent releases:
+
+**beta.36 — Smart Detour Merge**
+Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination.
+
+**beta.35 — Detour Branch Worktree & UI Consistency**
+Detour branch worktree for active branch conflicts — the agent creates a temporary detour branch and works in an isolated worktree instead of failing when the user has the target branch checked out. UI consistency improvements across 11 files with Button/Input component standardization, WAI-ARIA tabs accessibility, and unsaved-changes guards on modals.
+
+**beta.34 — Full-Page Ticket Detail View**
+Full-page ticket detail view replacing the modal overlay with tabbed content (Overview, Task, Agent, Activity), a persistent sidebar with metadata and quick actions, and keyboard navigation with Alt+Arrow prev/next and Escape to go back.
+
+**beta.33 — Visual Log Timeline & Real-Time Streaming**
+Visual log timeline view replacing the raw text log dump with categorized, color-coded entries from all three agents. Real-time log streaming with subagent context badges. 51 parseLogEvents tests.
+
+---
+
 ## [0.1.0-beta.36] - 2026-02-28
 
 Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination.
