@@ -160,7 +160,7 @@ impl WorkflowOrchestrator {
         }
     }
 
-    pub(super) fn mark_todo_status(&self, index: usize, status: TodoItemStatus) {
+    pub(super) fn mark_todo_status(&self, index: usize, status: TodoItemStatus) -> bool {
         let mut todo_statuses = match self.load_todo_statuses() {
             Some(s) => s,
             None => {
@@ -168,7 +168,7 @@ impl WorkflowOrchestrator {
                     "Failed to load todo statuses for run {} — status update to {:?} for index {} will not be persisted",
                     self.parent_run_id, status, index,
                 );
-                return;
+                return false;
             }
         };
 
@@ -176,11 +176,15 @@ impl WorkflowOrchestrator {
             todo.status = status;
         }
 
-        if let Err(e) = self.db.merge_run_metadata(
+        match self.db.merge_run_metadata(
             &self.parent_run_id,
             &serde_json::json!({ "implementation_todos": todo_statuses }),
         ) {
-            tracing::warn!("Failed to update todo status: {}", e);
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("Failed to update todo status: {}", e);
+                false
+            }
         }
     }
 

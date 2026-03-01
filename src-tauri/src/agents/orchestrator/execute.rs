@@ -425,8 +425,9 @@ impl WorkflowOrchestrator {
                         combined_output.push_str("\n\n");
                     }
                     combined_output.push_str(&text);
-                    self.mark_todo_status(idx, TodoItemStatus::Completed);
-                    completed_count += 1;
+                    if self.mark_todo_status(idx, TodoItemStatus::Completed) {
+                        completed_count += 1;
+                    }
                     self.emit_implementation_progress(completed_count, total, "");
                 }
                 Err(e) => {
