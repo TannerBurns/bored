@@ -1,6 +1,6 @@
 //! Main workflow execution logic for the orchestrator.
 
-use super::config::WorkflowMode;
+use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
 use crate::agents::plan_validation::{
     generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
@@ -8,6 +8,7 @@ use crate::agents::plan_validation::{
 use crate::agents::prompt::{
     generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
+    generate_todo_implement_prompt,
 };
 use crate::db::models::TaskType;
 
@@ -159,54 +160,66 @@ impl WorkflowOrchestrator {
 
     /// Run the plan stage and return the extracted plan.
     async fn run_plan_stage(&self) -> Result<String, String> {
-        if self.should_skip_stage("plan") {
-            tracing::info!("Skipping plan stage (resuming from later stage)");
-            return Ok(self.get_saved_plan().unwrap_or_else(|| {
+        let plan = if self.should_skip_stage("plan") {
+            tracing::info!("Skipping plan generation (resuming from later stage)");
+            self.get_saved_plan().unwrap_or_else(|| {
                 tracing::warn!(
                     "No saved plan found - implementation will proceed without plan context"
                 );
                 String::new()
-            }));
-        }
-
-        if self.is_cancelled() {
-            return Err("Workflow cancelled".to_string());
-        }
-
-        let plan_prompt = if let Some(ref task) = self.task {
-            if matches!(task.task_type, TaskType::Command(_)) {
-                tracing::info!(
-                    "Skipping plan stage for command task type: {:?}",
-                    task.task_type
-                );
-                String::new()
-            } else {
-                generate_task_plan_prompt(task, &self.ticket)
-            }
+            })
         } else {
-            generate_plan_prompt(&self.ticket)
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+
+            let plan_prompt = if let Some(ref task) = self.task {
+                if matches!(task.task_type, TaskType::Command(_)) {
+                    tracing::info!(
+                        "Skipping plan stage for command task type: {:?}",
+                        task.task_type
+                    );
+                    String::new()
+                } else {
+                    generate_task_plan_prompt(task, &self.ticket)
+                }
+            } else {
+                generate_plan_prompt(&self.ticket)
+            };
+
+            if plan_prompt.is_empty() {
+                return Ok(String::new());
+            }
+
+            let plan_result = self.run_stage("plan", &plan_prompt).await?;
+            let raw_output = plan_result.captured_stdout.unwrap_or_default();
+            let extracted = self.extract_text(&raw_output);
+
+            tracing::info!(
+                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+                raw_output.len(),
+                extracted.len(),
+                if raw_output.is_empty() {
+                    0
+                } else {
+                    100 - (extracted.len() * 100 / raw_output.len())
+                }
+            );
+
+            extracted
         };
 
-        if plan_prompt.is_empty() {
-            return Ok(String::new());
-        }
-
-        let plan_result = self.run_stage("plan", &plan_prompt).await?;
-        let raw_output = plan_result.captured_stdout.unwrap_or_default();
-        let plan = self.extract_text(&raw_output);
-
-        tracing::info!(
-            "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
-            raw_output.len(),
-            plan.len(),
-            if raw_output.is_empty() {
-                0
-            } else {
-                100 - (plan.len() * 100 / raw_output.len())
-            }
-        );
-
         self.validate_and_process_plan(&plan).await?;
+
+        if !plan.is_empty() && !self.should_skip_stage("plan-decompose") {
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+            self.decompose_plan_into_todos(&plan).await;
+        } else if self.should_skip_stage("plan-decompose") {
+            // When skipping decompose (resuming from implement), load todos from run metadata
+            self.load_todos_from_metadata();
+        }
 
         Ok(plan)
     }
@@ -288,7 +301,7 @@ impl WorkflowOrchestrator {
     }
 
     /// Run the implement stage and return the extracted output text.
-    async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
+    pub(super) async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
         if self.should_skip_stage("implement") {
             tracing::info!("Skipping implement stage (resuming from later stage)");
             return Ok(self.get_previous_stage_output("implement").unwrap_or_else(|| {
@@ -303,21 +316,129 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
 
-        let implement_prompt = if let Some(ref task) = self.task {
-            if matches!(task.task_type, TaskType::Command(_)) {
-                let custom_dir = self.custom_commands_dir();
-                generate_task_prompt(task, &self.ticket, custom_dir.as_deref())
+        let todos = self.get_implementation_todos();
+
+        if todos.is_empty() {
+            let implement_prompt = if let Some(ref task) = self.task {
+                if matches!(task.task_type, TaskType::Command(_)) {
+                    let custom_dir = self.custom_commands_dir();
+                    generate_task_prompt(task, &self.ticket, custom_dir.as_deref())
+                } else {
+                    generate_task_implement_prompt(task, &self.ticket, plan)
+                }
             } else {
-                generate_task_implement_prompt(task, &self.ticket, plan)
-            }
+                generate_implement_prompt(&self.ticket, plan)
+            };
+
+            let impl_result = self.run_stage("implement", &implement_prompt).await?;
+            let raw_output = impl_result.captured_stdout.unwrap_or_default();
+            let text = self.extract_text(&raw_output);
+            return Ok(text);
+        }
+
+        tracing::info!(
+            "Running todo-based implementation: {} todos",
+            todos.len()
+        );
+
+        let total = todos.len();
+
+        let saved_statuses = self.load_todo_statuses_vec();
+        let mut completed_count = saved_statuses
+            .iter()
+            .filter(|s| **s == TodoItemStatus::Completed)
+            .count();
+
+        let mut combined_output = if completed_count > 0 {
+            tracing::info!(
+                "Seeding combined output with {} previously completed todo(s)",
+                completed_count
+            );
+            self.get_previous_stage_output("implement")
+                .unwrap_or_default()
         } else {
-            generate_implement_prompt(&self.ticket, plan)
+            String::new()
         };
 
-        let impl_result = self.run_stage("implement", &implement_prompt).await?;
-        let raw_output = impl_result.captured_stdout.unwrap_or_default();
-        let text = self.extract_text(&raw_output);
-        Ok(text)
+        for (idx, todo) in todos.iter().enumerate() {
+            if let Some(status) = saved_statuses.get(idx) {
+                match status {
+                    TodoItemStatus::Completed => {
+                        tracing::info!(
+                            "Skipping todo {}/{} (already completed): {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        continue;
+                    }
+                    TodoItemStatus::Failed => {
+                        tracing::warn!(
+                            "Retrying previously failed todo {}/{}: {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        self.mark_todo_status(idx, TodoItemStatus::Pending);
+                    }
+                    TodoItemStatus::InProgress => {
+                        tracing::warn!(
+                            "Retrying interrupted todo {}/{} (was still InProgress): {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        self.mark_todo_status(idx, TodoItemStatus::Pending);
+                    }
+                    TodoItemStatus::Pending => {}
+                }
+            }
+
+            if self.is_cancelled() {
+                return Err("Workflow cancelled".to_string());
+            }
+
+            tracing::info!(
+                "Implementing todo {}/{}: {}",
+                idx + 1,
+                total,
+                todo.title
+            );
+
+            self.mark_todo_status(idx, TodoItemStatus::InProgress);
+            self.emit_implementation_progress(completed_count, total, &todo.title);
+
+            let prompt = generate_todo_implement_prompt(
+                &self.ticket,
+                plan,
+                &todo.title,
+                &todo.description,
+                idx,
+                total,
+            );
+
+            match self.run_stage("implement", &prompt).await {
+                Ok(result) => {
+                    let raw_output = result.captured_stdout.unwrap_or_default();
+                    let text = self.extract_text(&raw_output);
+                    if !combined_output.is_empty() {
+                        combined_output.push_str("\n\n");
+                    }
+                    combined_output.push_str(&text);
+                    if self.mark_todo_status(idx, TodoItemStatus::Completed) {
+                        completed_count += 1;
+                    }
+                    self.emit_implementation_progress(completed_count, total, "");
+                }
+                Err(e) => {
+                    self.mark_todo_status(idx, TodoItemStatus::Failed);
+                    self.emit_implementation_progress(completed_count, total, &todo.title);
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(combined_output)
     }
 
     async fn run_commit_stage(&self) -> Result<(), String> {

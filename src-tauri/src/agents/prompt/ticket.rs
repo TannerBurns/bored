@@ -201,6 +201,98 @@ Do NOT implement any code. Just create the plan.
     prompt
 }
 
+/// Generate a prompt to decompose a plan into focused implementation todos.
+pub fn generate_plan_decomposition_prompt(plan: &str) -> String {
+    format!(
+        r#"You are a technical project decomposer. Break the following implementation plan into 3-10 small, focused implementation steps (todos).
+
+## Implementation Plan
+
+{plan}
+
+## Instructions
+
+Decompose this plan into individual implementation todos. Each todo should be:
+- **Independently implementable**: Can be done without depending on later todos
+- **Small-scoped**: Focused on a single logical change (e.g. one file, one feature, one component)
+- **Ordered**: Listed in the order they should be implemented
+- **Specific**: Include file paths, function names, and concrete approach
+
+Output a JSON array of objects with "title" and "description" fields:
+
+```json
+[
+  {{
+    "title": "Short descriptive title",
+    "description": "Detailed breakdown including:\n- Which files to modify/create\n- What changes to make\n- Acceptance criteria"
+  }}
+]
+```
+
+Return ONLY the JSON array. Do not include any other text.
+"#
+    )
+}
+
+/// Generate a focused implement prompt for a single todo item.
+pub fn generate_todo_implement_prompt(
+    ticket: &Ticket,
+    plan: &str,
+    todo_title: &str,
+    todo_description: &str,
+    todo_index: usize,
+    todo_total: usize,
+) -> String {
+    let mut prompt = String::new();
+
+    prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Description\n\n");
+        prompt.push_str(&ticket.description_md);
+        prompt.push_str("\n\n");
+    }
+
+    prompt.push_str("## Full Implementation Plan (for context)\n\n");
+    prompt.push_str(plan);
+    prompt.push_str("\n\n");
+
+    prompt.push_str(&format!(
+        "## Current Step ({}/{}): {}\n\n",
+        todo_index + 1,
+        todo_total,
+        todo_title
+    ));
+    prompt.push_str(todo_description);
+    prompt.push_str("\n\n");
+
+    prompt.push_str(&format!(
+        r#"## Instructions
+
+You are implementing step {current} of {total} in the plan above.
+
+Focus ONLY on this step: **{title}**
+
+1. Make the necessary code changes for this step
+2. Verify the changes compile/pass type checking
+3. Do NOT work on other steps — they will be handled separately
+
+Do NOT:
+- Run the full QA sequence (that comes in later stages)
+- Commit changes (that comes later)
+- Add tests (that comes in a separate stage)
+- Implement steps beyond the current one
+
+Just implement this specific step as described.
+"#,
+        current = todo_index + 1,
+        total = todo_total,
+        title = todo_title,
+    ));
+
+    prompt
+}
+
 /// Generate a prompt for the implementation stage
 pub fn generate_implement_prompt(ticket: &Ticket, plan: &str) -> String {
     let mut prompt = String::new();
@@ -504,5 +596,74 @@ mod tests {
         // Should have all workflow steps including git
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains("/add-and-commit"));
+    }
+
+    #[test]
+    fn generate_plan_decomposition_prompt_includes_plan() {
+        let plan = "## Steps\n1. Add module\n2. Write tests";
+        let prompt = generate_plan_decomposition_prompt(plan);
+        assert!(prompt.contains(plan));
+        assert!(prompt.contains("## Implementation Plan"));
+        assert!(prompt.contains("3-10"));
+        assert!(prompt.contains("\"title\""));
+        assert!(prompt.contains("\"description\""));
+    }
+
+    #[test]
+    fn generate_plan_decomposition_prompt_returns_nonempty() {
+        let prompt = generate_plan_decomposition_prompt("");
+        assert!(!prompt.is_empty());
+        assert!(prompt.contains("## Implementation Plan"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_includes_ticket_and_step() {
+        let ticket = create_test_ticket();
+        let plan = "1. Modify file_a.rs\n2. Modify file_b.rs";
+        let prompt = generate_todo_implement_prompt(
+            &ticket, plan, "Add API endpoint", "Create GET /api/items", 0, 3,
+        );
+        assert!(prompt.contains("# Task: Test Ticket"));
+        assert!(prompt.contains("## Description"));
+        assert!(prompt.contains("This is a test description."));
+        assert!(prompt.contains("## Full Implementation Plan"));
+        assert!(prompt.contains(plan));
+        assert!(prompt.contains("## Current Step (1/3): Add API endpoint"));
+        assert!(prompt.contains("Create GET /api/items"));
+        assert!(prompt.contains("step 1 of 3"));
+        assert!(prompt.contains("**Add API endpoint**"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_step_numbering_last() {
+        let ticket = create_test_ticket();
+        let prompt = generate_todo_implement_prompt(
+            &ticket, "plan", "Final step", "Cleanup", 4, 5,
+        );
+        assert!(prompt.contains("## Current Step (5/5): Final step"));
+        assert!(prompt.contains("step 5 of 5"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_empty_description_omits_section() {
+        let mut ticket = create_test_ticket();
+        ticket.description_md = String::new();
+        let prompt = generate_todo_implement_prompt(
+            &ticket, "plan", "Step", "Do things", 0, 1,
+        );
+        assert!(!prompt.contains("## Description"));
+        assert!(prompt.contains("# Task: Test Ticket"));
+        assert!(prompt.contains("## Current Step (1/1): Step"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_contains_scope_instructions() {
+        let ticket = create_test_ticket();
+        let prompt = generate_todo_implement_prompt(
+            &ticket, "plan", "One thing", "desc", 0, 2,
+        );
+        assert!(prompt.contains("Focus ONLY on this step"));
+        assert!(prompt.contains("Do NOT work on other steps"));
+        assert!(prompt.contains("Do NOT"));
     }
 }

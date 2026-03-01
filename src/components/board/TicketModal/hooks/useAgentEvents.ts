@@ -11,7 +11,8 @@ import type {
   AgentCompleteEvent, 
   AgentErrorEvent, 
   AgentStageUpdateEvent, 
-  AgentLog 
+  AgentLog,
+  ImplementationTodoStatus,
 } from '../types';
 
 /** Extract log stream type from event type (e.g., {custom: "log_stdout"} -> "stdout") */
@@ -54,6 +55,7 @@ export interface UseAgentEventsReturn {
   isPausing: boolean;
   isResuming: boolean;
   isTicketPaused: boolean;
+  implementationTodos: ImplementationTodoStatus[];
   logsContainerRef: React.RefObject<HTMLDivElement>;
   shouldAutoScroll: boolean;
   handleLogsScroll: () => void;
@@ -77,6 +79,7 @@ export function useAgentEvents({
   const [isPausing, setIsPausing] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [isTicketPaused, setIsTicketPaused] = useState(!!ticket.pausedAt);
+  const [implementationTodos, setImplementationTodos] = useState<ImplementationTodoStatus[]>([]);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
@@ -181,6 +184,9 @@ export function useAgentEvents({
           invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
             (runs) => setAgentRunsRef.current(runs)
           );
+          if (event.payload.implementationProgress) {
+            setImplementationTodos(event.payload.implementationProgress.todos);
+          }
         }
       });
       if (isCancelled) {
@@ -356,6 +362,18 @@ export function useAgentEvents({
   }, [ticket.id, setEditBranchName]);
 
   useEffect(() => {
+    const runId = ticket.lockedByRunId;
+    if (!runId) {
+      setImplementationTodos([]);
+      return;
+    }
+
+    invoke<ImplementationTodoStatus[]>('get_implementation_todos', { runId })
+      .then(setImplementationTodos)
+      .catch(() => setImplementationTodos([]));
+  }, [ticket.lockedByRunId]);
+
+  useEffect(() => {
     if (shouldAutoScroll && logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
@@ -503,6 +521,7 @@ export function useAgentEvents({
     isPausing,
     isResuming,
     isTicketPaused,
+    implementationTodos,
     logsContainerRef,
     shouldAutoScroll,
     handleLogsScroll,

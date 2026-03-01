@@ -30,6 +30,20 @@ export interface AgentStageUpdateEvent {
   status: string;
   subRunId?: string;
   durationSecs?: number;
+  implementationProgress?: ImplementationProgress;
+}
+
+export interface ImplementationProgress {
+  completed: number;
+  total: number;
+  currentTodoTitle: string;
+  todos: ImplementationTodoStatus[];
+}
+
+export interface ImplementationTodoStatus {
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
 }
 
 export interface TicketModalProps {

@@ -49,6 +49,7 @@ export function AgentTab({
         runEvents={runsHistory.runEvents}
         loadingEvents={runsHistory.loadingEvents}
         handleRunClick={runsHistory.handleRunClick}
+        implementationTodos={agentEvents.implementationTodos}
       />
 
       {/* Empty state */}

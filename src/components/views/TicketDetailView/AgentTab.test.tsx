@@ -24,6 +24,7 @@ function makeAgentEvents(overrides: Partial<UseAgentEventsReturn> = {}): UseAgen
     isPausing: false,
     isResuming: false,
     isTicketPaused: false,
+    implementationTodos: [],
     logsContainerRef: { current: null },
     shouldAutoScroll: true,
     handleLogsScroll: vi.fn(),

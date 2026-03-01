@@ -38,7 +38,7 @@ export const REQUIRED_STAGE_KEYS: ReadonlySet<string> = new Set([
  *  Custom command IDs must not collide with these or `should_skip_stage`
  *  resume logic breaks due to duplicate positions in `full_execution_order`. */
 export const RESERVED_INTERNAL_STAGE_IDS: ReadonlySet<string> = new Set([
-  'branch-gen', 'branch', 'plan-validation',
+  'branch-gen', 'branch', 'plan-validation', 'plan-decompose',
   'code-review-fix', 'add-and-commit',
 ]);
 
@@ -67,7 +67,7 @@ export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
 export function expandStageKey(key: string): string[] {
   switch (key) {
     case 'branchGen': return ['branch-gen', 'branch'];
-    case 'plan': return ['plan', 'plan-validation'];
+    case 'plan': return ['plan', 'plan-validation', 'plan-decompose'];
     case 'implement': return ['implement'];
     case 'code-review': return ['code-review', 'code-review-fix'];
     case 'commit': return ['add-and-commit'];
