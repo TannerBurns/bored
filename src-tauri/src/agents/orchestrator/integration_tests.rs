@@ -1380,3 +1380,62 @@ async fn resume_retries_failed_todo_instead_of_skipping() {
     assert_eq!(saved[1].status, TodoItemStatus::Completed, "todo 1 (was Failed) should now be Completed after retry");
     assert_eq!(saved[2].status, TodoItemStatus::Completed, "todo 2 should be Completed");
 }
+
+#[tokio::test]
+async fn resume_combined_output_includes_previously_completed_todo_output() {
+    use super::config::{ImplementationTodo, TodoItemStatus, TodoStatus};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db.clone(), ticket, run_id.clone(), settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("new todo output")));
+
+    // Simulate resuming with todo 0 already completed
+    let todo_statuses = vec![
+        TodoStatus {
+            title: "Step 1".to_string(),
+            description: "First step".to_string(),
+            status: TodoItemStatus::Completed,
+        },
+        TodoStatus {
+            title: "Step 2".to_string(),
+            description: "Second step".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+    ];
+    db.merge_run_metadata(
+        &run_id,
+        &serde_json::json!({ "implementation_todos": todo_statuses }),
+    )
+    .unwrap();
+
+    {
+        let mut stored = orch.implementation_todos.write().unwrap();
+        *stored = vec![
+            ImplementationTodo { title: "Step 1".to_string(), description: "First step".to_string() },
+            ImplementationTodo { title: "Step 2".to_string(), description: "Second step".to_string() },
+        ];
+    }
+
+    // Seed previous_stage_outputs with the output from the already-completed todo
+    orch.previous_stage_outputs
+        .insert("implement".to_string(), "previous step 1 output".to_string());
+
+    let result = orch.run_implement_stage_capturing("test plan").await;
+    assert!(result.is_ok());
+
+    let output = result.unwrap();
+    assert!(
+        output.contains("previous step 1 output"),
+        "combined output should include output from previously completed todos, got: {}",
+        output,
+    );
+    assert!(
+        output.contains("new todo output"),
+        "combined output should include output from newly executed todos, got: {}",
+        output,
+    );
+}

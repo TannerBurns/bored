@@ -342,13 +342,23 @@ impl WorkflowOrchestrator {
         );
 
         let total = todos.len();
-        let mut combined_output = String::new();
 
         let saved_statuses = self.load_todo_statuses_vec();
         let mut completed_count = saved_statuses
             .iter()
             .filter(|s| **s == TodoItemStatus::Completed)
             .count();
+
+        let mut combined_output = if completed_count > 0 {
+            tracing::info!(
+                "Seeding combined output with {} previously completed todo(s)",
+                completed_count
+            );
+            self.get_previous_stage_output("implement")
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
 
         for (idx, todo) in todos.iter().enumerate() {
             if let Some(status) = saved_statuses.get(idx) {
