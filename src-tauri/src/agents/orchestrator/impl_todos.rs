@@ -163,7 +163,13 @@ impl WorkflowOrchestrator {
     pub(super) fn mark_todo_status(&self, index: usize, status: TodoItemStatus) {
         let mut todo_statuses = match self.load_todo_statuses() {
             Some(s) => s,
-            None => return,
+            None => {
+                tracing::warn!(
+                    "Failed to load todo statuses for run {} — status update to {:?} for index {} will not be persisted",
+                    self.parent_run_id, status, index,
+                );
+                return;
+            }
         };
 
         if let Some(todo) = todo_statuses.get_mut(index) {
