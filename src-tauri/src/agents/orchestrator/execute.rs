@@ -363,13 +363,13 @@ impl WorkflowOrchestrator {
                         continue;
                     }
                     TodoItemStatus::Failed => {
-                        tracing::info!(
-                            "Skipping todo {}/{} (previously failed): {}",
+                        tracing::warn!(
+                            "Retrying previously failed todo {}/{}: {}",
                             idx + 1,
                             total,
                             todo.title
                         );
-                        continue;
+                        self.mark_todo_status(idx, TodoItemStatus::Pending);
                     }
                     TodoItemStatus::InProgress => {
                         tracing::warn!(

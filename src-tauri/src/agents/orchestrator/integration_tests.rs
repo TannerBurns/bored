@@ -1321,3 +1321,62 @@ async fn resume_resets_in_progress_todo_to_pending_before_reexecution() {
     assert_eq!(saved[1].status, TodoItemStatus::Completed, "todo 1 (was InProgress) should now be Completed");
     assert_eq!(saved[2].status, TodoItemStatus::Completed, "todo 2 should be Completed");
 }
+
+#[tokio::test]
+async fn resume_retries_failed_todo_instead_of_skipping() {
+    use super::config::{ImplementationTodo, TodoItemStatus, TodoStatus};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db.clone(), ticket, run_id.clone(), settings));
+    orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("impl output")));
+
+    // Simulate a previous run where todo 1 failed:
+    // todo 0 = Completed, todo 1 = Failed, todo 2 = Pending
+    let todo_statuses = vec![
+        TodoStatus {
+            title: "Step 1".to_string(),
+            description: "First step".to_string(),
+            status: TodoItemStatus::Completed,
+        },
+        TodoStatus {
+            title: "Step 2".to_string(),
+            description: "Second step".to_string(),
+            status: TodoItemStatus::Failed,
+        },
+        TodoStatus {
+            title: "Step 3".to_string(),
+            description: "Third step".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+    ];
+    db.merge_run_metadata(
+        &run_id,
+        &serde_json::json!({ "implementation_todos": todo_statuses }),
+    )
+    .unwrap();
+
+    {
+        let mut stored = orch.implementation_todos.write().unwrap();
+        *stored = vec![
+            ImplementationTodo { title: "Step 1".to_string(), description: "First step".to_string() },
+            ImplementationTodo { title: "Step 2".to_string(), description: "Second step".to_string() },
+            ImplementationTodo { title: "Step 3".to_string(), description: "Third step".to_string() },
+        ];
+    }
+
+    let result = orch.run_implement_stage_capturing("test plan").await;
+    assert!(result.is_ok(), "implement stage should succeed on retry");
+
+    let run = db.get_run(&run_id).unwrap();
+    let meta = run.metadata.unwrap();
+    let saved: Vec<TodoStatus> =
+        serde_json::from_value(meta["implementation_todos"].clone()).unwrap();
+
+    assert_eq!(saved[0].status, TodoItemStatus::Completed, "todo 0 should remain Completed");
+    assert_eq!(saved[1].status, TodoItemStatus::Completed, "todo 1 (was Failed) should now be Completed after retry");
+    assert_eq!(saved[2].status, TodoItemStatus::Completed, "todo 2 should be Completed");
+}
