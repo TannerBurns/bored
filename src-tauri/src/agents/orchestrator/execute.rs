@@ -373,7 +373,8 @@ impl WorkflowOrchestrator {
                     let raw_output = result.captured_stdout.unwrap_or_default();
                     last_output = self.extract_text(&raw_output);
                     self.mark_todo_status(idx, TodoItemStatus::Completed);
-                    self.emit_implementation_progress(idx + 1, total, &todo.title);
+                    let next_title = todos.get(idx + 1).map_or(&todo.title, |t| &t.title);
+                    self.emit_implementation_progress(idx + 1, total, next_title);
                 }
                 Err(e) => {
                     self.mark_todo_status(idx, TodoItemStatus::Failed);
