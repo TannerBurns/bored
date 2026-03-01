@@ -301,7 +301,7 @@ impl WorkflowOrchestrator {
     }
 
     /// Run the implement stage and return the extracted output text.
-    async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
+    pub(super) async fn run_implement_stage_capturing(&self, plan: &str) -> Result<String, String> {
         if self.should_skip_stage("implement") {
             tracing::info!("Skipping implement stage (resuming from later stage)");
             return Ok(self.get_previous_stage_output("implement").unwrap_or_else(|| {
@@ -352,15 +352,35 @@ impl WorkflowOrchestrator {
 
         for (idx, todo) in todos.iter().enumerate() {
             if let Some(status) = saved_statuses.get(idx) {
-                if *status == TodoItemStatus::Completed || *status == TodoItemStatus::Failed {
-                    tracing::info!(
-                        "Skipping todo {}/{} (already {:?}): {}",
-                        idx + 1,
-                        total,
-                        status,
-                        todo.title
-                    );
-                    continue;
+                match status {
+                    TodoItemStatus::Completed => {
+                        tracing::info!(
+                            "Skipping todo {}/{} (already completed): {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        continue;
+                    }
+                    TodoItemStatus::Failed => {
+                        tracing::info!(
+                            "Skipping todo {}/{} (previously failed): {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        continue;
+                    }
+                    TodoItemStatus::InProgress => {
+                        tracing::warn!(
+                            "Retrying interrupted todo {}/{} (was still InProgress): {}",
+                            idx + 1,
+                            total,
+                            todo.title
+                        );
+                        self.mark_todo_status(idx, TodoItemStatus::Pending);
+                    }
+                    TodoItemStatus::Pending => {}
                 }
             }
 
