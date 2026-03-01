@@ -189,7 +189,13 @@ impl Database {
                     if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&json_str) {
                         if let Some(output) = metadata.get("stage_output").and_then(|v| v.as_str())
                         {
-                            outputs.insert(stage, output.to_string());
+                            outputs
+                                .entry(stage)
+                                .and_modify(|existing: &mut String| {
+                                    existing.push_str("\n\n");
+                                    existing.push_str(output);
+                                })
+                                .or_insert_with(|| output.to_string());
                         }
                     }
                 }
@@ -1420,6 +1426,109 @@ mod tests {
         let meta = fetched.metadata.unwrap();
         assert_eq!(meta.get("stage_output").unwrap().as_str().unwrap(), "new value");
         assert!(meta.get("keep_me").unwrap().as_bool().unwrap());
+    }
+
+    #[test]
+    fn get_completed_stage_outputs_concatenates_duplicate_stages() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        // Create 3 sub-runs all with stage "implement" (simulating todo-based implementation)
+        for (i, output) in ["output from todo 1", "output from todo 2", "output from todo 3"]
+            .iter()
+            .enumerate()
+        {
+            let sub = db
+                .create_run(&CreateRun {
+                    ticket_id: ticket.id.clone(),
+                    agent_type: "cursor".to_string(),
+                    repo_path: "/tmp".to_string(),
+                    parent_run_id: Some(parent.id.clone()),
+                    stage: Some("implement".to_string()),
+                    ..Default::default()
+                })
+                .unwrap();
+
+            db.update_run_status(&sub.id, RunStatus::Finished, Some(0), None)
+                .unwrap();
+            db.set_run_metadata(
+                &sub.id,
+                &serde_json::json!({
+                    "stage_output": output,
+                    "duration_secs": i as f64,
+                }),
+            )
+            .unwrap();
+        }
+
+        let outputs = db.get_completed_stage_outputs(&parent.id).unwrap();
+        let implement_output = outputs.get("implement").expect("should have implement key");
+        assert!(
+            implement_output.contains("output from todo 1"),
+            "should contain first todo output"
+        );
+        assert!(
+            implement_output.contains("output from todo 2"),
+            "should contain second todo output"
+        );
+        assert!(
+            implement_output.contains("output from todo 3"),
+            "should contain third todo output"
+        );
+        assert!(
+            implement_output.contains("\n\n"),
+            "outputs should be separated by double newlines"
+        );
+    }
+
+    #[test]
+    fn get_completed_stage_outputs_single_stage_unchanged() {
+        let db = create_test_db();
+        let (_board, ticket) = create_ticket_for_board(&db);
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: None,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub = db
+            .create_run(&CreateRun {
+                ticket_id: ticket.id.clone(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("implement".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        db.update_run_status(&sub.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+        db.set_run_metadata(
+            &sub.id,
+            &serde_json::json!({ "stage_output": "single output" }),
+        )
+        .unwrap();
+
+        let outputs = db.get_completed_stage_outputs(&parent.id).unwrap();
+        assert_eq!(outputs.get("implement").unwrap(), "single output");
     }
 
     #[test]
