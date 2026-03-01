@@ -342,7 +342,7 @@ impl WorkflowOrchestrator {
         );
 
         let total = todos.len();
-        let mut last_output = String::new();
+        let mut combined_output = String::new();
 
         let saved_statuses = self.load_todo_statuses_vec();
         let mut completed_count = saved_statuses
@@ -390,7 +390,11 @@ impl WorkflowOrchestrator {
             match self.run_stage("implement", &prompt).await {
                 Ok(result) => {
                     let raw_output = result.captured_stdout.unwrap_or_default();
-                    last_output = self.extract_text(&raw_output);
+                    let text = self.extract_text(&raw_output);
+                    if !combined_output.is_empty() {
+                        combined_output.push_str("\n\n");
+                    }
+                    combined_output.push_str(&text);
                     self.mark_todo_status(idx, TodoItemStatus::Completed);
                     completed_count += 1;
                     let next_title = todos.get(idx + 1).map(|t| t.title.as_str()).unwrap_or("");
@@ -404,7 +408,7 @@ impl WorkflowOrchestrator {
             }
         }
 
-        Ok(last_output)
+        Ok(combined_output)
     }
 
     async fn run_commit_stage(&self) -> Result<(), String> {
