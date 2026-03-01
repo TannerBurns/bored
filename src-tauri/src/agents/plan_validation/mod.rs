@@ -10,7 +10,9 @@ mod prompts;
 
 pub use config::{PlanValidationConfig, PlanValidationError, PlanValidationResult};
 pub use parsing::parse_validation_response;
-pub use prompts::{build_clarification_message_prompt, build_plan_validation_prompt};
+pub use prompts::{
+    build_clarification_message_prompt, build_plan_validation_prompt, build_spec_rewrite_prompt,
+};
 
 /// Run a validation agent to check if a plan needs clarification (fail-open).
 pub async fn validate_plan_for_clarification(
@@ -235,6 +237,114 @@ pub async fn generate_clarification_message(
         }
         Err(join_error) => {
             tracing::error!("Clarification agent task panicked: {}", join_error);
+            let _ = db.update_run_status(
+                &run.id,
+                RunStatus::Error,
+                None,
+                Some(&join_error.to_string()),
+            );
+            Err(PlanValidationError::SpawnFailed(join_error.to_string()))
+        }
+    }
+}
+
+/// Rewrite a task specification by combining the original description with
+/// the user's answers to clarification questions.
+pub async fn rewrite_task_with_clarification(
+    config: &PlanValidationConfig,
+    original_description: &str,
+    clarification_questions: &str,
+    user_answers: &str,
+) -> Result<String, PlanValidationError> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+
+    tracing::info!(
+        "Rewriting task spec for ticket {} (desc={} chars, questions={} chars, answers={} chars)",
+        config.ticket_id,
+        original_description.len(),
+        clarification_questions.len(),
+        user_answers.len(),
+    );
+
+    let agent_type = config.agent_id.clone();
+
+    let run = config
+        .db
+        .create_run(&CreateRun {
+            ticket_id: config.ticket_id.clone(),
+            agent_type,
+            repo_path: config.repo_path.to_string_lossy().to_string(),
+            parent_run_id: Some(config.parent_run_id.clone()),
+            stage: Some("spec-rewrite".to_string()),
+            ..Default::default()
+        })
+        .map_err(|e| PlanValidationError::RunCreationFailed(e.to_string()))?;
+
+    if let Err(e) = config
+        .db
+        .update_run_status(&run.id, RunStatus::Running, None, None)
+    {
+        tracing::warn!("Failed to update spec-rewrite run status: {}", e);
+    }
+
+    let prompt =
+        build_spec_rewrite_prompt(original_description, clarification_questions, user_answers);
+
+    let agent_config = AgentRunConfig {
+        agent_id: config.agent_id.clone(),
+        ticket_id: config.ticket_id.clone(),
+        run_id: run_id.clone(),
+        repo_path: config.repo_path.clone(),
+        prompt,
+        timeout_secs: Some(config.timeout_secs),
+        model: config.model.clone(),
+        agent_config: config.agent_config.clone(),
+    };
+
+    let db = config.db.clone();
+    let provider = config.provider.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        spawner::run_agent_via_provider(&*provider, &agent_config, None)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(agent_result)) => {
+            let exit_code = agent_result.exit_code;
+            let status = if exit_code == Some(0) {
+                RunStatus::Finished
+            } else {
+                RunStatus::Error
+            };
+
+            let message = agent_result
+                .captured_stdout
+                .as_ref()
+                .map(|output| config.provider.extract_text(output))
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            let _ = db.update_run_status(&run.id, status, exit_code, message.as_deref());
+
+            message.ok_or_else(|| {
+                PlanValidationError::SpawnFailed(
+                    "Spec rewrite agent produced no output".to_string(),
+                )
+            })
+        }
+        Ok(Err(spawn_error)) => {
+            tracing::error!("Spec rewrite agent spawn failed: {}", spawn_error);
+            let _ = db.update_run_status(
+                &run.id,
+                RunStatus::Error,
+                None,
+                Some(&spawn_error.to_string()),
+            );
+            Err(PlanValidationError::SpawnFailed(spawn_error.to_string()))
+        }
+        Err(join_error) => {
+            tracing::error!("Spec rewrite agent task panicked: {}", join_error);
             let _ = db.update_run_status(
                 &run.id,
                 RunStatus::Error,

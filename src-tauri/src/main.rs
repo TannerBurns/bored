@@ -463,6 +463,7 @@ fn main() {
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,
+            commands::tickets::resolve_clarification,
             // Release notes
             commands::release_notes::get_release_notes,
             commands::release_notes::get_all_release_notes,

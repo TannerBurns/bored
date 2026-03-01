@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useBoardStore } from '../../../stores/boardStore';
 import { MarkdownViewer } from '../../common/MarkdownViewer';
+import { BuildWithDropdown } from '../BuildWithDropdown';
 import type { Ticket, Column, Comment, Task } from '../../../types';
 
 export interface BlockedTicketBannerProps {
@@ -13,12 +15,12 @@ export interface BlockedTicketBannerProps {
 
 /**
  * Prominent banner shown when a ticket is in the "Blocked" column due to
- * a clarification request. Provides task-aware guidance:
- * - Task 1 (initial): tells user to update the ticket description
- * - Task N (follow-up): tells user to edit the specific blocked task
+ * a clarification request. Provides two resolution paths:
  *
- * Includes a "Resolve & Move to Ready" button that handles resetting
- * failed tasks and moving the ticket in one action.
+ * 1. "Rewrite & Resolve" — user types answers in a textarea, picks an agent,
+ *    and the agent rewrites the task spec combining original + answers.
+ * 2. "Resolve & Move to Ready" — manual fallback for users who prefer to
+ *    edit the ticket description themselves.
  */
 export function BlockedTicketBanner({
   ticket,
@@ -28,7 +30,10 @@ export function BlockedTicketBanner({
   onUpdate,
 }: BlockedTicketBannerProps) {
   const [isResolving, setIsResolving] = useState(false);
-  const { resetTask } = useBoardStore();
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [userResponse, setUserResponse] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const { resetTask, loadBoardData } = useBoardStore();
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   if (currentColumn?.name.toLowerCase() !== 'blocked') {
@@ -68,6 +73,25 @@ export function BlockedTicketBanner({
     }
   };
 
+  const handleRewriteAndResolve = async (agentType: string) => {
+    setIsRewriting(true);
+    setError(null);
+    try {
+      await invoke<Ticket>('resolve_clarification', {
+        ticketId: ticket.id,
+        userResponse,
+        agentType,
+      });
+      if (ticket.boardId) {
+        await loadBoardData(ticket.boardId);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIsRewriting(false);
+    }
+  };
+
   return (
     <div className="p-4 bg-status-error/10 rounded-lg border border-status-error/30">
       <div className="flex items-start gap-3">
@@ -99,29 +123,61 @@ export function BlockedTicketBanner({
             <MarkdownViewer content={clarificationBody} />
           </div>
 
-          <div className="text-sm text-board-text-muted mb-3">
-            {isFollowUpTask ? (
-              <p>
-                Edit the blocked task
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm text-board-text-muted mb-1.5">
+                Your response
+              </label>
+              <textarea
+                value={userResponse}
+                onChange={(e) => setUserResponse(e.target.value)}
+                disabled={isRewriting}
+                placeholder="Answer the questions above..."
+                className="w-full px-3 py-2 text-sm bg-board-surface border border-board-border rounded-lg text-board-text placeholder:text-board-text-muted focus:outline-none focus:border-board-accent resize-y min-h-[80px] disabled:opacity-50"
+                rows={3}
+              />
+            </div>
+
+            {error && (
+              <div className="text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">
+                {error}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <BuildWithDropdown
+                label={isRewriting ? 'Rewriting...' : 'Rewrite & Resolve'}
+                onSelect={handleRewriteAndResolve}
+                disabled={!userResponse.trim() || isRewriting || isResolving}
+                disabledReason={!userResponse.trim() ? 'Type a response first' : undefined}
+              />
+
+              <span className="text-xs text-board-text-muted">or</span>
+
+              <button
+                onClick={handleResolve}
+                disabled={isResolving || isRewriting || !readyColumn}
+                className="px-3 py-2 text-xs font-medium text-board-text-muted hover:text-board-text rounded-lg border border-board-border hover:bg-board-hover transition-colors disabled:opacity-50"
+              >
+                {isResolving ? 'Resolving...' : 'Resolve & Move to Ready'}
+              </button>
+            </div>
+
+            {!isFollowUpTask && (
+              <p className="text-xs text-board-text-muted">
+                Use &ldquo;Rewrite &amp; Resolve&rdquo; to have an agent merge your answers into the ticket description, or manually edit the description and use &ldquo;Resolve&rdquo;.
+              </p>
+            )}
+            {isFollowUpTask && (
+              <p className="text-xs text-board-text-muted">
+                Use &ldquo;Rewrite &amp; Resolve&rdquo; to have an agent merge your answers into the task
                 {blockedTask?.title ? (
                   <> &ldquo;<span className="text-board-text font-medium">{blockedTask.title}</span>&rdquo;</>
                 ) : null}
-                {' '}below to update your instructions, then click Resolve.
-              </p>
-            ) : (
-              <p>
-                Update the ticket description above with the requested information, then click Resolve.
+                , or manually edit the task and use &ldquo;Resolve&rdquo;.
               </p>
             )}
           </div>
-
-          <button
-            onClick={handleResolve}
-            disabled={isResolving || !readyColumn}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-          >
-            {isResolving ? 'Resolving...' : 'Resolve & Move to Ready'}
-          </button>
         </div>
       </div>
     </div>
