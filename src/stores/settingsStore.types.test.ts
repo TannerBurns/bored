@@ -128,6 +128,7 @@ describe('constants', () => {
     expect(RESERVED_INTERNAL_STAGE_IDS.has('branch-gen')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('branch')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('plan-validation')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('plan-decompose')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('code-review-fix')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('add-and-commit')).toBe(true);
   });
