@@ -75,25 +75,56 @@ impl WorkflowOrchestrator {
 
     /// Load implementation todos from run metadata (for resume scenarios).
     /// Checks the current parent run first, then falls back to the run it resumed from.
+    /// When falling back, copies the full todo statuses into the current run's metadata
+    /// so that `load_todo_statuses` can find them.
     pub(super) fn load_todos_from_metadata(&self) {
         let current_run = match self.db.get_run(&self.parent_run_id) {
             Ok(run) => run,
             Err(_) => return,
         };
 
-        let todos = Self::extract_todos_from_metadata(&current_run.metadata).or_else(|| {
-            let prev_id = current_run.resumed_from_run_id.as_ref()?;
-            let prev_run = self.db.get_run(prev_id).ok()?;
-            Self::extract_todos_from_metadata(&prev_run.metadata)
-        });
-
-        if let Some(todos) = todos {
+        if let Some(todos) = Self::extract_todos_from_metadata(&current_run.metadata) {
             tracing::info!(
-                "Loaded {} implementation todos from run metadata",
+                "Loaded {} implementation todos from current run metadata",
                 todos.len()
             );
             if let Ok(mut stored) = self.implementation_todos.write() {
                 *stored = todos;
+            }
+            return;
+        }
+
+        let prev_statuses = current_run
+            .resumed_from_run_id
+            .as_ref()
+            .and_then(|prev_id| {
+                let prev_run = self.db.get_run(prev_id).ok()?;
+                Self::extract_todo_statuses_from_metadata(&prev_run.metadata)
+            });
+
+        if let Some(statuses) = prev_statuses {
+            let todos: Vec<ImplementationTodo> = statuses
+                .iter()
+                .map(|ts| ImplementationTodo {
+                    title: ts.title.clone(),
+                    description: ts.description.clone(),
+                })
+                .collect();
+
+            tracing::info!(
+                "Loaded {} implementation todos from previous run, copying statuses to current run",
+                todos.len()
+            );
+
+            if let Ok(mut stored) = self.implementation_todos.write() {
+                *stored = todos;
+            }
+
+            if let Err(e) = self.db.merge_run_metadata(
+                &self.parent_run_id,
+                &serde_json::json!({ "implementation_todos": statuses }),
+            ) {
+                tracing::warn!("Failed to copy todo statuses to current run: {}", e);
             }
         }
     }
@@ -101,21 +132,31 @@ impl WorkflowOrchestrator {
     fn extract_todos_from_metadata(
         metadata: &Option<serde_json::Value>,
     ) -> Option<Vec<ImplementationTodo>> {
-        let meta = metadata.as_ref()?;
-        let raw_todos = meta.get("implementation_todos")?;
-        let todo_statuses =
-            serde_json::from_value::<Vec<TodoStatus>>(raw_todos.clone()).ok()?;
-        let todos: Vec<ImplementationTodo> = todo_statuses
-            .iter()
+        let statuses = Self::extract_todo_statuses_from_metadata(metadata)?;
+        let todos: Vec<ImplementationTodo> = statuses
+            .into_iter()
             .map(|ts| ImplementationTodo {
-                title: ts.title.clone(),
-                description: ts.description.clone(),
+                title: ts.title,
+                description: ts.description,
             })
             .collect();
         if todos.is_empty() {
             None
         } else {
             Some(todos)
+        }
+    }
+
+    fn extract_todo_statuses_from_metadata(
+        metadata: &Option<serde_json::Value>,
+    ) -> Option<Vec<TodoStatus>> {
+        let meta = metadata.as_ref()?;
+        let raw_todos = meta.get("implementation_todos")?;
+        let statuses = serde_json::from_value::<Vec<TodoStatus>>(raw_todos.clone()).ok()?;
+        if statuses.is_empty() {
+            None
+        } else {
+            Some(statuses)
         }
     }
 
