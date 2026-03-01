@@ -67,7 +67,7 @@ export const WORKFLOW_STAGE_INFO: WorkflowStageInfo[] = [
 export function expandStageKey(key: string): string[] {
   switch (key) {
     case 'branchGen': return ['branch-gen', 'branch'];
-    case 'plan': return ['plan', 'plan-validation'];
+    case 'plan': return ['plan', 'plan-validation', 'plan-decompose'];
     case 'implement': return ['implement'];
     case 'code-review': return ['code-review', 'code-review-fix'];
     case 'commit': return ['add-and-commit'];

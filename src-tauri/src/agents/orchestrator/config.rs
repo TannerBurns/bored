@@ -78,7 +78,7 @@ pub fn normalize_legacy_stage_name(stage: &str) -> Option<&'static str> {
 /// resume logic breaks due to duplicate positions in `full_execution_order`.
 #[cfg(test)]
 pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
-    "branch-gen", "branch", "plan-validation",
+    "branch-gen", "branch", "plan-validation", "plan-decompose",
     "code-review-fix", "add-and-commit",
 ];
 
@@ -88,7 +88,7 @@ pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
 pub fn expand_stage_key(key: &str) -> Vec<String> {
     match key {
         "branchGen" => vec!["branch-gen".to_string(), "branch".to_string()],
-        "plan" => vec!["plan".to_string(), "plan-validation".to_string()],
+        "plan" => vec!["plan".to_string(), "plan-validation".to_string(), "plan-decompose".to_string()],
         "implement" => vec!["implement".to_string()],
         "code-review" => vec!["code-review".to_string(), "code-review-fix".to_string()],
         "commit" => vec!["add-and-commit".to_string()],
@@ -152,4 +152,43 @@ pub struct StageEvent {
     pub status: String,
     pub sub_run_id: Option<String>,
     pub duration_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub implementation_progress: Option<ImplementationProgress>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplementationProgress {
+    pub completed: usize,
+    pub total: usize,
+    pub current_todo_title: String,
+    pub todos: Vec<TodoStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoStatus {
+    pub title: String,
+    pub description: String,
+    pub status: TodoItemStatus,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoItemStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ImplementationTodo {
+    pub title: String,
+    pub description: String,
+}
+
+pub fn parse_implementation_todos(text: &str) -> Vec<ImplementationTodo> {
+    crate::agents::json_extraction::parse_json_response::<Vec<ImplementationTodo>>(text)
+        .unwrap_or_default()
 }

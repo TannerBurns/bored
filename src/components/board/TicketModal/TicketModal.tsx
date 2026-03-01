@@ -234,6 +234,7 @@ export function TicketModal({
             runEvents={runsHistory.runEvents}
             loadingEvents={runsHistory.loadingEvents}
             handleRunClick={runsHistory.handleRunClick}
+            implementationTodos={agentEvents.implementationTodos}
           />
 
           {/* Comments */}

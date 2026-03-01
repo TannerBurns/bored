@@ -306,8 +306,8 @@ describe('expandStageKey', () => {
     expect(expandStageKey('branchGen')).toEqual(['branch-gen', 'branch']);
   });
 
-  it('expands plan into plan and plan-validation', () => {
-    expect(expandStageKey('plan')).toEqual(['plan', 'plan-validation']);
+  it('expands plan into plan, plan-validation, and plan-decompose', () => {
+    expect(expandStageKey('plan')).toEqual(['plan', 'plan-validation', 'plan-decompose']);
   });
 
   it('expands implement to itself', () => {
@@ -334,7 +334,7 @@ describe('buildFullExecutionOrder', () => {
     const order = buildFullExecutionOrder(DEFAULT_STAGE_ORDER);
     expect(order).toEqual([
       'branch-gen', 'branch',
-      'plan', 'plan-validation',
+      'plan', 'plan-validation', 'plan-decompose',
       'implement',
       'code-review', 'code-review-fix',
       'cleanup', 'unit-tests', 'review-changes', 'deslop',
@@ -350,7 +350,7 @@ describe('buildFullExecutionOrder', () => {
     ]);
     expect(order).toEqual([
       'branch-gen', 'branch',
-      'plan', 'plan-validation',
+      'plan', 'plan-validation', 'plan-decompose',
       'implement',
       'code-review', 'code-review-fix',
       'add-tests', 'fix-lint', 'cleanup',
@@ -369,7 +369,7 @@ describe('buildFullExecutionOrder', () => {
     const order = buildFullExecutionOrder(['branchGen', 'plan', 'implement', 'commit']);
     expect(order).toEqual([
       'branch-gen', 'branch',
-      'plan', 'plan-validation',
+      'plan', 'plan-validation', 'plan-decompose',
       'implement',
       'add-and-commit',
     ]);

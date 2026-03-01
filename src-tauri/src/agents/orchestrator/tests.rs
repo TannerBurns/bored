@@ -3,7 +3,9 @@
 use super::code_review::{extract_issues_section, parse_code_review_issues};
 use super::config::{
     build_full_stage_order, expand_stage_key, normalize_legacy_stage_name,
-    StageEvent, WorkflowMode, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW, RESERVED_INTERNAL_STAGES,
+    parse_implementation_todos, ImplementationProgress, ImplementationTodo, StageEvent,
+    TodoItemStatus, TodoStatus, WorkflowMode, DEFAULT_STAGE_ORDER, MULTI_STAGE_WORKFLOW,
+    RESERVED_INTERNAL_STAGES,
 };
 
 #[test]
@@ -29,6 +31,7 @@ fn module_reexports_are_accessible() {
         status: "running".to_string(),
         sub_run_id: None,
         duration_secs: Some(1.5),
+        implementation_progress: None,
     };
     assert_eq!(event.stage, "plan");
     assert_eq!(event.duration_secs, Some(1.5));
@@ -44,6 +47,7 @@ fn stage_event_serializes_with_optional_fields() {
         status: "finished".to_string(),
         sub_run_id: Some("sub-456".to_string()),
         duration_secs: Some(42.5),
+        implementation_progress: None,
     };
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("\"subRunId\":\"sub-456\""));
@@ -58,6 +62,7 @@ fn stage_event_serializes() {
         status: "running".to_string(),
         sub_run_id: None,
         duration_secs: None,
+        implementation_progress: None,
     };
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("parentRunId"));
@@ -223,6 +228,10 @@ fn stage_config_key_maps_plan_stages() {
         WorkflowOrchestrator::stage_config_key("plan-validation"),
         "plan"
     );
+    assert_eq!(
+        WorkflowOrchestrator::stage_config_key("plan-decompose"),
+        "plan"
+    );
 }
 
 #[test]
@@ -276,7 +285,10 @@ fn stage_config_key_passes_through_commands() {
 #[test]
 fn expand_stage_key_maps_required_keys() {
     assert_eq!(expand_stage_key("branchGen"), vec!["branch-gen", "branch"]);
-    assert_eq!(expand_stage_key("plan"), vec!["plan", "plan-validation"]);
+    assert_eq!(
+        expand_stage_key("plan"),
+        vec!["plan", "plan-validation", "plan-decompose"]
+    );
     assert_eq!(expand_stage_key("implement"), vec!["implement"]);
     assert_eq!(expand_stage_key("commit"), vec!["add-and-commit"]);
 }
@@ -314,7 +326,8 @@ fn build_full_stage_order_default_includes_all_stages() {
     assert_eq!(full[1], "branch");
     assert_eq!(full[2], "plan");
     assert_eq!(full[3], "plan-validation");
-    assert_eq!(full[4], "implement");
+    assert_eq!(full[4], "plan-decompose");
+    assert_eq!(full[5], "implement");
     assert!(full.contains(&"code-review".to_string()));
     assert!(full.contains(&"cleanup".to_string()));
     assert!(full.contains(&"unit-tests".to_string()));
@@ -502,7 +515,7 @@ fn normalize_legacy_review_changes_final() {
 #[test]
 fn normalize_returns_none_for_current_names() {
     for name in &[
-        "branch-gen", "branch", "plan", "plan-validation", "implement",
+        "branch-gen", "branch", "plan", "plan-validation", "plan-decompose", "implement",
         "code-review", "code-review-fix", "cleanup", "unit-tests",
         "review-changes", "deslop", "add-and-commit",
     ] {
@@ -550,6 +563,7 @@ fn reserved_internal_stages_contains_all_expanded_only_names() {
     assert!(RESERVED_INTERNAL_STAGES.contains(&"branch-gen"));
     assert!(RESERVED_INTERNAL_STAGES.contains(&"branch"));
     assert!(RESERVED_INTERNAL_STAGES.contains(&"plan-validation"));
+    assert!(RESERVED_INTERNAL_STAGES.contains(&"plan-decompose"));
     assert!(RESERVED_INTERNAL_STAGES.contains(&"code-review-fix"));
     assert!(RESERVED_INTERNAL_STAGES.contains(&"add-and-commit"));
 }
@@ -616,7 +630,7 @@ fn normalized_legacy_resume_skips_core_stages() {
     let resume = normalize_legacy_stage_name("cleanup-post-tests").unwrap();
     let resume_idx = full.iter().position(|s| s == resume).unwrap();
 
-    for core in &["branch-gen", "branch", "plan", "plan-validation", "implement"] {
+    for core in &["branch-gen", "branch", "plan", "plan-validation", "plan-decompose", "implement"] {
         let core_idx = full.iter().position(|s| s == *core).unwrap();
         assert!(
             core_idx < resume_idx,
@@ -652,4 +666,217 @@ fn workflow_mode_debug_format() {
 fn workflow_mode_reexported_from_mod() {
     use super::WorkflowMode as ReexportedMode;
     assert_eq!(ReexportedMode::AutoPilot, WorkflowMode::AutoPilot);
+}
+
+// --- Implementation todo types and parsing tests ---
+
+#[test]
+fn parse_implementation_todos_valid_json_array() {
+    let text = r#"[
+        {"title": "Add endpoint", "description": "Create GET /api"},
+        {"title": "Write tests", "description": "Unit tests for endpoint"}
+    ]"#;
+    let todos = parse_implementation_todos(text);
+    assert_eq!(todos.len(), 2);
+    assert_eq!(todos[0].title, "Add endpoint");
+    assert_eq!(todos[0].description, "Create GET /api");
+    assert_eq!(todos[1].title, "Write tests");
+}
+
+#[test]
+fn parse_implementation_todos_json_in_code_fence() {
+    let text = r#"Here are the todos:
+
+```json
+[
+    {"title": "Step one", "description": "Do first thing"},
+    {"title": "Step two", "description": "Do second thing"}
+]
+```
+
+That's the plan."#;
+    let todos = parse_implementation_todos(text);
+    assert_eq!(todos.len(), 2);
+    assert_eq!(todos[0].title, "Step one");
+}
+
+#[test]
+fn parse_implementation_todos_with_preamble_text() {
+    let text = r#"I've analyzed the plan. Here are the implementation steps:
+
+[{"title": "Setup", "description": "Initialize project"}]"#;
+    let todos = parse_implementation_todos(text);
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].title, "Setup");
+}
+
+#[test]
+fn parse_implementation_todos_empty_input() {
+    assert!(parse_implementation_todos("").is_empty());
+}
+
+#[test]
+fn parse_implementation_todos_invalid_json() {
+    assert!(parse_implementation_todos("not json at all").is_empty());
+}
+
+#[test]
+fn parse_implementation_todos_empty_array() {
+    assert!(parse_implementation_todos("[]").is_empty());
+}
+
+#[test]
+fn parse_implementation_todos_single_item() {
+    let text = r#"[{"title": "Only step", "description": "The only thing to do"}]"#;
+    let todos = parse_implementation_todos(text);
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].title, "Only step");
+}
+
+#[test]
+fn parse_implementation_todos_missing_fields_returns_empty() {
+    let text = r#"[{"title": "No description"}]"#;
+    let todos = parse_implementation_todos(text);
+    assert!(todos.is_empty());
+}
+
+#[test]
+fn todo_item_status_serializes_snake_case() {
+    assert_eq!(
+        serde_json::to_string(&TodoItemStatus::Pending).unwrap(),
+        "\"pending\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TodoItemStatus::InProgress).unwrap(),
+        "\"in_progress\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TodoItemStatus::Completed).unwrap(),
+        "\"completed\""
+    );
+    assert_eq!(
+        serde_json::to_string(&TodoItemStatus::Failed).unwrap(),
+        "\"failed\""
+    );
+}
+
+#[test]
+fn todo_item_status_deserializes_snake_case() {
+    assert_eq!(
+        serde_json::from_str::<TodoItemStatus>("\"pending\"").unwrap(),
+        TodoItemStatus::Pending
+    );
+    assert_eq!(
+        serde_json::from_str::<TodoItemStatus>("\"in_progress\"").unwrap(),
+        TodoItemStatus::InProgress
+    );
+    assert_eq!(
+        serde_json::from_str::<TodoItemStatus>("\"completed\"").unwrap(),
+        TodoItemStatus::Completed
+    );
+    assert_eq!(
+        serde_json::from_str::<TodoItemStatus>("\"failed\"").unwrap(),
+        TodoItemStatus::Failed
+    );
+}
+
+#[test]
+fn todo_status_serializes_camel_case() {
+    let status = TodoStatus {
+        title: "Add feature".to_string(),
+        description: "Detailed info".to_string(),
+        status: TodoItemStatus::InProgress,
+    };
+    let json = serde_json::to_value(&status).unwrap();
+    assert_eq!(json["title"], "Add feature");
+    assert_eq!(json["description"], "Detailed info");
+    assert_eq!(json["status"], "in_progress");
+}
+
+#[test]
+fn todo_status_round_trip() {
+    let original = TodoStatus {
+        title: "Test".to_string(),
+        description: "Desc".to_string(),
+        status: TodoItemStatus::Completed,
+    };
+    let json = serde_json::to_string(&original).unwrap();
+    let restored: TodoStatus = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.title, "Test");
+    assert_eq!(restored.description, "Desc");
+    assert_eq!(restored.status, TodoItemStatus::Completed);
+}
+
+#[test]
+fn implementation_todo_round_trip() {
+    let original = ImplementationTodo {
+        title: "Step 1".to_string(),
+        description: "Do stuff".to_string(),
+    };
+    let json = serde_json::to_string(&original).unwrap();
+    let restored: ImplementationTodo = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.title, "Step 1");
+    assert_eq!(restored.description, "Do stuff");
+}
+
+#[test]
+fn implementation_progress_serializes_camel_case() {
+    let progress = ImplementationProgress {
+        completed: 2,
+        total: 5,
+        current_todo_title: "Adding tests".to_string(),
+        todos: vec![
+            TodoStatus {
+                title: "Done".to_string(),
+                description: "d".to_string(),
+                status: TodoItemStatus::Completed,
+            },
+            TodoStatus {
+                title: "Current".to_string(),
+                description: "c".to_string(),
+                status: TodoItemStatus::InProgress,
+            },
+        ],
+    };
+    let json = serde_json::to_value(&progress).unwrap();
+    assert_eq!(json["completed"], 2);
+    assert_eq!(json["total"], 5);
+    assert_eq!(json["currentTodoTitle"], "Adding tests");
+    assert_eq!(json["todos"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn stage_event_omits_implementation_progress_when_none() {
+    let event = StageEvent {
+        parent_run_id: "run-1".to_string(),
+        stage: "implement".to_string(),
+        status: "running".to_string(),
+        sub_run_id: None,
+        duration_secs: None,
+        implementation_progress: None,
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(!json.contains("implementationProgress"));
+}
+
+#[test]
+fn stage_event_includes_implementation_progress_when_present() {
+    let event = StageEvent {
+        parent_run_id: "run-1".to_string(),
+        stage: "implement".to_string(),
+        status: "running".to_string(),
+        sub_run_id: None,
+        duration_secs: None,
+        implementation_progress: Some(ImplementationProgress {
+            completed: 1,
+            total: 3,
+            current_todo_title: "Step 2".to_string(),
+            todos: vec![],
+        }),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("implementationProgress"));
+    assert!(json.contains("\"completed\":1"));
+    assert!(json.contains("\"total\":3"));
+    assert!(json.contains("\"currentTodoTitle\":\"Step 2\""));
 }

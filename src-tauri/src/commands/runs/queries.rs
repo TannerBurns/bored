@@ -57,3 +57,21 @@ pub async fn get_run_events(
     tracing::debug!("Getting events for run: {}", run_id);
     db.get_events(&run_id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_implementation_todos(
+    run_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<crate::agents::orchestrator::TodoStatus>, String> {
+    tracing::debug!("Getting implementation todos for run: {}", run_id);
+
+    let run = db.get_run(&run_id).map_err(|e| e.to_string())?;
+
+    let todos = run
+        .metadata
+        .and_then(|meta| meta.get("implementation_todos").cloned())
+        .and_then(|raw| serde_json::from_value::<Vec<crate::agents::orchestrator::TodoStatus>>(raw).ok())
+        .unwrap_or_default();
+
+    Ok(todos)
+}

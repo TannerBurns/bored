@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Window};
 
 use super::provider::AgentProvider;
@@ -33,6 +33,7 @@ mod code_review;
 mod comments;
 mod config;
 mod execute;
+mod impl_todos;
 mod stages;
 #[cfg(test)]
 mod tests;
@@ -42,7 +43,10 @@ mod ticket;
 
 // Public re-exports
 pub use code_review::{extract_issues_section, parse_code_review_issues};
-pub use config::{OrchestratorConfig, StageEvent, WorkflowMode};
+pub use config::{
+    ImplementationProgress, ImplementationTodo, OrchestratorConfig, StageEvent, TodoItemStatus,
+    TodoStatus, WorkflowMode,
+};
 
 /// Type alias for the shared cancel handles map
 pub type CancelHandlesMap = Arc<Mutex<HashMap<String, CancelHandle>>>;
@@ -122,6 +126,8 @@ pub struct WorkflowOrchestrator {
     workflow_mode: config::WorkflowMode,
     auto_pilot_model: String,
     stage_runner: Arc<dyn StageRunner>,
+    /// In-memory storage for implementation todos (populated by plan decomposition)
+    implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
 }
 
 impl WorkflowOrchestrator {
@@ -277,6 +283,7 @@ impl WorkflowOrchestrator {
             workflow_mode,
             auto_pilot_model,
             stage_runner: Arc::new(DefaultStageRunner),
+            implementation_todos: RwLock::new(Vec::new()),
         }
     }
 
@@ -385,7 +392,7 @@ impl WorkflowOrchestrator {
     fn stage_config_key(stage: &str) -> &str {
         match stage {
             "branch-gen" | "branch" => "branchGen",
-            "plan" | "plan-validation" => "plan",
+            "plan" | "plan-validation" | "plan-decompose" => "plan",
             "implement" => "implement",
             "code-review" | "code-review-fix" => "code-review",
             "add-and-commit" => "commit",

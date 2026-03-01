@@ -1,10 +1,13 @@
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../../lib/utils';
 import type { AgentRun, RunCostData } from '../../../types';
-import type { RunEvent } from './types';
+import type { RunEvent, ImplementationTodoStatus } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
 import { SafetyCommitNotice } from '../../common/SafetyCommitNotice';
 import { LogTimelineView } from './LogTimeline/LogTimelineView';
+import { ImplementationChecklist } from './ImplementationChecklist';
 
 function getWorkflowLabel(run: AgentRun): string {
   const mode = (run.metadata as Record<string, unknown> | undefined)?.workflow_mode;
@@ -84,6 +87,7 @@ export interface RunsHistoryProps {
   runEvents: RunEvent[];
   loadingEvents: boolean;
   handleRunClick: (runId: string) => void;
+  implementationTodos?: ImplementationTodoStatus[];
 }
 
 export function RunsHistory({
@@ -93,6 +97,7 @@ export function RunsHistory({
   runEvents,
   loadingEvents,
   handleRunClick,
+  implementationTodos,
 }: RunsHistoryProps) {
   if (agentRuns.length === 0) {
     return null;
@@ -109,6 +114,7 @@ export function RunsHistory({
           runEvents={runEvents}
           loadingEvents={loadingEvents}
           handleRunClick={handleRunClick}
+          implementationTodos={implementationTodos}
         />
       )}
 
@@ -132,6 +138,7 @@ interface CurrentRunSectionProps {
   runEvents: RunEvent[];
   loadingEvents: boolean;
   handleRunClick: (runId: string) => void;
+  implementationTodos?: ImplementationTodoStatus[];
 }
 
 function CurrentRunSection({
@@ -141,6 +148,7 @@ function CurrentRunSection({
   runEvents,
   loadingEvents,
   handleRunClick,
+  implementationTodos,
 }: CurrentRunSectionProps) {
   const currentRun = agentRuns.find(r => r.id === lockedByRunId);
   if (!currentRun) return null;
@@ -196,7 +204,11 @@ function CurrentRunSection({
             
             {/* Sub-runs for multi-stage workflows */}
             {isMultiStage && subRuns.length > 0 && (
-              <SubRunsList subRuns={subRuns} />
+              <SubRunsList subRuns={subRuns} implementationTodos={implementationTodos} />
+            )}
+
+            {implementationTodos && implementationTodos.length > 0 && (
+              <ImplementationChecklist todos={implementationTodos} />
             )}
             
             {/* Logs */}
@@ -319,51 +331,140 @@ function PreviousRunsSection({
 
 interface SubRunsListProps {
   subRuns: AgentRun[];
+  implementationTodos?: ImplementationTodoStatus[];
 }
 
-function SubRunsList({ subRuns }: SubRunsListProps) {
+function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
+  const sorted = [...subRuns].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+
+  const hasTodos = implementationTodos && implementationTodos.length > 0;
+  const implementSubRuns = hasTodos ? sorted.filter(r => r.stage === 'implement') : [];
+  const completedImpl = implementSubRuns.filter(r => r.status === 'finished').length;
+  const totalImpl = hasTodos ? implementationTodos.length : 0;
+
+  // Build display rows: non-implement runs shown individually,
+  // implement runs grouped into a single row when todos exist
+  type DisplayRow = { type: 'single'; run: AgentRun; idx: number } | { type: 'grouped'; runs: AgentRun[] };
+  const rows: DisplayRow[] = [];
+  let implGroupInserted = false;
+
+  sorted.forEach((subRun, idx) => {
+    if (hasTodos && subRun.stage === 'implement') {
+      if (!implGroupInserted) {
+        rows.push({ type: 'grouped', runs: implementSubRuns });
+        implGroupInserted = true;
+      }
+    } else {
+      rows.push({ type: 'single', run: subRun, idx });
+    }
+  });
+
+  const displayCount = hasTodos
+    ? sorted.filter(r => r.stage !== 'implement').length + (implementSubRuns.length > 0 ? 1 : 0)
+    : sorted.length;
+
   return (
     <div className="mt-3">
-      <p className="text-xs font-medium text-board-text-muted mb-2">Stages ({subRuns.length}):</p>
+      <p className="text-xs font-medium text-board-text-muted mb-2">Stages ({displayCount}):</p>
       <div className="space-y-1 text-xs">
-        {subRuns.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()).map((subRun, idx) => (
-          <div 
-            key={subRun.id} 
-            className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
-          >
-            <span
-              className={cn(
-                'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                subRun.status === 'finished' ? 'bg-status-success' :
-                subRun.status === 'running' ? 'bg-status-warning animate-pulse' :
-                subRun.status === 'error' ? 'bg-status-error' :
-                subRun.status === 'paused' ? 'bg-blue-400' :
-                'bg-board-text-muted'
-              )}
-            />
-            <span className="text-board-text-secondary font-medium w-24">
-              {subRun.stage || `Stage ${idx + 1}`}
-            </span>
-            <span className={cn(
-              'text-xs',
-              subRun.status === 'finished' ? 'text-status-success' :
-              subRun.status === 'running' ? 'text-status-warning' :
-              subRun.status === 'error' ? 'text-status-error' :
-              subRun.status === 'paused' ? 'text-blue-400' :
-              'text-board-text-muted'
-            )}>
-              {subRun.status}
-            </span>
-            <span className="ml-auto flex items-center gap-1.5">
-              <CostBadge cost={getRunCost(subRun)} />
-              {subRun.endedAt && (
-                <span className="text-board-text-muted">
-                  {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
+        {rows.map((row) => {
+          if (row.type === 'grouped') {
+            const anyRunning = row.runs.some(r => r.status === 'running');
+            const anyError = row.runs.some(r => r.status === 'error');
+            const allFinished = row.runs.every(r => r.status === 'finished');
+            const groupStatus = anyRunning ? 'running' : anyError ? 'error' : allFinished ? 'finished' : 'pending';
+
+            const totalCost = row.runs.reduce((sum, r) => {
+              const c = getRunCost(r);
+              return sum + (c?.totalCostUsd ?? 0);
+            }, 0);
+            const totalDuration = row.runs.reduce((sum, r) => {
+              if (r.endedAt) {
+                return sum + (new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) / 1000;
+              }
+              return sum;
+            }, 0);
+
+            return (
+              <div
+                key="implement-group"
+                className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
+              >
+                <span
+                  className={cn(
+                    'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                    groupStatus === 'finished' ? 'bg-status-success' :
+                    groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
+                    groupStatus === 'error' ? 'bg-status-error' :
+                    'bg-board-text-muted'
+                  )}
+                />
+                <span className="text-board-text-secondary font-medium w-24">
+                  Implementation ({completedImpl}/{totalImpl})
                 </span>
-              )}
-            </span>
-          </div>
-        ))}
+                <span className={cn(
+                  'text-xs',
+                  groupStatus === 'finished' ? 'text-status-success' :
+                  groupStatus === 'running' ? 'text-status-warning' :
+                  groupStatus === 'error' ? 'text-status-error' :
+                  'text-board-text-muted'
+                )}>
+                  {groupStatus}
+                </span>
+                <span className="ml-auto flex items-center gap-1.5">
+                  {totalCost > 0 && (
+                    <CostBadge cost={{ totalCostUsd: totalCost, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: {}, isEstimated: false }} />
+                  )}
+                  {totalDuration > 0 && (
+                    <span className="text-board-text-muted">
+                      {Math.round(totalDuration)}s
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          }
+
+          const subRun = row.run;
+          return (
+            <div 
+              key={subRun.id} 
+              className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
+            >
+              <span
+                className={cn(
+                  'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                  subRun.status === 'finished' ? 'bg-status-success' :
+                  subRun.status === 'running' ? 'bg-status-warning animate-pulse' :
+                  subRun.status === 'error' ? 'bg-status-error' :
+                  subRun.status === 'paused' ? 'bg-blue-400' :
+                  'bg-board-text-muted'
+                )}
+              />
+              <span className="text-board-text-secondary font-medium w-24">
+                {subRun.stage || `Stage ${row.idx + 1}`}
+              </span>
+              <span className={cn(
+                'text-xs',
+                subRun.status === 'finished' ? 'text-status-success' :
+                subRun.status === 'running' ? 'text-status-warning' :
+                subRun.status === 'error' ? 'text-status-error' :
+                subRun.status === 'paused' ? 'text-blue-400' :
+                'text-board-text-muted'
+              )}>
+                {subRun.status}
+              </span>
+              <span className="ml-auto flex items-center gap-1.5">
+                <CostBadge cost={getRunCost(subRun)} />
+                {subRun.endedAt && (
+                  <span className="text-board-text-muted">
+                    {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -416,6 +517,14 @@ function ExpandedRunDetails({
   runEvents,
   loadingEvents,
 }: ExpandedRunDetailsProps) {
+  const [savedTodos, setSavedTodos] = useState<ImplementationTodoStatus[]>([]);
+
+  useEffect(() => {
+    invoke<ImplementationTodoStatus[]>('get_implementation_todos', { runId: run.id })
+      .then((todos) => setSavedTodos(todos))
+      .catch(() => setSavedTodos([]));
+  }, [run.id]);
+
   // Use the same model-derived cost as the badge so they always match.
   const displayCost = getParentRunDisplayCost(run, subRuns);
   const totalCost = displayCost ? getTotalCost(displayCost) : 0;
@@ -446,7 +555,11 @@ function ExpandedRunDetails({
 
       {/* Sub-runs for multi-stage workflows */}
       {isMultiStage && subRuns.length > 0 && (
-        <SubRunsList subRuns={subRuns} />
+        <SubRunsList subRuns={subRuns} implementationTodos={savedTodos} />
+      )}
+
+      {savedTodos.length > 0 && (
+        <ImplementationChecklist todos={savedTodos} />
       )}
       
       {/* Summary */}

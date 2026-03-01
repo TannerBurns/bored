@@ -382,6 +382,7 @@ fn main() {
             commands::runs::cancel_agent_run,
             commands::runs::cleanup_stale_runs,
             commands::runs::get_run_events,
+            commands::runs::get_implementation_todos,
             commands::runs::get_ticket_cost,
             commands::runs::backfill_run_costs,
             commands::get_projects,

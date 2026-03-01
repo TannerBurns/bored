@@ -4,6 +4,10 @@ import { RunsHistory, type RunsHistoryProps } from './RunsHistory';
 import type { AgentRun } from '../../../types';
 import type { RunEvent } from './types';
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../../common/CostBadge', () => ({
   CostBadge: ({ cost }: { cost: unknown }) =>
     cost ? <span data-testid="cost-badge">$cost</span> : null,
@@ -349,6 +353,76 @@ describe('RunsHistory', () => {
       expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
       expect(screen.getByText(/Agent's work is on branch/)).toBeInTheDocument();
       expect(screen.getByText('agent-detour/abc12345')).toBeInTheDocument();
+    });
+  });
+
+  describe('implementation todo grouping', () => {
+    const parent = createRun({ id: 'parent', status: 'running' });
+    const subRuns = [
+      createRun({ id: 'sub-plan', parentRunId: 'parent', stage: 'plan', status: 'finished' }),
+      createRun({ id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished' }),
+      createRun({ id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished' }),
+      createRun({ id: 'sub-impl-3', parentRunId: 'parent', stage: 'implement', status: 'running' }),
+      createRun({ id: 'sub-review', parentRunId: 'parent', stage: 'code-review', status: 'finished' }),
+    ];
+    const todos = [
+      { title: 'Step 1', description: 'desc1', status: 'completed' as const },
+      { title: 'Step 2', description: 'desc2', status: 'completed' as const },
+      { title: 'Step 3', description: 'desc3', status: 'in_progress' as const },
+    ];
+
+    it('groups implement sub-runs into a single Implementation row', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+      // Both SubRunsList and ImplementationChecklist show "Implementation (2/3)"
+      const matches = screen.getAllByText('Implementation (2/3)');
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows reduced stage count when grouping', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+      // 5 sub-runs total, but 3 implement runs collapse to 1 row = 3 rows
+      expect(screen.getByText('Stages (3):')).toBeInTheDocument();
+    });
+
+    it('does not group when no implementation todos provided', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+      });
+      expect(screen.getByText('Stages (5):')).toBeInTheDocument();
+      expect(screen.queryByText(/Implementation \(/)).not.toBeInTheDocument();
+    });
+
+    it('does not group when implementationTodos is empty', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: [],
+      });
+      expect(screen.getByText('Stages (5):')).toBeInTheDocument();
+    });
+
+    it('still shows non-implement stages individually', () => {
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+      expect(screen.getByText('plan')).toBeInTheDocument();
+      expect(screen.getByText('code-review')).toBeInTheDocument();
     });
   });
 

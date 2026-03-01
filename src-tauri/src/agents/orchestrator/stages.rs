@@ -354,12 +354,24 @@ impl WorkflowOrchestrator {
         sub_run_id: Option<String>,
         duration_secs: Option<f64>,
     ) {
+        self.emit_stage_event_with_progress(stage, status, sub_run_id, duration_secs, None);
+    }
+
+    pub(super) fn emit_stage_event_with_progress(
+        &self,
+        stage: &str,
+        status: &str,
+        sub_run_id: Option<String>,
+        duration_secs: Option<f64>,
+        implementation_progress: Option<super::config::ImplementationProgress>,
+    ) {
         let event = StageEvent {
             parent_run_id: self.parent_run_id.clone(),
             stage: stage.to_string(),
             status: status.to_string(),
             sub_run_id,
             duration_secs,
+            implementation_progress,
         };
         if let Err(e) = self.emit_event("agent-stage-update", &event) {
             tracing::warn!("Failed to emit stage event: {}", e);
