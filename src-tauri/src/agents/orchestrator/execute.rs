@@ -344,7 +344,22 @@ impl WorkflowOrchestrator {
         let total = todos.len();
         let mut last_output = String::new();
 
+        let saved_statuses = self.load_todo_statuses_vec();
+
         for (idx, todo) in todos.iter().enumerate() {
+            if let Some(status) = saved_statuses.get(idx) {
+                if *status == TodoItemStatus::Completed || *status == TodoItemStatus::Failed {
+                    tracing::info!(
+                        "Skipping todo {}/{} (already {:?}): {}",
+                        idx + 1,
+                        total,
+                        status,
+                        todo.title
+                    );
+                    continue;
+                }
+            }
+
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }

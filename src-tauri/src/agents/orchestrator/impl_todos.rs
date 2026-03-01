@@ -155,6 +155,12 @@ impl WorkflowOrchestrator {
         self.emit_stage_event_with_progress("implement", "running", None, None, Some(progress));
     }
 
+    pub(super) fn load_todo_statuses_vec(&self) -> Vec<TodoItemStatus> {
+        self.load_todo_statuses()
+            .map(|statuses| statuses.into_iter().map(|s| s.status).collect())
+            .unwrap_or_default()
+    }
+
     fn load_todo_statuses(&self) -> Option<Vec<TodoStatus>> {
         let run = self.db.get_run(&self.parent_run_id).ok()?;
         let meta = run.metadata?;
