@@ -72,11 +72,11 @@ impl BrainstormAgent {
                 uuid::Uuid::new_v4()
             ),
             repo_path: self.config.repo_path.clone(),
-            session_id: None,
             prompt: prompt.to_string(),
             timeout_secs: Some(self.config.timeout_secs),
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
+            session_id: None,
         };
 
         let tx_clone = self.event_tx.clone();
