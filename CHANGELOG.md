@@ -2,6 +2,33 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.40] - 2026-03-02
+
+Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run in the database before spawning the spec-rewrite child run, preventing orphaned runs.
+
+### Bug Fixes
+
+- Fixed FK constraint error when resolving clarification via rewrite — the `resolve_clarification` handler generated a random UUID for `parent_run_id` without inserting it into `agent_runs` first, causing a FOREIGN KEY constraint failure when the child spec-rewrite run was created
+- Parent run lifecycle now properly managed (Queued → Running → Finished/Error) to avoid orphaned runs in the database
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.39, here is a summary of the major features introduced in recent releases:
+
+**beta.39 — Session Tracking Across Implementation Todos**
+Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps.
+
+**beta.38 — Notification Banners, In-App Toasts & Todo Cost Badges**
+Native OS notification banners with sound, in-app toast notifications via sonner for Review/Blocked transitions, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants.
+
+**beta.37 — Implementation Todo Workflow & Clarification Rewrite**
+Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline.
+
+**beta.36 — Smart Detour Merge**
+Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination.
+
+---
+
 ## [0.1.0-beta.39] - 2026-03-02
 
 Session tracking across implementation todo steps so each todo resumes the same agent session instead of starting from scratch, preserving codebase context and conversation history across sequential steps.
