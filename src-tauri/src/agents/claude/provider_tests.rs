@@ -566,9 +566,7 @@ fn extract_session_id_from_system_init() {
 
 #[test]
 fn extract_session_id_fallback_to_result() {
-    let output = concat!(
-        r#"{"type":"result","subtype":"success","result":"ok","session_id":"fallback-id"}"#,
-    );
+    let output = r#"{"type":"result","subtype":"success","result":"ok","session_id":"fallback-id"}"#;
     let sid = extract_session_id_from_stream_json(output);
     assert_eq!(sid, Some("fallback-id".to_string()));
 }

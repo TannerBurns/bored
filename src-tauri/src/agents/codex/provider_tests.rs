@@ -420,7 +420,7 @@ fn extract_session_id_thread_started_without_thread_id_field() {
 #[test]
 fn build_command_uses_exec_resume_when_session_set() {
     let p = CodexProvider::new();
-    let mut config = AgentRunConfig {
+    let config = AgentRunConfig {
         agent_id: "codex".to_string(),
         ticket_id: "t".to_string(),
         run_id: "r".to_string(),
@@ -431,7 +431,7 @@ fn build_command_uses_exec_resume_when_session_set() {
         agent_config: HashMap::new(),
         session_id: Some("thread-resume-456".to_string()),
     };
-    let (cmd, args) = p.build_command(&mut config);
+    let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "codex");
     assert_eq!(args[0], "exec");
     assert_eq!(args[1], "resume");
