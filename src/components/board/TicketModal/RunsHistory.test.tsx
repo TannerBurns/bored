@@ -286,7 +286,7 @@ describe('RunsHistory', () => {
         agentRuns: [createRun({ metadata: undefined })],
         expandedRunId: 'run-1',
       });
-      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uncommitted changes saved')).not.toBeInTheDocument();
     });
 
     it('does not show notice when metadata has no safety_commit', () => {
@@ -294,7 +294,7 @@ describe('RunsHistory', () => {
         agentRuns: [createRun({ metadata: { workflow_mode: 'auto_pilot' } })],
         expandedRunId: 'run-1',
       });
-      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uncommitted changes saved')).not.toBeInTheDocument();
     });
 
     it('shows notice with commit hash when safety_commit present', () => {
@@ -304,7 +304,7 @@ describe('RunsHistory', () => {
         })],
         expandedRunId: 'run-1',
       });
-      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText('Uncommitted changes saved')).toBeInTheDocument();
       expect(screen.getByText('abc1234')).toBeInTheDocument();
     });
 
@@ -315,7 +315,7 @@ describe('RunsHistory', () => {
         })],
         expandedRunId: 'run-1',
       });
-      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText('Uncommitted changes saved')).toBeInTheDocument();
       expect(screen.queryByText('Commit:')).not.toBeInTheDocument();
     });
 
@@ -329,7 +329,7 @@ describe('RunsHistory', () => {
         lockedByRunId: 'active',
         expandedRunId: 'active',
       });
-      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+      expect(screen.getByText('Uncommitted changes saved')).toBeInTheDocument();
       expect(screen.getByText('def5678')).toBeInTheDocument();
     });
 
@@ -343,7 +343,7 @@ describe('RunsHistory', () => {
       expect(screen.getByText('Merged to target')).toBeInTheDocument();
       expect(screen.getByText(/Agent's work merged into/)).toBeInTheDocument();
       expect(screen.getByText('feat/abc')).toBeInTheDocument();
-      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uncommitted changes saved')).not.toBeInTheDocument();
     });
 
     it('shows failed detour merge notice without commit_hash', () => {
@@ -353,8 +353,8 @@ describe('RunsHistory', () => {
         })],
         expandedRunId: 'run-1',
       });
-      expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
-      expect(screen.getByText(/Agent's work is on branch/)).toBeInTheDocument();
+      expect(screen.getByText('Needs manual merge')).toBeInTheDocument();
+      expect(screen.getByText(/Agent's work is on/)).toBeInTheDocument();
       expect(screen.getByText('agent-detour/abc12345')).toBeInTheDocument();
     });
   });

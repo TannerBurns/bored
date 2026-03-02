@@ -42,6 +42,7 @@ impl WorkflowOrchestrator {
                         "ticket-moved",
                         &serde_json::json!({
                             "ticketId": self.ticket.id,
+                            "ticketTitle": self.ticket.title,
                             "columnName": column_name,
                             "columnId": column.id,
                         }),
@@ -131,6 +132,7 @@ impl WorkflowOrchestrator {
             .builder()
             .title(title)
             .body(&body)
+            .sound("default")
             .show()
         {
             tracing::warn!("Failed to send notification: {}", e);

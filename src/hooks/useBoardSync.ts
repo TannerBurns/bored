@@ -7,6 +7,7 @@ import type { Board, Column, Ticket } from '../types';
 
 interface TicketMovedEvent {
   ticketId: string;
+  ticketTitle?: string;
   columnName: string;
   columnId: string;
 }
