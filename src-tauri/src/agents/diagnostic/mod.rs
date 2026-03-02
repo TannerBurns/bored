@@ -66,6 +66,7 @@ pub async fn run_diagnostic_agent(
         timeout_secs: Some(300),
         model,
         agent_config,
+        session_id: None,
     };
 
     let provider_for_extract = provider.clone();

@@ -42,6 +42,33 @@ impl AgentProvider for StubProvider {
     }
 }
 
+/// Provider that extracts a session_id from output, used to test
+/// session continuation across implementation todos.
+#[derive(Debug)]
+struct SessionAwareStubProvider;
+
+impl AgentProvider for SessionAwareStubProvider {
+    fn id(&self) -> &str { "stub" }
+    fn display_name(&self) -> &str { "Stub" }
+    fn build_command(&self, _: &crate::agents::AgentRunConfig) -> (String, Vec<String>) {
+        ("echo".into(), vec!["ok".into()])
+    }
+    fn build_env_vars(&self, _: &crate::agents::AgentRunConfig) -> Vec<(String, String)> { vec![] }
+    fn extract_text(&self, o: &str) -> String { o.into() }
+    fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<crate::agents::cost::RunCostData> { None }
+    fn is_available(&self) -> bool { true }
+    fn get_version(&self) -> Option<String> { Some("1.0".into()) }
+    fn config_dir_name(&self) -> &str { ".stub" }
+    fn command_instructions_subdir(&self) -> &str { "commands" }
+    fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+    fn available_models(&self) -> Vec<(&str, &str)> {
+        vec![("claude-opus-4-6", "Claude Opus 4.6")]
+    }
+    fn extract_session_id(&self, output: &str) -> Option<String> {
+        crate::agents::claude::provider::extract_session_id_from_stream_json(output)
+    }
+}
+
 #[derive(Debug)]
 struct CodexStubProvider;
 
@@ -1437,5 +1464,278 @@ async fn resume_combined_output_includes_previously_completed_todo_output() {
         output.contains("new todo output"),
         "combined output should include output from newly executed todos, got: {}",
         output,
+    );
+}
+
+// -- Session tracking across implementation todos --
+
+/// A mock runner that captures the session_id passed via AgentRunConfig on each call
+/// and returns stdout containing a session_id in stream-json format.
+struct SessionCapturingRunner {
+    captured_session_ids: std::sync::Mutex<Vec<Option<String>>>,
+    session_id_in_output: String,
+}
+
+impl SessionCapturingRunner {
+    fn new(session_id_in_output: &str) -> Self {
+        Self {
+            captured_session_ids: std::sync::Mutex::new(Vec::new()),
+            session_id_in_output: session_id_in_output.to_string(),
+        }
+    }
+
+    fn captured_session_ids(&self) -> Vec<Option<String>> {
+        self.captured_session_ids.lock().unwrap().clone()
+    }
+}
+
+impl super::StageRunner for SessionCapturingRunner {
+    fn run(
+        &self,
+        _provider: &dyn AgentProvider,
+        config: &crate::agents::AgentRunConfig,
+        _on_log: Option<Arc<crate::agents::LogCallback>>,
+        _on_spawn: Option<crate::agents::spawner::OnSpawnCallback>,
+    ) -> Result<crate::agents::AgentRunResult, crate::agents::spawner::SpawnError> {
+        self.captured_session_ids
+            .lock()
+            .unwrap()
+            .push(config.session_id.clone());
+
+        let stdout = format!(
+            r#"{{"type":"system","subtype":"init","session_id":"{}","model":"test"}}"#,
+            self.session_id_in_output
+        );
+
+        Ok(crate::agents::AgentRunResult {
+            run_id: config.run_id.clone(),
+            exit_code: Some(0),
+            status: crate::agents::RunOutcome::Success,
+            summary: None,
+            duration_secs: 0.1,
+            captured_stdout: Some(stdout),
+        })
+    }
+}
+
+#[tokio::test]
+async fn session_id_captured_from_first_todo_and_passed_to_subsequent() {
+    use super::config::{ImplementationTodo, TodoItemStatus, TodoStatus};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("impl-session-001"));
+
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db.clone(),
+        ticket,
+        run_id.clone(),
+        settings,
+        Arc::new(SessionAwareStubProvider),
+        "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    let todo_statuses = vec![
+        TodoStatus {
+            title: "Step 1".to_string(),
+            description: "First".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+        TodoStatus {
+            title: "Step 2".to_string(),
+            description: "Second".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+        TodoStatus {
+            title: "Step 3".to_string(),
+            description: "Third".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+    ];
+    db.merge_run_metadata(
+        &run_id,
+        &serde_json::json!({ "implementation_todos": todo_statuses }),
+    )
+    .unwrap();
+
+    {
+        let mut stored = orch.implementation_todos.write().unwrap();
+        *stored = vec![
+            ImplementationTodo { title: "Step 1".to_string(), description: "First".to_string() },
+            ImplementationTodo { title: "Step 2".to_string(), description: "Second".to_string() },
+            ImplementationTodo { title: "Step 3".to_string(), description: "Third".to_string() },
+        ];
+    }
+
+    let result = orch.run_implement_stage_capturing("test plan").await;
+    assert!(result.is_ok());
+
+    let captured = runner.captured_session_ids();
+    assert_eq!(captured.len(), 3, "should have 3 invocations");
+    assert_eq!(
+        captured[0], None,
+        "first todo should have no session_id"
+    );
+    assert_eq!(
+        captured[1],
+        Some("impl-session-001".to_string()),
+        "second todo should receive session_id from first todo's output"
+    );
+    assert_eq!(
+        captured[2],
+        Some("impl-session-001".to_string()),
+        "third todo should receive same session_id"
+    );
+}
+
+#[tokio::test]
+async fn session_id_not_extracted_when_provider_returns_none() {
+    use super::config::{ImplementationTodo, TodoItemStatus, TodoStatus};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("ignored-session"));
+
+    // Use default StubProvider which does NOT implement extract_session_id
+    let mut orch = WorkflowOrchestrator::new(make_config(
+        db.clone(),
+        ticket,
+        run_id.clone(),
+        settings,
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    let todo_statuses = vec![
+        TodoStatus {
+            title: "A".to_string(),
+            description: "a".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+        TodoStatus {
+            title: "B".to_string(),
+            description: "b".to_string(),
+            status: TodoItemStatus::Pending,
+        },
+    ];
+    db.merge_run_metadata(
+        &run_id,
+        &serde_json::json!({ "implementation_todos": todo_statuses }),
+    )
+    .unwrap();
+
+    {
+        let mut stored = orch.implementation_todos.write().unwrap();
+        *stored = vec![
+            ImplementationTodo { title: "A".to_string(), description: "a".to_string() },
+            ImplementationTodo { title: "B".to_string(), description: "b".to_string() },
+        ];
+    }
+
+    let result = orch.run_implement_stage_capturing("plan").await;
+    assert!(result.is_ok());
+
+    let captured = runner.captured_session_ids();
+    assert_eq!(captured.len(), 2);
+    assert_eq!(captured[0], None, "first todo: no session");
+    assert_eq!(
+        captured[1], None,
+        "second todo: session_id should remain None when provider doesn't extract it"
+    );
+}
+
+/// Runner that fails N times then succeeds, capturing session_ids from each attempt.
+struct FailThenSucceedSessionRunner {
+    call_count: Arc<AtomicU32>,
+    failures_before_success: u32,
+    captured_session_ids: std::sync::Mutex<Vec<Option<String>>>,
+}
+
+impl FailThenSucceedSessionRunner {
+    fn new(failures: u32) -> Self {
+        Self {
+            call_count: Arc::new(AtomicU32::new(0)),
+            failures_before_success: failures,
+            captured_session_ids: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn captured_session_ids(&self) -> Vec<Option<String>> {
+        self.captured_session_ids.lock().unwrap().clone()
+    }
+}
+
+impl super::StageRunner for FailThenSucceedSessionRunner {
+    fn run(
+        &self,
+        _provider: &dyn AgentProvider,
+        config: &crate::agents::AgentRunConfig,
+        _on_log: Option<Arc<crate::agents::LogCallback>>,
+        _on_spawn: Option<crate::agents::spawner::OnSpawnCallback>,
+    ) -> Result<crate::agents::AgentRunResult, crate::agents::spawner::SpawnError> {
+        self.captured_session_ids
+            .lock()
+            .unwrap()
+            .push(config.session_id.clone());
+
+        let n = self.call_count.fetch_add(1, Ordering::Relaxed);
+        if n < self.failures_before_success {
+            Ok(crate::agents::AgentRunResult {
+                run_id: config.run_id.clone(),
+                exit_code: Some(1),
+                status: crate::agents::RunOutcome::Error,
+                summary: Some("failed".to_string()),
+                duration_secs: 0.1,
+                captured_stdout: None,
+            })
+        } else {
+            Ok(crate::agents::AgentRunResult {
+                run_id: config.run_id.clone(),
+                exit_code: Some(0),
+                status: crate::agents::RunOutcome::Success,
+                summary: None,
+                duration_secs: 0.1,
+                captured_stdout: Some("success".to_string()),
+            })
+        }
+    }
+}
+
+#[tokio::test]
+async fn session_id_cleared_on_retry_attempts() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(FailThenSucceedSessionRunner::new(1));
+
+    let mut config = make_config(db.clone(), ticket, run_id.clone(), settings);
+    config.stage_max_retries = 2;
+
+    let mut orch = WorkflowOrchestrator::new(config);
+    orch.set_stage_runner(runner.clone());
+
+    let result = orch
+        .run_stage_with_session("implement", "test prompt", Some("my-session-id"))
+        .await;
+    assert!(result.is_ok());
+
+    let captured = runner.captured_session_ids();
+    assert_eq!(captured.len(), 2, "should have 2 attempts (1 fail + 1 success)");
+    assert_eq!(
+        captured[0],
+        Some("my-session-id".to_string()),
+        "first attempt should receive the session_id"
+    );
+    assert_eq!(
+        captured[1], None,
+        "retry attempt should NOT receive session_id (cleared for safety)"
     );
 }

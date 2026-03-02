@@ -239,6 +239,7 @@ fn agent_run_config_basic_fields() {
         timeout_secs: Some(300),
         model: Some("sonnet-4.5".to_string()),
         agent_config: std::collections::HashMap::new(),
+        session_id: None,
     };
     assert_eq!(config.agent_id, "claude");
     assert_eq!(config.ticket_id, "ticket-1");
@@ -263,6 +264,7 @@ fn agent_run_config_with_agent_config() {
         timeout_secs: None,
         model: None,
         agent_config,
+        session_id: None,
     };
     assert_eq!(
         config.agent_config.get("auth_token").and_then(|v| v.as_str()),
@@ -288,9 +290,26 @@ fn agent_run_config_empty_agent_config() {
         timeout_secs: None,
         model: None,
         agent_config: std::collections::HashMap::new(),
+        session_id: None,
     };
     assert!(config.agent_config.is_empty());
     assert_eq!(config.agent_id, "cursor");
+}
+
+#[test]
+fn agent_run_config_with_session_id() {
+    let config = AgentRunConfig {
+        agent_id: "claude".to_string(),
+        ticket_id: "t".to_string(),
+        run_id: "r".to_string(),
+        repo_path: std::path::PathBuf::from("/"),
+        prompt: "p".to_string(),
+        timeout_secs: None,
+        model: None,
+        agent_config: std::collections::HashMap::new(),
+        session_id: Some("sess-abc-123".to_string()),
+    };
+    assert_eq!(config.session_id, Some("sess-abc-123".to_string()));
 }
 
 // ── AgentProvider trait method tests ──────────────────────────

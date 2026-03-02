@@ -113,6 +113,10 @@ impl AgentProvider for CodexProvider {
         format!("(see {} instructions)", command)
     }
 
+    fn extract_session_id(&self, output: &str) -> Option<String> {
+        extract_thread_id_from_codex_json(output)
+    }
+
     fn brand_color(&self) -> Option<&str> {
         Some("#0ea5e9")
     }
@@ -141,6 +145,29 @@ impl AgentProvider for CodexProvider {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| stage_model.to_string())
     }
+}
+
+/// Extract the `thread_id` from Codex NDJSON output.
+///
+/// Looks for `{"type":"thread.started","thread_id":"..."}` which is emitted
+/// at the beginning of a Codex session.
+fn extract_thread_id_from_codex_json(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() || !line.starts_with('{') {
+            continue;
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            if json.get("type").and_then(|t| t.as_str()) == Some("thread.started") {
+                if let Some(tid) = json.get("thread_id").and_then(|v| v.as_str()) {
+                    return Some(tid.to_string());
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extract text from Codex NDJSON output.

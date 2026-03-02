@@ -81,6 +81,7 @@ impl ValidationAgent {
             timeout_secs: Some(self.config.timeout_secs),
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
+            session_id: None,
         };
 
         let tx = self.event_tx.clone();

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use super::provider::*;
-use crate::agents::provider::AgentProvider;
+use crate::agents::provider::{AgentProvider, AgentRunConfig};
 
 #[test]
 fn provider_id_is_codex() {
@@ -367,4 +368,93 @@ fn is_local_override_oss_only_without_provider_is_false() {
     map.insert("oss_enabled".into(), serde_json::json!(true));
     map.insert("model_override".into(), serde_json::json!("local-model"));
     assert!(!p.is_local_override(&map), "oss without local_provider is not a local override");
+}
+
+// ── session continuation tests ────────────────────────────────
+
+#[test]
+fn extract_session_id_returns_thread_id() {
+    let p = CodexProvider::new();
+    let output = concat!(
+        r#"{"type":"thread.started","thread_id":"thread-abc-123"}"#, "\n",
+        r#"{"type":"turn.started"}"#, "\n",
+        r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"done"}}"#,
+    );
+    assert_eq!(p.extract_session_id(output), Some("thread-abc-123".to_string()));
+}
+
+#[test]
+fn extract_session_id_returns_none_without_thread_started() {
+    let p = CodexProvider::new();
+    let output = concat!(
+        r#"{"type":"turn.started"}"#, "\n",
+        r#"{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"result"}}"#,
+    );
+    assert!(p.extract_session_id(output).is_none());
+}
+
+#[test]
+fn extract_session_id_empty_output() {
+    let p = CodexProvider::new();
+    assert!(p.extract_session_id("").is_none());
+}
+
+#[test]
+fn extract_session_id_skips_malformed_json() {
+    let p = CodexProvider::new();
+    let output = concat!(
+        "plain text log line\n",
+        "{broken json\n",
+        r#"{"type":"thread.started","thread_id":"after-junk"}"#, "\n",
+    );
+    assert_eq!(p.extract_session_id(output), Some("after-junk".to_string()));
+}
+
+#[test]
+fn extract_session_id_thread_started_without_thread_id_field() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"thread.started"}"#;
+    assert!(p.extract_session_id(output).is_none());
+}
+
+#[test]
+fn build_command_uses_exec_resume_when_session_set() {
+    let p = CodexProvider::new();
+    let config = AgentRunConfig {
+        agent_id: "codex".to_string(),
+        ticket_id: "t".to_string(),
+        run_id: "r".to_string(),
+        repo_path: PathBuf::from("/tmp/test"),
+        prompt: "do the thing".to_string(),
+        timeout_secs: None,
+        model: None,
+        agent_config: HashMap::new(),
+        session_id: Some("thread-resume-456".to_string()),
+    };
+    let (cmd, args) = p.build_command(&config);
+    assert_eq!(cmd, "codex");
+    assert_eq!(args[0], "exec");
+    assert_eq!(args[1], "resume");
+    assert_eq!(args[2], "thread-resume-456");
+    assert!(args.contains(&"--json".to_string()));
+    assert_eq!(args.last().unwrap(), "do the thing");
+}
+
+#[test]
+fn build_command_uses_plain_exec_when_no_session() {
+    let p = CodexProvider::new();
+    let config = AgentRunConfig {
+        agent_id: "codex".to_string(),
+        ticket_id: "t".to_string(),
+        run_id: "r".to_string(),
+        repo_path: PathBuf::from("/tmp/test"),
+        prompt: "Test prompt".to_string(),
+        timeout_secs: None,
+        model: None,
+        agent_config: HashMap::new(),
+        session_id: None,
+    };
+    let (_, args) = p.build_command(&config);
+    assert_eq!(args[0], "exec");
+    assert_ne!(args[1], "resume", "should not have resume subcommand");
 }

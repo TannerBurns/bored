@@ -69,6 +69,11 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     let chrome = api_config.chrome_enabled.unwrap_or(false);
     push_cli_option_flags_raw(&mut args, thinking, extended_context, chrome);
 
+    if let Some(ref sid) = config.session_id {
+        args.push("--resume".to_string());
+        args.push(sid.clone());
+    }
+
     args.push("-p".to_string());
     args.push(config.prompt.clone());
 

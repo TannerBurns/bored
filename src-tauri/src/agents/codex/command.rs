@@ -9,11 +9,21 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     let api_config = CodexApiConfig::from_agent_config(&config.agent_config);
 
     let command = "codex".to_string();
-    let mut args = vec![
-        "exec".to_string(),
-        "--json".to_string(),
-        "--dangerously-bypass-approvals-and-sandbox".to_string(),
-    ];
+    let mut args = if let Some(ref sid) = config.session_id {
+        vec![
+            "exec".to_string(),
+            "resume".to_string(),
+            sid.clone(),
+            "--json".to_string(),
+            "--dangerously-bypass-approvals-and-sandbox".to_string(),
+        ]
+    } else {
+        vec![
+            "exec".to_string(),
+            "--json".to_string(),
+            "--dangerously-bypass-approvals-and-sandbox".to_string(),
+        ]
+    };
 
     if api_config.oss_enabled.unwrap_or(false) {
         args.push("--oss".to_string());
@@ -68,6 +78,7 @@ mod tests {
             timeout_secs: Some(300),
             model: None,
             agent_config: std::collections::HashMap::new(),
+            session_id: None,
         }
     }
 
@@ -269,6 +280,45 @@ mod tests {
         config.agent_config.insert("multiAgentEnabled".into(), serde_json::json!(true));
         let (_, args) = build_command_from_provider_config(&config);
         assert!(args.contains(&"features.multi_agent=true".to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_with_session_uses_exec_resume() {
+        let mut config = create_test_config();
+        config.session_id = Some("thread-999".to_string());
+        let (cmd, args) = build_command_from_provider_config(&config);
+        assert_eq!(cmd, "codex");
+        assert_eq!(args[0], "exec");
+        assert_eq!(args[1], "resume");
+        assert_eq!(args[2], "thread-999");
+        assert!(args.contains(&"--json".to_string()));
+        assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_without_session_uses_plain_exec() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert_eq!(args[0], "exec");
+        assert_ne!(args.get(1).map(|s| s.as_str()), Some("resume"));
+    }
+
+    #[test]
+    fn build_command_session_resume_with_oss_and_model() {
+        let mut config = create_test_config();
+        config.session_id = Some("thread-oss".to_string());
+        config.model = Some("gpt-5.3-codex".to_string());
+        config.agent_config.insert("ossEnabled".into(), serde_json::json!(true));
+        config.agent_config.insert("localProvider".into(), serde_json::json!("ollama"));
+        let (_, args) = build_command_from_provider_config(&config);
+        assert_eq!(args[0], "exec");
+        assert_eq!(args[1], "resume");
+        assert_eq!(args[2], "thread-oss");
+        assert!(args.contains(&"--oss".to_string()));
+        assert!(args.contains(&"--local-provider".to_string()));
+        assert!(args.contains(&"gpt-5.3-codex".to_string()));
         assert_eq!(args.last(), Some(&"Test prompt".to_string()));
     }
 }

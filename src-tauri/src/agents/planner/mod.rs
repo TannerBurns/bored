@@ -288,6 +288,7 @@ impl PlannerAgent {
             timeout_secs: Some(self.config.timeout_secs),
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
+            session_id: None,
         };
 
         tracing::info!(

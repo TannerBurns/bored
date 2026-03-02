@@ -19,7 +19,17 @@ impl WorkflowOrchestrator {
         stage: &str,
         prompt: &str,
     ) -> Result<AgentRunResult, String> {
-        self.run_stage_inner(stage, prompt, None).await
+        self.run_stage_inner(stage, prompt, None, None).await
+    }
+
+    /// Run a single stage, resuming an existing agent session.
+    pub(super) async fn run_stage_with_session(
+        &self,
+        stage: &str,
+        prompt: &str,
+        session_id: Option<&str>,
+    ) -> Result<AgentRunResult, String> {
+        self.run_stage_inner(stage, prompt, None, session_id).await
     }
 
     /// Run a single stage with an explicit model override (used by auto-pilot).
@@ -29,7 +39,7 @@ impl WorkflowOrchestrator {
         prompt: &str,
         model: &str,
     ) -> Result<AgentRunResult, String> {
-        self.run_stage_inner(stage, prompt, Some(model)).await
+        self.run_stage_inner(stage, prompt, Some(model), None).await
     }
 
     async fn run_stage_inner(
@@ -37,6 +47,7 @@ impl WorkflowOrchestrator {
         stage: &str,
         prompt: &str,
         model_override: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         let max_attempts = self.stage_max_retries + 1;
         let mut last_error = String::new();
@@ -65,8 +76,11 @@ impl WorkflowOrchestrator {
                 }
             }
 
+            // Don't pass session_id on retries -- the session may be in a bad state.
+            let attempt_session_id = if attempt == 1 { session_id } else { None };
+
             match self
-                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override)
+                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -100,6 +114,7 @@ impl WorkflowOrchestrator {
         attempt: u32,
         max_attempts: u32,
         model_override: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         tracing::info!(
             "Starting stage '{}' attempt {}/{} for parent run {}",
@@ -145,6 +160,7 @@ impl WorkflowOrchestrator {
             timeout_secs: Some(self.stage_timeout_secs),
             model: Some(stage_model.clone()),
             agent_config: self.agent_config.clone(),
+            session_id: session_id.map(|s| s.to_string()),
         };
 
         // Create log callback

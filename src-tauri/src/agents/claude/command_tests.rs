@@ -14,6 +14,7 @@ fn create_provider_config() -> AgentRunConfig {
         timeout_secs: None,
         model: None,
         agent_config: std::collections::HashMap::new(),
+        session_id: None,
     }
 }
 
@@ -250,4 +251,33 @@ fn provider_build_prompt_is_last_with_cli_options() {
         Some(&"Test prompt".to_string()),
         "Prompt must be the last argument even with all CLI options enabled"
     );
+}
+
+// ── session resume command tests ──────────────────────────────
+
+#[test]
+fn build_command_with_session_id_includes_resume() {
+    let mut config = create_provider_config();
+    config.session_id = Some("sess-1234".to_string());
+    let (_, args) = build_command_from_provider_config(&config);
+    let idx = args.iter().position(|a| a == "--resume").expect("--resume must be present");
+    assert_eq!(args[idx + 1], "sess-1234");
+}
+
+#[test]
+fn build_command_resume_appears_before_prompt() {
+    let mut config = create_provider_config();
+    config.session_id = Some("sess-xyz".to_string());
+    let (_, args) = build_command_from_provider_config(&config);
+    let resume_idx = args.iter().position(|a| a == "--resume").unwrap();
+    let p_idx = args.iter().position(|a| a == "-p").unwrap();
+    assert!(resume_idx < p_idx, "--resume must appear before -p");
+    assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+}
+
+#[test]
+fn build_command_without_session_id_omits_resume() {
+    let config = create_provider_config();
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(!args.iter().any(|a| a == "--resume"), "--resume should not appear without session_id");
 }

@@ -15,6 +15,7 @@ fn make_config() -> AgentRunConfig {
         timeout_secs: None,
         model: None,
         agent_config: HashMap::new(),
+        session_id: None,
     }
 }
 
@@ -546,6 +547,109 @@ fn extract_text_real_cli_response_with_prose_wrapping_json() {
     assert_eq!(parsed.len(), 2, "should parse JSON even when wrapped in prose");
     assert_eq!(parsed[0].command, "unit-tests");
     assert_eq!(parsed[1].command, "cleanup");
+}
+
+// ── extract_session_id tests ──────────────────────────────────
+
+#[test]
+fn extract_session_id_from_system_init() {
+    let output = concat!(
+        r#"{"type":"system","subtype":"init","cwd":"/tmp","session_id":"sess-abc-123","model":"claude-sonnet-4-6"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"session_id":"sess-abc-123"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","result":"done","session_id":"sess-abc-123"}"#,
+    );
+    let sid = extract_session_id_from_stream_json(output);
+    assert_eq!(sid, Some("sess-abc-123".to_string()));
+}
+
+#[test]
+fn extract_session_id_fallback_to_result() {
+    let output = r#"{"type":"result","subtype":"success","result":"ok","session_id":"fallback-id"}"#;
+    let sid = extract_session_id_from_stream_json(output);
+    assert_eq!(sid, Some("fallback-id".to_string()));
+}
+
+#[test]
+fn extract_session_id_no_session_returns_none() {
+    let output = r#"{"type":"assistant","message":{"role":"assistant","content":[]}}"#;
+    let sid = extract_session_id_from_stream_json(output);
+    assert!(sid.is_none());
+}
+
+#[test]
+fn extract_session_id_empty_output() {
+    assert!(extract_session_id_from_stream_json("").is_none());
+}
+
+#[test]
+fn extract_session_id_skips_malformed_json_lines() {
+    let output = concat!(
+        "not json at all\n",
+        "{broken json\n",
+        r#"{"type":"system","subtype":"init","session_id":"good-id","model":"m"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("good-id".to_string()),
+    );
+}
+
+#[test]
+fn extract_session_id_system_type_takes_priority_over_fallback() {
+    let output = concat!(
+        r#"{"type":"result","session_id":"result-id"}"#, "\n",
+        r#"{"type":"system","subtype":"init","session_id":"system-id","model":"m"}"#, "\n",
+        r#"{"type":"assistant","session_id":"assistant-id"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("system-id".to_string()),
+        "system init session_id should take priority",
+    );
+}
+
+#[test]
+fn extract_session_id_skips_whitespace_only_lines() {
+    let output = concat!(
+        "  \n",
+        "\t\n",
+        r#"{"type":"result","session_id":"ws-test"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("ws-test".to_string()),
+    );
+}
+
+#[test]
+fn extract_session_id_via_provider_trait() {
+    let provider = ClaudeProvider::new();
+    let output = r#"{"type":"system","subtype":"init","session_id":"provider-test","model":"m"}"#;
+    assert_eq!(provider.extract_session_id(output), Some("provider-test".to_string()));
+}
+
+// ── build_command with session_id tests ────────────────────────
+
+#[test]
+fn build_command_includes_resume_when_session_id_set() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.session_id = Some("resume-session-42".to_string());
+    let (cmd, args) = p.build_command(&config);
+    assert_eq!(cmd, "claude");
+    let resume_idx = args.iter().position(|a| a == "--resume").expect("should have --resume");
+    assert_eq!(args[resume_idx + 1], "resume-session-42");
+    assert!(args.contains(&"-p".to_string()));
+}
+
+#[test]
+fn build_command_omits_resume_when_no_session_id() {
+    let p = ClaudeProvider::new();
+    let config = make_config();
+    let (_, args) = p.build_command(&config);
+    assert!(!args.contains(&"--resume".to_string()));
 }
 
 // is_dangerous_command tests live in agents::cli_utils::tests

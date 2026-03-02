@@ -23,6 +23,8 @@ pub struct AgentRunConfig {
     /// Opaque agent-specific configuration.
     /// Each provider knows its own keys (e.g. Claude uses "auth_token", "api_key", etc.).
     pub agent_config: HashMap<String, serde_json::Value>,
+    /// Session identifier from a previous run, used to resume an agent session.
+    pub session_id: Option<String>,
 }
 
 /// The trait every agent implementation must satisfy.
@@ -77,6 +79,11 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     /// Format a command reference as this agent expects it in a prompt.
     /// e.g. Cursor returns "/deslop", Claude returns ".claude/commands/deslop.md".
     fn format_command_reference(&self, command: &str) -> String;
+
+    /// Extract the session/thread identifier from raw agent output.
+    fn extract_session_id(&self, _output: &str) -> Option<String> {
+        None
+    }
 
     /// Brand color hex for UI display (e.g. "#da7756").
     fn brand_color(&self) -> Option<&str> {
@@ -192,6 +199,16 @@ mod tests {
         let mut with_values = HashMap::new();
         with_values.insert("base_url".to_string(), serde_json::json!("http://localhost"));
         assert!(!stub.is_local_override(&with_values));
+    }
+
+    #[test]
+    fn default_extract_session_id_returns_none() {
+        let stub = StubProvider;
+        assert!(
+            stub.extract_session_id(r#"{"type":"system","session_id":"abc"}"#).is_none(),
+            "default trait impl should return None regardless of input"
+        );
+        assert!(stub.extract_session_id("").is_none());
     }
 
     #[test]

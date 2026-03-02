@@ -157,6 +157,10 @@ impl AgentProvider for ClaudeProvider {
         format!(".claude/commands/{}.md", command)
     }
 
+    fn extract_session_id(&self, output: &str) -> Option<String> {
+        extract_session_id_from_stream_json(output)
+    }
+
     fn brand_color(&self) -> Option<&str> {
         Some("#da7756")
     }
@@ -265,5 +269,37 @@ pub fn extract_text_from_stream_json(stream_output: &str) -> Option<String> {
     } else {
         result_text.or(last_assistant_text)
     }
+}
+
+/// Extract `session_id` from stream-json output (shared by Claude Code and Cursor CLIs).
+///
+/// Looks for the `session_id` field in the `system` init message first, falling back
+/// to any `result` or `assistant` message that carries one.
+pub fn extract_session_id_from_stream_json(stream_output: &str) -> Option<String> {
+    let mut fallback: Option<String> = None;
+
+    for line in stream_output.lines() {
+        let line = line.trim();
+        if line.is_empty() || !line.starts_with('{') {
+            continue;
+        }
+
+        let json: serde_json::Value = match serde_json::from_str(line) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+
+        if let Some(sid) = json.get("session_id").and_then(|v| v.as_str()) {
+            let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if msg_type == "system" {
+                return Some(sid.to_string());
+            }
+            if fallback.is_none() {
+                fallback = Some(sid.to_string());
+            }
+        }
+    }
+
+    fallback
 }
 
