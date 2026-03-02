@@ -1,5 +1,37 @@
 [
   {
+    "version": "0.1.0-beta.40",
+    "published_at": "2026-03-02",
+    "summary": "Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run in the database before spawning the spec-rewrite child run",
+    "notes": [
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed FK constraint error when resolving clarification via rewrite — the resolve_clarification handler generated a random UUID for parent_run_id without inserting it into agent_runs first, causing a FOREIGN KEY constraint failure when the child spec-rewrite run was created",
+          "Parent run lifecycle now properly managed (Queued → Running → Finished/Error) to avoid orphaned runs in the database"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.39",
+        "highlight": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps"
+      },
+      {
+        "version": "0.1.0-beta.38",
+        "highlight": "Native OS notification banners with sound, in-app toast notifications via sonner, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants"
+      },
+      {
+        "version": "0.1.0-beta.37",
+        "highlight": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline"
+      },
+      {
+        "version": "0.1.0-beta.36",
+        "highlight": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.39",
     "published_at": "2026-03-02",
     "summary": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps",
