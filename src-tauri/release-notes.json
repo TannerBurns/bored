@@ -1,5 +1,113 @@
 [
   {
+    "version": "0.1.0-beta.39",
+    "published_at": "2026-03-02",
+    "summary": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Session tracking across implementation todos — each todo resumes the same agent session instead of starting from scratch, preserving codebase context and conversation history",
+          "session_id field added to AgentRunConfig and extract_session_id to the AgentProvider trait for provider-agnostic session extraction",
+          "Claude/Cursor session resumption — extracts session_id from stream-json init message and passes --resume flag on subsequent invocations",
+          "Codex session resumption — extracts thread_id from thread.started event and uses exec resume subcommand for continuation"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Session ID threaded through orchestrator stage execution via run_stage_with_session, propagating across the todo loop in run_implement_stage_capturing",
+          "Graceful fallback when session extraction fails — todos proceed without session resumption instead of failing"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added extract_session_id_from_stream_json and extract_thread_id_from_codex_json edge case tests",
+          "Added orchestrator integration tests for session_id capture, propagation across todos, graceful degradation, and session_id cleared on retry"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.38",
+        "highlight": "Native OS notification banners with sound, in-app toast notifications via sonner, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants"
+      },
+      {
+        "version": "0.1.0-beta.37",
+        "highlight": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline"
+      },
+      {
+        "version": "0.1.0-beta.36",
+        "highlight": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination"
+      },
+      {
+        "version": "0.1.0-beta.35",
+        "highlight": "Detour branch worktree for active branch conflicts with UI consistency improvements across modals, accessibility, and component standardization"
+      }
+    ]
+  },
+  {
+    "version": "0.1.0-beta.38",
+    "published_at": "2026-03-02",
+    "summary": "Native OS notification banners with sound, in-app toast notifications for ticket transitions, per-todo cost badges, and improved SafetyCommitNotice with three contextual visual variants",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "In-app toast notifications via sonner — toast appears top-right with a \"View\" action when tickets move to Review or Blocked, respecting the existing notifications toggle",
+          "Per-todo CostBadge in ImplementationChecklist — each completed/failed todo shows its individual cost matched to its implement sub-run",
+          "Nested implementation todos inside the expandable stage row — clicking the grouped row reveals individual todos with status icons, cost badges, and expandable descriptions"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Native OS notifications now pop up as banners with sound instead of silently appearing in the notification center",
+          "Reusable aggregateRunCosts helper — grouped implementation rows now aggregate all RunCostData fields (tokens, cache counts, per-model breakdown) instead of only summing totalCostUsd",
+          "Consistent column layout across normal and implementation stage rows for visual alignment",
+          "SafetyCommitNotice redesigned with three contextual visual variants: blue (info), green (success), amber (warning) — warning styling reserved for cases requiring manual action",
+          "Branch name stored in safety_commit metadata so the UI displays which branch the auto-saved commit landed on"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed native macOS notifications delivered silently without banner popups because no sound was set",
+          "Fixed grouped implementation cost badge showing \"0 tokens\" despite sub-runs having correct data",
+          "Fixed SafetyCommitNotice showing alarming amber/warning styling for all safety commit cases",
+          "Fixed 6 stale test assertions in RunsHistory and RunDetailsPanel"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 11 aggregateRunCosts tests covering legacy buckets, isEstimated propagation, cache tokens, and multi-model merge",
+          "Added per-todo CostBadge tests for completed, pending, failed, sort order, and edge cases",
+          "Added 249-line useNotificationToasts test suite covering event listening, settings respect, and cleanup"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.37",
+        "highlight": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline"
+      },
+      {
+        "version": "0.1.0-beta.36",
+        "highlight": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination"
+      },
+      {
+        "version": "0.1.0-beta.35",
+        "highlight": "Detour branch worktree for active branch conflicts with UI consistency improvements across modals, accessibility, and component standardization"
+      },
+      {
+        "version": "0.1.0-beta.34",
+        "highlight": "Full-page ticket detail view with tabbed content (Overview, Task, Agent, Activity), persistent sidebar, and keyboard navigation replacing the modal overlay"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.37",
     "published_at": "2026-03-01",
     "summary": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline",
