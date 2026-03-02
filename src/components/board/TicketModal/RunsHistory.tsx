@@ -398,12 +398,6 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   <span className="text-board-text-secondary font-medium shrink-0">
                     implement ({completedImpl}/{totalImpl})
                   </span>
-                  <div className="flex-1 mx-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-status-success rounded-full transition-all duration-300"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
                   <span className={cn(
                     'text-xs shrink-0',
                     groupStatus === 'finished' ? 'text-status-success' :
@@ -413,6 +407,14 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   )}>
                     {groupStatus}
                   </span>
+                  {groupStatus !== 'finished' && (
+                    <div className="flex-1 mx-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-status-success rounded-full transition-all duration-300"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                  )}
                   <span className="flex items-center gap-1.5 shrink-0">
                     <CostBadge cost={groupCost} />
                     {totalDuration > 0 && (
