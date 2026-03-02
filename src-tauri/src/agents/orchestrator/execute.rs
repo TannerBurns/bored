@@ -360,8 +360,6 @@ impl WorkflowOrchestrator {
             String::new()
         };
 
-        // Track the agent session across todo iterations so each step
-        // resumes the same conversation, preserving codebase context.
         let mut implementation_session_id: Option<String> = None;
 
         for (idx, todo) in todos.iter().enumerate() {

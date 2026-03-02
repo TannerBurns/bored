@@ -23,8 +23,7 @@ pub struct AgentRunConfig {
     /// Opaque agent-specific configuration.
     /// Each provider knows its own keys (e.g. Claude uses "auth_token", "api_key", etc.).
     pub agent_config: HashMap<String, serde_json::Value>,
-    /// Session identifier from a previous run, used to resume an agent session
-    /// so that context is preserved across sequential invocations (e.g. implementation todos).
+    /// Session identifier from a previous run, used to resume an agent session.
     pub session_id: Option<String>,
 }
 
@@ -81,8 +80,7 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     /// e.g. Cursor returns "/deslop", Claude returns ".claude/commands/deslop.md".
     fn format_command_reference(&self, command: &str) -> String;
 
-    /// Extract the session/thread identifier from raw agent output so that
-    /// subsequent invocations can resume the same session (via `AgentRunConfig::session_id`).
+    /// Extract the session/thread identifier from raw agent output.
     fn extract_session_id(&self, _output: &str) -> Option<String> {
         None
     }
