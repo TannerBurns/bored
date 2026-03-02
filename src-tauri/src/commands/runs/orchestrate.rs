@@ -105,7 +105,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 Some(&format!("Failed to start task: {}", e)),
             );
             let _ = db.unlock_ticket(&ticket_id);
-            let _ = safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None);
+            let _ = safety_commit_and_record(&db, &worktree_info.path, &run_id, None, None, Some(&worktree_info.branch_name));
             let _ = worktree::remove_worktree(&worktree_info.path, &main_repo_path);
             let _ = window.emit("agent-error", &AgentErrorEvent {
                 run_id: run_id.clone(),
@@ -183,6 +183,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         &run_id,
         worktree_info.target_branch.as_deref(),
         worktree_info.target_branch.as_ref().map(|_| worktree_info.branch_name.as_str()),
+        Some(&worktree_info.branch_name),
     );
 
     // Merge detour branch back into target if this was a detour worktree
@@ -270,6 +271,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                     "merged_to_target": detour_merged,
                     "target_branch": target_branch,
                     "detour_branch": &worktree_info.branch_name,
+                    "branch": &worktree_info.branch_name,
                 });
                 if let Some((ref hash, ref created_at)) = safety_commit_info {
                     sc["commit_hash"] = serde_json::json!(hash);
@@ -382,6 +384,7 @@ fn safety_commit_and_record(
     run_id: &str,
     target_branch: Option<&str>,
     detour_branch: Option<&str>,
+    branch_name: Option<&str>,
 ) -> Option<(String, String)> {
     match worktree::safety_commit_if_needed(worktree_path, run_id) {
         Ok(Some(commit_hash)) => {
@@ -403,6 +406,9 @@ fn safety_commit_and_record(
                     }
                     if let Some(db_name) = detour_branch {
                         sc["detour_branch"] = serde_json::json!(db_name);
+                    }
+                    if let Some(bn) = branch_name {
+                        sc["branch"] = serde_json::json!(bn);
                     }
                     meta["safety_commit"] = sc;
                     if let Err(e) = db.set_run_metadata(run_id, &meta) {
