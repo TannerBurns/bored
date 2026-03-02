@@ -209,13 +209,6 @@ function CurrentRunSection({
               <SubRunsList subRuns={subRuns} implementationTodos={implementationTodos} />
             )}
 
-            {implementationTodos && implementationTodos.length > 0 && (
-              <ImplementationChecklist
-                todos={implementationTodos}
-                implementSubRuns={subRuns.filter(r => r.stage === 'implement')}
-              />
-            )}
-            
             {/* Logs */}
             <LogTimelineView events={runEvents} agentType={currentRun.agentType} loadingEvents={loadingEvents} />
           </div>
@@ -340,6 +333,7 @@ interface SubRunsListProps {
 }
 
 function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
+  const [implExpanded, setImplExpanded] = useState(false);
   const sorted = [...subRuns].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
   const hasTodos = implementationTodos && implementationTodos.length > 0;
@@ -347,8 +341,6 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
   const completedImpl = hasTodos ? implementationTodos.filter(t => t.status === 'completed').length : 0;
   const totalImpl = hasTodos ? implementationTodos.length : 0;
 
-  // Build display rows: non-implement runs shown individually,
-  // implement runs grouped into a single row when todos exist
   type DisplayRow = { type: 'single'; run: AgentRun; idx: number } | { type: 'grouped'; runs: AgentRun[] };
   const rows: DisplayRow[] = [];
   let implGroupInserted = false;
@@ -386,41 +378,68 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
               }
               return sum;
             }, 0);
+            const progressPct = totalImpl > 0 ? (completedImpl / totalImpl) * 100 : 0;
 
             return (
-              <div
-                key="implement-group"
-                className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
-              >
-                <span
-                  className={cn(
-                    'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                    groupStatus === 'finished' ? 'bg-status-success' :
-                    groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
-                    groupStatus === 'error' ? 'bg-status-error' :
-                    'bg-board-text-muted'
-                  )}
-                />
-                <span className="text-board-text-secondary font-medium w-24">
-                  Implementation ({completedImpl}/{totalImpl})
-                </span>
-                <span className={cn(
-                  'text-xs',
-                  groupStatus === 'finished' ? 'text-status-success' :
-                  groupStatus === 'running' ? 'text-status-warning' :
-                  groupStatus === 'error' ? 'text-status-error' :
-                  'text-board-text-muted'
-                )}>
-                  {groupStatus}
-                </span>
-                <span className="ml-auto flex items-center gap-1.5">
-                  <CostBadge cost={groupCost} />
-                  {totalDuration > 0 && (
-                    <span className="text-board-text-muted">
-                      {Math.round(totalDuration)}s
-                    </span>
-                  )}
-                </span>
+              <div key="implement-group" className="bg-board-surface-raised rounded overflow-hidden">
+                <button
+                  onClick={() => setImplExpanded(!implExpanded)}
+                  className="w-full flex items-center gap-2 py-1 px-2 hover:bg-board-card-hover transition-colors"
+                >
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                      groupStatus === 'finished' ? 'bg-status-success' :
+                      groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
+                      groupStatus === 'error' ? 'bg-status-error' :
+                      'bg-board-text-muted'
+                    )}
+                  />
+                  <span className="text-board-text-secondary font-medium shrink-0">
+                    implement ({completedImpl}/{totalImpl})
+                  </span>
+                  <div className="flex-1 mx-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-status-success rounded-full transition-all duration-300"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <span className={cn(
+                    'text-xs shrink-0',
+                    groupStatus === 'finished' ? 'text-status-success' :
+                    groupStatus === 'running' ? 'text-status-warning' :
+                    groupStatus === 'error' ? 'text-status-error' :
+                    'text-board-text-muted'
+                  )}>
+                    {groupStatus}
+                  </span>
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <CostBadge cost={groupCost} />
+                    {totalDuration > 0 && (
+                      <span className="text-board-text-muted">
+                        {Math.round(totalDuration)}s
+                      </span>
+                    )}
+                  </span>
+                  <svg
+                    className={cn(
+                      'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
+                      implExpanded && 'rotate-90',
+                    )}
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {implExpanded && (
+                  <div className="px-2 pb-2 pt-1">
+                    <ImplementationChecklist
+                      todos={implementationTodos!}
+                      implementSubRuns={implementSubRuns}
+                    />
+                  </div>
+                )}
               </div>
             );
           }
@@ -558,13 +577,6 @@ function ExpandedRunDetails({
         <SubRunsList subRuns={subRuns} implementationTodos={savedTodos} />
       )}
 
-      {savedTodos.length > 0 && (
-        <ImplementationChecklist
-          todos={savedTodos}
-          implementSubRuns={subRuns.filter(r => r.stage === 'implement')}
-        />
-      )}
-      
       {/* Summary */}
       {run.summaryMd && (
         <div className="mt-2">

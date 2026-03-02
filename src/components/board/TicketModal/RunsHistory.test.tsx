@@ -374,16 +374,14 @@ describe('RunsHistory', () => {
       { title: 'Step 3', description: 'desc3', status: 'in_progress' as const },
     ];
 
-    it('groups implement sub-runs into a single Implementation row', () => {
+    it('groups implement sub-runs into a single expandable row', () => {
       renderHistory({
         agentRuns: [parent, ...subRuns],
         lockedByRunId: 'parent',
         expandedRunId: 'parent',
         implementationTodos: todos,
       });
-      // Both SubRunsList and ImplementationChecklist show "Implementation (2/3)"
-      const matches = screen.getAllByText('Implementation (2/3)');
-      expect(matches.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('implement (2/3)')).toBeInTheDocument();
     });
 
     it('shows reduced stage count when grouping', () => {
@@ -404,7 +402,7 @@ describe('RunsHistory', () => {
         expandedRunId: 'parent',
       });
       expect(screen.getByText('Stages (5):')).toBeInTheDocument();
-      expect(screen.queryByText(/Implementation \(/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/implement \(\d+\/\d+\)/)).not.toBeInTheDocument();
     });
 
     it('does not group when implementationTodos is empty', () => {

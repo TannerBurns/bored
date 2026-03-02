@@ -44,16 +44,6 @@ describe('ImplementationChecklist', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders progress header with counts', () => {
-    const todos = [
-      makeTodo({ status: 'completed' }),
-      makeTodo({ title: 'Step 2', status: 'in_progress' }),
-      makeTodo({ title: 'Step 3', status: 'pending' }),
-    ];
-    render(<ImplementationChecklist todos={todos} />);
-    expect(screen.getByText('Implementation (1/3)')).toBeInTheDocument();
-  });
-
   it('renders all todo titles', () => {
     const todos = [
       makeTodo({ title: 'First step' }),
@@ -62,21 +52,6 @@ describe('ImplementationChecklist', () => {
     render(<ImplementationChecklist todos={todos} />);
     expect(screen.getByText('First step')).toBeInTheDocument();
     expect(screen.getByText('Second step')).toBeInTheDocument();
-  });
-
-  it('shows 0/N when no todos are completed', () => {
-    const todos = [makeTodo(), makeTodo({ title: 'B' })];
-    render(<ImplementationChecklist todos={todos} />);
-    expect(screen.getByText('Implementation (0/2)')).toBeInTheDocument();
-  });
-
-  it('shows N/N when all todos are completed', () => {
-    const todos = [
-      makeTodo({ status: 'completed' }),
-      makeTodo({ title: 'B', status: 'completed' }),
-    ];
-    render(<ImplementationChecklist todos={todos} />);
-    expect(screen.getByText('Implementation (2/2)')).toBeInTheDocument();
   });
 
   it('expands description when title is clicked', () => {
@@ -125,19 +100,6 @@ describe('ImplementationChecklist', () => {
     const { container } = render(<ImplementationChecklist todos={todos} />);
     const svgs = container.querySelectorAll('svg.w-4');
     expect(svgs.length).toBe(4);
-  });
-
-  it('has correct progress bar width', () => {
-    const todos = [
-      makeTodo({ status: 'completed' }),
-      makeTodo({ title: 'B', status: 'completed' }),
-      makeTodo({ title: 'C', status: 'pending' }),
-      makeTodo({ title: 'D', status: 'pending' }),
-    ];
-    const { container } = render(<ImplementationChecklist todos={todos} />);
-    const bar = container.querySelector('[style*="width"]') as HTMLElement;
-    expect(bar).toBeTruthy();
-    expect(bar.style.width).toBe('50%');
   });
 
   describe('per-todo cost badges', () => {

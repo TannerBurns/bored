@@ -52,68 +52,52 @@ export function ImplementationChecklist({ todos, implementSubRuns }: Implementat
 
   if (todos.length === 0) return null;
 
-  const completed = todos.filter(t => t.status === 'completed').length;
-  const total = todos.length;
-
   return (
-    <div className="mt-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-board-text-muted">
-          Implementation ({completed}/{total})
-        </p>
-        <div className="flex-1 mx-3 h-1 bg-board-surface-raised rounded-full overflow-hidden">
-          <div
-            className="h-full bg-status-success rounded-full transition-all duration-300"
-            style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
-          />
-        </div>
-      </div>
-      <div className="space-y-0.5">
-        {todos.map((todo, idx) => {
-          const subRun = sortedSubRuns[idx];
-          const cost = subRun ? getRunCost(subRun) : null;
+    <div className="space-y-0.5">
+      {todos.map((todo, idx) => {
+        const subRun = sortedSubRuns[idx];
+        const cost = subRun ? getRunCost(subRun) : null;
 
-          return (
-            <div key={idx}>
-              <button
-                onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
-                className={cn(
-                  'w-full flex items-center gap-2 py-1.5 px-2 rounded text-left transition-colors',
-                  'hover:bg-board-surface-raised',
-                  expandedIndex === idx && 'bg-board-surface-raised',
-                )}
-              >
-                <StatusIcon status={todo.status} />
-                <span className={cn(
-                  'text-xs flex-1',
-                  todo.status === 'completed' ? 'text-board-text-muted' : 'text-board-text-secondary',
-                  todo.status === 'in_progress' && 'font-medium text-board-text-primary',
-                )}>
-                  {todo.title}
-                </span>
-                {(todo.status === 'completed' || todo.status === 'failed') && cost && (
-                  <CostBadge cost={cost} />
-                )}
-                <svg
-                  className={cn(
-                    'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
-                    expandedIndex === idx && 'rotate-90',
-                  )}
-                  viewBox="0 0 12 12"
-                  fill="none"
-                >
-                  <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {expandedIndex === idx && (
-                <div className="ml-6 mr-2 mb-1 px-2 py-1.5 text-xs text-board-text-muted whitespace-pre-wrap bg-board-surface rounded">
-                  {todo.description}
-                </div>
+        return (
+          <div key={idx}>
+            <button
+              onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
+              className={cn(
+                'w-full flex items-center gap-2 py-1.5 px-2 rounded text-left transition-colors',
+                'hover:bg-board-card-hover',
+                expandedIndex === idx && 'bg-board-card-hover',
               )}
-            </div>
-          );
-        })}
-      </div>
+            >
+              <StatusIcon status={todo.status} />
+              <span className={cn(
+                'text-xs flex-1',
+                todo.status === 'completed' ? 'text-board-text-muted' : 'text-board-text-secondary',
+                todo.status === 'in_progress' && 'font-medium text-board-text-primary',
+              )}>
+                {todo.title}
+              </span>
+              {(todo.status === 'completed' || todo.status === 'failed') && cost && (
+                <CostBadge cost={cost} />
+              )}
+              <svg
+                className={cn(
+                  'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
+                  expandedIndex === idx && 'rotate-90',
+                )}
+                viewBox="0 0 12 12"
+                fill="none"
+              >
+                <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {expandedIndex === idx && (
+              <div className="ml-6 mr-2 mb-1 px-2 py-1.5 text-xs text-board-text-muted whitespace-pre-wrap bg-board-surface rounded">
+                {todo.description}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
