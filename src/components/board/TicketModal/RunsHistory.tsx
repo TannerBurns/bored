@@ -384,7 +384,7 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
               <div key="implement-group" className="bg-board-surface-raised rounded overflow-hidden">
                 <button
                   onClick={() => setImplExpanded(!implExpanded)}
-                  className="w-full flex items-center gap-2 py-1 px-2 hover:bg-board-card-hover transition-colors"
+                  className="w-full flex items-center gap-1.5 py-1 px-2 hover:bg-board-card-hover transition-colors"
                 >
                   <span
                     className={cn(
@@ -395,11 +395,11 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                       'bg-board-text-muted'
                     )}
                   />
-                  <span className="text-board-text-secondary font-medium shrink-0">
+                  <span className="text-board-text-secondary font-medium w-28 shrink-0 truncate">
                     implement ({completedImpl}/{totalImpl})
                   </span>
                   <span className={cn(
-                    'text-xs shrink-0',
+                    'text-xs w-14 shrink-0',
                     groupStatus === 'finished' ? 'text-status-success' :
                     groupStatus === 'running' ? 'text-status-warning' :
                     groupStatus === 'error' ? 'text-status-error' :
@@ -407,20 +407,18 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   )}>
                     {groupStatus}
                   </span>
-                  <div className="flex-1 mx-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
+                  <div className="flex-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-status-success rounded-full transition-all duration-300"
                       style={{ width: `${progressPct}%` }}
                     />
                   </div>
-                  <span className="flex items-center gap-1.5 shrink-0">
-                    <CostBadge cost={groupCost} />
-                    {totalDuration > 0 && (
-                      <span className="text-board-text-muted">
-                        {Math.round(totalDuration)}s
-                      </span>
-                    )}
-                  </span>
+                  <CostBadge cost={groupCost} />
+                  {totalDuration > 0 && (
+                    <span className="text-board-text-muted w-10 text-right shrink-0">
+                      {Math.round(totalDuration)}s
+                    </span>
+                  )}
                   <svg
                     className={cn(
                       'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
@@ -446,9 +444,9 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
 
           const subRun = row.run;
           return (
-            <div 
-              key={subRun.id} 
-              className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
+            <div
+              key={subRun.id}
+              className="flex items-center gap-1.5 py-1 px-2 bg-board-surface-raised rounded"
             >
               <span
                 className={cn(
@@ -460,11 +458,11 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   'bg-board-text-muted'
                 )}
               />
-              <span className="text-board-text-secondary font-medium w-24">
+              <span className="text-board-text-secondary font-medium w-28 shrink-0 truncate">
                 {subRun.stage || `Stage ${row.idx + 1}`}
               </span>
               <span className={cn(
-                'text-xs',
+                'text-xs w-14 shrink-0',
                 subRun.status === 'finished' ? 'text-status-success' :
                 subRun.status === 'running' ? 'text-status-warning' :
                 subRun.status === 'error' ? 'text-status-error' :
@@ -473,14 +471,14 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
               )}>
                 {subRun.status}
               </span>
-              <span className="ml-auto flex items-center gap-1.5">
-                <CostBadge cost={getRunCost(subRun)} />
-                {subRun.endedAt && (
-                  <span className="text-board-text-muted">
-                    {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
-                  </span>
-                )}
-              </span>
+              <span className="flex-1" />
+              <CostBadge cost={getRunCost(subRun)} />
+              {subRun.endedAt && (
+                <span className="text-board-text-muted w-10 text-right shrink-0">
+                  {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
+                </span>
+              )}
+              <span className="w-3 shrink-0" />
             </div>
           );
         })}
