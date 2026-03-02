@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { cn } from '../../../lib/utils';
+import type { AgentRun } from '../../../types';
 import type { ImplementationTodoStatus } from './types';
+import { CostBadge, getRunCost } from '../../common/CostBadge';
 
 interface ImplementationChecklistProps {
   todos: ImplementationTodoStatus[];
+  implementSubRuns?: AgentRun[];
 }
 
 function StatusIcon({ status }: { status: ImplementationTodoStatus['status'] }) {
@@ -37,36 +40,32 @@ function StatusIcon({ status }: { status: ImplementationTodoStatus['status'] }) 
   }
 }
 
-export function ImplementationChecklist({ todos }: ImplementationChecklistProps) {
+export function ImplementationChecklist({ todos, implementSubRuns }: ImplementationChecklistProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+  const sortedSubRuns = useMemo(
+    () => implementSubRuns
+      ? [...implementSubRuns].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+      : [],
+    [implementSubRuns],
+  );
 
   if (todos.length === 0) return null;
 
-  const completed = todos.filter(t => t.status === 'completed').length;
-  const total = todos.length;
-
   return (
-    <div className="mt-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-board-text-muted">
-          Implementation ({completed}/{total})
-        </p>
-        <div className="flex-1 mx-3 h-1 bg-board-surface-raised rounded-full overflow-hidden">
-          <div
-            className="h-full bg-status-success rounded-full transition-all duration-300"
-            style={{ width: `${total > 0 ? (completed / total) * 100 : 0}%` }}
-          />
-        </div>
-      </div>
-      <div className="space-y-0.5">
-        {todos.map((todo, idx) => (
+    <div className="space-y-0.5">
+      {todos.map((todo, idx) => {
+        const subRun = sortedSubRuns[idx];
+        const cost = subRun ? getRunCost(subRun) : null;
+
+        return (
           <div key={idx}>
             <button
               onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
               className={cn(
                 'w-full flex items-center gap-2 py-1.5 px-2 rounded text-left transition-colors',
-                'hover:bg-board-surface-raised',
-                expandedIndex === idx && 'bg-board-surface-raised',
+                'hover:bg-board-card-hover',
+                expandedIndex === idx && 'bg-board-card-hover',
               )}
             >
               <StatusIcon status={todo.status} />
@@ -77,6 +76,9 @@ export function ImplementationChecklist({ todos }: ImplementationChecklistProps)
               )}>
                 {todo.title}
               </span>
+              {(todo.status === 'completed' || todo.status === 'failed') && cost && (
+                <CostBadge cost={cost} />
+              )}
               <svg
                 className={cn(
                   'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
@@ -94,8 +96,8 @@ export function ImplementationChecklist({ todos }: ImplementationChecklistProps)
               </div>
             )}
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }

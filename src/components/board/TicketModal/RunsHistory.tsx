@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../../lib/utils';
-import type { AgentRun, RunCostData } from '../../../types';
+import type { AgentRun, RunCostData, ModelCostData } from '../../../types';
 import type { RunEvent, ImplementationTodoStatus } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
@@ -14,11 +14,9 @@ function getWorkflowLabel(run: AgentRun): string {
   return mode === 'auto_pilot' ? 'Auto-Pilot' : 'Multi-Stage';
 }
 
-/** For multi-stage parent runs, sum sub-run costs so the badge matches
- *  the backend aggregate (which excludes the parent). */
-function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
-  if (subRuns.length === 0) return getRunCost(run);
-
+/** Aggregate cost data from multiple runs, deriving totalCostUsd from
+ *  the per-model sums so the two can never diverge. */
+function aggregateRunCosts(runs: AgentRun[]): RunCostData | null {
   let total = 0;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -26,9 +24,9 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   let cacheWrite = 0;
   let anyEstimated = false;
   let found = false;
-  const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
+  const mergedModels: Record<string, ModelCostData> = {};
 
-  for (const sr of subRuns) {
+  for (const sr of runs) {
     const c = getRunCost(sr);
     if (!c) continue;
     found = true;
@@ -41,8 +39,6 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
 
     const models = c.modelUsage ?? {};
     if (Object.keys(models).length === 0) {
-      // Legacy data without a per-model breakdown — attribute to "other"
-      // so the model sum stays consistent with the total.
       if (c.totalCostUsd > 0 || c.inputTokens > 0 || c.outputTokens > 0
           || c.cacheReadTokens > 0 || c.cacheCreationTokens > 0) {
         const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -66,7 +62,6 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
 
   if (!found) return null;
 
-  // Derive totalCostUsd from model sum — single source of truth.
   const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
 
   return {
@@ -78,6 +73,13 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     modelUsage: mergedModels,
     isEstimated: anyEstimated,
   };
+}
+
+/** For multi-stage parent runs, sum sub-run costs so the badge matches
+ *  the backend aggregate (which excludes the parent). */
+function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
+  if (subRuns.length === 0) return getRunCost(run);
+  return aggregateRunCosts(subRuns);
 }
 
 export interface RunsHistoryProps {
@@ -207,10 +209,6 @@ function CurrentRunSection({
               <SubRunsList subRuns={subRuns} implementationTodos={implementationTodos} />
             )}
 
-            {implementationTodos && implementationTodos.length > 0 && (
-              <ImplementationChecklist todos={implementationTodos} />
-            )}
-            
             {/* Logs */}
             <LogTimelineView events={runEvents} agentType={currentRun.agentType} loadingEvents={loadingEvents} />
           </div>
@@ -335,6 +333,7 @@ interface SubRunsListProps {
 }
 
 function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
+  const [implExpanded, setImplExpanded] = useState(false);
   const sorted = [...subRuns].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
   const hasTodos = implementationTodos && implementationTodos.length > 0;
@@ -342,8 +341,6 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
   const completedImpl = hasTodos ? implementationTodos.filter(t => t.status === 'completed').length : 0;
   const totalImpl = hasTodos ? implementationTodos.length : 0;
 
-  // Build display rows: non-implement runs shown individually,
-  // implement runs grouped into a single row when todos exist
   type DisplayRow = { type: 'single'; run: AgentRun; idx: number } | { type: 'grouped'; runs: AgentRun[] };
   const rows: DisplayRow[] = [];
   let implGroupInserted = false;
@@ -374,62 +371,82 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
             const allFinished = row.runs.every(r => r.status === 'finished');
             const groupStatus = anyRunning ? 'running' : anyError ? 'error' : allFinished ? 'finished' : 'pending';
 
-            const totalCost = row.runs.reduce((sum, r) => {
-              const c = getRunCost(r);
-              return sum + (c?.totalCostUsd ?? 0);
-            }, 0);
+            const groupCost = aggregateRunCosts(row.runs);
             const totalDuration = row.runs.reduce((sum, r) => {
               if (r.endedAt) {
                 return sum + (new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) / 1000;
               }
               return sum;
             }, 0);
+            const progressPct = totalImpl > 0 ? (completedImpl / totalImpl) * 100 : 0;
 
             return (
-              <div
-                key="implement-group"
-                className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
-              >
-                <span
-                  className={cn(
-                    'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                    groupStatus === 'finished' ? 'bg-status-success' :
-                    groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
-                    groupStatus === 'error' ? 'bg-status-error' :
-                    'bg-board-text-muted'
-                  )}
-                />
-                <span className="text-board-text-secondary font-medium w-24">
-                  Implementation ({completedImpl}/{totalImpl})
-                </span>
-                <span className={cn(
-                  'text-xs',
-                  groupStatus === 'finished' ? 'text-status-success' :
-                  groupStatus === 'running' ? 'text-status-warning' :
-                  groupStatus === 'error' ? 'text-status-error' :
-                  'text-board-text-muted'
-                )}>
-                  {groupStatus}
-                </span>
-                <span className="ml-auto flex items-center gap-1.5">
-                  {totalCost > 0 && (
-                    <CostBadge cost={{ totalCostUsd: totalCost, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: {}, isEstimated: false }} />
-                  )}
+              <div key="implement-group" className="rounded overflow-hidden">
+                <button
+                  onClick={() => setImplExpanded(!implExpanded)}
+                  className="w-full flex items-center gap-1.5 py-1 px-2 bg-board-surface-raised hover:bg-board-card-hover transition-colors text-left"
+                >
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                      groupStatus === 'finished' ? 'bg-status-success' :
+                      groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
+                      groupStatus === 'error' ? 'bg-status-error' :
+                      'bg-board-text-muted'
+                    )}
+                  />
+                  <span className="text-board-text-secondary font-medium w-28 shrink-0 truncate">
+                    implement ({completedImpl}/{totalImpl})
+                  </span>
+                  <span className={cn(
+                    'text-xs w-14 shrink-0',
+                    groupStatus === 'finished' ? 'text-status-success' :
+                    groupStatus === 'running' ? 'text-status-warning' :
+                    groupStatus === 'error' ? 'text-status-error' :
+                    'text-board-text-muted'
+                  )}>
+                    {groupStatus}
+                  </span>
+                  <div className="flex-1 h-1 bg-board-bg/50 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-status-success rounded-full transition-all duration-300"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <CostBadge cost={groupCost} />
                   {totalDuration > 0 && (
-                    <span className="text-board-text-muted">
+                    <span className="text-board-text-muted w-10 text-right shrink-0">
                       {Math.round(totalDuration)}s
                     </span>
                   )}
-                </span>
+                  <svg
+                    className={cn(
+                      'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
+                      implExpanded && 'rotate-90',
+                    )}
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {implExpanded && (
+                  <div className="px-2 pb-2 pt-1">
+                    <ImplementationChecklist
+                      todos={implementationTodos!}
+                      implementSubRuns={implementSubRuns}
+                    />
+                  </div>
+                )}
               </div>
             );
           }
 
           const subRun = row.run;
           return (
-            <div 
-              key={subRun.id} 
-              className="flex items-center gap-2 py-1 px-2 bg-board-surface-raised rounded"
+            <div
+              key={subRun.id}
+              className="flex items-center gap-1.5 py-1 px-2 bg-board-surface-raised rounded"
             >
               <span
                 className={cn(
@@ -441,11 +458,11 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   'bg-board-text-muted'
                 )}
               />
-              <span className="text-board-text-secondary font-medium w-24">
+              <span className="text-board-text-secondary font-medium w-28 shrink-0 truncate">
                 {subRun.stage || `Stage ${row.idx + 1}`}
               </span>
               <span className={cn(
-                'text-xs',
+                'text-xs w-14 shrink-0',
                 subRun.status === 'finished' ? 'text-status-success' :
                 subRun.status === 'running' ? 'text-status-warning' :
                 subRun.status === 'error' ? 'text-status-error' :
@@ -454,14 +471,14 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
               )}>
                 {subRun.status}
               </span>
-              <span className="ml-auto flex items-center gap-1.5">
-                <CostBadge cost={getRunCost(subRun)} />
-                {subRun.endedAt && (
-                  <span className="text-board-text-muted">
-                    {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
-                  </span>
-                )}
-              </span>
+              <span className="flex-1" />
+              <CostBadge cost={getRunCost(subRun)} />
+              {subRun.endedAt && (
+                <span className="text-board-text-muted w-10 text-right shrink-0">
+                  {Math.round((new Date(subRun.endedAt).getTime() - new Date(subRun.startedAt).getTime()) / 1000)}s
+                </span>
+              )}
+              <span className="w-3 shrink-0" />
             </div>
           );
         })}
@@ -558,10 +575,6 @@ function ExpandedRunDetails({
         <SubRunsList subRuns={subRuns} implementationTodos={savedTodos} />
       )}
 
-      {savedTodos.length > 0 && (
-        <ImplementationChecklist todos={savedTodos} />
-      )}
-      
       {/* Summary */}
       {run.summaryMd && (
         <div className="mt-2">
