@@ -131,7 +131,7 @@ describe('RunDetailsPanel', () => {
       await waitFor(() => {
         expect(screen.getByText('Run run-123')).toBeInTheDocument();
       });
-      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uncommitted changes saved')).not.toBeInTheDocument();
     });
 
     it('shows notice with commit hash when safety_commit present', async () => {
@@ -143,7 +143,7 @@ describe('RunDetailsPanel', () => {
       render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+        expect(screen.getByText('Uncommitted changes saved')).toBeInTheDocument();
       });
       expect(screen.getByText('fa9b3c1')).toBeInTheDocument();
     });
@@ -157,7 +157,7 @@ describe('RunDetailsPanel', () => {
       render(<RunDetailsPanel runId="run-123" onClose={() => {}} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Changes auto-saved')).toBeInTheDocument();
+        expect(screen.getByText('Uncommitted changes saved')).toBeInTheDocument();
       });
       expect(screen.queryByText('Commit:')).not.toBeInTheDocument();
     });
@@ -175,7 +175,7 @@ describe('RunDetailsPanel', () => {
       });
       expect(screen.getByText(/Agent's work merged into/)).toBeInTheDocument();
       expect(screen.getByText('feat/xyz')).toBeInTheDocument();
-      expect(screen.queryByText('Changes auto-saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uncommitted changes saved')).not.toBeInTheDocument();
     });
   });
 });

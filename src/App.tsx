@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { Toaster } from 'sonner';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
@@ -15,6 +16,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
 import { useValidationSync } from './hooks/useValidationSync';
+import { useNotificationToasts } from './hooks/useNotificationToasts';
 import { useAppData, useAgentsData, useSpecsData } from './hooks/useAppData';
 import { useTicketHandlers } from './hooks/useTicketHandlers';
 import { useReleaseNotes } from './hooks/useReleaseNotes';
@@ -149,6 +151,8 @@ function App() {
       console.warn('Failed to open ticket from tray:', e);
     }
   }, [setActiveNav, openTicketModal]);
+
+  useNotificationToasts(openTicketById);
 
   useEffect(() => {
     const unlisteners: Promise<() => void>[] = [];
@@ -360,6 +364,12 @@ function App() {
       />
 
       <UpdateNotification />
+      <Toaster
+        theme={theme}
+        position="top-right"
+        richColors
+        closeButton
+      />
     </div>
   );
 }
