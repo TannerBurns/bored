@@ -660,7 +660,7 @@ async fn run_plan_generation(
         max_retries: 2,
     };
     
-    let agent = PlannerAgent::with_events(db.clone(), planner_config, event_tx.clone());
+    let mut agent = PlannerAgent::with_events(db.clone(), planner_config, event_tx.clone());
     
     match agent.run_plan_only(&exploration_context).await {
         Ok(result) => {

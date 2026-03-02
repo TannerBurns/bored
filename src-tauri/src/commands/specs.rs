@@ -373,7 +373,7 @@ pub async fn start_planner(
         max_retries: input.max_retries.unwrap_or(2),
     };
 
-    let agent = PlannerAgent::with_events(db.inner().clone(), config, event_tx.inner().clone());
+    let mut agent = PlannerAgent::with_events(db.inner().clone(), config, event_tx.inner().clone());
 
     let result = agent.run().await.map_err(|e| e.to_string())?;
 

@@ -283,6 +283,7 @@ pub async fn send_validation_message(
 
     let config = crate::agents::validation_agent::ValidationAgentConfig {
         session_id: session_id.clone(),
+        ticket_id: session.ticket_id.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
         model: model.clone(),
         agent_config,
@@ -293,6 +294,7 @@ pub async fn send_validation_message(
         branch_diff,
         acceptance_criteria: None,
         timeout_secs,
+        db: db.inner().clone(),
     };
 
     let agent = crate::agents::validation_agent::ValidationAgent::new(
