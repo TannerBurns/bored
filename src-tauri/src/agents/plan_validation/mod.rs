@@ -198,6 +198,8 @@ pub async fn generate_clarification_message(
 
     let db = config.db.clone();
     let provider = config.provider.clone();
+    let model_for_cost = config.model.clone().unwrap_or_default();
+    let start_time = std::time::Instant::now();
 
     let result = tokio::task::spawn_blocking(move || {
         spawner::run_agent_via_provider(&*provider, &agent_config, None)
@@ -205,12 +207,29 @@ pub async fn generate_clarification_message(
 
     match result {
         Ok(Ok(agent_result)) => {
+            let duration_secs = start_time.elapsed().as_secs_f64();
             let exit_code = agent_result.exit_code;
             let status = if exit_code == Some(0) {
                 RunStatus::Finished
             } else {
                 RunStatus::Error
             };
+
+            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*config.provider,
+                stdout,
+                &model_for_cost,
+                &config.agent_config,
+                duration_secs,
+            );
+            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if let Err(e) = db.set_run_metadata(&run.id, &metadata) {
+                tracing::warn!("Failed to save clarification-gen cost metadata: {}", e);
+            }
 
             let message = agent_result
                 .captured_stdout
@@ -306,6 +325,8 @@ pub async fn rewrite_task_with_clarification(
 
     let db = config.db.clone();
     let provider = config.provider.clone();
+    let model_for_cost = config.model.clone().unwrap_or_default();
+    let start_time = std::time::Instant::now();
 
     let result = tokio::task::spawn_blocking(move || {
         spawner::run_agent_via_provider(&*provider, &agent_config, None)
@@ -314,12 +335,29 @@ pub async fn rewrite_task_with_clarification(
 
     match result {
         Ok(Ok(agent_result)) => {
+            let duration_secs = start_time.elapsed().as_secs_f64();
             let exit_code = agent_result.exit_code;
             let status = if exit_code == Some(0) {
                 RunStatus::Finished
             } else {
                 RunStatus::Error
             };
+
+            let stdout = agent_result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*config.provider,
+                stdout,
+                &model_for_cost,
+                &config.agent_config,
+                duration_secs,
+            );
+            let mut metadata = serde_json::json!({ "duration_secs": duration_secs });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if let Err(e) = db.set_run_metadata(&run.id, &metadata) {
+                tracing::warn!("Failed to save spec-rewrite cost metadata: {}", e);
+            }
 
             let message = agent_result
                 .captured_stdout
