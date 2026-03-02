@@ -137,11 +137,11 @@ export interface AgentRun {
 /** An agent run with additional context for display (board, project, ticket info) */
 export interface AgentRunWithContext extends AgentRun {
   /** The ticket title */
-  ticketTitle: string;
+  ticketTitle?: string;
   /** The board ID this run's ticket belongs to */
-  boardId: string;
+  boardId?: string;
   /** The board name */
-  boardName: string;
+  boardName?: string;
   /** The project ID (if the ticket has one) */
   projectId?: string;
   /** The project name (if the ticket has one) */

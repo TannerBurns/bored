@@ -220,7 +220,7 @@ impl Database {
     }
 
     /// Get recent runs with full context (board, project, ticket info) for the runs view.
-    /// This eliminates the need for client-side lookups and works across all boards.
+    /// Uses LEFT JOINs so runs referencing specs (planner/brainstorm) are also returned.
     pub fn get_recent_runs_with_context(&self, limit: u32) -> Result<Vec<AgentRunWithContext>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -228,11 +228,11 @@ impl Database {
                     r.id, r.ticket_id, r.agent_type, r.repo_path, r.status, 
                     r.started_at, r.ended_at, r.exit_code, r.summary_md, r.metadata_json,
                     r.parent_run_id, r.stage, r.resumed_from_run_id,
-                    t.title as ticket_title,
-                    t.board_id,
-                    b.name as board_name,
-                    t.project_id,
-                    p.name as project_name,
+                    COALESCE(t.title, s.name) as ticket_title,
+                    COALESCE(t.board_id, s.board_id) as board_id,
+                    COALESCE(b.name, sb.name) as board_name,
+                    COALESCE(t.project_id, s.project_id) as project_id,
+                    COALESCE(p.name, sp.name) as project_name,
                     (SELECT stage FROM agent_runs sub 
                      WHERE sub.parent_run_id = r.id AND sub.status = 'running' 
                      ORDER BY sub.started_at DESC LIMIT 1) as current_stage,
@@ -241,9 +241,12 @@ impl Database {
                     (SELECT COUNT(*) FROM agent_runs sub 
                      WHERE sub.parent_run_id = r.id) as total_stages
                 FROM agent_runs r
-                JOIN tickets t ON r.ticket_id = t.id
-                JOIN boards b ON t.board_id = b.id
+                LEFT JOIN tickets t ON r.ticket_id = t.id
+                LEFT JOIN boards b ON t.board_id = b.id
                 LEFT JOIN projects p ON t.project_id = p.id
+                LEFT JOIN specs s ON r.ticket_id = s.id
+                LEFT JOIN boards sb ON s.board_id = sb.id
+                LEFT JOIN projects sp ON s.project_id = sp.id
                 WHERE r.parent_run_id IS NULL
                 ORDER BY r.started_at DESC
                 LIMIT ?"#,
@@ -725,9 +728,9 @@ mod tests {
 
         let result = &results[0];
         assert_eq!(result.run.id, run.id);
-        assert_eq!(result.ticket_title, "Test Ticket");
-        assert_eq!(result.board_id, board.id);
-        assert_eq!(result.board_name, "Test Board");
+        assert_eq!(result.ticket_title, Some("Test Ticket".to_string()));
+        assert_eq!(result.board_id, Some(board.id.clone()));
+        assert_eq!(result.board_name, Some("Test Board".to_string()));
         assert_eq!(result.project_id, Some(project.id.clone()));
         assert_eq!(result.project_name, Some("Test Project".to_string()));
     }
@@ -1539,5 +1542,279 @@ mod tests {
             &serde_json::json!({ "key": "value" }),
         );
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn create_run_allows_non_ticket_id() {
+        let db = create_test_db();
+        let run = db
+            .create_run(&CreateRun {
+                ticket_id: "spec-abc-123".to_string(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: Some("brainstorm".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let fetched = db.get_run(&run.id).unwrap();
+        assert_eq!(fetched.ticket_id, "spec-abc-123");
+        assert_eq!(fetched.stage, Some("brainstorm".to_string()));
+    }
+
+    #[test]
+    fn create_run_allows_spec_id_with_sub_runs() {
+        let db = create_test_db();
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: "spec-xyz".to_string(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: Some("planner".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub = db
+            .create_run(&CreateRun {
+                ticket_id: "spec-xyz".to_string(),
+                agent_type: "cursor".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("exploration".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(sub.parent_run_id, Some(parent.id));
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_returns_spec_based_runs() {
+        use crate::db::models::{CreateProject, CreateSpec};
+
+        let db = create_test_db();
+        let board = db.create_board("Spec Board").unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "Spec Project".to_string(),
+                path: temp_dir_path(),
+                requires_git: false,
+            })
+            .unwrap();
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: None,
+                project_id: project.id.clone(),
+                name: "My Feature Plan".to_string(),
+                user_input: "Build auth".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        db.create_run(&CreateRun {
+            ticket_id: spec.id.clone(),
+            agent_type: "claude".to_string(),
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: Some("planner".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let r = &results[0];
+        assert_eq!(r.run.ticket_id, spec.id);
+        assert_eq!(r.ticket_title, Some("My Feature Plan".to_string()));
+        assert_eq!(r.board_id, Some(board.id.clone()));
+        assert_eq!(r.board_name, Some("Spec Board".to_string()));
+        assert_eq!(r.project_id, Some(project.id.clone()));
+        assert_eq!(r.project_name, Some("Spec Project".to_string()));
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_returns_orphan_runs_with_null_context() {
+        let db = create_test_db();
+
+        db.create_run(&CreateRun {
+            ticket_id: "nonexistent-id".to_string(),
+            agent_type: "claude".to_string(),
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: Some("validation-chat".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let r = &results[0];
+        assert_eq!(r.ticket_title, None);
+        assert_eq!(r.board_id, None);
+        assert_eq!(r.board_name, None);
+        assert_eq!(r.project_id, None);
+        assert_eq!(r.project_name, None);
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_mixes_ticket_and_spec_runs() {
+        use crate::db::models::{CreateProject, CreateSpec};
+
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "Project".to_string(),
+                path: temp_dir_path(),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: columns[0].id.clone(),
+                title: "Ticket Run".to_string(),
+                description_md: "".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: None,
+                project_id: project.id.clone(),
+                name: "Spec Run".to_string(),
+                user_input: "Plan something".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        // Ticket-based run
+        db.create_run(&CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: "cursor".to_string(),
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: None,
+            ..Default::default()
+        })
+        .unwrap();
+
+        // Spec-based run
+        db.create_run(&CreateRun {
+            ticket_id: spec.id.clone(),
+            agent_type: "claude".to_string(),
+            repo_path: "/tmp".to_string(),
+            parent_run_id: None,
+            stage: Some("brainstorm".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 2);
+
+        let titles: Vec<_> = results
+            .iter()
+            .filter_map(|r| r.ticket_title.clone())
+            .collect();
+        assert!(titles.contains(&"Ticket Run".to_string()));
+        assert!(titles.contains(&"Spec Run".to_string()));
+    }
+
+    #[test]
+    fn get_recent_runs_with_context_aggregates_cost_for_spec_parent_runs() {
+        use crate::db::models::{CreateProject, CreateSpec};
+
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "Project".to_string(),
+                path: temp_dir_path(),
+                requires_git: false,
+            })
+            .unwrap();
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: None,
+                project_id: project.id.clone(),
+                name: "Plan".to_string(),
+                user_input: "Plan".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let parent = db
+            .create_run(&CreateRun {
+                ticket_id: spec.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: None,
+                stage: Some("planner".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let sub = db
+            .create_run(&CreateRun {
+                ticket_id: spec.id.clone(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                parent_run_id: Some(parent.id.clone()),
+                stage: Some("exploration".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.update_run_status(&sub.id, RunStatus::Finished, Some(0), None)
+            .unwrap();
+        db.set_run_metadata(
+            &sub.id,
+            &serde_json::json!({
+                "cost": {
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "cacheReadTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "totalCostUsd": 0.005,
+                    "modelUsage": {},
+                    "isEstimated": false
+                }
+            }),
+        )
+        .unwrap();
+
+        let results = db.get_recent_runs_with_context(10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let cost = results[0]
+            .run
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("cost"));
+        assert!(cost.is_some(), "Parent run should have aggregated cost");
     }
 }

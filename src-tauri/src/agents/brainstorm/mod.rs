@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
-use crate::db::{ConversationMessage, ConversationRole, CreateConversationMessage, Database};
+use crate::db::{ConversationMessage, ConversationRole, CreateConversationMessage, CreateRun, Database, RunStatus};
 
 use super::log_utils::{extract_log_display_message, truncate_to_char_boundary};
 use super::spawner;
@@ -63,9 +63,22 @@ impl BrainstormAgent {
     }
 
     async fn run_agent(&self, prompt: &str) -> Result<String, BrainstormError> {
+        let db_run = self.db.create_run(&CreateRun {
+            ticket_id: self.config.spec_id.clone(),
+            agent_type: self.config.agent_id.clone(),
+            repo_path: self.config.repo_path.to_string_lossy().to_string(),
+            parent_run_id: None,
+            stage: Some("brainstorm".to_string()),
+            ..Default::default()
+        });
+        let db_run_id = db_run.as_ref().ok().map(|r| r.id.clone());
+        if let Some(ref id) = db_run_id {
+            let _ = self.db.update_run_status(id, RunStatus::Running, None, None);
+        }
+
         let run_config = AgentRunConfig {
             agent_id: self.config.agent_id.clone(),
-            ticket_id: format!("brainstorm-{}", self.config.spec_id),
+            ticket_id: self.config.spec_id.clone(),
             run_id: format!(
                 "brainstorm-{}-{}",
                 self.config.spec_id,
@@ -99,12 +112,60 @@ impl BrainstormAgent {
         })));
 
         let provider = self.config.provider.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        let provider_for_cost = self.config.provider.clone();
+        let agent_config_for_cost = self.config.agent_config.clone();
+        let model_for_cost = self.config.model.clone();
+        let start_time = std::time::Instant::now();
+
+        let spawn_result = tokio::task::spawn_blocking(move || {
             spawner::run_agent_via_provider(&*provider, &run_config, log_callback)
         })
-            .await
-            .map_err(|e| BrainstormError::AgentFailed(format!("Task join error: {}", e)))?
-            .map_err(|e| BrainstormError::AgentFailed(e.to_string()))?;
+        .await;
+
+        let result = match spawn_result {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                let msg = e.to_string();
+                if let Some(ref id) = db_run_id {
+                    let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
+                }
+                return Err(BrainstormError::AgentFailed(msg));
+            }
+            Err(e) => {
+                let msg = format!("Task join error: {}", e);
+                if let Some(ref id) = db_run_id {
+                    let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
+                }
+                return Err(BrainstormError::AgentFailed(msg));
+            }
+        };
+
+        if let Some(ref id) = db_run_id {
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            let exit_code = result.exit_code;
+            let status = if exit_code == Some(0) { RunStatus::Finished } else { RunStatus::Error };
+            let _ = self.db.update_run_status(id, status, exit_code, None);
+
+            let stage_model = model_for_cost.as_deref().unwrap_or("unknown");
+            let stdout = result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*provider_for_cost,
+                stdout,
+                stage_model,
+                &agent_config_for_cost,
+                duration_secs,
+            );
+            let mut metadata = serde_json::json!({
+                "duration_secs": duration_secs,
+                "stage_model": stage_model,
+            });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if let Err(e) = self.db.set_run_metadata(id, &metadata) {
+                tracing::warn!("Failed to save brainstorm run metadata: {}", e);
+            }
+        }
 
         // Extract text from agent output
         let output = result.captured_stdout.unwrap_or_default();

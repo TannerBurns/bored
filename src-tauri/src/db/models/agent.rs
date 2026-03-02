@@ -62,18 +62,18 @@ pub struct AgentRun {
     pub resumed_from_run_id: Option<String>,
 }
 
-/// An agent run with additional context for display (board, project, ticket info)
+/// An agent run with additional context for display (board, project, ticket info).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunWithContext {
     #[serde(flatten)]
     pub run: AgentRun,
     /// The ticket title
-    pub ticket_title: String,
+    pub ticket_title: Option<String>,
     /// The board ID this run's ticket belongs to
-    pub board_id: String,
+    pub board_id: Option<String>,
     /// The board name
-    pub board_name: String,
+    pub board_name: Option<String>,
     /// The project ID (if the ticket has one)
     pub project_id: Option<String>,
     /// The project name (if the ticket has one)
@@ -164,6 +164,105 @@ mod tests {
         fn accepts_arbitrary_agent_ids() {
             let agent: AgentType = "new-agent".to_string();
             assert_eq!(agent, "new-agent");
+        }
+    }
+
+    mod agent_run_with_context_tests {
+        use super::*;
+
+        fn make_run(ticket_id: &str) -> AgentRun {
+            AgentRun {
+                id: "run-1".to_string(),
+                ticket_id: ticket_id.to_string(),
+                agent_type: "claude".to_string(),
+                repo_path: "/tmp".to_string(),
+                status: RunStatus::Finished,
+                started_at: chrono::Utc::now(),
+                ended_at: None,
+                exit_code: Some(0),
+                summary_md: None,
+                metadata: None,
+                parent_run_id: None,
+                stage: Some("planner".to_string()),
+                resumed_from_run_id: None,
+            }
+        }
+
+        #[test]
+        fn serializes_with_all_context_fields() {
+            let ctx = AgentRunWithContext {
+                run: make_run("ticket-1"),
+                ticket_title: Some("My Ticket".to_string()),
+                board_id: Some("board-1".to_string()),
+                board_name: Some("Board".to_string()),
+                project_id: Some("proj-1".to_string()),
+                project_name: Some("Project".to_string()),
+                current_stage: None,
+                completed_stages: 0,
+                total_stages: 0,
+            };
+            let json = serde_json::to_value(&ctx).unwrap();
+            assert_eq!(json["ticketTitle"], "My Ticket");
+            assert_eq!(json["boardId"], "board-1");
+            assert_eq!(json["boardName"], "Board");
+        }
+
+        #[test]
+        fn serializes_with_null_context_fields() {
+            let ctx = AgentRunWithContext {
+                run: make_run("spec-abc"),
+                ticket_title: None,
+                board_id: None,
+                board_name: None,
+                project_id: None,
+                project_name: None,
+                current_stage: None,
+                completed_stages: 0,
+                total_stages: 0,
+            };
+            let json = serde_json::to_value(&ctx).unwrap();
+            assert!(json["ticketTitle"].is_null());
+            assert!(json["boardId"].is_null());
+            assert!(json["boardName"].is_null());
+        }
+
+        #[test]
+        fn deserializes_with_null_context_fields() {
+            let json = serde_json::json!({
+                "id": "run-1",
+                "ticketId": "spec-abc",
+                "agentType": "claude",
+                "repoPath": "/tmp",
+                "status": "finished",
+                "startedAt": "2024-01-01T00:00:00Z",
+                "ticketTitle": null,
+                "boardId": null,
+                "boardName": null,
+                "completedStages": 0,
+                "totalStages": 0
+            });
+            let ctx: AgentRunWithContext = serde_json::from_value(json).unwrap();
+            assert_eq!(ctx.run.ticket_id, "spec-abc");
+            assert_eq!(ctx.ticket_title, None);
+            assert_eq!(ctx.board_id, None);
+            assert_eq!(ctx.board_name, None);
+        }
+
+        #[test]
+        fn deserializes_with_missing_context_fields() {
+            let json = serde_json::json!({
+                "id": "run-1",
+                "ticketId": "spec-abc",
+                "agentType": "claude",
+                "repoPath": "/tmp",
+                "status": "finished",
+                "startedAt": "2024-01-01T00:00:00Z",
+                "completedStages": 0,
+                "totalStages": 0
+            });
+            let ctx: AgentRunWithContext = serde_json::from_value(json).unwrap();
+            assert_eq!(ctx.ticket_title, None);
+            assert_eq!(ctx.board_id, None);
         }
     }
 }

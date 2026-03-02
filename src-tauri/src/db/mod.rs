@@ -1037,6 +1037,48 @@ impl Database {
                 tracing::info!("Migration to version 16 complete: ticket_git_stats table added");
             }
 
+            // Migration from version 16 to 17: Remove FK constraint on agent_runs.ticket_id
+            // so runs can reference specs (planner/brainstorm) in addition to tickets.
+            if current_version > 0 && current_version < 17 {
+                tracing::info!("Running migration to version 17: remove FK on agent_runs.ticket_id");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE agent_runs_v17 (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        ticket_id TEXT NOT NULL,
+                        agent_type TEXT NOT NULL,
+                        repo_path TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'finished', 'error', 'aborted', 'paused')),
+                        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        ended_at TEXT,
+                        exit_code INTEGER,
+                        summary_md TEXT,
+                        metadata_json TEXT,
+                        parent_run_id TEXT REFERENCES agent_runs_v17(id) ON DELETE CASCADE,
+                        stage TEXT,
+                        resumed_from_run_id TEXT REFERENCES agent_runs_v17(id) ON DELETE SET NULL
+                    );
+
+                    INSERT INTO agent_runs_v17
+                    SELECT id, ticket_id, agent_type, repo_path, status, started_at,
+                           ended_at, exit_code, summary_md, metadata_json,
+                           parent_run_id, stage, resumed_from_run_id
+                    FROM agent_runs;
+
+                    DROP TABLE agent_runs;
+                    ALTER TABLE agent_runs_v17 RENAME TO agent_runs;
+
+                    CREATE INDEX IF NOT EXISTS idx_runs_ticket ON agent_runs(ticket_id);
+                    CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
+                    CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_runs_resumed_from ON agent_runs(resumed_from_run_id) WHERE resumed_from_run_id IS NOT NULL;
+                    "#
+                )?;
+
+                tracing::info!("Migration to version 17 complete: agent_runs FK constraint removed");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],

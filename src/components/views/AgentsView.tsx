@@ -134,6 +134,18 @@ const STATUS_CONFIG: Record<RunStatus, { color: string; bg: string; label: strin
   paused: { color: 'text-blue-400', bg: 'bg-blue-400', label: 'Paused', pulse: false },
 };
 
+const STAGE_LABELS: Record<string, string> = {
+  planner: 'Planner',
+  brainstorm: 'Brainstorm',
+  'validation-chat': 'Validation',
+  diagnostic: 'Diagnostic',
+};
+
+function getRunKindLabel(run: AgentRunWithContext): string | null {
+  if (run.stage && STAGE_LABELS[run.stage]) return STAGE_LABELS[run.stage];
+  return null;
+}
+
 function RunItem({ run }: { run: AgentRunWithContext }) {
   const status = STATUS_CONFIG[run.status] || STATUS_CONFIG.error;
   const startedAt = new Date(run.startedAt);
@@ -143,20 +155,30 @@ function RunItem({ run }: { run: AgentRunWithContext }) {
   const stageInfo = run.totalStages > 0 
     ? `${run.currentStage || 'stage'} (${run.completedStages}/${run.totalStages})`
     : null;
+  const kindLabel = getRunKindLabel(run);
+  const displayTitle = run.ticketTitle || run.summaryMd || run.ticketId.slice(0, 12);
   
   return (
     <div className="px-3 py-2 glass-intense rounded-lg flex items-center justify-between hover:bg-board-card-hover transition-colors">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-board-text-muted bg-board-bg/50 px-1.5 py-0.5 rounded shrink-0">
-            {run.boardName}
-          </span>
+          {run.boardName ? (
+            <span className="text-xs text-board-text-muted bg-board-bg/50 px-1.5 py-0.5 rounded shrink-0">
+              {run.boardName}
+            </span>
+          ) : kindLabel ? (
+            <span className="text-xs text-board-accent bg-board-accent/10 px-1.5 py-0.5 rounded shrink-0">
+              {kindLabel}
+            </span>
+          ) : null}
           <span className="font-medium text-sm text-board-text truncate">
-            {run.ticketTitle}
+            {displayTitle}
           </span>
-          <span className="text-xs text-board-text-muted font-mono shrink-0">
-            #{run.ticketId.slice(0, 8)}
-          </span>
+          {run.boardName && (
+            <span className="text-xs text-board-text-muted font-mono shrink-0">
+              #{run.ticketId.slice(0, 8)}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 text-xs text-board-text-muted">
           {run.projectName && (

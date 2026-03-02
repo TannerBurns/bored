@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 16;
+pub const SCHEMA_VERSION: i32 = 17;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -143,9 +143,10 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_comments_ticket ON comments(ticket_id);
 
 -- Agent runs table
+-- ticket_id may reference a ticket or a spec (no FK constraint).
 CREATE TABLE IF NOT EXISTS agent_runs (
     id TEXT PRIMARY KEY NOT NULL,
-    ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    ticket_id TEXT NOT NULL,
     agent_type TEXT NOT NULL,
     repo_path TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'finished', 'error', 'aborted', 'paused')),

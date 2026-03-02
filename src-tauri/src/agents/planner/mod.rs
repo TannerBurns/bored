@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
-use crate::db::{Database, Exploration, ProjectPlan, Spec, SpecVersion, SpecVersionStatus};
+use crate::db::{CreateRun, Database, Exploration, ProjectPlan, RunStatus, Spec, SpecVersion, SpecVersionStatus};
 
 use super::spawner;
 use super::AgentRunConfig;
@@ -41,6 +41,7 @@ pub struct PlannerAgent {
     db: Arc<Database>,
     config: PlannerConfig,
     event_tx: Option<broadcast::Sender<LiveEvent>>,
+    parent_run_id: Option<String>,
 }
 
 impl PlannerAgent {
@@ -49,6 +50,7 @@ impl PlannerAgent {
             db,
             config,
             event_tx: None,
+            parent_run_id: None,
         }
     }
 
@@ -61,6 +63,7 @@ impl PlannerAgent {
             db,
             config,
             event_tx: Some(event_tx),
+            parent_run_id: None,
         }
     }
 
@@ -71,8 +74,37 @@ impl PlannerAgent {
         }
     }
 
+    /// Create a parent run record for this planner invocation.
+    fn create_parent_run(&mut self) -> Option<String> {
+        match self.db.create_run(&CreateRun {
+            ticket_id: self.config.spec_id.clone(),
+            agent_type: self.config.agent_id.clone(),
+            repo_path: self.config.repo_path.to_string_lossy().to_string(),
+            parent_run_id: None,
+            stage: Some("planner".to_string()),
+            ..Default::default()
+        }) {
+            Ok(run) => {
+                let _ = self.db.update_run_status(&run.id, RunStatus::Running, None, None);
+                self.parent_run_id = Some(run.id.clone());
+                Some(run.id)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create planner parent run: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Finalize the parent run with the given status.
+    fn finalize_parent_run(&self, status: RunStatus, exit_code: Option<i32>, summary: Option<&str>) {
+        if let Some(ref run_id) = self.parent_run_id {
+            let _ = self.db.update_run_status(run_id, status, exit_code, summary);
+        }
+    }
+
     /// Run the full planner workflow: explore -> plan -> (optionally) execute
-    pub async fn run(&self) -> Result<PlannerResult, PlannerError> {
+    pub async fn run(&mut self) -> Result<PlannerResult, PlannerError> {
         // Get spec and its latest version
         let spec = self
             .db
@@ -92,6 +124,8 @@ impl PlannerAgent {
             version.status
         );
 
+        self.create_parent_run();
+
         // Run exploration and planning with error recovery
         match self.run_explore_and_plan(&spec, &version).await {
             Ok(exploration_result) => {
@@ -105,6 +139,7 @@ impl PlannerAgent {
                     self.broadcast(LiveEvent::SpecUpdated {
                         spec_id: spec.id.clone(),
                     });
+                    self.finalize_parent_run(RunStatus::Error, None, Some(&e.to_string()));
                     return Err(e);
                 }
             }
@@ -117,6 +152,7 @@ impl PlannerAgent {
                 self.broadcast(LiveEvent::SpecUpdated {
                     spec_id: spec.id.clone(),
                 });
+                self.finalize_parent_run(RunStatus::Error, None, Some(&e.to_string()));
                 return Err(e);
             }
         }
@@ -132,8 +168,15 @@ impl PlannerAgent {
             });
 
             // Execute the plan
-            return self.execute_plan().await;
+            let result = self.execute_plan().await;
+            match &result {
+                Ok(_) => self.finalize_parent_run(RunStatus::Finished, Some(0), None),
+                Err(e) => self.finalize_parent_run(RunStatus::Error, None, Some(&e.to_string())),
+            }
+            return result;
         }
+
+        self.finalize_parent_run(RunStatus::Finished, Some(0), None);
 
         // Return awaiting approval
         Ok(PlannerResult {
@@ -148,7 +191,7 @@ impl PlannerAgent {
     /// Run plan generation only, skipping exploration (for use after conversational spec discovery)
     /// The exploration_context should contain the technical notes gathered during conversation
     pub async fn run_plan_only(
-        &self,
+        &mut self,
         exploration_context: &str,
     ) -> Result<PlannerResult, PlannerError> {
         // Get spec and its latest version
@@ -169,6 +212,8 @@ impl PlannerAgent {
             version.id
         );
 
+        self.create_parent_run();
+
         // Generate plan using provided exploration context
         match self
             .generate_plan(&spec, &version, exploration_context)
@@ -183,6 +228,7 @@ impl PlannerAgent {
                 self.broadcast(LiveEvent::SpecUpdated {
                     spec_id: spec.id.clone(),
                 });
+                self.finalize_parent_run(RunStatus::Error, None, Some(&e.to_string()));
                 return Err(e);
             }
         }
@@ -198,8 +244,15 @@ impl PlannerAgent {
             });
 
             // Execute the plan
-            return self.execute_plan().await;
+            let result = self.execute_plan().await;
+            match &result {
+                Ok(_) => self.finalize_parent_run(RunStatus::Finished, Some(0), None),
+                Err(e) => self.finalize_parent_run(RunStatus::Error, None, Some(&e.to_string())),
+            }
+            return result;
         }
+
+        self.finalize_parent_run(RunStatus::Finished, Some(0), None);
 
         // Return awaiting approval
         Ok(PlannerResult {
@@ -279,10 +332,25 @@ impl PlannerAgent {
         attempt: u32,
         max_attempts: u32,
     ) -> Result<String, PlannerError> {
+        let run_id = format!("planner-{}", uuid::Uuid::new_v4());
+
+        let sub_run = self.db.create_run(&CreateRun {
+            ticket_id: spec.id.clone(),
+            agent_type: self.config.agent_id.clone(),
+            repo_path: self.config.repo_path.to_string_lossy().to_string(),
+            parent_run_id: self.parent_run_id.clone(),
+            stage: Some(phase.to_string()),
+            ..Default::default()
+        });
+        let sub_run_id = sub_run.as_ref().ok().map(|r| r.id.clone());
+        if let Some(ref id) = sub_run_id {
+            let _ = self.db.update_run_status(id, RunStatus::Running, None, None);
+        }
+
         let config = AgentRunConfig {
             agent_id: self.config.agent_id.clone(),
             ticket_id: spec.id.clone(),
-            run_id: format!("planner-{}", uuid::Uuid::new_v4()),
+            run_id,
             repo_path: self.config.repo_path.clone(),
             prompt: prompt.to_string(),
             timeout_secs: Some(self.config.timeout_secs),
@@ -324,15 +392,65 @@ impl PlannerAgent {
             None
         };
 
-        // Run the agent in a blocking task to avoid blocking the async runtime
-        // This allows SSE events to be processed while the agent is running
         let provider = self.config.provider.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        let provider_for_cost = self.config.provider.clone();
+        let agent_config_for_cost = self.config.agent_config.clone();
+        let model_for_cost = self.config.model.clone();
+        let start_time = std::time::Instant::now();
+
+        let spawn_result = tokio::task::spawn_blocking(move || {
             spawner::run_agent_via_provider_with_cancel(&*provider, &config, log_callback, None)
         })
-        .await
-        .map_err(|e| PlannerError::ExplorationFailed(format!("Task join error: {}", e)))?
-        .map_err(|e| PlannerError::ExplorationFailed(e.to_string()))?;
+        .await;
+
+        let result = match spawn_result {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                let msg = e.to_string();
+                if let Some(ref id) = sub_run_id {
+                    let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
+                }
+                return Err(PlannerError::ExplorationFailed(msg));
+            }
+            Err(e) => {
+                let msg = format!("Task join error: {}", e);
+                if let Some(ref id) = sub_run_id {
+                    let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
+                }
+                return Err(PlannerError::ExplorationFailed(msg));
+            }
+        };
+
+        if let Some(ref id) = sub_run_id {
+            let duration_secs = start_time.elapsed().as_secs_f64();
+            let exit_code = result.exit_code;
+            let status = if result.status == super::RunOutcome::Success {
+                RunStatus::Finished
+            } else {
+                RunStatus::Error
+            };
+            let _ = self.db.update_run_status(id, status, exit_code, result.summary.as_deref());
+
+            let stage_model = model_for_cost.as_deref().unwrap_or("unknown");
+            let stdout = result.captured_stdout.as_deref().unwrap_or("");
+            let cost_data = crate::agents::provider::extract_cost_with_overrides(
+                &*provider_for_cost,
+                stdout,
+                stage_model,
+                &agent_config_for_cost,
+                duration_secs,
+            );
+            let mut metadata = serde_json::json!({
+                "duration_secs": duration_secs,
+                "stage_model": stage_model,
+            });
+            if let Some(ref cost) = cost_data {
+                metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
+            }
+            if let Err(e) = self.db.set_run_metadata(id, &metadata) {
+                tracing::warn!("Failed to save planner sub-run metadata: {}", e);
+            }
+        }
 
         if result.status != super::RunOutcome::Success {
             return Err(PlannerError::ExplorationFailed(format!(
@@ -486,5 +604,103 @@ impl PlannerAgent {
             self.event_tx.clone(),
         );
         executor.execute().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::claude::provider::ClaudeProvider;
+    use std::path::PathBuf;
+
+    fn make_config(spec_id: &str) -> PlannerConfig {
+        PlannerConfig {
+            spec_id: spec_id.to_string(),
+            max_explorations: 1,
+            auto_approve: false,
+            model: Some("test-model".to_string()),
+            agent_id: "claude".to_string(),
+            provider: Arc::new(ClaudeProvider::new()),
+            repo_path: PathBuf::from("/tmp"),
+            agent_config: std::collections::HashMap::new(),
+            timeout_secs: 60,
+            max_retries: 0,
+        }
+    }
+
+    #[test]
+    fn create_parent_run_inserts_run_record() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let config = make_config("spec-test-123");
+        let mut agent = PlannerAgent::new(db.clone(), config);
+
+        let run_id = agent.create_parent_run();
+        assert!(run_id.is_some());
+        assert!(agent.parent_run_id.is_some());
+        assert_eq!(run_id, agent.parent_run_id);
+
+        let run = db.get_run(run_id.as_ref().unwrap()).unwrap();
+        assert_eq!(run.ticket_id, "spec-test-123");
+        assert_eq!(run.agent_type, "claude");
+        assert_eq!(run.status, RunStatus::Running);
+        assert_eq!(run.stage, Some("planner".to_string()));
+        assert!(run.parent_run_id.is_none());
+    }
+
+    #[test]
+    fn finalize_parent_run_updates_status() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let config = make_config("spec-abc");
+        let mut agent = PlannerAgent::new(db.clone(), config);
+
+        agent.create_parent_run();
+        let run_id = agent.parent_run_id.clone().unwrap();
+
+        agent.finalize_parent_run(RunStatus::Finished, Some(0), None);
+
+        let run = db.get_run(&run_id).unwrap();
+        assert_eq!(run.status, RunStatus::Finished);
+        assert_eq!(run.exit_code, Some(0));
+    }
+
+    #[test]
+    fn finalize_parent_run_stores_error_summary() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let config = make_config("spec-err");
+        let mut agent = PlannerAgent::new(db.clone(), config);
+
+        agent.create_parent_run();
+        let run_id = agent.parent_run_id.clone().unwrap();
+
+        agent.finalize_parent_run(RunStatus::Error, None, Some("exploration timed out"));
+
+        let run = db.get_run(&run_id).unwrap();
+        assert_eq!(run.status, RunStatus::Error);
+        assert_eq!(run.summary_md, Some("exploration timed out".to_string()));
+    }
+
+    #[test]
+    fn finalize_parent_run_noop_without_parent_run() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let config = make_config("spec-none");
+        let agent = PlannerAgent::new(db, config);
+
+        assert!(agent.parent_run_id.is_none());
+        agent.finalize_parent_run(RunStatus::Error, None, Some("should not panic"));
+    }
+
+    #[test]
+    fn new_initializes_without_parent_run_id() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let agent = PlannerAgent::new(db, make_config("x"));
+        assert!(agent.parent_run_id.is_none());
+    }
+
+    #[test]
+    fn with_events_initializes_without_parent_run_id() {
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(1);
+        let agent = PlannerAgent::with_events(db, make_config("x"), tx);
+        assert!(agent.parent_run_id.is_none());
     }
 }
