@@ -77,6 +77,10 @@ impl AgentProvider for CursorProvider {
         format!("/{}", command)
     }
 
+    fn extract_session_id(&self, output: &str) -> Option<String> {
+        crate::agents::claude::provider::extract_session_id_from_stream_json(output)
+    }
+
     fn available_models(&self) -> Vec<(&str, &str)> {
         vec![
             ("opus-4.6", "Opus 4.6"),

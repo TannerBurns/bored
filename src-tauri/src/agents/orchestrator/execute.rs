@@ -360,6 +360,10 @@ impl WorkflowOrchestrator {
             String::new()
         };
 
+        // Track the agent session across todo iterations so each step
+        // resumes the same conversation, preserving codebase context.
+        let mut implementation_session_id: Option<String> = None;
+
         for (idx, todo) in todos.iter().enumerate() {
             if let Some(status) = saved_statuses.get(idx) {
                 match status {
@@ -417,9 +421,20 @@ impl WorkflowOrchestrator {
                 total,
             );
 
-            match self.run_stage("implement", &prompt).await {
+            match self.run_stage_with_session("implement", &prompt, implementation_session_id.as_deref()).await {
                 Ok(result) => {
                     let raw_output = result.captured_stdout.unwrap_or_default();
+
+                    if implementation_session_id.is_none() {
+                        implementation_session_id = self.provider.extract_session_id(&raw_output);
+                        if let Some(ref sid) = implementation_session_id {
+                            tracing::info!(
+                                "Captured agent session id for todo continuation: {}",
+                                sid
+                            );
+                        }
+                    }
+
                     let text = self.extract_text(&raw_output);
                     if !combined_output.is_empty() {
                         combined_output.push_str("\n\n");

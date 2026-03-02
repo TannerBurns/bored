@@ -15,6 +15,7 @@ fn make_config() -> AgentRunConfig {
         timeout_secs: None,
         model: None,
         agent_config: HashMap::new(),
+        session_id: None,
     }
 }
 
@@ -546,6 +547,71 @@ fn extract_text_real_cli_response_with_prose_wrapping_json() {
     assert_eq!(parsed.len(), 2, "should parse JSON even when wrapped in prose");
     assert_eq!(parsed[0].command, "unit-tests");
     assert_eq!(parsed[1].command, "cleanup");
+}
+
+// ── extract_session_id tests ──────────────────────────────────
+
+#[test]
+fn extract_session_id_from_system_init() {
+    let output = concat!(
+        r#"{"type":"system","subtype":"init","cwd":"/tmp","session_id":"sess-abc-123","model":"claude-sonnet-4-6"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"session_id":"sess-abc-123"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","result":"done","session_id":"sess-abc-123"}"#,
+    );
+    let sid = extract_session_id_from_stream_json(output);
+    assert_eq!(sid, Some("sess-abc-123".to_string()));
+}
+
+#[test]
+fn extract_session_id_fallback_to_result() {
+    let output = concat!(
+        r#"{"type":"result","subtype":"success","result":"ok","session_id":"fallback-id"}"#,
+    );
+    let sid = extract_session_id_from_stream_json(output);
+    assert_eq!(sid, Some("fallback-id".to_string()));
+}
+
+#[test]
+fn extract_session_id_no_session_returns_none() {
+    let output = r#"{"type":"assistant","message":{"role":"assistant","content":[]}}"#;
+    let sid = extract_session_id_from_stream_json(output);
+    assert!(sid.is_none());
+}
+
+#[test]
+fn extract_session_id_empty_output() {
+    assert!(extract_session_id_from_stream_json("").is_none());
+}
+
+#[test]
+fn extract_session_id_via_provider_trait() {
+    let provider = ClaudeProvider::new();
+    let output = r#"{"type":"system","subtype":"init","session_id":"provider-test","model":"m"}"#;
+    assert_eq!(provider.extract_session_id(output), Some("provider-test".to_string()));
+}
+
+// ── build_command with session_id tests ────────────────────────
+
+#[test]
+fn build_command_includes_resume_when_session_id_set() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.session_id = Some("resume-session-42".to_string());
+    let (cmd, args) = p.build_command(&config);
+    assert_eq!(cmd, "claude");
+    let resume_idx = args.iter().position(|a| a == "--resume").expect("should have --resume");
+    assert_eq!(args[resume_idx + 1], "resume-session-42");
+    assert!(args.contains(&"-p".to_string()));
+}
+
+#[test]
+fn build_command_omits_resume_when_no_session_id() {
+    let p = ClaudeProvider::new();
+    let config = make_config();
+    let (_, args) = p.build_command(&config);
+    assert!(!args.contains(&"--resume".to_string()));
 }
 
 // is_dangerous_command tests live in agents::cli_utils::tests

@@ -59,6 +59,7 @@ pub async fn validate_plan_for_clarification(
         timeout_secs: Some(config.timeout_secs),
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
+        session_id: None,
     };
 
     let db = config.db.clone();
@@ -192,6 +193,7 @@ pub async fn generate_clarification_message(
         timeout_secs: Some(config.timeout_secs),
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
+        session_id: None,
     };
 
     let db = config.db.clone();
@@ -299,6 +301,7 @@ pub async fn rewrite_task_with_clarification(
         timeout_secs: Some(config.timeout_secs),
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
+        session_id: None,
     };
 
     let db = config.db.clone();

@@ -20,6 +20,11 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         args.push(model.clone());
     }
 
+    if let Some(ref sid) = config.session_id {
+        args.push("--resume".to_string());
+        args.push(sid.clone());
+    }
+
     args.push(config.prompt.clone());
     (command, args)
 }
@@ -39,6 +44,7 @@ mod tests {
             timeout_secs: Some(300),
             model: None,
             agent_config: std::collections::HashMap::new(),
+            session_id: None,
         }
     }
 
@@ -111,5 +117,22 @@ mod tests {
         let config = create_test_config();
         let (_, args) = build_command_from_provider_config(&config);
         assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_includes_resume_when_session_set() {
+        let mut config = create_test_config();
+        config.session_id = Some("chat-abc".to_string());
+        let (_, args) = build_command_from_provider_config(&config);
+        let idx = args.iter().position(|a| a == "--resume").expect("--resume must be present");
+        assert_eq!(args[idx + 1], "chat-abc");
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()));
+    }
+
+    #[test]
+    fn build_command_omits_resume_when_no_session() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(!args.contains(&"--resume".to_string()));
     }
 }

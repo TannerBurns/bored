@@ -15,6 +15,7 @@ fn make_config() -> AgentRunConfig {
         timeout_secs: None,
         model: None,
         agent_config: HashMap::new(),
+        session_id: None,
     }
 }
 
@@ -132,4 +133,41 @@ fn available_models_includes_claude_and_codex_models() {
         assert!(!id.is_empty());
         assert!(!label.is_empty());
     }
+}
+
+// ── session continuation tests ────────────────────────────────
+
+#[test]
+fn extract_session_id_returns_session_from_stream_json() {
+    let p = CursorProvider::new();
+    let output = concat!(
+        r#"{"type":"system","subtype":"init","session_id":"cursor-sess-1","model":"test"}"#,
+        "\n",
+        r#"{"type":"result","subtype":"success","result":"ok","session_id":"cursor-sess-1"}"#,
+    );
+    assert_eq!(p.extract_session_id(output), Some("cursor-sess-1".to_string()));
+}
+
+#[test]
+fn extract_session_id_returns_none_without_session() {
+    let p = CursorProvider::new();
+    assert!(p.extract_session_id(r#"{"type":"result","result":"ok"}"#).is_none());
+}
+
+#[test]
+fn build_command_includes_resume_flag_when_session_set() {
+    let p = CursorProvider::new();
+    let mut config = make_config();
+    config.session_id = Some("chat-xyz".to_string());
+    let (_, args) = p.build_command(&config);
+    let idx = args.iter().position(|a| a == "--resume").expect("--resume should be present");
+    assert_eq!(args[idx + 1], "chat-xyz");
+}
+
+#[test]
+fn build_command_omits_resume_flag_when_no_session() {
+    let p = CursorProvider::new();
+    let config = make_config();
+    let (_, args) = p.build_command(&config);
+    assert!(!args.contains(&"--resume".to_string()));
 }
