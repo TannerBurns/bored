@@ -381,10 +381,10 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
             const progressPct = totalImpl > 0 ? (completedImpl / totalImpl) * 100 : 0;
 
             return (
-              <div key="implement-group" className="bg-board-surface-raised rounded overflow-hidden">
+              <div key="implement-group" className="rounded overflow-hidden">
                 <button
                   onClick={() => setImplExpanded(!implExpanded)}
-                  className="w-full flex items-center gap-1.5 py-1 px-2 hover:bg-board-card-hover transition-colors"
+                  className="w-full flex items-center gap-1.5 py-1 px-2 bg-board-surface-raised hover:bg-board-card-hover transition-colors text-left"
                 >
                   <span
                     className={cn(
