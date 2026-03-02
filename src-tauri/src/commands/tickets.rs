@@ -6,8 +6,8 @@ use crate::agents::plan_validation::{rewrite_task_with_clarification, PlanValida
 use crate::agents::registry::AgentRegistry;
 use crate::commands::agent_settings::AgentSettingsManager;
 use crate::db::{
-    AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority, Ticket,
-    UpdateTicket, WorkflowType,
+    AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority, RunStatus,
+    Ticket, UpdateTicket, WorkflowType,
 };
 use crate::db::models::{TaskStatus, TaskType, UpdateTask};
 
@@ -509,10 +509,20 @@ pub async fn resolve_clarification(
         .ok_or_else(|| format!("Unknown agent: {}", agent_id))?;
     let agent_config = agent_settings.agent_config_for(&agent_id);
 
-    let parent_run_id = uuid::Uuid::new_v4().to_string();
+    let parent_run = db
+        .create_run(&crate::db::CreateRun {
+            ticket_id: ticket_id.clone(),
+            agent_type: agent_id.clone(),
+            repo_path: project.path.clone(),
+            parent_run_id: None,
+            stage: Some("clarification-rewrite".to_string()),
+            ..Default::default()
+        })
+        .map_err(|e| format!("Failed to create parent run: {}", e))?;
+
     let config = PlanValidationConfig {
         db: db.inner().clone(),
-        parent_run_id,
+        parent_run_id: parent_run.id.clone(),
         ticket_id: ticket_id.clone(),
         repo_path: std::path::PathBuf::from(&project.path),
         model: ticket.model.clone(),
@@ -522,14 +532,31 @@ pub async fn resolve_clarification(
         timeout_secs: 120,
     };
 
-    let rewritten_spec = rewrite_task_with_clarification(
+    let _ = db.update_run_status(&parent_run.id, RunStatus::Running, None, None);
+
+    let rewrite_result = rewrite_task_with_clarification(
         &config,
         &original_description,
         &clarification_questions,
         &user_response,
     )
-    .await
-    .map_err(|e| format!("Failed to rewrite spec: {}", e))?;
+    .await;
+
+    let rewritten_spec = match rewrite_result {
+        Ok(spec) => {
+            let _ = db.update_run_status(&parent_run.id, RunStatus::Finished, Some(0), None);
+            spec
+        }
+        Err(e) => {
+            let _ = db.update_run_status(
+                &parent_run.id,
+                RunStatus::Error,
+                None,
+                Some(&e.to_string()),
+            );
+            return Err(format!("Failed to rewrite spec: {}", e));
+        }
+    };
 
     let update = UpdateTicket {
         description_md: Some(rewritten_spec.clone()),
