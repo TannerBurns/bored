@@ -400,6 +400,24 @@ fn extract_session_id_empty_output() {
 }
 
 #[test]
+fn extract_session_id_skips_malformed_json() {
+    let p = CodexProvider::new();
+    let output = concat!(
+        "plain text log line\n",
+        "{broken json\n",
+        r#"{"type":"thread.started","thread_id":"after-junk"}"#, "\n",
+    );
+    assert_eq!(p.extract_session_id(output), Some("after-junk".to_string()));
+}
+
+#[test]
+fn extract_session_id_thread_started_without_thread_id_field() {
+    let p = CodexProvider::new();
+    let output = r#"{"type":"thread.started"}"#;
+    assert!(p.extract_session_id(output).is_none());
+}
+
+#[test]
 fn build_command_uses_exec_resume_when_session_set() {
     let p = CodexProvider::new();
     let mut config = AgentRunConfig {

@@ -296,6 +296,22 @@ fn agent_run_config_empty_agent_config() {
     assert_eq!(config.agent_id, "cursor");
 }
 
+#[test]
+fn agent_run_config_with_session_id() {
+    let config = AgentRunConfig {
+        agent_id: "claude".to_string(),
+        ticket_id: "t".to_string(),
+        run_id: "r".to_string(),
+        repo_path: std::path::PathBuf::from("/"),
+        prompt: "p".to_string(),
+        timeout_secs: None,
+        model: None,
+        agent_config: std::collections::HashMap::new(),
+        session_id: Some("sess-abc-123".to_string()),
+    };
+    assert_eq!(config.session_id, Some("sess-abc-123".to_string()));
+}
+
 // ── AgentProvider trait method tests ──────────────────────────
 
 #[test]

@@ -586,6 +586,46 @@ fn extract_session_id_empty_output() {
 }
 
 #[test]
+fn extract_session_id_skips_malformed_json_lines() {
+    let output = concat!(
+        "not json at all\n",
+        "{broken json\n",
+        r#"{"type":"system","subtype":"init","session_id":"good-id","model":"m"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("good-id".to_string()),
+    );
+}
+
+#[test]
+fn extract_session_id_system_type_takes_priority_over_fallback() {
+    let output = concat!(
+        r#"{"type":"result","session_id":"result-id"}"#, "\n",
+        r#"{"type":"system","subtype":"init","session_id":"system-id","model":"m"}"#, "\n",
+        r#"{"type":"assistant","session_id":"assistant-id"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("system-id".to_string()),
+        "system init session_id should take priority",
+    );
+}
+
+#[test]
+fn extract_session_id_skips_whitespace_only_lines() {
+    let output = concat!(
+        "  \n",
+        "\t\n",
+        r#"{"type":"result","session_id":"ws-test"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("ws-test".to_string()),
+    );
+}
+
+#[test]
 fn extract_session_id_via_provider_trait() {
     let provider = ClaudeProvider::new();
     let output = r#"{"type":"system","subtype":"init","session_id":"provider-test","model":"m"}"#;

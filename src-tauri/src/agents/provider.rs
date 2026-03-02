@@ -204,6 +204,16 @@ mod tests {
     }
 
     #[test]
+    fn default_extract_session_id_returns_none() {
+        let stub = StubProvider;
+        assert!(
+            stub.extract_session_id(r#"{"type":"system","session_id":"abc"}"#).is_none(),
+            "default trait impl should return None regardless of input"
+        );
+        assert!(stub.extract_session_id("").is_none());
+    }
+
+    #[test]
     fn default_effective_cost_model_passes_through_stage_model() {
         let stub = StubProvider;
         let empty = HashMap::new();
