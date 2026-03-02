@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RunsHistory, type RunsHistoryProps } from './RunsHistory';
 import type { AgentRun } from '../../../types';
@@ -8,21 +8,20 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue([]),
 }));
 
+/** Captures the cost prop passed to CostBadge for assertion. */
+const costBadgeCalls: unknown[] = [];
+
 vi.mock('../../common/CostBadge', () => ({
-  CostBadge: ({ cost }: { cost: unknown }) =>
-    cost ? <span data-testid="cost-badge">$cost</span> : null,
+  CostBadge: ({ cost }: { cost: unknown }) => {
+    if (!cost) return null;
+    costBadgeCalls.push(cost);
+    return <span data-testid="cost-badge">$cost</span>;
+  },
   getRunCost: (run: AgentRun) => {
     const meta = run.metadata as Record<string, unknown> | undefined;
     const cost = meta?.cost as Record<string, unknown> | undefined;
     if (!cost) return null;
-    return {
-      totalCostUsd: (cost.total_cost_usd as number) ?? 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      isEstimated: false,
-    };
+    return cost;
   },
   getTotalCost: (cost: { totalCostUsd: number }) => cost.totalCostUsd,
 }));
@@ -65,6 +64,10 @@ function renderHistory(overrides: Partial<RunsHistoryProps> = {}) {
 }
 
 describe('RunsHistory', () => {
+  beforeEach(() => {
+    costBadgeCalls.length = 0;
+  });
+
   it('returns null when agentRuns is empty', () => {
     const { container } = renderHistory({ agentRuns: [] });
     expect(container.innerHTML).toBe('');
@@ -454,6 +457,228 @@ describe('RunsHistory', () => {
       ];
       renderHistory({ agentRuns: runs });
       expect(screen.getByText('Previous Runs (1)')).toBeInTheDocument();
+    });
+  });
+
+  describe('grouped implementation cost aggregation', () => {
+    function costMeta(inputTokens: number, outputTokens: number, costUsd: number, model?: string) {
+      const modelUsage = model
+        ? { [model]: { inputTokens, outputTokens, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd } }
+        : {};
+      return {
+        cost: { totalCostUsd: costUsd, inputTokens, outputTokens, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage, isEstimated: false },
+      };
+    }
+
+    it('aggregates tokens and model usage across grouped implement sub-runs', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({ id: 'sub-plan', parentRunId: 'parent', stage: 'plan', status: 'finished', metadata: costMeta(100, 50, 0.01, 'opus-4.6') }),
+        createRun({ id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(200, 100, 0.03, 'opus-4.6') }),
+        createRun({ id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(300, 150, 0.05, 'opus-4.6') }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'desc1', status: 'completed' as const },
+        { title: 'Step 2', description: 'desc2', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 500 && obj.outputTokens === 250;
+      });
+      expect(implCost).toBeDefined();
+      const ic = implCost as Record<string, unknown>;
+      expect(ic.totalCostUsd).toBeCloseTo(0.08);
+
+      const models = ic.modelUsage as Record<string, { inputTokens: number; outputTokens: number; costUsd: number }>;
+      expect(models['opus-4.6']).toBeDefined();
+      expect(models['opus-4.6'].inputTokens).toBe(500);
+      expect(models['opus-4.6'].outputTokens).toBe(250);
+      expect(models['opus-4.6'].costUsd).toBeCloseTo(0.08);
+    });
+
+    it('returns null cost badge when no implement sub-runs have cost', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({ id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished' }),
+        createRun({ id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished' }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'desc1', status: 'completed' as const },
+        { title: 'Step 2', description: 'desc2', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const zeroCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 0 && obj.outputTokens === 0 && obj.totalCostUsd === 0;
+      });
+      expect(zeroCost).toBeUndefined();
+    });
+
+    it('merges multiple model keys across sub-runs', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({ id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(100, 50, 0.02, 'opus-4.6') }),
+        createRun({ id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(200, 80, 0.01, 'sonnet-4.5') }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'desc1', status: 'completed' as const },
+        { title: 'Step 2', description: 'desc2', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 300 && obj.outputTokens === 130;
+      });
+      expect(implCost).toBeDefined();
+      const models = (implCost as Record<string, unknown>).modelUsage as Record<string, { costUsd: number }>;
+      expect(models['opus-4.6']).toBeDefined();
+      expect(models['sonnet-4.5']).toBeDefined();
+      expect(models['opus-4.6'].costUsd).toBeCloseTo(0.02);
+      expect(models['sonnet-4.5'].costUsd).toBeCloseTo(0.01);
+    });
+
+    it('attributes legacy data without modelUsage to "other" bucket', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({
+          id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished',
+          metadata: { cost: { totalCostUsd: 0.05, inputTokens: 400, outputTokens: 200, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: {}, isEstimated: false } },
+        }),
+      ];
+      const todos = [{ title: 'Step 1', description: 'd', status: 'completed' as const }];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 400 && obj.outputTokens === 200;
+      });
+      expect(implCost).toBeDefined();
+      const models = (implCost as Record<string, unknown>).modelUsage as Record<string, { inputTokens: number; costUsd: number }>;
+      expect(models['other']).toBeDefined();
+      expect(models['other'].inputTokens).toBe(400);
+      expect(models['other'].costUsd).toBeCloseTo(0.05);
+    });
+
+    it('propagates isEstimated flag when any sub-run is estimated', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({
+          id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished',
+          metadata: { cost: { totalCostUsd: 0.02, inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: { 'opus-4.6': { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.02 } }, isEstimated: false } },
+        }),
+        createRun({
+          id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished',
+          metadata: { cost: { totalCostUsd: 0.01, inputTokens: 50, outputTokens: 25, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: { 'opus-4.6': { inputTokens: 50, outputTokens: 25, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0.01 } }, isEstimated: true } },
+        }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'd', status: 'completed' as const },
+        { title: 'Step 2', description: 'd', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 150 && obj.outputTokens === 75;
+      });
+      expect(implCost).toBeDefined();
+      expect((implCost as Record<string, unknown>).isEstimated).toBe(true);
+    });
+
+    it('aggregates cache tokens across sub-runs', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({
+          id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished',
+          metadata: { cost: { totalCostUsd: 0.03, inputTokens: 100, outputTokens: 50, cacheReadTokens: 30, cacheCreationTokens: 10, modelUsage: { m: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 30, cacheCreationTokens: 10, costUsd: 0.03 } }, isEstimated: false } },
+        }),
+        createRun({
+          id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished',
+          metadata: { cost: { totalCostUsd: 0.02, inputTokens: 80, outputTokens: 40, cacheReadTokens: 20, cacheCreationTokens: 5, modelUsage: { m: { inputTokens: 80, outputTokens: 40, cacheReadTokens: 20, cacheCreationTokens: 5, costUsd: 0.02 } }, isEstimated: false } },
+        }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'd', status: 'completed' as const },
+        { title: 'Step 2', description: 'd', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 180 && obj.outputTokens === 90;
+      });
+      expect(implCost).toBeDefined();
+      const ic = implCost as Record<string, unknown>;
+      expect(ic.cacheReadTokens).toBe(50);
+      expect(ic.cacheCreationTokens).toBe(15);
+    });
+
+    it('skips sub-runs without cost and still aggregates the rest', () => {
+      const parent = createRun({ id: 'parent', status: 'running' });
+      const subRuns = [
+        createRun({ id: 'sub-impl-1', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(100, 50, 0.02, 'opus-4.6') }),
+        createRun({ id: 'sub-impl-2', parentRunId: 'parent', stage: 'implement', status: 'finished' }),
+        createRun({ id: 'sub-impl-3', parentRunId: 'parent', stage: 'implement', status: 'finished', metadata: costMeta(200, 100, 0.03, 'opus-4.6') }),
+      ];
+      const todos = [
+        { title: 'Step 1', description: 'd', status: 'completed' as const },
+        { title: 'Step 2', description: 'd', status: 'completed' as const },
+        { title: 'Step 3', description: 'd', status: 'completed' as const },
+      ];
+
+      renderHistory({
+        agentRuns: [parent, ...subRuns],
+        lockedByRunId: 'parent',
+        expandedRunId: 'parent',
+        implementationTodos: todos,
+      });
+
+      const implCost = costBadgeCalls.find((c: unknown) => {
+        const obj = c as Record<string, unknown>;
+        return obj.inputTokens === 300 && obj.outputTokens === 150;
+      });
+      expect(implCost).toBeDefined();
+      expect((implCost as Record<string, unknown>).totalCostUsd).toBeCloseTo(0.05);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../../lib/utils';
-import type { AgentRun, RunCostData } from '../../../types';
+import type { AgentRun, RunCostData, ModelCostData } from '../../../types';
 import type { RunEvent, ImplementationTodoStatus } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
 import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
@@ -14,11 +14,9 @@ function getWorkflowLabel(run: AgentRun): string {
   return mode === 'auto_pilot' ? 'Auto-Pilot' : 'Multi-Stage';
 }
 
-/** For multi-stage parent runs, sum sub-run costs so the badge matches
- *  the backend aggregate (which excludes the parent). */
-function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
-  if (subRuns.length === 0) return getRunCost(run);
-
+/** Aggregate cost data from multiple runs, deriving totalCostUsd from
+ *  the per-model sums so the two can never diverge. */
+function aggregateRunCosts(runs: AgentRun[]): RunCostData | null {
   let total = 0;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -26,9 +24,9 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
   let cacheWrite = 0;
   let anyEstimated = false;
   let found = false;
-  const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
+  const mergedModels: Record<string, ModelCostData> = {};
 
-  for (const sr of subRuns) {
+  for (const sr of runs) {
     const c = getRunCost(sr);
     if (!c) continue;
     found = true;
@@ -41,8 +39,6 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
 
     const models = c.modelUsage ?? {};
     if (Object.keys(models).length === 0) {
-      // Legacy data without a per-model breakdown — attribute to "other"
-      // so the model sum stays consistent with the total.
       if (c.totalCostUsd > 0 || c.inputTokens > 0 || c.outputTokens > 0
           || c.cacheReadTokens > 0 || c.cacheCreationTokens > 0) {
         const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
@@ -66,7 +62,6 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
 
   if (!found) return null;
 
-  // Derive totalCostUsd from model sum — single source of truth.
   const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
 
   return {
@@ -78,6 +73,13 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
     modelUsage: mergedModels,
     isEstimated: anyEstimated,
   };
+}
+
+/** For multi-stage parent runs, sum sub-run costs so the badge matches
+ *  the backend aggregate (which excludes the parent). */
+function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostData | null {
+  if (subRuns.length === 0) return getRunCost(run);
+  return aggregateRunCosts(subRuns);
 }
 
 export interface RunsHistoryProps {
@@ -208,7 +210,10 @@ function CurrentRunSection({
             )}
 
             {implementationTodos && implementationTodos.length > 0 && (
-              <ImplementationChecklist todos={implementationTodos} />
+              <ImplementationChecklist
+                todos={implementationTodos}
+                implementSubRuns={subRuns.filter(r => r.stage === 'implement')}
+              />
             )}
             
             {/* Logs */}
@@ -374,10 +379,7 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
             const allFinished = row.runs.every(r => r.status === 'finished');
             const groupStatus = anyRunning ? 'running' : anyError ? 'error' : allFinished ? 'finished' : 'pending';
 
-            const totalCost = row.runs.reduce((sum, r) => {
-              const c = getRunCost(r);
-              return sum + (c?.totalCostUsd ?? 0);
-            }, 0);
+            const groupCost = aggregateRunCosts(row.runs);
             const totalDuration = row.runs.reduce((sum, r) => {
               if (r.endedAt) {
                 return sum + (new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) / 1000;
@@ -412,9 +414,7 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                   {groupStatus}
                 </span>
                 <span className="ml-auto flex items-center gap-1.5">
-                  {totalCost > 0 && (
-                    <CostBadge cost={{ totalCostUsd: totalCost, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, modelUsage: {}, isEstimated: false }} />
-                  )}
+                  <CostBadge cost={groupCost} />
                   {totalDuration > 0 && (
                     <span className="text-board-text-muted">
                       {Math.round(totalDuration)}s
@@ -559,7 +559,10 @@ function ExpandedRunDetails({
       )}
 
       {savedTodos.length > 0 && (
-        <ImplementationChecklist todos={savedTodos} />
+        <ImplementationChecklist
+          todos={savedTodos}
+          implementSubRuns={subRuns.filter(r => r.stage === 'implement')}
+        />
       )}
       
       {/* Summary */}
