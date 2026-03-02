@@ -2,6 +2,58 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.38] - 2026-03-02
+
+Notification UX overhaul with native OS banner sounds and in-app toast notifications, multi-todo implementation cost aggregation with per-todo cost badges, nested implementation checklist inside the expandable stage row, and context-aware safety commit notices with three distinct visual variants.
+
+### New Features
+
+- In-app toast notifications via sonner — Review and Blocked ticket transitions show a toast in the top-right corner with a "View" action to open the ticket, respecting the existing notifications toggle in settings
+- Per-todo cost badges in ImplementationChecklist — each completed or failed todo now displays its individual cost, matched to its implement sub-run by sorted start time order
+
+### Improvements
+
+- Native OS notification banners now pop up with sound (like Slack) — added `.sound("default")` to the Tauri notification builder so macOS delivers banners instead of silently dropping them into notification center
+- `ticketTitle` added to the ticket-moved event payload so toasts and future UI can display the ticket name
+- Multi-todo implementation cost aggregation — the grouped "Implementation (X/Y)" stage row now aggregates all RunCostData fields (tokens, cache counts, per-model breakdown, isEstimated) instead of only summing totalCostUsd with zeros for everything else
+- Extracted reusable `aggregateRunCosts` helper from `getParentRunDisplayCost` for consistent cost rollup across the UI
+- Implementation checklist nested inside the expandable stage row — the stage row shows a progress bar inline and is expandable to reveal individual todos with status icons, cost badges, and expandable descriptions
+- Aligned stage row columns across normal and implementation stages — consistent fixed-width name, status, flex spacer, cost, duration, and arrow columns so all rows line up
+- Safety commit notice rewritten with three distinct visual variants: blue (info) for non-detour safety commits with branch name, green (success) for clean detour merges, and amber (warning) only when manual merge action is required
+- Branch name added to safety_commit metadata in orchestrate.rs so the UI knows which branch the auto-saved commit landed on
+
+### Bug Fixes
+
+- Fixed native macOS notifications delivered silently to notification center without popping up as banners because no sound was set
+- Fixed grouped implementation cost badge showing "0 tokens" in the tooltip despite each sub-run having correct data — synthetic RunCostData was constructed with inputTokens: 0, outputTokens: 0, and empty modelUsage
+- Fixed safety commit notice using alarming amber/warning styling and vague language for all cases, even when no work was lost and no action was needed
+- Fixed 6 pre-existing stale test assertions in RunsHistory and RunDetailsPanel that still expected the old "Changes auto-saved" SafetyCommitNotice text
+
+### Testing
+
+- Added useNotificationToasts hook tests (249 lines) covering toast display for Review/Blocked columns, notification toggle respect, and event listener cleanup
+- Added 11 new cost aggregation tests: legacy "other" bucket, isEstimated propagation, cache tokens, mixed runs, multi-model merge, and no-cost runs
+- Added per-todo cost badge tests: completed, pending, failed, no sub-runs, no cost, sort order, more todos than sub-runs, and empty array
+- Updated RunsHistory and RunDetailsPanel test assertions to match the nested implementation checklist layout
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.37, here is a summary of the major features introduced in recent releases:
+
+**beta.37 — Implementation Todo Workflow & Clarification Rewrite**
+Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow that lets users answer agent questions inline and have the spec automatically rewritten.
+
+**beta.36 — Smart Detour Merge**
+Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination.
+
+**beta.35 — Detour Branch Worktree & UI Consistency**
+Detour branch worktree for active branch conflicts — the agent creates a temporary detour branch and works in an isolated worktree instead of failing when the user has the target branch checked out. UI consistency improvements across 11 files with Button/Input component standardization, WAI-ARIA tabs accessibility, and unsaved-changes guards on modals.
+
+**beta.34 — Full-Page Ticket Detail View**
+Full-page ticket detail view replacing the modal overlay with tabbed content (Overview, Task, Agent, Activity), a persistent sidebar with metadata and quick actions, and keyboard navigation with Alt+Arrow prev/next and Escape to go back.
+
+---
+
 ## [0.1.0-beta.37] - 2026-03-01
 
 Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow that lets users answer agent questions inline and have the spec automatically rewritten.

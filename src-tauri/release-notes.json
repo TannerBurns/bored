@@ -1,5 +1,67 @@
 [
   {
+    "version": "0.1.0-beta.38",
+    "published_at": "2026-03-02",
+    "summary": "Notification UX overhaul with native OS banner sounds and in-app toast notifications, multi-todo implementation cost aggregation with per-todo cost badges, nested implementation checklist, and context-aware safety commit notices",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "In-app toast notifications via sonner — Review and Blocked ticket transitions show a toast with a \"View\" action to open the ticket, respecting the notifications toggle in settings",
+          "Per-todo cost badges in ImplementationChecklist — each completed or failed todo displays its individual cost, matched to its implement sub-run by sorted start time order"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Native OS notification banners now pop up with sound — added .sound(\"default\") so macOS delivers banners instead of silently dropping them into notification center",
+          "ticketTitle added to the ticket-moved event payload so toasts display the ticket name",
+          "Multi-todo implementation cost aggregation — the grouped \"Implementation (X/Y)\" row now aggregates all RunCostData fields (tokens, cache counts, per-model breakdown) instead of only summing totalCostUsd",
+          "Extracted reusable aggregateRunCosts helper for consistent cost rollup across the UI",
+          "Implementation checklist nested inside the expandable stage row with inline progress bar, status icons, cost badges, and expandable descriptions",
+          "Aligned stage row columns across normal and implementation stages for consistent layout",
+          "Safety commit notice rewritten with three visual variants: blue (info) for non-detour commits, green (success) for clean detour merges, amber (warning) only when manual action is required",
+          "Branch name added to safety_commit metadata so the UI shows which branch the auto-saved commit landed on"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed native macOS notifications delivered silently without banners because no sound was set",
+          "Fixed grouped implementation cost badge showing \"0 tokens\" despite sub-runs having correct data — synthetic RunCostData was constructed with zeros",
+          "Fixed safety commit notice using alarming amber/warning styling for all cases, even when no work was lost",
+          "Fixed 6 pre-existing stale test assertions in RunsHistory and RunDetailsPanel"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added useNotificationToasts hook tests (249 lines) covering toast display, notification toggle, and event listener cleanup",
+          "Added 11 cost aggregation tests and per-todo cost badge tests covering all states and edge cases",
+          "Updated RunsHistory and RunDetailsPanel test assertions to match the nested implementation checklist layout"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.37",
+        "highlight": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline"
+      },
+      {
+        "version": "0.1.0-beta.36",
+        "highlight": "Smart detour merge that updates the user's working tree in-place when the target branch is checked out, with outcome-specific ticket notifications and TOCTOU data-loss race elimination"
+      },
+      {
+        "version": "0.1.0-beta.35",
+        "highlight": "Detour branch worktree for active branch conflicts with UI consistency improvements across modals, accessibility, and component standardization"
+      },
+      {
+        "version": "0.1.0-beta.34",
+        "highlight": "Full-page ticket detail view with tabbed content (Overview, Task, Agent, Activity), persistent sidebar, and keyboard navigation replacing the modal overlay"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.37",
     "published_at": "2026-03-01",
     "summary": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline",
