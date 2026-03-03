@@ -200,12 +200,43 @@ impl WorkflowOrchestrator {
         let provider = self.provider.clone();
         let runner = self.stage_runner.clone();
         let start_time = std::time::Instant::now();
-        let result = tokio::task::spawn_blocking(move || {
+        let spawn_result = tokio::task::spawn_blocking(move || {
             runner.run(&*provider, &config, Some(on_log), Some(on_spawn))
         })
-        .await
-        .map_err(|e| format!("Stage task failed: {}", e))?
-        .map_err(|e| format!("Stage execution failed: {}", e))?;
+        .await;
+
+        let result = match spawn_result {
+            Ok(Ok(r)) => r,
+            err => {
+                let duration_secs = start_time.elapsed().as_secs_f64();
+                let err_msg = match err {
+                    Err(e) => format!("Stage task failed: {}", e),
+                    Ok(Err(e)) => format!("Stage execution failed: {}", e),
+                    Ok(Ok(_)) => unreachable!(),
+                };
+                let _ = self.db.update_run_status(
+                    &sub_run.id, RunStatus::Error, None, Some(&err_msg),
+                );
+                let _ = self.db.set_run_metadata(
+                    &sub_run.id,
+                    &serde_json::json!({ "duration_secs": duration_secs }),
+                );
+                {
+                    let mut handles = self
+                        .cancel_handles
+                        .lock()
+                        .expect("cancel handles mutex poisoned");
+                    handles.remove(&sub_run_id_for_cleanup);
+                }
+                self.emit_stage_event(
+                    stage,
+                    RunStatus::Error.as_str(),
+                    Some(sub_run.id.clone()),
+                    Some(duration_secs),
+                );
+                return Err(err_msg);
+            }
+        };
 
         // Clean up cancel handles
         {

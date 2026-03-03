@@ -105,11 +105,11 @@ impl Database {
                 r#"INSERT INTO ticket_git_stats (id, ticket_id, commits, prs_created, lines_added, lines_removed, files_changed, collected_at)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                    ON CONFLICT(ticket_id) DO UPDATE SET
-                       commits = ?3,
-                       prs_created = ?4,
-                       lines_added = ?5,
-                       lines_removed = ?6,
-                       files_changed = ?7,
+                       commits = MAX(ticket_git_stats.commits, ?3),
+                       prs_created = MAX(ticket_git_stats.prs_created, ?4),
+                       lines_added = MAX(ticket_git_stats.lines_added, ?5),
+                       lines_removed = MAX(ticket_git_stats.lines_removed, ?6),
+                       files_changed = MAX(ticket_git_stats.files_changed, ?7),
                        collected_at = ?8"#,
                 rusqlite::params![
                     id,
@@ -146,18 +146,15 @@ impl Database {
         })
     }
 
-    /// Backfill git stats for all tickets that have a branch_name.
-    /// Returns the number of tickets backfilled.
+    /// Refresh git stats for all tickets that have a branch_name.
+    /// Returns the number of tickets updated.
     pub fn backfill_git_stats(&self) -> Result<u32, DbError> {
         let tickets: Vec<(String, String, Option<String>)> = self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT t.id, t.branch_name, p.path
                    FROM tickets t
                    JOIN projects p ON t.project_id = p.id
-                   WHERE t.branch_name IS NOT NULL
-                   AND NOT EXISTS (
-                       SELECT 1 FROM ticket_git_stats g WHERE g.ticket_id = t.id
-                   )"#,
+                   WHERE t.branch_name IS NOT NULL"#,
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((
@@ -183,6 +180,10 @@ impl Database {
                 Err(_) => continue,
             };
 
+            if !branch_ref_exists(&working_dir, &branch_name) {
+                continue;
+            }
+
             let stats = collect_git_stats_for_ticket(&working_dir, &branch_name, &default_branch);
             if self.upsert_git_stats(&ticket_id, &stats).is_ok() {
                 count += 1;
@@ -191,6 +192,16 @@ impl Database {
 
         Ok(count)
     }
+}
+
+fn branch_ref_exists(working_dir: &str, branch: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--verify", &format!("refs/heads/{}", branch)])
+        .current_dir(working_dir)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// Find the worktree path for a branch, falling back to the project path.
@@ -355,6 +366,85 @@ mod tests {
             .unwrap();
 
         assert_eq!(prs, 1);
+    }
+
+    #[test]
+    fn upsert_preserves_pr_count_when_stats_pass_zero() {
+        let db = create_test_db();
+        let ticket = create_ticket(&db);
+
+        db.upsert_git_stats(&ticket.id, &make_stats(1, 0, 10, 5, 2))
+            .unwrap();
+        db.increment_pr_count(&ticket.id).unwrap();
+        db.increment_pr_count(&ticket.id).unwrap();
+
+        db.upsert_git_stats(&ticket.id, &make_stats(3, 0, 30, 10, 5))
+            .unwrap();
+
+        let (commits, prs): (i64, i64) = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT commits, prs_created FROM ticket_git_stats WHERE ticket_id = ?",
+                    [&ticket.id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(crate::db::DbError::Sqlite)
+            })
+            .unwrap();
+
+        assert_eq!(commits, 3, "commits should be updated");
+        assert_eq!(prs, 2, "prs_created should be preserved, not reset to 0");
+    }
+
+    #[test]
+    fn upsert_zero_stats_does_not_overwrite_existing_data() {
+        let db = create_test_db();
+        let ticket = create_ticket(&db);
+
+        db.upsert_git_stats(&ticket.id, &make_stats(5, 0, 100, 40, 8))
+            .unwrap();
+        db.increment_pr_count(&ticket.id).unwrap();
+
+        // Simulate what happens when a deleted branch produces all-zero stats.
+        // The backfill caller now skips deleted branches, but the upsert itself
+        // should also guard against zeroing out real data.
+        db.upsert_git_stats(&ticket.id, &make_stats(0, 0, 0, 0, 0))
+            .unwrap();
+
+        let row: (i64, i64, i64, i64, i64) = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT commits, prs_created, lines_added, lines_removed, files_changed FROM ticket_git_stats WHERE ticket_id = ?",
+                    [&ticket.id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                ).map_err(crate::db::DbError::Sqlite)
+            })
+            .unwrap();
+
+        assert_eq!(row, (5, 1, 100, 40, 8), "zero upsert must not erase existing stats");
+    }
+
+    #[test]
+    fn upsert_higher_stats_still_updates() {
+        let db = create_test_db();
+        let ticket = create_ticket(&db);
+
+        db.upsert_git_stats(&ticket.id, &make_stats(2, 0, 20, 5, 3))
+            .unwrap();
+        db.upsert_git_stats(&ticket.id, &make_stats(7, 0, 80, 25, 10))
+            .unwrap();
+
+        let row: (i64, i64, i64, i64) = db
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT commits, lines_added, lines_removed, files_changed FROM ticket_git_stats WHERE ticket_id = ?",
+                    [&ticket.id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                ).map_err(crate::db::DbError::Sqlite)
+            })
+            .unwrap();
+
+        assert_eq!(row, (7, 80, 25, 10), "higher values should be accepted");
     }
 
     #[test]
