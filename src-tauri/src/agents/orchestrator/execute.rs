@@ -127,7 +127,7 @@ impl WorkflowOrchestrator {
 
         if has_pending {
             tracing::info!(
-                "Ticket {} has more pending tasks — moving back to Ready",
+                "Ticket {} has more pending tasks, moving back to Ready",
                 self.ticket.id
             );
             self.move_ticket_to_column("Ready");

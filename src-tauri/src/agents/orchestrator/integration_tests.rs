@@ -1820,7 +1820,6 @@ fn finish_workflow_moves_to_ready_when_pending_tasks_remain() {
     })
     .unwrap();
 
-    // Start the first task (leaves the second still pending)
     let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
     db.start_task(&task1.id, &run_id).unwrap();
 
