@@ -14,6 +14,7 @@ use crate::agents::orchestrator::{OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::spawner::CancelHandle;
 use crate::agents::worktree::{self, WorktreeInfo};
 use crate::agents::AgentProvider;
+use crate::db::git_stats::collect_git_stats_for_ticket;
 use crate::db::models::{RunStatus, Task};
 use crate::db::{AuthorType, CreateComment, Database, Ticket};
 
@@ -280,6 +281,22 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 meta["safety_commit"] = sc;
             }
             let _ = db.set_run_metadata(&run_id, &meta);
+        }
+    }
+
+    // Collect git stats after detour merge so the ticket branch reflects all changes
+    if let Some(ref branch) = ticket.branch_name {
+        let repo_dir = main_repo_path.to_string_lossy().to_string();
+        match crate::commands::next_steps::get_default_branch(&repo_dir) {
+            Ok(default_branch) => {
+                let stats = collect_git_stats_for_ticket(&repo_dir, branch, &default_branch);
+                if let Err(e) = db.upsert_git_stats(&ticket_id, &stats) {
+                    tracing::warn!("Failed to upsert git stats for ticket {}: {}", ticket_id, e);
+                }
+            }
+            Err(e) => {
+                tracing::debug!("Could not determine default branch for git stats: {}", e);
+            }
         }
     }
 

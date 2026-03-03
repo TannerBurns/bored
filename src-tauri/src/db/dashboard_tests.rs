@@ -402,3 +402,134 @@ fn agent_breakdown_tracks_success_vs_error() {
     assert_eq!(cursor.run_count, 2);
     assert_eq!(cursor.success_count, 1);
 }
+
+// ── avg_run_duration from metadata ────────────────────────
+
+#[test]
+fn summary_avg_duration_prefers_metadata_duration_secs() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    let run = create_finished_run(&db, &ticket.id, "cursor", None);
+    db.set_run_metadata(
+        &run.id,
+        &serde_json::json!({ "duration_secs": 42.5 }),
+    )
+    .unwrap();
+
+    let summary = db.get_dashboard_summary(None).unwrap();
+    assert!(
+        (summary.avg_run_duration_secs - 42.5).abs() < 0.01,
+        "should use duration_secs from metadata; got {}",
+        summary.avg_run_duration_secs
+    );
+}
+
+#[test]
+fn summary_avg_duration_falls_back_to_timestamps_without_metadata() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    create_finished_run(&db, &ticket.id, "cursor", None);
+
+    let summary = db.get_dashboard_summary(None).unwrap();
+    assert!(
+        summary.avg_run_duration_secs >= 0.0,
+        "should fall back to timestamp-based duration; got {}",
+        summary.avg_run_duration_secs
+    );
+}
+
+#[test]
+fn summary_avg_duration_mixed_metadata_and_timestamps() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    let run_with_meta = create_finished_run(&db, &ticket.id, "cursor", None);
+    db.set_run_metadata(
+        &run_with_meta.id,
+        &serde_json::json!({ "duration_secs": 100.0 }),
+    )
+    .unwrap();
+
+    create_finished_run(&db, &ticket.id, "cursor", None);
+
+    let summary = db.get_dashboard_summary(None).unwrap();
+    assert!(
+        summary.avg_run_duration_secs > 10.0,
+        "mixed avg should reflect the metadata run; got {}",
+        summary.avg_run_duration_secs
+    );
+}
+
+#[test]
+fn agent_breakdown_avg_duration_prefers_metadata_duration_secs() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    let run = create_finished_run(&db, &ticket.id, "claude", None);
+    db.set_run_metadata(
+        &run.id,
+        &serde_json::json!({ "duration_secs": 60.0 }),
+    )
+    .unwrap();
+
+    let breakdown = db.get_agent_breakdown(None).unwrap();
+    let claude = breakdown.iter().find(|e| e.agent_type == "claude").unwrap();
+    assert!(
+        (claude.avg_duration_secs - 60.0).abs() < 0.01,
+        "agent breakdown should use metadata duration; got {}",
+        claude.avg_duration_secs
+    );
+}
+
+#[test]
+fn agent_breakdown_avg_duration_falls_back_without_metadata() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    create_finished_run(&db, &ticket.id, "claude", None);
+
+    let breakdown = db.get_agent_breakdown(None).unwrap();
+    let claude = breakdown.iter().find(|e| e.agent_type == "claude").unwrap();
+    assert!(
+        claude.avg_duration_secs >= 0.0,
+        "should fall back to timestamp duration; got {}",
+        claude.avg_duration_secs
+    );
+}
+
+#[test]
+fn summary_avg_duration_with_cost_and_duration_metadata() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ticket = create_ticket(&db, &board.id, &columns[0].id);
+
+    let run = create_finished_run(&db, &ticket.id, "cursor", None);
+    let mut metadata = make_cost_metadata(100, 50, 0, 0.05, serde_json::json!({}));
+    metadata["duration_secs"] = serde_json::json!(85.3);
+    db.set_run_metadata(&run.id, &metadata).unwrap();
+
+    let summary = db.get_dashboard_summary(None).unwrap();
+    assert!(
+        (summary.avg_run_duration_secs - 85.3).abs() < 0.01,
+        "should use duration_secs even when cost metadata is present; got {}",
+        summary.avg_run_duration_secs
+    );
+    assert!(
+        (summary.total_cost_usd - 0.05).abs() < 0.001,
+        "cost should still be captured correctly; got {}",
+        summary.total_cost_usd
+    );
+}

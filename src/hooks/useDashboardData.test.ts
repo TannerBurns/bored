@@ -156,4 +156,45 @@ describe('useDashboardData', () => {
 
     expect(mockGetDashboardTrends).toHaveBeenLastCalledWith(90);
   });
+
+  it('awaits backfillGitStats before fetching dashboard data', async () => {
+    const callOrder: string[] = [];
+    mockBackfillGitStats.mockImplementation(
+      () => new Promise<number>((resolve) => {
+        callOrder.push('backfill');
+        resolve(0);
+      }),
+    );
+    mockGetDashboardSummary.mockImplementation(
+      () => new Promise((resolve) => {
+        callOrder.push('summary');
+        resolve(makeSummary());
+      }),
+    );
+
+    const { result } = renderHook(() => useDashboardData());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const backfillIdx = callOrder.indexOf('backfill');
+    const summaryIdx = callOrder.indexOf('summary');
+    expect(backfillIdx).toBeGreaterThanOrEqual(0);
+    expect(summaryIdx).toBeGreaterThanOrEqual(0);
+    expect(backfillIdx).toBeLessThan(summaryIdx);
+  });
+
+  it('still loads data when backfillGitStats rejects', async () => {
+    mockBackfillGitStats.mockRejectedValue(new Error('git error'));
+
+    const { result } = renderHook(() => useDashboardData());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.summary).toEqual(makeSummary());
+    expect(result.current.error).toBeNull();
+  });
 });

@@ -135,9 +135,12 @@ impl Database {
                             COUNT(*),
                             SUM(CASE WHEN r.status = 'finished' THEN 1 ELSE 0 END),
                             COALESCE(AVG(
-                                CASE WHEN r.ended_at IS NOT NULL AND r.started_at IS NOT NULL
-                                THEN (julianday(r.ended_at) - julianday(r.started_at)) * 86400
-                                END
+                                COALESCE(
+                                    json_extract(r.metadata_json, '$.duration_secs'),
+                                    CASE WHEN r.ended_at IS NOT NULL AND r.started_at IS NOT NULL
+                                    THEN (julianday(r.ended_at) - julianday(r.started_at)) * 86400
+                                    END
+                                )
                             ), 0)
                            FROM agent_runs r
                            WHERE r.status IN ('finished', 'error', 'aborted')
@@ -443,9 +446,12 @@ impl Database {
                     COUNT(*) as run_count,
                     SUM(CASE WHEN r.status = 'finished' THEN 1 ELSE 0 END) as success_count,
                     COALESCE(AVG(
-                        CASE WHEN r.ended_at IS NOT NULL AND r.started_at IS NOT NULL
-                        THEN (julianday(r.ended_at) - julianday(r.started_at)) * 86400
-                        END
+                        COALESCE(
+                            json_extract(r.metadata_json, '$.duration_secs'),
+                            CASE WHEN r.ended_at IS NOT NULL AND r.started_at IS NOT NULL
+                            THEN (julianday(r.ended_at) - julianday(r.started_at)) * 86400
+                            END
+                        )
                     ), 0) as avg_duration
                    FROM agent_runs r
                    WHERE r.status IN ('finished', 'error', 'aborted')
