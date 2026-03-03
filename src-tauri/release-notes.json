@@ -1,5 +1,52 @@
 [
   {
+    "version": "0.1.0-beta.41",
+    "published_at": "2026-03-02",
+    "summary": "Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed redundant in-app toast notifications in favor of native OS notifications.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Full run tracking for all CLI agents — planner, brainstorm, and validation chat agents now create run records with cost extraction and metadata persistence, appearing in the Agents > Runs tab and dashboard cost/usage stats",
+          "Schema migration v17 removes FK constraint on agent_runs.ticket_id so runs can reference specs in addition to tickets",
+          "Stage-based run labels — Runs tab shows Planner, Brainstorm, Validation, and Diagnostic labels for non-ticket runs with context resolved via LEFT JOIN across tickets and specs"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Removed in-app toast notifications (sonner) in favor of native OS notifications — ticket status changes to Review/Blocked now trigger only OS-level notifications, eliminating the duplicate notification path",
+          "Planner creates a parent run with sub-runs per phase and cost aggregation on the parent, matching the hierarchical run pattern used by the workflow orchestrator"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed missing cost tracking for clarification-gen and spec-rewrite stages — both now call extract_cost_with_overrides and persist timing and cost metadata, matching all other stages",
+          "Fixed planner, brainstorm, and validation chat agent invocations invisible in the Runs tab and excluded from dashboard cost/usage stats"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.40",
+        "highlight": "Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run"
+      },
+      {
+        "version": "0.1.0-beta.39",
+        "highlight": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps"
+      },
+      {
+        "version": "0.1.0-beta.38",
+        "highlight": "Native OS notification banners with sound, in-app toast notifications via sonner, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants"
+      },
+      {
+        "version": "0.1.0-beta.37",
+        "highlight": "Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.40",
     "published_at": "2026-03-02",
     "summary": "Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run in the database before spawning the spec-rewrite child run",
