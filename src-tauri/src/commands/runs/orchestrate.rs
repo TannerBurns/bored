@@ -172,7 +172,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         handles.remove(&run_id);
     }
 
-    handle_workflow_result(&db, &window, &run_id, &ticket_id, &task, result, duration_secs);
+    handle_workflow_result(&db, &window, &run_id, &task, result, duration_secs);
 
     if let Err(e) = db.unlock_ticket(&ticket_id) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
@@ -315,7 +315,6 @@ fn handle_workflow_result(
     db: &Database,
     window: &Window,
     run_id: &str,
-    ticket_id: &str,
     task: &Option<Task>,
     result: Result<(), String>,
     duration_secs: f64,
@@ -332,20 +331,6 @@ fn handle_workflow_result(
             if let Some(ref t) = task {
                 if let Err(e) = db.complete_task(&t.id) {
                     tracing::warn!("Failed to mark task {} as completed: {}", t.id, e);
-                }
-            }
-
-            if task.is_some() {
-                match db.has_pending_tasks(ticket_id) {
-                    Ok(true) => {
-                        if let Err(e) = crate::commands::tasks::move_to_ready_if_completed(db, ticket_id, window.app_handle()) {
-                            tracing::warn!("Failed to move ticket {} back to Ready: {}", ticket_id, e);
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        tracing::warn!("Failed to check pending tasks for ticket {}: {}", ticket_id, e);
-                    }
                 }
             }
 

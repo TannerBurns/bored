@@ -1739,3 +1739,97 @@ async fn session_id_cleared_on_retry_attempts() {
         "retry attempt should NOT receive session_id (cleared for safety)"
     );
 }
+
+// -- finish_workflow routing tests --
+
+fn get_ticket_column_name(db: &Database, ticket_id: &str) -> String {
+    let ticket = db.get_ticket(ticket_id).unwrap();
+    let columns = db.get_columns(&ticket.board_id).unwrap();
+    columns
+        .iter()
+        .find(|c| c.id == ticket.column_id)
+        .unwrap()
+        .name
+        .clone()
+}
+
+fn move_ticket_to_in_progress(db: &Database, ticket: &Ticket) {
+    let columns = db.get_columns(&ticket.board_id).unwrap();
+    let in_progress = columns
+        .iter()
+        .find(|c| c.name == "In Progress")
+        .unwrap();
+    db.move_ticket(&ticket.id, &in_progress.id).unwrap();
+}
+
+#[test]
+fn finish_workflow_moves_to_review_when_no_task() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    assert!(config.task.is_none());
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("test");
+
+    assert_eq!(get_ticket_column_name(&db, &ticket.id), "Review");
+}
+
+#[test]
+fn finish_workflow_moves_to_review_when_no_pending_tasks() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    // seed_ticket auto-creates one task; use it as the current task
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task);
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("test");
+
+    assert_eq!(get_ticket_column_name(&db, &ticket.id), "Review");
+}
+
+#[test]
+fn finish_workflow_moves_to_ready_when_pending_tasks_remain() {
+    use crate::db::models::{CreateTask, TaskType};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    // seed_ticket auto-creates task 1; add a second pending task
+    db.create_task(&CreateTask {
+        ticket_id: ticket.id.clone(),
+        task_type: TaskType::Custom,
+        title: Some("Second task".to_string()),
+        content: None,
+    })
+    .unwrap();
+
+    let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task1.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task1);
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("test");
+
+    assert_eq!(get_ticket_column_name(&db, &ticket.id), "Ready");
+}
