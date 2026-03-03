@@ -2,6 +2,44 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.41] - 2026-03-02
+
+Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed redundant in-app toast notifications in favor of native OS notifications.
+
+### New Features
+
+- Full run tracking for all CLI agents — planner, brainstorm, and validation chat agents now create run records with cost extraction and metadata persistence, appearing in the Agents > Runs tab and dashboard cost/usage stats alongside workflow and diagnostic runs
+- Schema migration v17 removes the FK constraint on `agent_runs.ticket_id` so runs can reference specs in addition to tickets
+- Stage-based run labels — Runs tab shows Planner, Brainstorm, Validation, and Diagnostic labels for non-ticket runs with context resolved via LEFT JOIN across tickets and specs
+
+### Improvements
+
+- Removed in-app toast notifications (sonner) in favor of native OS notifications — ticket status changes to Review/Blocked now trigger only OS-level notifications via `tauri-plugin-notification`, eliminating the duplicate notification path
+- Planner creates a parent run with sub-runs per phase and cost aggregation on the parent, matching the hierarchical run pattern used by the workflow orchestrator
+
+### Bug Fixes
+
+- Fixed missing cost tracking for clarification-gen and spec-rewrite stages — both now call `extract_cost_with_overrides`, persist timing and cost metadata, and correctly handle local provider overrides, matching all other stages
+- Fixed planner, brainstorm, and validation chat agent invocations invisible in the Runs tab and excluded from dashboard cost/usage stats
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.40, here is a summary of the major features introduced in recent releases:
+
+**beta.40 — FK Constraint Fix for Clarification Rewrite**
+Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run.
+
+**beta.39 — Session Tracking Across Implementation Todos**
+Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps.
+
+**beta.38 — Notification Banners, In-App Toasts & Todo Cost Badges**
+Native OS notification banners with sound, in-app toast notifications via sonner for Review/Blocked transitions, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants.
+
+**beta.37 — Implementation Todo Workflow & Clarification Rewrite**
+Implementation todo workflow that decomposes plans into focused, independently implementable todos with live UI progress tracking, and a clarification rewrite-and-resolve flow for answering agent questions inline.
+
+---
+
 ## [0.1.0-beta.40] - 2026-03-02
 
 Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run in the database before spawning the spec-rewrite child run, preventing orphaned runs.
