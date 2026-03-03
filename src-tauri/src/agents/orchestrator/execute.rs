@@ -118,8 +118,23 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
-    fn finish_workflow(&self, mode_label: &str) {
-        self.move_ticket_to_column("Review");
+    pub(super) fn finish_workflow(&self, mode_label: &str) {
+        let has_pending = self.task.is_some()
+            && self
+                .db
+                .has_pending_tasks(&self.ticket.id)
+                .unwrap_or(false);
+
+        if has_pending {
+            tracing::info!(
+                "Ticket {} has more pending tasks — moving back to Ready",
+                self.ticket.id
+            );
+            self.move_ticket_to_column("Ready");
+        } else {
+            self.move_ticket_to_column("Review");
+        }
+
         self.add_workflow_summary_comment();
         tracing::info!(
             "{} workflow completed for ticket {}",

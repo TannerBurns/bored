@@ -315,7 +315,7 @@ fn handle_workflow_result(
     db: &Database,
     window: &Window,
     run_id: &str,
-    ticket_id: &str,
+    _ticket_id: &str,
     task: &Option<Task>,
     result: Result<(), String>,
     duration_secs: f64,
@@ -332,20 +332,6 @@ fn handle_workflow_result(
             if let Some(ref t) = task {
                 if let Err(e) = db.complete_task(&t.id) {
                     tracing::warn!("Failed to mark task {} as completed: {}", t.id, e);
-                }
-            }
-
-            if task.is_some() {
-                match db.has_pending_tasks(ticket_id) {
-                    Ok(true) => {
-                        if let Err(e) = crate::commands::tasks::move_to_ready_if_completed(db, ticket_id, window.app_handle()) {
-                            tracing::warn!("Failed to move ticket {} back to Ready: {}", ticket_id, e);
-                        }
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        tracing::warn!("Failed to check pending tasks for ticket {}: {}", ticket_id, e);
-                    }
                 }
             }
 
