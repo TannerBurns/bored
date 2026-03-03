@@ -172,7 +172,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         handles.remove(&run_id);
     }
 
-    handle_workflow_result(&db, &window, &run_id, &ticket_id, &task, result, duration_secs);
+    handle_workflow_result(&db, &window, &run_id, &task, result, duration_secs);
 
     if let Err(e) = db.unlock_ticket(&ticket_id) {
         tracing::error!("Failed to unlock ticket {}: {}", ticket_id, e);
@@ -315,7 +315,6 @@ fn handle_workflow_result(
     db: &Database,
     window: &Window,
     run_id: &str,
-    _ticket_id: &str,
     task: &Option<Task>,
     result: Result<(), String>,
     duration_secs: f64,
