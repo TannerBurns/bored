@@ -132,7 +132,7 @@ pub async fn send_chat_message(
         repo_path: PathBuf::from(&project.path),
         model: chat.model.clone(),
         agent_config,
-        timeout_secs,
+        timeout_secs: Some(timeout_secs.unwrap_or(600)),
     };
 
     let agent = ChatAgent::new(
