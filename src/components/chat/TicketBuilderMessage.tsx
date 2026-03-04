@@ -88,7 +88,11 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
   const created = alreadyCreated || justCreated;
 
   if (!parsed) {
-    return <MarkdownViewer content={content} />;
+    return (
+      <div className="rounded-xl px-4 py-2.5 glass">
+        <MarkdownViewer content={content} />
+      </div>
+    );
   }
 
   const handleCreateTickets = async () => {

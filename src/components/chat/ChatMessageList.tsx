@@ -153,12 +153,8 @@ export function ChatMessageList({
                 )}
 
                 <div className="flex justify-start group/assistant">
-                  <div className="max-w-[85%] rounded-xl px-4 py-2.5 text-sm glass text-board-text">
-                    {renderAssistantMessage ? (
-                      renderAssistantMessage(msg)
-                    ) : isSpecBuilder ? (
-                      <SpecBuilderMessage content={msg.content} />
-                    ) : isTicketBuilder ? (
+                  {isTicketBuilder ? (
+                    <div className="max-w-[85%] text-sm text-board-text">
                       <TicketBuilderMessage
                         content={msg.content}
                         chatId={chatId}
@@ -169,12 +165,20 @@ export function ChatMessageList({
                             new Date(m.createdAt) > new Date(msg.createdAt)
                         )}
                       />
-                    ) : isReview ? (
-                      <ReviewMessage content={msg.content} metadata={msg.metadata} />
-                    ) : (
-                      <MarkdownViewer content={msg.content} />
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="max-w-[85%] rounded-xl px-4 py-2.5 text-sm glass text-board-text">
+                      {renderAssistantMessage ? (
+                        renderAssistantMessage(msg)
+                      ) : isSpecBuilder ? (
+                        <SpecBuilderMessage content={msg.content} />
+                      ) : isReview ? (
+                        <ReviewMessage content={msg.content} metadata={msg.metadata} />
+                      ) : (
+                        <MarkdownViewer content={msg.content} />
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-start pt-1.5 ml-1">
                     <CopyMarkdownButton content={msg.content} />
                   </div>
