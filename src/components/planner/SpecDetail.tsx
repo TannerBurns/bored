@@ -4,7 +4,6 @@ import { useSpecStore } from '../../stores/specStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { Button } from '../common/Button';
 import { ConfirmModal } from '../common/ConfirmModal';
-import { ConversationView } from './ConversationView';
 import { VersionsList } from './VersionsList';
 import { logger } from '../../lib/logger';
 import { cn } from '../../lib/utils';
@@ -13,11 +12,12 @@ import type { SpecWithVersion, SpecVersionStatus } from '../../types';
 interface SpecDetailProps {
   spec: SpecWithVersion;
   onClose: () => void;
+  onOpenChat?: (specId: string) => void;
 }
 
 const statusMessages: Record<string, { title: string; subtitle: string; variant?: 'info' | 'error' | 'warning' }> = {
   conversing: {
-    title: 'Brainstorming session active',
+    title: 'Spec discovery session active',
     subtitle: 'Chat with the AI to refine your requirements before exploration',
   },
   exploring: {
@@ -99,14 +99,12 @@ function ProgressIndicator({ status }: { status: SpecVersionStatus }) {
   );
 }
 
-export function SpecDetail({ spec, onClose }: SpecDetailProps) {
+export function SpecDetail({ spec, onClose, onOpenChat }: SpecDetailProps) {
   const { 
     deleteSpec, getSpec, setCurrentSpec, setStatus,
-    activeTab, setActiveTab,
   } = useSpecStore();
   const agentConfig = useSettingsStore((s) => s.agentConfigs['claude'] ?? s.getAgentConfig('claude'));
   
-  // Extract version data (or use sensible defaults if no version exists yet)
   const version = spec.latestVersion;
   const status = version?.status ?? 'conversing';
   const [isDeleting, setIsDeleting] = useState(false);
@@ -114,7 +112,6 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Refresh spec data
   const handleRefresh = async () => {
     const updated = await getSpec(spec.id);
     setCurrentSpec(updated);
@@ -153,21 +150,15 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
   };
 
   const handleRetry = async () => {
-    // Reset status to draft so we can start again
     try {
       await setStatus(spec.id, 'draft');
       await handleRefresh();
       setError(null);
-      // Now start the planner again
       await handleStartPlanner();
     } catch (err) {
       logger.error('Failed to retry', err);
       setError(String(err));
     }
-  };
-
-  const handleDeleteClick = () => {
-    setShowDeleteConfirm(true);
   };
 
   const handleDeleteConfirm = async () => {
@@ -183,23 +174,11 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
     }
   };
 
-  const isConversing = status === 'conversing';
   const canRetry = status === 'failed';
   const isProcessing = ['exploring', 'planning', 'executing'].includes(status);
 
-  const handleConversationComplete = async () => {
-    await handleRefresh();
-  };
-
-  // Primary tabs: Chat and Versions
-  const primaryTabs: { id: 'chat' | 'versions'; label: string; badge?: string | number; pulse?: boolean }[] = [
-    { id: 'chat', label: 'Chat', pulse: isConversing },
-    { id: 'versions', label: 'Versions' },
-  ];
-
   return (
     <div className="flex flex-col h-full">
-      {/* Header - simplified to only spec-level actions */}
       <div className="flex items-center justify-between p-4 border-b border-board-border glass-subtle">
         <div>
           <h2 className="text-lg font-semibold text-board-text">
@@ -213,6 +192,14 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
           </p>
         </div>
         <div className="flex gap-2">
+          {onOpenChat && (
+            <Button
+              onClick={() => onOpenChat(spec.id)}
+              variant="secondary"
+            >
+              Open Chat
+            </Button>
+          )}
           {canRetry && (
             <Button 
               onClick={handleRetry} 
@@ -223,7 +210,7 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
             </Button>
           )}
           <Button 
-            onClick={handleDeleteClick} 
+            onClick={() => setShowDeleteConfirm(true)} 
             variant="danger" 
             disabled={isDeleting || isProcessing}
           >
@@ -235,63 +222,18 @@ export function SpecDetail({ spec, onClose }: SpecDetailProps) {
         </div>
       </div>
 
-      {/* Error Message */}
       {error && (
         <div className="mx-4 mt-4 p-3 glass rounded-xl ring-1 ring-status-error/50 glow-error">
           <p className="text-sm text-status-error">{error}</p>
         </div>
       )}
 
-      {/* Progress Indicator - only show when not on chat tab */}
-      {activeTab !== 'chat' && <ProgressIndicator status={status} />}
+      <ProgressIndicator status={status} />
 
-      {/* Primary Tabs: Chat + Versions */}
-      <div className="flex border-b border-board-border px-4 gap-1">
-        {primaryTabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium transition-all duration-200 relative flex items-center gap-2 rounded-t-lg',
-              activeTab === tab.id
-                ? 'text-board-accent'
-                : 'text-board-text-muted hover:text-board-text hover:bg-board-card-hover'
-            )}
-          >
-            {tab.label}
-            {tab.pulse && (
-              <span className="inline-block w-2 h-2 bg-status-success rounded-full animate-pulse" />
-            )}
-            {tab.badge && (
-              <span className="text-xs glass-subtle px-1.5 py-0.5 rounded-full">
-                {tab.badge}
-              </span>
-            )}
-            {activeTab === tab.id && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-board-accent" />
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {/* Chat Tab */}
-        {activeTab === 'chat' && (
-          <div className="h-full p-4">
-            <ConversationView
-              spec={spec}
-              onComplete={handleConversationComplete}
-            />
-          </div>
-        )}
-
-        {/* Versions Tab */}
-        {activeTab === 'versions' && (
-          <div className="h-full p-4">
-            <VersionsList specId={spec.id} userInput={spec.userInput} onRefresh={handleRefresh} />
-          </div>
-        )}
+        <div className="h-full p-4">
+          <VersionsList specId={spec.id} userInput={spec.userInput} onRefresh={handleRefresh} />
+        </div>
       </div>
 
       <ConfirmModal

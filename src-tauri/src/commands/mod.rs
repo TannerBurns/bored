@@ -3,7 +3,7 @@ pub mod agent_settings;
 #[cfg(test)]
 mod agent_settings_tests;
 pub mod boards;
-pub mod conversations;
+pub mod chat;
 pub mod dashboard;
 mod diff_parser;
 pub mod next_steps;
@@ -13,18 +13,12 @@ pub mod runs;
 pub mod specs;
 pub mod tasks;
 pub mod tickets;
-pub mod validation;
-mod validation_fix_tasks;
-mod validation_parsing;
 pub mod workers;
 pub mod workflow_settings;
 
 pub use agents::{check_agent_available, get_agent_status, AgentStatus};
 pub use boards::*;
 pub use agent_settings::{AgentSettingsManager, SharedAgentSettings};
-pub use conversations::{
-    get_conversation_messages, send_conversation_message, start_conversation,
-};
 pub use projects::*;
 pub use runs::{
     backfill_run_costs, cancel_agent_run, get_agent_run, get_agent_runs,
@@ -90,7 +84,7 @@ pub struct AgentInfo {
 /// Return the list of all registered agents with their availability status.
 #[tauri::command]
 pub fn get_available_agents(
-    registry: tauri::State<'_, crate::agents::registry::AgentRegistry>,
+    registry: tauri::State<'_, std::sync::Arc<crate::agents::registry::AgentRegistry>>,
 ) -> Vec<AgentInfo> {
     registry
         .providers()

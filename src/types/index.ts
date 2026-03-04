@@ -269,7 +269,7 @@ export interface EpicProgress {
 
 /** Status of a spec version in the planning workflow */
 export type SpecVersionStatus = 
-  | 'conversing'  // In brainstorming conversation (default for new versions)
+  | 'conversing'  // In spec discovery conversation (default for new versions)
   | 'exploring'
   | 'planning'
   | 'awaiting_approval'
@@ -410,7 +410,7 @@ export interface CreateSpecInput {
   userInput: string;
   /** Preferred model */
   model?: string;
-  /** Optional settings (e.g. agentType for brainstorm agent selection) */
+  /** Optional settings (e.g. agentType for spec discovery agent selection) */
   settings?: Record<string, unknown>;
 }
 
@@ -496,66 +496,6 @@ export interface ReleaseNote {
   previousVersions?: PreviousVersionHighlight[] | null;
 }
 
-export type ConversationRole = 'user' | 'assistant' | 'system';
-
-export interface ConversationMessage {
-  id: string;
-  specId: string;
-  role: ConversationRole;
-  content: string;
-  createdAt: Date;
-}
-
-// Validation types
-
-export type ValidationSessionStatus = 'created' | 'chatting' | 'app_running' | 'passed' | 'failed';
-
-export interface ValidationSession {
-  id: string;
-  ticketId: string;
-  projectId?: string;
-  status: ValidationSessionStatus;
-  /** Agent used for validation chat (e.g. 'cursor', 'claude') */
-  agentType?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export type ValidationMessageRole = 'user' | 'assistant' | 'system';
-
-export interface ValidationMessage {
-  id: string;
-  sessionId: string;
-  role: ValidationMessageRole;
-  content: string;
-  metadata?: Record<string, unknown>;
-  createdAt: Date;
-}
-
-export interface FixTask {
-  title: string;
-  description: string;
-  acceptanceCriteria?: string[];
-}
-
-export interface PushResult {
-  success: boolean;
-  message: string;
-  branch: string;
-}
-
-export interface PullRequestResult {
-  success: boolean;
-  url?: string;
-  message: string;
-}
-
-export interface BranchDiff {
-  diff: string;
-  filesChanged: number;
-  branch: string;
-}
-
 export interface DiffLine {
   lineType: 'add' | 'delete' | 'context';
   content: string;
@@ -621,5 +561,66 @@ export interface AgentBreakdownEntry {
   runCount: number;
   successCount: number;
   avgDurationSecs: number;
+}
+
+// Chat types
+
+export type ChatMode = 'general' | 'spec_builder' | 'ticket_builder' | 'review';
+export type ChatStatus = 'active' | 'thinking' | 'completed' | 'error';
+export type ChatRunStatus = 'running' | 'finished' | 'error';
+export type ChatMessageRole = 'user' | 'assistant' | 'system';
+
+export interface Chat {
+  id: string;
+  title?: string;
+  agentType: string;
+  projectId: string;
+  mode: ChatMode;
+  boardId?: string;
+  ticketId?: string;
+  specId?: string;
+  model?: string;
+  status: ChatStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateChat {
+  agentType: string;
+  projectId: string;
+  mode: ChatMode;
+  boardId?: string;
+  ticketId?: string;
+  specId?: string;
+  model?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  chatId: string;
+  role: ChatMessageRole;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface ChatEvent {
+  id: string;
+  chatId: string;
+  messageId?: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface ChatRun {
+  id: string;
+  chatId: string;
+  chatMessageId?: string;
+  agentType: string;
+  status: ChatRunStatus;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
 }
 

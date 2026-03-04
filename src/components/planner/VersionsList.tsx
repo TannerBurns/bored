@@ -33,7 +33,7 @@ interface VersionsListProps {
 }
 
 const statusLabels: Record<string, { label: string; color: string }> = {
-  conversing: { label: 'Brainstorming', color: 'text-purple-400' },
+  conversing: { label: 'Spec Discovery', color: 'text-purple-400' },
   exploring: { label: 'Exploring', color: 'text-blue-400' },
   planning: { label: 'Planning', color: 'text-yellow-400' },
   awaiting_approval: { label: 'Awaiting Approval', color: 'text-orange-400' },
@@ -477,7 +477,7 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
               <span>Generating plan...</span>
             </div>
           ) : version.status === 'conversing' ? (
-            'Plan will be generated after brainstorming completes'
+            'Plan will be generated after spec discovery completes'
           ) : (
             'No plan available'
           )}

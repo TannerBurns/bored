@@ -652,4 +652,62 @@ fn build_command_omits_resume_when_no_session_id() {
     assert!(!args.contains(&"--resume".to_string()));
 }
 
+// ── lightweight_agent_config tests ─────────────────────────────
+
+#[test]
+fn lightweight_config_disables_thinking_and_chrome() {
+    let p = ClaudeProvider::new();
+    let mut full = HashMap::new();
+    full.insert("thinkingEnabled".into(), serde_json::json!(true));
+    full.insert("chromeEnabled".into(), serde_json::json!(true));
+
+    let cfg = p.lightweight_agent_config(&full);
+    assert_eq!(cfg["thinkingEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["chromeEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["extendedContextEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["allowedTools"], serde_json::json!(""), "tools should be disabled");
+}
+
+#[test]
+fn lightweight_config_preserves_auth_keys() {
+    let p = ClaudeProvider::new();
+    let mut full = HashMap::new();
+    full.insert("authToken".into(), serde_json::json!("secret"));
+    full.insert("baseUrl".into(), serde_json::json!("http://localhost"));
+    full.insert("unrelateSetting".into(), serde_json::json!("dropped"));
+
+    let cfg = p.lightweight_agent_config(&full);
+    assert_eq!(cfg["authToken"], serde_json::json!("secret"));
+    assert_eq!(cfg["baseUrl"], serde_json::json!("http://localhost"));
+    assert!(!cfg.contains_key("unrelateSetting"));
+}
+
+#[test]
+fn lightweight_config_produces_valid_command() {
+    let p = ClaudeProvider::new();
+    let mut full = HashMap::new();
+    full.insert("thinkingEnabled".into(), serde_json::json!(true));
+    full.insert("modelOverride".into(), serde_json::json!("claude-haiku-3-5"));
+
+    let cfg = p.lightweight_agent_config(&full);
+    let config = AgentRunConfig {
+        agent_id: "claude".into(),
+        ticket_id: "t".into(),
+        run_id: "r".into(),
+        repo_path: std::path::PathBuf::from("/tmp"),
+        prompt: "title prompt".into(),
+        timeout_secs: Some(60),
+        model: Some("claude-sonnet-4-6".into()),
+        agent_config: cfg,
+        session_id: None,
+    };
+    let (cmd, args) = p.build_command(&config);
+    assert_eq!(cmd, "claude");
+    assert!(args.contains(&"--tools".to_string()), "should have --tools flag");
+    assert!(args.contains(&"".to_string()), "should have empty string to disable tools");
+    assert!(args.contains(&"claude-haiku-3-5".to_string()), "model override should be preserved");
+    assert!(!args.iter().any(|a| a.contains("alwaysThinkingEnabled")), "thinking should be disabled");
+    assert!(!args.contains(&"--max-turns".to_string()), "invalid --max-turns should not appear");
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests

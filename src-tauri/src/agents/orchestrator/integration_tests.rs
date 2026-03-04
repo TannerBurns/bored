@@ -14,7 +14,7 @@ use super::{CancelHandlesMap, OrchestratorConfig, WorkflowOrchestrator};
 use crate::agents::provider::AgentProvider;
 use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::{PerAgentSettings, WorkflowSettings};
-use crate::db::models::{CreateTicket, Priority, WorkflowType};
+use crate::db::models::{CreateTask, CreateTicket, Priority, TaskType, WorkflowType};
 use crate::db::{CreateRun, Database, RunStatus, Ticket};
 
 #[derive(Debug)]
@@ -101,7 +101,7 @@ fn create_test_db() -> Arc<Database> {
 fn seed_ticket(db: &Database) -> Ticket {
     let board = db.create_board("Test Board").unwrap();
     let columns = db.get_columns(&board.id).unwrap();
-    db.create_ticket(&CreateTicket {
+    let ticket = db.create_ticket(&CreateTicket {
         board_id: board.id,
         column_id: columns[0].id.clone(),
         title: "Test Ticket".to_string(),
@@ -118,7 +118,15 @@ fn seed_ticket(db: &Database) -> Ticket {
         depends_on_epic_ids: vec![],
         spec_version_id: None,
     })
-    .unwrap()
+    .unwrap();
+    db.create_task(&CreateTask {
+        ticket_id: ticket.id.clone(),
+        task_type: TaskType::Custom,
+        title: Some("Test Task".to_string()),
+        content: Some("Do the thing".to_string()),
+    })
+    .unwrap();
+    ticket
 }
 
 fn seed_parent_run(db: &Database, ticket_id: &str) -> String {
@@ -1787,7 +1795,6 @@ fn finish_workflow_moves_to_review_when_no_pending_tasks() {
     let run_id = seed_parent_run(&db, &ticket.id);
     let settings = make_workflow_settings(false, true);
 
-    // seed_ticket auto-creates one task; use it as the current task
     let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
     db.start_task(&task.id, &run_id).unwrap();
 
@@ -1811,7 +1818,7 @@ fn finish_workflow_moves_to_ready_when_pending_tasks_remain() {
     let run_id = seed_parent_run(&db, &ticket.id);
     let settings = make_workflow_settings(false, true);
 
-    // seed_ticket auto-creates task 1; add a second pending task
+    // seed_ticket creates one task; add a second pending task
     db.create_task(&CreateTask {
         ticket_id: ticket.id.clone(),
         task_type: TaskType::Custom,

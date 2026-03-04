@@ -1,5 +1,6 @@
 mod agent;
 mod board;
+mod chat;
 mod comment;
 mod event;
 mod project;
@@ -11,6 +12,7 @@ mod workflow;
 
 pub use agent::*;
 pub use board::*;
+pub use chat::*;
 pub use comment::*;
 pub use event::*;
 pub use project::*;

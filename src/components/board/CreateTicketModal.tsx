@@ -5,6 +5,9 @@ import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
+import { useBoardStore } from '../../stores/boardStore';
+import { TaskDraftList } from './TaskDraftList';
+import type { TaskDraft } from './TaskDraftList';
 import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
 
 interface CreateTicketModalProps {
@@ -37,6 +40,10 @@ export function CreateTicketModal({
   
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
+  // Task drafts
+  const [taskDrafts, setTaskDrafts] = useState<TaskDraft[]>([]);
+  const createTask = useBoardStore((s) => s.createTask);
+
   // Epic state
   const [isEpic, setIsEpic] = useState(false);
   const [epicId, setEpicId] = useState('');
@@ -51,9 +58,10 @@ export function CreateTicketModal({
       branchName.trim() !== '' ||
       priority !== 'medium' ||
       isEpic ||
-      epicId !== ''
+      epicId !== '' ||
+      taskDrafts.some((t) => t.title.trim() !== '')
     );
-  }, [title, description, labelsInput, branchName, priority, isEpic, epicId]);
+  }, [title, description, labelsInput, branchName, priority, isEpic, epicId, taskDrafts]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -109,7 +117,7 @@ export function CreateTicketModal({
         .map((l) => l.trim())
         .filter(Boolean);
 
-      await onCreate({
+      const ticket = await onCreate({
         title: title.trim(),
         descriptionMd: description,
         priority,
@@ -121,6 +129,11 @@ export function CreateTicketModal({
         isEpic,
         epicId: epicId || undefined,
       });
+
+      const validTasks = taskDrafts.filter((t) => t.title.trim());
+      for (const draft of validTasks) {
+        await createTask(ticket.id, draft.title.trim(), draft.content.trim() || undefined);
+      }
       
       onClose();
     } catch (err) {
@@ -363,6 +376,9 @@ export function CreateTicketModal({
                 Leave empty for AI-generated branch name on first run
               </p>
             </div>
+
+            {/* Tasks */}
+            <TaskDraftList drafts={taskDrafts} onChange={setTaskDrafts} />
 
             {/* Epic Options */}
             <div className="border-t border-board-border pt-4 mt-4">

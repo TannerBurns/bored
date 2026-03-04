@@ -8,7 +8,8 @@ export interface TransitionValidation {
 export function validateTransition(
   ticket: Ticket,
   columns: Column[],
-  targetColumnId: string
+  targetColumnId: string,
+  taskCount?: number
 ): TransitionValidation {
   const currentColumn = columns.find(c => c.id === ticket.columnId);
   const targetColumn = columns.find(c => c.id === targetColumnId);
@@ -17,8 +18,14 @@ export function validateTransition(
     return { valid: false, reason: 'Column not found' };
   }
 
-  // All transitions are allowed - no restrictions
-  // Users can move tickets freely between any columns
+  if (
+    !ticket.isEpic &&
+    targetColumn.name.toLowerCase() === 'ready' &&
+    taskCount === 0
+  ) {
+    return { valid: false, reason: 'Cannot move to Ready: ticket has no tasks' };
+  }
+
   return { valid: true };
 }
 

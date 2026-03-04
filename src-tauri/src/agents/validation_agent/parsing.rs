@@ -1,25 +1,23 @@
 //! Pure parsing helpers for extracting structured blocks from validation agent responses.
+//! Shared by both the validation commands and the chat review mode runner.
 
 use crate::agents::json_extraction::parse_all_json_blocks;
 use crate::db::models::FixTask;
 
-/// Parsed start_app block from agent response
-pub(super) struct StartAppBlock {
+pub(crate) struct StartAppBlock {
     pub command: String,
     pub port: Option<i32>,
 }
 
-/// Parsed run_command block from agent response
-pub(super) struct RunCommandBlock {
+pub(crate) struct RunCommandBlock {
     pub command: String,
 }
 
-/// Parsed create_fix_tasks block from agent response
-pub(super) struct CreateFixTasksBlock {
+pub(crate) struct CreateFixTasksBlock {
     pub tasks: Vec<FixTask>,
 }
 
-pub(super) fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
+pub(crate) fn parse_start_app_from_response(response_text: &str) -> Option<StartAppBlock> {
     for v in parse_all_json_blocks(response_text) {
         if let Some(start_app) = v.get("start_app").and_then(|s| s.as_object()) {
             if let Some(command) = start_app.get("command").and_then(|c| c.as_str()) {
@@ -34,7 +32,7 @@ pub(super) fn parse_start_app_from_response(response_text: &str) -> Option<Start
     None
 }
 
-pub(super) fn parse_stop_app_from_response(response_text: &str) -> bool {
+pub(crate) fn parse_stop_app_from_response(response_text: &str) -> bool {
     for v in parse_all_json_blocks(response_text) {
         if v.get("stop_app").is_some() {
             return true;
@@ -43,7 +41,7 @@ pub(super) fn parse_stop_app_from_response(response_text: &str) -> bool {
     false
 }
 
-pub(super) fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
+pub(crate) fn parse_run_command_from_response(response_text: &str) -> Option<RunCommandBlock> {
     for v in parse_all_json_blocks(response_text) {
         if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
             if let Some(command) = rc.get("command").and_then(|c| c.as_str()) {
@@ -75,7 +73,7 @@ fn parse_fix_task_from_json_obj(obj: &serde_json::Map<String, serde_json::Value>
     }
 }
 
-pub(super) fn parse_create_fix_tasks_from_response(
+pub(crate) fn parse_create_fix_tasks_from_response(
     response_text: &str,
 ) -> Option<CreateFixTasksBlock> {
     for v in parse_all_json_blocks(response_text) {
@@ -102,8 +100,6 @@ pub(super) fn parse_create_fix_tasks_from_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- parse_start_app_from_response ---
 
     #[test]
     fn start_app_with_port() {
@@ -138,8 +134,6 @@ mod tests {
         assert!(parse_start_app_from_response("Just text, no JSON.").is_none());
     }
 
-    // --- parse_stop_app_from_response ---
-
     #[test]
     fn stop_app_detected() {
         let text = r#"I'll stop the app now.
@@ -154,8 +148,6 @@ mod tests {
         assert!(!parse_stop_app_from_response("Just text, no JSON."));
     }
 
-    // --- parse_run_command_from_response ---
-
     #[test]
     fn run_command_extracts_command() {
         let text = r#"```json
@@ -169,8 +161,6 @@ mod tests {
     fn run_command_missing_returns_none() {
         assert!(parse_run_command_from_response("No command here.").is_none());
     }
-
-    // --- parse_fix_task_from_json_obj ---
 
     #[test]
     fn fix_task_full_fields() {
@@ -207,8 +197,6 @@ mod tests {
         assert_eq!(task.description, "");
         assert!(task.acceptance_criteria.is_none());
     }
-
-    // --- parse_create_fix_tasks_from_response ---
 
     #[test]
     fn fix_tasks_singular_form() {

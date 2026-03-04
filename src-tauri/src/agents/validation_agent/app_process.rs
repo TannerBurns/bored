@@ -19,6 +19,36 @@ use std::os::unix::process::CommandExt;
 
 use crate::api::state::LiveEvent;
 
+/// Which event kind to emit for app subprocess logs.
+#[derive(Debug, Clone, Copy)]
+pub enum AppLogEventKind {
+    Validation,
+    Chat,
+}
+
+fn make_app_log_event(
+    kind: AppLogEventKind,
+    id: &str,
+    stream: &str,
+    message: String,
+    timestamp: String,
+) -> LiveEvent {
+    match kind {
+        AppLogEventKind::Validation => LiveEvent::ValidationAppLog {
+            session_id: id.to_string(),
+            stream: stream.to_string(),
+            message,
+            timestamp,
+        },
+        AppLogEventKind::Chat => LiveEvent::ChatAppLog {
+            chat_id: id.to_string(),
+            stream: stream.to_string(),
+            message,
+            timestamp,
+        },
+    }
+}
+
 /// Result of starting the app subprocess
 pub enum StartResult {
     /// Process is still running after the initial check
@@ -66,6 +96,7 @@ impl AppProcessManager {
         event_tx: broadcast::Sender<LiveEvent>,
         worktree_path: Option<PathBuf>,
         repo_path: Option<PathBuf>,
+        event_kind: AppLogEventKind,
     ) -> Result<StartResult, String> {
         self.kill_process(&session_id);
 
@@ -101,12 +132,13 @@ impl AppProcessManager {
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
-                let _ = tx_stdout.send(LiveEvent::ValidationAppLog {
-                    session_id: session_id_stdout.clone(),
-                    stream: "stdout".to_string(),
-                    message: line.clone(),
-                    timestamp: Utc::now().to_rfc3339(),
-                });
+                let _ = tx_stdout.send(make_app_log_event(
+                    event_kind,
+                    &session_id_stdout,
+                    "stdout",
+                    line.clone(),
+                    Utc::now().to_rfc3339(),
+                ));
                 append_to_log(&log_path_stdout, "stdout", &line);
             }
         });
@@ -114,12 +146,13 @@ impl AppProcessManager {
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
-                let _ = tx_stderr.send(LiveEvent::ValidationAppLog {
-                    session_id: session_id_stderr.clone(),
-                    stream: "stderr".to_string(),
-                    message: line.clone(),
-                    timestamp: Utc::now().to_rfc3339(),
-                });
+                let _ = tx_stderr.send(make_app_log_event(
+                    event_kind,
+                    &session_id_stderr,
+                    "stderr",
+                    line.clone(),
+                    Utc::now().to_rfc3339(),
+                ));
                 append_to_log(&log_path_stderr, "stderr", &line);
             }
         });

@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 17;
+pub const SCHEMA_VERSION: i32 = 19;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -215,7 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_ticket ON tasks(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_order ON tasks(ticket_id, order_index);
 
--- Conversation messages table (for spec brainstorming)
+-- DEPRECATED: replaced by chat_messages table. Remove in next schema migration.
+-- Conversation messages table (for spec discovery)
 CREATE TABLE IF NOT EXISTS conversation_messages (
     id TEXT PRIMARY KEY NOT NULL,
     spec_id TEXT NOT NULL REFERENCES specs(id) ON DELETE CASCADE,
@@ -236,6 +237,7 @@ CREATE TABLE IF NOT EXISTS release_notes (
     previous_versions_json TEXT
 );
 
+-- DEPRECATED: replaced by chat_messages table. Remove in next schema migration.
 -- Validation sessions table (post-completion validation chat)
 CREATE TABLE IF NOT EXISTS validation_sessions (
     id TEXT PRIMARY KEY NOT NULL,
@@ -250,6 +252,7 @@ CREATE TABLE IF NOT EXISTS validation_sessions (
 CREATE INDEX IF NOT EXISTS idx_validation_sessions_ticket ON validation_sessions(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_validation_sessions_status ON validation_sessions(status);
 
+-- DEPRECATED: replaced by chat_messages table. Remove in next schema migration.
 -- Validation messages table (chat messages within a validation session)
 CREATE TABLE IF NOT EXISTS validation_messages (
     id TEXT PRIMARY KEY NOT NULL,

@@ -6,10 +6,38 @@ import type { Board, SpecWithVersion } from '../../types';
 interface SpecsViewProps {
   currentBoard: Board | null;
   onCreateSpecClick: () => void;
+  onOpenChat?: (specId: string) => void;
 }
 
-export function SpecsView({ currentBoard, onCreateSpecClick }: SpecsViewProps) {
-  const [isSpecListCollapsed, setIsSpecListCollapsed] = useState(false);
+function SidebarToggle({ collapsed, onClick }: { collapsed: boolean; onClick: () => void }) {
+  return (
+    <div className="flex-shrink-0 flex items-start pt-3">
+      <button
+        onClick={onClick}
+        className="w-5 h-8 rounded-md glass border border-board-border/40 flex items-center justify-center text-board-text-muted hover:text-board-text hover:border-board-border transition-colors"
+        title={collapsed ? 'Show specs list' : 'Hide specs list'}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}
+        >
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export function SpecsView({ currentBoard, onCreateSpecClick, onOpenChat }: SpecsViewProps) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedSpec, setSelectedSpec] = useState<SpecWithVersion | null>(null);
   
   const { selectSpec, selectSpecForProgress, currentSpec } = useSpecStore();
@@ -29,93 +57,41 @@ export function SpecsView({ currentBoard, onCreateSpecClick }: SpecsViewProps) {
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex gap-4">
-      <div className={`${isSpecListCollapsed ? 'w-12' : 'w-80'} glass rounded-2xl overflow-hidden flex flex-col transition-all duration-300`}>
-        <div className={`p-4 border-b border-board-border flex items-center glass-subtle ${isSpecListCollapsed ? 'justify-center' : 'justify-between'}`}>
-          {!isSpecListCollapsed && <h3 className="font-semibold text-board-text">Specs</h3>}
-          <div className={`flex items-center gap-1`}>
-            {!isSpecListCollapsed && (
-              <button
-                onClick={onCreateSpecClick}
-                disabled={!currentBoard}
-                className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={currentBoard ? 'Create new spec' : 'Select a board first'}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-              </button>
-            )}
-            <button
-              onClick={() => setIsSpecListCollapsed(!isSpecListCollapsed)}
-              className="p-1.5 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200"
-              title={isSpecListCollapsed ? 'Expand specs list' : 'Collapse specs list'}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`transition-transform duration-300 ${isSpecListCollapsed ? 'rotate-180' : ''}`}
-              >
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        {!isSpecListCollapsed && (
-          <div className="flex-1 overflow-y-auto">
-            <SpecList onSelect={handleSelectSpec} onViewProgress={handleViewProgress} />
-          </div>
-        )}
-        {isSpecListCollapsed && (
-          <div className="flex-1 flex flex-col items-center pt-2">
+    <div className="flex-1 overflow-hidden flex gap-1">
+      {!sidebarCollapsed && (
+        <div className="w-80 flex-shrink-0 glass rounded-2xl overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-board-border">
+            <h2 className="text-sm font-semibold text-board-text">Specs</h2>
             <button
               onClick={onCreateSpecClick}
               disabled={!currentBoard}
-              className="p-2 text-board-text-muted hover:text-board-text hover:bg-board-card-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-board-accent text-white hover:bg-board-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title={currentBoard ? 'Create new spec' : 'Select a board first'}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
+              New
             </button>
           </div>
-        )}
-      </div>
-      
-      <div className="flex-1 glass rounded-2xl overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            <SpecList onSelect={handleSelectSpec} onViewProgress={handleViewProgress} />
+          </div>
+        </div>
+      )}
+
+      <SidebarToggle
+        collapsed={sidebarCollapsed}
+        onClick={() => setSidebarCollapsed((c) => !c)}
+      />
+
+      <div className="flex-1 glass rounded-2xl overflow-hidden min-w-0">
         {selectedSpec ? (
           <SpecDetail
             spec={selectedSpec}
             onClose={() => handleSelectSpec(null)}
+            onOpenChat={onOpenChat}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-board-text-muted">

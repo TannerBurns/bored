@@ -128,6 +128,16 @@ impl AgentProvider for CodexProvider {
         ]
     }
 
+    fn lightweight_agent_config(
+        &self,
+        config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut cfg = config.clone();
+        cfg.insert("reasoningEffort".into(), serde_json::json!("low"));
+        cfg.insert("multiAgentEnabled".into(), serde_json::json!(false));
+        cfg
+    }
+
     fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
         let api_config = CodexApiConfig::from_agent_config(agent_config);
         api_config.oss_enabled.unwrap_or(false)
@@ -352,5 +362,21 @@ mod tests {
         let map = HashMap::new();
         let config = CodexApiConfig::from_agent_config(&map);
         assert_eq!(config.multi_agent_enabled, None);
+    }
+
+    #[test]
+    fn lightweight_config_lowers_effort_and_disables_multi_agent() {
+        let p = CodexProvider::new();
+        let mut full = HashMap::new();
+        full.insert("reasoningEffort".into(), serde_json::json!("xhigh"));
+        full.insert("multiAgentEnabled".into(), serde_json::json!(true));
+        full.insert("ossEnabled".into(), serde_json::json!(true));
+        full.insert("localProvider".into(), serde_json::json!("ollama"));
+
+        let cfg = p.lightweight_agent_config(&full);
+        assert_eq!(cfg["reasoningEffort"], serde_json::json!("low"));
+        assert_eq!(cfg["multiAgentEnabled"], serde_json::json!(false));
+        assert_eq!(cfg["ossEnabled"], serde_json::json!(true), "oss should be preserved");
+        assert_eq!(cfg["localProvider"], serde_json::json!("ollama"), "provider should be preserved");
     }
 }

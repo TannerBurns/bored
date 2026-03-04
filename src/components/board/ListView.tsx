@@ -8,7 +8,7 @@ interface ListViewProps {
   columns: Column[];
   tickets: Ticket[];
   projectMap?: Record<string, string>;
-  onTicketMove: (ticketId: string, newColumnId: string) => void;
+  onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: Ticket) => void;
 }
 

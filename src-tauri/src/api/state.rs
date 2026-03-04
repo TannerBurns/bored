@@ -95,47 +95,20 @@ pub enum LiveEvent {
         /// Timestamp
         timestamp: String,
     },
-    // Conversation events (spec brainstorming)
+    // Conversation events (spec discovery)
     ConversationMessageAdded {
         spec_id: String,
         message_id: String,
         role: String,
         content: String,
     },
-    ConversationComplete {
-        spec_id: String,
-        structured_spec: serde_json::Value,
-    },
-    /// Real-time log entry from brainstorm agent output
-    BrainstormLogEntry {
+    /// Real-time log entry from spec discovery agent output
+    SpecDiscoveryLogEntry {
         spec_id: String,
         /// Log message content (agent's thinking/tool use)
         message: String,
         /// Timestamp
         timestamp: String,
-    },
-    /// Brainstorm agent is generating the spec (no more questions)
-    BrainstormGeneratingSpec {
-        spec_id: String,
-        version_number: i32,
-    },
-    // Validation events
-    ValidationSessionCreated {
-        session_id: String,
-        ticket_id: String,
-    },
-    ValidationSessionUpdated {
-        session_id: String,
-    },
-    ValidationMessageAdded {
-        session_id: String,
-        message_id: String,
-        role: String,
-    },
-    ValidationFixTasksCreated {
-        session_id: String,
-        ticket_id: String,
-        task_count: usize,
     },
     /// Real-time log entry from validation agent (streaming CLI output)
     ValidationLogEntry {
@@ -147,6 +120,39 @@ pub enum LiveEvent {
     /// App subprocess stdout/stderr (e.g. npm run dev) for a validation session
     ValidationAppLog {
         session_id: String,
+        stream: String,
+        message: String,
+        timestamp: String,
+    },
+    // Chat events
+    ChatCreated {
+        chat_id: String,
+    },
+    ChatUpdated {
+        chat_id: String,
+    },
+    ChatMessageAdded {
+        chat_id: String,
+        message_id: String,
+        role: String,
+    },
+    ChatTitleGenerated {
+        chat_id: String,
+        title: String,
+    },
+    /// Real-time log entry from chat agent output
+    ChatLogEntry {
+        chat_id: String,
+        stream: String,
+        message: String,
+        timestamp: String,
+    },
+    ChatCostUpdated {
+        chat_id: String,
+    },
+    /// App subprocess stdout/stderr for a chat review session
+    ChatAppLog {
+        chat_id: String,
         stream: String,
         message: String,
         timestamp: String,

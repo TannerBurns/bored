@@ -13,7 +13,7 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
     }
   }, [value]);
 
@@ -41,8 +41,8 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
-          rows={1}
-          className="w-full px-4 py-3 glass rounded-xl resize-none text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
+          rows={4}
+          className="w-full px-3 py-2 glass rounded-xl resize-none text-xs text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
       <button

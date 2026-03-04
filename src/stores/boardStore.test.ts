@@ -345,10 +345,22 @@ describe('useBoardStore', () => {
       vi.mocked(invoke).mockResolvedValue(undefined);
       const ticket2 = { ...mockTicket, id: 'ticket-2' };
       useBoardStore.getState().setTickets([mockTicket, ticket2]);
-      
+
       await useBoardStore.getState().moveTicket('ticket-1', 'col-2');
-      
+
       expect(useBoardStore.getState().tickets[1].columnId).toBe('col-1');
+    });
+
+    it('re-throws backend error on failed move', async () => {
+      vi.mocked(invoke).mockRejectedValueOnce(new Error('Cannot move to Ready: ticket has no tasks'));
+      useBoardStore.setState({
+        currentBoard: mockBoard,
+        tickets: [mockTicket],
+      });
+
+      await expect(
+        useBoardStore.getState().moveTicket('ticket-1', 'col-ready')
+      ).rejects.toThrow('Cannot move to Ready: ticket has no tasks');
     });
   });
 

@@ -2,7 +2,7 @@
 //!
 //! Agents typically return JSON embedded in markdown code fences, surrounded by
 //! preamble/postamble text, or as raw JSON. This module provides a single set
-//! of extraction functions used across brainstorm, planner, plan-validation,
+//! of extraction functions used across spec_discovery, planner, plan-validation,
 //! auto-pilot, and other subsystems.
 
 use serde::de::DeserializeOwned;

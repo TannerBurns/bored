@@ -1,16 +1,17 @@
-import { useState, useEffect } from 'react';
-import { useValidationStore } from '../../../stores/validationStore';
+import { useState, useEffect, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { BuildWithDropdown } from '../BuildWithDropdown';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
+import { useChatStore } from '../../../stores/chatStore';
 import type { Ticket, Column, FileDiff } from '../../../types';
 
 interface NextStepsPanelProps {
   ticket: Ticket;
   columns: Column[];
-  onValidate?: (ticketId: string, agentType: string) => void;
+  onNavigateToChat?: () => void;
 }
 
-export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelProps) {
+export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsPanelProps) {
   const [pushStatus, setPushStatus] = useState<{ message: string; success: boolean } | null>(null);
   const [prStatus, setPrStatus] = useState<{ message: string; url?: string; success: boolean } | null>(null);
   const [diffVisible, setDiffVisible] = useState(false);
@@ -20,7 +21,8 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
   const [diffLoading, setDiffLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const { pushBranch, createPullRequest, getBranchDiffFiles } = useValidationStore();
+  const createChat = useChatStore((s) => s.createChat);
+  const selectChat = useChatStore((s) => s.selectChat);
 
   useEffect(() => {
     if (!diffFullscreen) return;
@@ -46,7 +48,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     const loadDiff = async () => {
       try {
         setDiffLoading(true);
-        const files = await getBranchDiffFiles(ticket.id);
+        const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId: ticket.id });
         if (!cancelled) setDiffFiles(files);
       } catch (e) {
         if (!cancelled) setDiffError(String(e));
@@ -56,7 +58,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     };
     void loadDiff();
     return () => { cancelled = true; };
-  }, [ticket.id, shouldShow, getBranchDiffFiles]);
+  }, [ticket.id, shouldShow]);
 
   if (!shouldShow) return null;
 
@@ -64,7 +66,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     try {
       setActionLoading('push');
       setPushStatus(null);
-      const result = await pushBranch(ticket.id);
+      const result = await invoke<{ message: string; success: boolean }>('push_branch', { ticketId: ticket.id });
       setPushStatus({ message: result.message, success: result.success });
     } catch (e) {
       setPushStatus({ message: String(e), success: false });
@@ -77,7 +79,7 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
     try {
       setActionLoading('pr');
       setPrStatus(null);
-      const result = await createPullRequest(ticket.id);
+      const result = await invoke<{ message: string; url?: string; success: boolean }>('create_pull_request', { ticketId: ticket.id });
       setPrStatus({ message: result.message, url: result.url ?? undefined, success: result.success });
     } catch (e) {
       setPrStatus({ message: String(e), success: false });
@@ -85,6 +87,25 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       setActionLoading(null);
     }
   };
+
+  const handleReviewWithAgent = useCallback(async (agentType: string) => {
+    try {
+      setActionLoading('review');
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId || '',
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      onNavigateToChat?.();
+    } catch (e) {
+      console.error('Failed to create review chat:', e);
+    } finally {
+      setActionLoading(null);
+    }
+  }, [ticket, createChat, selectChat, onNavigateToChat]);
 
   const handleViewDiff = () => {
     setDiffVisible((v) => !v);
@@ -110,14 +131,12 @@ export function NextStepsPanel({ ticket, columns, onValidate }: NextStepsPanelPr
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        {onValidate && (
-          <BuildWithDropdown
-            label="Validate with"
-            title="Open validation chat — choose an agent to verify this ticket's changes in a dedicated chat view"
-            onSelect={(agent) => onValidate(ticket.id, agent)}
-            disabled={false}
-          />
-        )}
+        <BuildWithDropdown
+          label="Review with"
+          title="Open a review chat — choose an agent to validate this ticket's changes"
+          onSelect={handleReviewWithAgent}
+          disabled={actionLoading === 'review'}
+        />
         <button
           onClick={handlePush}
           disabled={actionLoading === 'push'}

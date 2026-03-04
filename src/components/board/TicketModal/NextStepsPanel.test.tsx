@@ -3,18 +3,6 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { NextStepsPanel } from './NextStepsPanel';
 import type { Ticket, Column } from '../../../types';
 
-const mockGetBranchDiffFiles = vi.fn().mockResolvedValue([]);
-const mockPushBranch = vi.fn();
-const mockCreatePullRequest = vi.fn();
-
-vi.mock('../../../stores/validationStore', () => ({
-  useValidationStore: () => ({
-    pushBranch: mockPushBranch,
-    createPullRequest: mockCreatePullRequest,
-    getBranchDiffFiles: mockGetBranchDiffFiles,
-  }),
-}));
-
 vi.mock('../BuildWithDropdown', () => ({
   BuildWithDropdown: () => <button data-testid="build-dropdown">Validate</button>,
 }));

@@ -17,6 +17,8 @@ pub struct ClaudeApiConfig {
     pub thinking_enabled: Option<bool>,
     pub extended_context_enabled: Option<bool>,
     pub chrome_enabled: Option<bool>,
+    /// Restrict available tools. Empty string disables all tools.
+    pub allowed_tools: Option<String>,
 }
 
 impl ClaudeApiConfig {
@@ -39,6 +41,7 @@ impl ClaudeApiConfig {
             thinking_enabled: Self::get_bool(map, "thinking_enabled", "thinkingEnabled"),
             extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled"),
             chrome_enabled: Self::get_bool(map, "chrome_enabled", "chromeEnabled"),
+            allowed_tools: Self::get_str(map, "allowed_tools", "allowedTools"),
         }
     }
 
@@ -172,6 +175,32 @@ impl AgentProvider for ClaudeProvider {
             ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
             ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
+    }
+
+    fn lightweight_agent_config(
+        &self,
+        config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        const PASSTHROUGH_KEYS: &[&str] = &[
+            "authToken", "auth_token",
+            "apiKey", "api_key",
+            "baseUrl", "base_url",
+            "useLocalProvider", "use_local_provider",
+            "modelOverride", "model_override",
+        ];
+
+        let mut cfg = std::collections::HashMap::new();
+        cfg.insert("thinkingEnabled".into(), serde_json::json!(false));
+        cfg.insert("chromeEnabled".into(), serde_json::json!(false));
+        cfg.insert("extendedContextEnabled".into(), serde_json::json!(false));
+        cfg.insert("allowedTools".into(), serde_json::json!(""));
+
+        for &key in PASSTHROUGH_KEYS {
+            if let Some(val) = config.get(key) {
+                cfg.insert(key.to_string(), val.clone());
+            }
+        }
+        cfg
     }
 
     fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {

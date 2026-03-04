@@ -214,4 +214,37 @@ describe('validateTransition', () => {
       expect(result.valid).toBe(true);
     });
   });
+
+  describe('task count validation for Ready', () => {
+    it('blocks move to Ready when taskCount is 0', () => {
+      const ticket = makeTicket({ columnId: 'col-backlog' });
+      const result = validateTransition(ticket, columns, 'col-ready', 0);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('no tasks');
+    });
+
+    it('allows move to Ready when taskCount > 0', () => {
+      const ticket = makeTicket({ columnId: 'col-backlog' });
+      const result = validateTransition(ticket, columns, 'col-ready', 3);
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows move to Ready when taskCount is undefined (not checked)', () => {
+      const ticket = makeTicket({ columnId: 'col-backlog' });
+      const result = validateTransition(ticket, columns, 'col-ready');
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows epic to Ready with 0 tasks', () => {
+      const ticket = makeTicket({ columnId: 'col-backlog', isEpic: true });
+      const result = validateTransition(ticket, columns, 'col-ready', 0);
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows move to non-Ready columns with 0 tasks', () => {
+      const ticket = makeTicket({ columnId: 'col-backlog' });
+      const result = validateTransition(ticket, columns, 'col-inprogress', 0);
+      expect(result.valid).toBe(true);
+    });
+  });
 });

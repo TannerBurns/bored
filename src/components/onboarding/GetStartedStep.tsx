@@ -86,7 +86,7 @@ export function GetStartedStep({ onComplete, onBack }: GetStartedStepProps) {
             <div>
               <div className="text-sm font-medium text-board-text">Use AI Specs</div>
               <p className="text-xs text-board-text-muted mt-0.5">
-                For complex features, use the Specs view to brainstorm and plan with AI before breaking into tickets.
+                For complex features, use the Specs view to discover specs and plan with AI before breaking into tickets.
               </p>
             </div>
           </div>

@@ -35,6 +35,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     } catch (error) {
       logger.error('Failed to move ticket:', error);
       setTickets(originalTickets);
+      throw error;
     }
   };
 

@@ -1,0 +1,386 @@
+mod config;
+mod general;
+mod review;
+mod spec_builder;
+mod ticket_builder;
+mod title;
+
+pub use config::{ChatAgentConfig, ChatAgentError};
+pub use general::build_general_prompt;
+pub use ticket_builder::{parse_ticket_builder_response, TicketBuilderOutput, TicketBuilderTicket};
+
+use std::sync::Arc;
+
+use tokio::sync::broadcast;
+
+use crate::agents::validation_agent::AppProcessManager;
+use crate::api::state::LiveEvent;
+use crate::db::models::{ChatMessage, ChatMessageRole, ChatMode, ChatRunStatus, ChatStatus};
+use crate::db::Database;
+
+use super::cost::RunCostData;
+use super::registry::AgentRegistry;
+use super::spawner;
+use super::{AgentRunConfig, LogCallback, LogLine, LogStream};
+
+pub struct ChatAgent {
+    db: Arc<Database>,
+    config: ChatAgentConfig,
+    event_tx: broadcast::Sender<LiveEvent>,
+    registry: Arc<AgentRegistry>,
+}
+
+impl ChatAgent {
+    pub fn new(
+        db: Arc<Database>,
+        config: ChatAgentConfig,
+        event_tx: broadcast::Sender<LiveEvent>,
+        registry: Arc<AgentRegistry>,
+    ) -> Self {
+        Self {
+            db,
+            config,
+            event_tx,
+            registry,
+        }
+    }
+
+    pub async fn process_message(
+        &self,
+        messages: Vec<ChatMessage>,
+        app_manager: Option<&AppProcessManager>,
+    ) -> Result<ChatMessage, ChatAgentError> {
+        if messages.len() == 1 {
+            if let Some(first) = messages.first() {
+                if first.role == ChatMessageRole::User {
+                    self.maybe_generate_title(&first.content);
+                }
+            }
+        }
+
+        match self.config.mode {
+            ChatMode::General => self.run_general(messages).await,
+            ChatMode::SpecBuilder => self.run_spec_builder(messages).await,
+            ChatMode::TicketBuilder => self.run_ticket_builder(messages).await,
+            ChatMode::Review => {
+                let mgr = app_manager
+                    .ok_or(ChatAgentError::MissingField("app_process_manager"))?;
+                self.run_review(messages, mgr).await
+            }
+        }
+    }
+
+    /// Shared agent execution: status updates, spawner call, log streaming,
+    /// and session ID management for conversation resumption.
+    pub(crate) async fn run_agent(
+        &self,
+        prompt: &str,
+    ) -> Result<(String, String), ChatAgentError> {
+        let provider = self
+            .registry
+            .get(&self.config.agent_id)
+            .ok_or_else(|| ChatAgentError::AgentNotFound(self.config.agent_id.clone()))?;
+
+        let stored_session_id = self
+            .db
+            .get_chat(&self.config.chat_id)
+            .ok()
+            .and_then(|c| c.agent_session_id);
+
+        self.db
+            .update_chat_status(&self.config.chat_id, ChatStatus::Thinking)?;
+        self.broadcast(LiveEvent::ChatUpdated {
+            chat_id: self.config.chat_id.clone(),
+        });
+
+        let run_config = AgentRunConfig {
+            agent_id: self.config.agent_id.clone(),
+            ticket_id: self.config.chat_id.clone(),
+            run_id: format!("chat-{}-{}", self.config.chat_id, uuid::Uuid::new_v4()),
+            repo_path: self.config.repo_path.clone(),
+            prompt: prompt.to_string(),
+            timeout_secs: self.config.timeout_secs,
+            model: self.config.model.clone(),
+            agent_config: self.config.agent_config.clone(),
+            session_id: stored_session_id.clone(),
+        };
+
+        if stored_session_id.is_some() {
+            tracing::info!(
+                "Resuming agent session for chat {}",
+                self.config.chat_id
+            );
+        }
+
+        let log_callback = self.make_log_callback();
+        let provider_clone = provider.clone();
+
+        let spawn_result = tokio::task::spawn_blocking(move || {
+            spawner::run_agent_via_provider(&*provider_clone, &run_config, log_callback)
+        })
+        .await;
+
+        // Restore chat status regardless of outcome
+        let _ = self
+            .db
+            .update_chat_status(&self.config.chat_id, ChatStatus::Active);
+
+        let result = match spawn_result {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                return Err(ChatAgentError::SpawnFailed(e));
+            }
+            Err(e) => {
+                return Err(ChatAgentError::AgentFailed(format!(
+                    "Task join error: {}",
+                    e
+                )));
+            }
+        };
+
+        let stdout = result.captured_stdout.unwrap_or_default();
+        let text = provider.extract_text(&stdout);
+
+        // Extract and persist the agent's session ID for future resumption.
+        // On the first turn this captures the new session; on subsequent turns
+        // it may update if the provider returns a fresh ID.
+        if let Some(new_sid) = provider.extract_session_id(&stdout) {
+            if stored_session_id.as_deref() != Some(&new_sid) {
+                tracing::info!(
+                    "Captured agent session id for chat {}: {}",
+                    self.config.chat_id,
+                    new_sid
+                );
+                if let Err(e) = self
+                    .db
+                    .update_chat_agent_session_id(&self.config.chat_id, Some(&new_sid))
+                {
+                    tracing::warn!("Failed to persist agent session id: {}", e);
+                }
+            }
+        }
+
+        if text.is_empty() {
+            return Err(ChatAgentError::NoResponse);
+        }
+
+        Ok((text, stdout))
+    }
+
+    /// Extract cost from agent output and persist a chat_run record.
+    pub(crate) async fn extract_and_store_cost(
+        &self,
+        stdout: &str,
+        message_id: Option<&str>,
+    ) -> Result<Option<RunCostData>, ChatAgentError> {
+        let provider = self
+            .registry
+            .get(&self.config.agent_id)
+            .ok_or_else(|| ChatAgentError::AgentNotFound(self.config.agent_id.clone()))?;
+
+        let stage_model = self.config.model.as_deref().unwrap_or("unknown");
+        let cost_data = crate::agents::provider::extract_cost_with_overrides(
+            &*provider,
+            stdout,
+            stage_model,
+            &self.config.agent_config,
+            0.0, // duration tracked separately via timestamps on the run record
+        );
+
+        let chat_run = self.db.create_chat_run(
+            &self.config.chat_id,
+            message_id,
+            &self.config.agent_id,
+        )?;
+
+        if let Some(ref cost) = cost_data {
+            let metadata = serde_json::json!({
+                "cost": cost,
+                "agent_config": self.config.agent_config,
+            });
+            if let Err(e) = self.db.set_chat_run_metadata(&chat_run.id, &metadata) {
+                tracing::warn!("Failed to save chat run metadata: {}", e);
+            }
+        }
+
+        self.db
+            .update_chat_run_status(&chat_run.id, ChatRunStatus::Finished)?;
+
+        self.broadcast(LiveEvent::ChatCostUpdated {
+            chat_id: self.config.chat_id.clone(),
+        });
+
+        Ok(cost_data)
+    }
+
+    /// Save an assistant message to the DB and broadcast the event.
+    pub(crate) async fn save_assistant_message(
+        &self,
+        content: &str,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<ChatMessage, ChatAgentError> {
+        let message = self.db.create_chat_message(
+            &self.config.chat_id,
+            ChatMessageRole::Assistant,
+            content,
+            metadata,
+        )?;
+
+        self.broadcast(LiveEvent::ChatMessageAdded {
+            chat_id: self.config.chat_id.clone(),
+            message_id: message.id.clone(),
+            role: "assistant".to_string(),
+        });
+
+        Ok(message)
+    }
+
+    /// Parse captured stdout and persist meaningful NDJSON events as ChatEvent records.
+    pub(crate) fn persist_log_events(&self, stdout: &str, message_id: &str) {
+        const SKIP_TYPES: &[&str] = &[
+            "thinking",
+            "content_block_delta",
+            "stream_event",
+            "content_block_start",
+            "content_block_stop",
+            "message_start",
+            "message_delta",
+            "message_stop",
+        ];
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || !trimmed.starts_with('{') {
+                continue;
+            }
+
+            let json: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let event_type = match json.get("type").and_then(|t| t.as_str()) {
+                Some(t) if !SKIP_TYPES.contains(&t) => t.to_string(),
+                _ => continue,
+            };
+
+            if let Err(e) = self.db.create_chat_event(
+                &self.config.chat_id,
+                Some(message_id),
+                &event_type,
+                &json,
+            ) {
+                tracing::warn!("Failed to persist chat event: {}", e);
+            }
+        }
+    }
+
+    fn make_log_callback(&self) -> Option<Arc<LogCallback>> {
+        let tx = self.event_tx.clone();
+        let chat_id = self.config.chat_id.clone();
+
+        Some(Arc::new(Box::new(move |line: LogLine| {
+            let content = line.content.trim();
+            if content.len() <= 3 {
+                return;
+            }
+
+            let stream_str = match line.stream {
+                LogStream::Stdout => "stdout",
+                LogStream::Stderr => "stderr",
+            };
+
+            if content.starts_with('{') {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+                    let dominated = json.get("type").and_then(|t| t.as_str());
+                    match dominated {
+                        Some("assistant") | Some("system") | Some("tool_call") => {
+                            let _ = tx.send(LiveEvent::ChatLogEntry {
+                                chat_id: chat_id.clone(),
+                                stream: stream_str.to_string(),
+                                message: content.to_string(),
+                                timestamp: line.timestamp.to_rfc3339(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                let _ = tx.send(LiveEvent::ChatLogEntry {
+                    chat_id: chat_id.clone(),
+                    stream: stream_str.to_string(),
+                    message: content.to_string(),
+                    timestamp: line.timestamp.to_rfc3339(),
+                });
+            }
+        })))
+    }
+
+    fn broadcast(&self, event: LiveEvent) {
+        let _ = self.event_tx.send(event);
+    }
+
+    /// Check the chat for a title and trigger generation if missing.
+    fn maybe_generate_title(&self, first_user_message: &str) {
+        let chat = match self.db.get_chat(&self.config.chat_id) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        if chat.title.is_some() {
+            return;
+        }
+
+        title::spawn_title_generation(
+            self.db.clone(),
+            self.config.chat_id.clone(),
+            first_user_message.to_string(),
+            self.event_tx.clone(),
+            self.registry.clone(),
+            self.config.agent_id.clone(),
+            self.config.repo_path.clone(),
+            self.config.agent_config.clone(),
+            self.config.model.clone(),
+        );
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::claude::provider::ClaudeProvider;
+
+    fn create_test_agent() -> ChatAgent {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let (tx, _) = broadcast::channel(16);
+        let mut registry = AgentRegistry::new();
+        registry.register(Arc::new(ClaudeProvider::new()));
+
+        ChatAgent::new(
+            db,
+            ChatAgentConfig {
+                chat_id: "test-chat".to_string(),
+                mode: ChatMode::General,
+                agent_id: "claude".to_string(),
+                repo_path: std::path::PathBuf::from("/tmp"),
+                model: None,
+                agent_config: std::collections::HashMap::new(),
+                timeout_secs: Some(120),
+            },
+            tx,
+            Arc::new(registry),
+        )
+    }
+
+    #[test]
+    fn agent_creation() {
+        let _agent = create_test_agent();
+    }
+
+    #[test]
+    fn log_callback_is_some() {
+        let agent = create_test_agent();
+        assert!(agent.make_log_callback().is_some());
+    }
+}

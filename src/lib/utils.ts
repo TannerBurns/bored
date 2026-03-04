@@ -4,6 +4,17 @@ export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
+export function formatRelativeTime(date: Date | string): string {
+  const now = Date.now();
+  const then = new Date(date).getTime();
+  const diffSecs = Math.floor((now - then) / 1000);
+  if (diffSecs < 60) return 'just now';
+  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
+  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
+  if (diffSecs < 172800) return 'Yesterday';
+  return `${Math.floor(diffSecs / 86400)}d ago`;
+}
+
 export function getTimeAgo(date: Date): string {
   const now = new Date();
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);

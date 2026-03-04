@@ -18,7 +18,7 @@ pub async fn get_ticket_cost(
 #[tauri::command]
 pub async fn backfill_run_costs(
     db: State<'_, Arc<Database>>,
-    registry: State<'_, crate::agents::registry::AgentRegistry>,
+    registry: State<'_, Arc<crate::agents::registry::AgentRegistry>>,
 ) -> Result<u32, String> {
     let count = db.backfill_run_costs(&registry).map_err(|e| e.to_string())?;
     if count > 0 {

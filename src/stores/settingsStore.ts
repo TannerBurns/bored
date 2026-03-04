@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { syncAgentConfigs } from '../lib/tauri';
+import { syncAgentConfigs, setNotificationsEnabled as syncNotificationsEnabled, listCursorModels } from '../lib/tauri';
 
 import {
   DEFAULT_STAGE_ORDER,
@@ -123,11 +123,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       setNotificationsEnabled: (enabled) => {
         set({ notificationsEnabled: enabled });
-        import('../lib/tauri').then(({ setNotificationsEnabled: sync }) => {
-          sync(enabled).catch((err) =>
-            console.warn('[settings] Failed to sync notification preference:', err)
-          );
-        });
+        syncNotificationsEnabled(enabled).catch((err) =>
+          console.warn('[settings] Failed to sync notification preference:', err)
+        );
       },
 
       getAgentConfig: (agentId) => {
@@ -233,7 +231,6 @@ export const useSettingsStore = create<SettingsState>()(
       setCursorModels: (models) => set({ cursorModels: models }),
 
       syncCursorModels: async () => {
-        const { listCursorModels } = await import('../lib/tauri');
         const result = await listCursorModels();
         const models = result.models.map((m) => ({ value: m.id, label: m.label }));
         const { cursorModelsSynced, agentConfigs } = get();
@@ -609,9 +606,7 @@ const unsubRehydrate = useSettingsStore.persist.onFinishHydration((state) => {
 
   retryAsync('Initial sync', () => {
     const agentSync = syncAgentConfigs(buildSyncPayload(state.agentConfigs));
-    const notifSync = import('../lib/tauri').then(({ setNotificationsEnabled }) =>
-      setNotificationsEnabled(state.notificationsEnabled)
-    );
+    const notifSync = syncNotificationsEnabled(state.notificationsEnabled);
     return Promise.all([agentSync, notifSync]).then(() => {});
   }, maxRetries);
 

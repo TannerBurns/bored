@@ -1,4 +1,4 @@
-//! Database operations for conversation messages (spec brainstorming)
+//! Database operations for conversation messages (spec discovery)
 
 use super::{parse_datetime, Database, DbError};
 use crate::db::models::{ConversationMessage, ConversationRole, CreateConversationMessage};
@@ -330,7 +330,7 @@ mod tests {
             .create_conversation_message(&CreateConversationMessage {
                 spec_id: spec_id.clone(),
                 role: ConversationRole::System,
-                content: "Starting brainstorming session...".to_string(),
+                content: "Starting spec discovery session...".to_string(),
             })
             .unwrap();
 

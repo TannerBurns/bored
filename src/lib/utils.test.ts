@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cn, getTimeAgo, formatDuration, normalizeDependencies } from './utils';
+import { cn, formatRelativeTime, getTimeAgo, formatDuration, normalizeDependencies } from './utils';
 
 describe('cn', () => {
   it('merges class names', () => {
@@ -28,6 +28,53 @@ describe('cn', () => {
 
   it('handles mixed inputs', () => {
     expect(cn('base', ['arr1', 'arr2'], { obj: true })).toBe('base arr1 arr2 obj');
+  });
+});
+
+describe('formatRelativeTime', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns "just now" for times less than 60 seconds ago', () => {
+    expect(formatRelativeTime(new Date('2024-06-15T11:59:30Z'))).toBe('just now');
+    expect(formatRelativeTime(new Date('2024-06-15T11:59:59Z'))).toBe('just now');
+    expect(formatRelativeTime(new Date('2024-06-15T12:00:00Z'))).toBe('just now');
+  });
+
+  it('returns minutes ago for 1-59 minutes', () => {
+    expect(formatRelativeTime(new Date('2024-06-15T11:59:00Z'))).toBe('1m ago');
+    expect(formatRelativeTime(new Date('2024-06-15T11:30:00Z'))).toBe('30m ago');
+    expect(formatRelativeTime(new Date('2024-06-15T11:01:00Z'))).toBe('59m ago');
+  });
+
+  it('returns hours ago for 1-23 hours', () => {
+    expect(formatRelativeTime(new Date('2024-06-15T11:00:00Z'))).toBe('1h ago');
+    expect(formatRelativeTime(new Date('2024-06-15T00:00:00Z'))).toBe('12h ago');
+    expect(formatRelativeTime(new Date('2024-06-14T13:00:00Z'))).toBe('23h ago');
+  });
+
+  it('returns "Yesterday" for 24-47 hours', () => {
+    expect(formatRelativeTime(new Date('2024-06-14T12:00:00Z'))).toBe('Yesterday');
+    expect(formatRelativeTime(new Date('2024-06-14T00:00:01Z'))).toBe('Yesterday');
+  });
+
+  it('returns days ago for 48+ hours', () => {
+    expect(formatRelativeTime(new Date('2024-06-13T12:00:00Z'))).toBe('2d ago');
+    expect(formatRelativeTime(new Date('2024-06-08T12:00:00Z'))).toBe('7d ago');
+  });
+
+  it('accepts string dates', () => {
+    expect(formatRelativeTime('2024-06-15T11:59:00Z')).toBe('1m ago');
+  });
+
+  it('accepts Date objects', () => {
+    expect(formatRelativeTime(new Date('2024-06-15T11:00:00Z'))).toBe('1h ago');
   });
 });
 

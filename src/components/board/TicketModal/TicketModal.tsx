@@ -5,6 +5,7 @@ import { FullscreenDescriptionModal } from '../FullscreenDescriptionModal';
 import { FullscreenCommentModal } from '../FullscreenCommentModal';
 import { CreateCommentModal } from '../CreateCommentModal';
 import { TaskList } from '../TaskList';
+import { validateTransition } from '../TransitionGuard';
 import type { Project, Comment } from '../../../types';
 import type { TicketModalProps } from './types';
 import { useTicketEdit } from './hooks/useTicketEdit';
@@ -35,7 +36,7 @@ export function TicketModal({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
-  onValidate,
+  onNavigateToChat,
   onDelete,
   onAgentComplete,
 }: TicketModalProps) {
@@ -132,7 +133,14 @@ export function TicketModal({
           editTitle={editState.editTitle}
           setEditTitle={editState.setEditTitle}
           onClose={onClose}
-          onMoveTicket={(newColumnId) => moveTicket(ticket.id, newColumnId)}
+          onMoveTicket={(newColumnId) => {
+            const validation = validateTransition(ticket, columns, newColumnId, tasks.length);
+            if (!validation.valid) {
+              logger.error(validation.reason ?? 'Invalid transition');
+              return;
+            }
+            moveTicket(ticket.id, newColumnId);
+          }}
         />
 
         {/* Content */}
@@ -220,7 +228,7 @@ export function TicketModal({
           <NextStepsPanel
             ticket={ticket}
             columns={columns}
-            onValidate={onValidate}
+            onNavigateToChat={onNavigateToChat}
           />
 
           {/* Ticket Cost Summary */}

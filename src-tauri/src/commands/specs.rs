@@ -27,7 +27,7 @@ pub struct CreateSpecInput {
     pub name: String,
     pub user_input: String,
     pub model: Option<String>,
-    /// Optional settings (e.g. agentType for brainstorm)
+    /// Optional settings (e.g. agentType for spec discovery)
     pub settings: Option<serde_json::Value>,
 }
 
@@ -339,7 +339,7 @@ pub async fn start_planner(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     _api_conn: State<'_, ApiConnState>,
     agent_settings: State<'_, AgentSettingsManager>,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<String, String> {
     tracing::info!("Starting planner for spec {}", input.spec_id);
 
@@ -393,7 +393,7 @@ pub async fn execute_plan(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     _api_conn: State<'_, ApiConnState>,
     agent_settings: State<'_, AgentSettingsManager>,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<Vec<String>, String> {
     tracing::info!("Executing plan for spec {}", spec_id);
 

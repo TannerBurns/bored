@@ -1,12 +1,12 @@
-//! Response parsing for brainstorm conversations.
+//! Response parsing for spec discovery conversations.
 
 use crate::db::StructuredSpec;
 
-use super::config::{BrainstormError, BrainstormResponse};
+use super::config::{SpecDiscoveryError, SpecDiscoveryResponse};
 
-/// Parse an agent response into a BrainstormResponse.
+/// Parse an agent response into a SpecDiscoveryResponse.
 /// Tries structured JSON first, falls back to legacy markdown headers.
-pub fn parse_response(response: &str) -> Result<BrainstormResponse, BrainstormError> {
+pub fn parse_response(response: &str) -> Result<SpecDiscoveryResponse, SpecDiscoveryError> {
     if let Some(result) = try_parse_structured_json(response) {
         return result;
     }
@@ -16,7 +16,7 @@ pub fn parse_response(response: &str) -> Result<BrainstormResponse, BrainstormEr
 
 /// Try to parse the response as our structured JSON format.
 /// Returns None if no structured JSON was found, Some(result) if parsed.
-fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse, BrainstormError>> {
+fn try_parse_structured_json(response: &str) -> Option<Result<SpecDiscoveryResponse, SpecDiscoveryError>> {
     let json_str = extract_spec_complete_json(response)?;
     let parsed: serde_json::Value = serde_json::from_str(&json_str).ok()?;
     let is_complete = parsed.get("spec_complete")?.as_bool()?;
@@ -29,13 +29,13 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
     if is_complete {
         let spec_value = match parsed.get("structured_spec") {
             Some(v) => v,
-            None => return Some(Err(BrainstormError::ParseError(
+            None => return Some(Err(SpecDiscoveryError::ParseError(
                 "spec_complete is true but structured_spec is missing".to_string()
             ))),
         };
         let structured_spec: StructuredSpec = match serde_json::from_value(spec_value.clone()) {
             Ok(s) => s,
-            Err(e) => return Some(Err(BrainstormError::ParseError(
+            Err(e) => return Some(Err(SpecDiscoveryError::ParseError(
                 format!("Failed to parse structured_spec: {}", e)
             ))),
         };
@@ -44,7 +44,7 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             "observations": observations,
         }).to_string();
 
-        Some(Ok(BrainstormResponse {
+        Some(Ok(SpecDiscoveryResponse {
             message,
             is_complete: true,
             has_questions: false,
@@ -59,7 +59,7 @@ fn try_parse_structured_json(response: &str) -> Option<Result<BrainstormResponse
             "questions": questions,
         }).to_string();
         
-        Some(Ok(BrainstormResponse {
+        Some(Ok(SpecDiscoveryResponse {
             message,
             is_complete: false,
             has_questions,
@@ -115,7 +115,7 @@ fn extract_questions_text(value: Option<&serde_json::Value>) -> String {
 /// object doesn't contain `"spec_complete"`, falls back to locating the key in
 /// the raw text and walking backward to the enclosing `{`, then brace-matching
 /// forward. This handles agent responses with multiple unfenced JSON objects
-/// where the brainstorm payload isn't the first one.
+/// where the spec discovery payload isn't the first one.
 fn extract_spec_complete_json(response: &str) -> Option<String> {
     if let Some(ref json_str) = crate::agents::json_extraction::extract_json_object(response) {
         if json_str.contains("\"spec_complete\"") {
@@ -142,11 +142,11 @@ fn extract_spec_complete_json(response: &str) -> Option<String> {
 }
 
 /// Legacy parsing: handles old-style markdown with ## Observations / ## Questions headers
-fn parse_legacy_response(response: &str) -> Result<BrainstormResponse, BrainstormError> {
+fn parse_legacy_response(response: &str) -> Result<SpecDiscoveryResponse, SpecDiscoveryError> {
     // No completion signal - check if response has questions
     let has_questions = response_has_questions(response);
     
-    Ok(BrainstormResponse {
+    Ok(SpecDiscoveryResponse {
         message: response.trim().to_string(),
         is_complete: false,
         has_questions,
