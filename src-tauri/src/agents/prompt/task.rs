@@ -23,21 +23,18 @@ fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
 
-    // Include the task-specific content if available
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Ticket Context\n\n");
+        prompt.push_str(&ticket.description_md);
+        prompt.push_str("\n\n");
+    }
+
     if let Some(ref content) = task.content {
         if !content.is_empty() {
             prompt.push_str("## Task Instructions\n\n");
             prompt.push_str(content);
             prompt.push_str("\n\n");
         }
-    }
-
-    // Include ticket context if different from task content
-    if task.content.as_deref() != Some(&ticket.description_md) && !ticket.description_md.is_empty()
-    {
-        prompt.push_str("## Original Ticket Context\n\n");
-        prompt.push_str(&ticket.description_md);
-        prompt.push_str("\n\n");
     }
 
     let priority_context = match ticket.priority {
@@ -174,12 +171,18 @@ pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
     prompt.push_str("Create an implementation plan for this task.\n\n");
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
 
-    // Use task content if available, otherwise use ticket description
-    let content = task.content.as_deref().unwrap_or(&ticket.description_md);
-    if !content.is_empty() {
-        prompt.push_str("## Requirements\n\n");
-        prompt.push_str(content);
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Ticket Context\n\n");
+        prompt.push_str(&ticket.description_md);
         prompt.push_str("\n\n");
+    }
+
+    if let Some(ref content) = task.content {
+        if !content.is_empty() {
+            prompt.push_str("## Task Requirements\n\n");
+            prompt.push_str(content);
+            prompt.push_str("\n\n");
+        }
     }
 
     let priority_context = match ticket.priority {
@@ -232,12 +235,18 @@ pub fn generate_task_implement_prompt(task: &Task, ticket: &Ticket, plan: &str) 
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
 
-    // Use task content if available
-    let content = task.content.as_deref().unwrap_or(&ticket.description_md);
-    if !content.is_empty() {
-        prompt.push_str("## Requirements\n\n");
-        prompt.push_str(content);
+    if !ticket.description_md.is_empty() {
+        prompt.push_str("## Ticket Context\n\n");
+        prompt.push_str(&ticket.description_md);
         prompt.push_str("\n\n");
+    }
+
+    if let Some(ref content) = task.content {
+        if !content.is_empty() {
+            prompt.push_str("## Task Requirements\n\n");
+            prompt.push_str(content);
+            prompt.push_str("\n\n");
+        }
     }
 
     prompt.push_str("## Implementation Plan\n\n");
@@ -316,13 +325,15 @@ mod tests {
     }
 
     #[test]
-    fn generate_task_prompt_custom_includes_content() {
+    fn generate_task_prompt_custom_includes_content_and_ticket_context() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
         let prompt = generate_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains(&ticket.title));
         assert!(prompt.contains("Custom task content"));
+        assert!(prompt.contains("Ticket Context"));
+        assert!(prompt.contains(&ticket.description_md));
     }
 
     #[test]
@@ -382,34 +393,43 @@ mod tests {
     }
 
     #[test]
-    fn generate_task_plan_prompt_includes_requirements() {
+    fn generate_task_plan_prompt_includes_context_and_requirements() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
         let prompt = generate_task_plan_prompt(&task, &ticket);
 
         assert!(prompt.contains("Create an implementation plan"));
         assert!(prompt.contains(&ticket.title));
+        assert!(prompt.contains("Ticket Context"));
+        assert!(prompt.contains(&ticket.description_md));
+        assert!(prompt.contains("Task Requirements"));
         assert!(prompt.contains("Custom task content"));
     }
 
     #[test]
-    fn generate_task_plan_prompt_uses_ticket_description_as_fallback() {
+    fn generate_task_plan_prompt_always_includes_ticket_description() {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Custom);
         task.content = None;
         let prompt = generate_task_plan_prompt(&task, &ticket);
 
+        assert!(prompt.contains("Ticket Context"));
         assert!(prompt.contains(&ticket.description_md));
+        assert!(!prompt.contains("Task Requirements"));
     }
 
     #[test]
-    fn generate_task_implement_prompt_includes_plan() {
+    fn generate_task_implement_prompt_includes_context_and_plan() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
         let plan = "Step 1: Do this\nStep 2: Do that";
         let prompt = generate_task_implement_prompt(&task, &ticket, plan);
 
         assert!(prompt.contains(&ticket.title));
+        assert!(prompt.contains("Ticket Context"));
+        assert!(prompt.contains(&ticket.description_md));
+        assert!(prompt.contains("Task Requirements"));
+        assert!(prompt.contains("Custom task content"));
         assert!(prompt.contains(plan));
         assert!(prompt.contains("Execute the implementation plan"));
     }
@@ -506,5 +526,103 @@ mod tests {
         assert!(prompt.contains(&ticket.title));
 
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn custom_task_empty_description_omits_ticket_context() {
+        let mut ticket = create_test_ticket();
+        ticket.description_md = String::new();
+        let task = create_test_task(TaskType::Custom);
+        let prompt = generate_custom_task_prompt(&task, &ticket);
+
+        assert!(!prompt.contains("Ticket Context"));
+        assert!(prompt.contains("Task Instructions"));
+        assert!(prompt.contains("Custom task content"));
+    }
+
+    #[test]
+    fn custom_task_no_content_only_shows_ticket_context() {
+        let ticket = create_test_ticket();
+        let mut task = create_test_task(TaskType::Custom);
+        task.content = None;
+        let prompt = generate_custom_task_prompt(&task, &ticket);
+
+        assert!(prompt.contains("Ticket Context"));
+        assert!(prompt.contains(&ticket.description_md));
+        assert!(!prompt.contains("Task Instructions"));
+    }
+
+    #[test]
+    fn custom_task_ticket_context_appears_before_task_instructions() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let prompt = generate_custom_task_prompt(&task, &ticket);
+
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        let instr_pos = prompt.find("## Task Instructions").unwrap();
+        assert!(ctx_pos < instr_pos, "Ticket Context must appear before Task Instructions");
+    }
+
+    #[test]
+    fn plan_prompt_empty_description_omits_ticket_context() {
+        let mut ticket = create_test_ticket();
+        ticket.description_md = String::new();
+        let task = create_test_task(TaskType::Custom);
+        let prompt = generate_task_plan_prompt(&task, &ticket);
+
+        assert!(!prompt.contains("Ticket Context"));
+        assert!(prompt.contains("Task Requirements"));
+        assert!(prompt.contains("Custom task content"));
+    }
+
+    #[test]
+    fn plan_prompt_ticket_context_appears_before_task_requirements() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let prompt = generate_task_plan_prompt(&task, &ticket);
+
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        let req_pos = prompt.find("## Task Requirements").unwrap();
+        assert!(ctx_pos < req_pos, "Ticket Context must appear before Task Requirements");
+    }
+
+    #[test]
+    fn implement_prompt_no_task_content_only_shows_ticket_context() {
+        let ticket = create_test_ticket();
+        let mut task = create_test_task(TaskType::Custom);
+        task.content = None;
+        let plan = "Step 1: Do this";
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+
+        assert!(prompt.contains("Ticket Context"));
+        assert!(prompt.contains(&ticket.description_md));
+        assert!(!prompt.contains("Task Requirements"));
+        assert!(prompt.contains("Implementation Plan"));
+        assert!(prompt.contains(plan));
+    }
+
+    #[test]
+    fn implement_prompt_empty_description_omits_ticket_context() {
+        let mut ticket = create_test_ticket();
+        ticket.description_md = String::new();
+        let task = create_test_task(TaskType::Custom);
+        let plan = "Step 1: Do this";
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+
+        assert!(!prompt.contains("Ticket Context"));
+        assert!(prompt.contains("Task Requirements"));
+        assert!(prompt.contains("Custom task content"));
+    }
+
+    #[test]
+    fn implement_prompt_ticket_context_appears_before_task_requirements() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let plan = "Step 1: Do this";
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        let req_pos = prompt.find("## Task Requirements").unwrap();
+        assert!(ctx_pos < req_pos, "Ticket Context must appear before Task Requirements");
     }
 }

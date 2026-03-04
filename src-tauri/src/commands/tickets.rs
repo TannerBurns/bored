@@ -9,7 +9,24 @@ use crate::db::{
     AuthorType, Comment, CreateComment, CreateTicket, Database, EpicProgress, Priority, RunStatus,
     Ticket, UpdateTicket, WorkflowType,
 };
-use crate::db::models::{TaskStatus, TaskType, UpdateTask};
+use crate::db::models::{TaskStatus, UpdateTask};
+
+/// Reject moving a non-epic ticket to the Ready column when it has no tasks.
+fn require_tasks_for_ready(
+    db: &Database,
+    ticket: &Ticket,
+    target_column_name: &str,
+) -> Result<(), String> {
+    if !ticket.is_epic && target_column_name.eq_ignore_ascii_case("Ready") {
+        let tasks = db
+            .get_tasks_for_ticket(&ticket.id)
+            .map_err(|e| e.to_string())?;
+        if tasks.is_empty() {
+            return Err("Cannot move to Ready: ticket has no tasks".to_string());
+        }
+    }
+    Ok(())
+}
 
 /// Input struct for creating tickets via Tauri command.
 /// Allows setting is_epic and epic_id at creation time.
@@ -118,6 +135,8 @@ pub async fn move_ticket(
     let target_column = columns.iter().find(|c| c.id == column_id);
     let target_column_name = target_column.map(|c| c.name.as_str()).unwrap_or("");
 
+    require_tasks_for_ready(&db, &ticket, target_column_name)?;
+
     // Perform the move
     db.move_ticket(&ticket_id, &column_id)
         .map_err(|e| e.to_string())?;
@@ -182,7 +201,19 @@ pub async fn update_ticket(
         .map(|new_col| new_col != &old_column_id)
         .unwrap_or(false);
 
-    let new_description = updates.description_md.clone();
+    if is_column_changing {
+        if let Some(ref new_col) = updates.column_id {
+            let columns = db
+                .get_columns(&ticket.board_id)
+                .map_err(|e| e.to_string())?;
+            let target_name = columns
+                .iter()
+                .find(|c| &c.id == new_col)
+                .map(|c| c.name.as_str())
+                .unwrap_or("");
+            require_tasks_for_ready(&db, &ticket, target_name)?;
+        }
+    }
 
     // Convert to UpdateTicket, explicitly setting epic fields to None to prevent
     // clients from modifying epic relationships through this command.
@@ -208,44 +239,6 @@ pub async fn update_ticket(
     db.update_ticket(&ticket_id, &update)
         .map(|_| ())
         .map_err(|e| e.to_string())?;
-
-    // Keep the initial task's content in sync with the ticket description so
-    // clarification edits propagate; also reset failed tasks to pending.
-    if let Some(ref new_description) = new_description {
-        if let Ok(tasks) = db.get_tasks_for_ticket(&ticket_id) {
-            if let Some(initial_task) = tasks.iter().find(|t| {
-                t.order_index == 0
-                    && t.task_type == TaskType::Custom
-                    && (t.status == TaskStatus::Pending || t.status == TaskStatus::Failed)
-            }) {
-                let new_status = if initial_task.status == TaskStatus::Failed {
-                    Some(TaskStatus::Pending)
-                } else {
-                    None
-                };
-                if let Err(e) = db.update_task(
-                    &initial_task.id,
-                    &UpdateTask {
-                        title: None,
-                        content: Some(new_description.clone()),
-                        status: new_status,
-                        run_id: None,
-                    },
-                ) {
-                    tracing::warn!(
-                        "Failed to sync description to initial task for ticket {}: {}",
-                        ticket_id,
-                        e
-                    );
-                } else {
-                    tracing::info!(
-                        "Synced description to initial task for ticket {}",
-                        ticket_id,
-                    );
-                }
-            }
-        }
-    }
 
     // Epic lifecycle hooks for column changes
     if is_column_changing {
@@ -578,40 +571,9 @@ pub async fn resolve_clarification(
     db.update_ticket(&ticket_id, &update)
         .map_err(|e| e.to_string())?;
 
-    // Sync to initial task (same logic as update_ticket)
+    // Reset failed tasks to pending so they can be retried after clarification
     if let Ok(tasks) = db.get_tasks_for_ticket(&ticket_id) {
-        let mut synced_task_id: Option<String> = None;
-
-        if let Some(initial_task) = tasks.iter().find(|t| {
-            t.order_index == 0
-                && t.task_type == TaskType::Custom
-                && (t.status == TaskStatus::Pending || t.status == TaskStatus::Failed)
-        }) {
-            let new_status = if initial_task.status == TaskStatus::Failed {
-                Some(TaskStatus::Pending)
-            } else {
-                None
-            };
-            if let Err(e) = db.update_task(
-                &initial_task.id,
-                &UpdateTask {
-                    title: None,
-                    content: Some(rewritten_spec),
-                    status: new_status,
-                    run_id: None,
-                },
-            ) {
-                tracing::warn!("Failed to sync rewritten spec to initial task: {}", e);
-            } else {
-                synced_task_id = Some(initial_task.id.clone());
-            }
-        }
-
-        // Reset any other failed tasks (skip the initial task already handled above)
-        for task in tasks
-            .iter()
-            .filter(|t| t.status == TaskStatus::Failed && synced_task_id.as_ref() != Some(&t.id))
-        {
+        for task in tasks.iter().filter(|t| t.status == TaskStatus::Failed) {
             if let Err(e) = db.update_task(
                 &task.id,
                 &UpdateTask {

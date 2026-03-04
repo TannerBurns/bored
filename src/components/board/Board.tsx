@@ -22,7 +22,7 @@ interface BoardProps {
   columns: ColumnType[];
   tickets: TicketType[];
   projectMap?: Record<string, string>;
-  onTicketMove: (ticketId: string, newColumnId: string) => void;
+  onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
@@ -101,7 +101,10 @@ export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClic
           showError(validation.reason || 'Invalid transition');
           return;
         }
-        onTicketMove(ticketId, targetColumnId);
+        Promise.resolve(onTicketMove(ticketId, targetColumnId)).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          showError(msg);
+        });
       }
     }
   };

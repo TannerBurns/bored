@@ -114,21 +114,23 @@ When you have enough information to create tickets, output a JSON block with thi
 
 Understanding how tickets are processed is critical for writing good specs:
 
-1. **The ticket description becomes the first task (Task 0).** It is automatically used as the initial task's content. An AI agent will work on this task first, using the description as its spec.
+1. **The ticket description is context, not a task.** It provides background and shared context that is automatically included in the prompt every time an AI agent works on any task in this ticket. It is NOT executed as a task itself.
 
-2. **Each additional task in the `tasks` array becomes a separate task (Task 1, 2, 3, ...).** Each task is worked on sequentially by an AI agent. The agent receives the task's `content` as its primary instructions, with the ticket description available as background context.
+2. **Tasks in the `tasks` array are the units of work.** Each task is worked on sequentially by an AI agent. The agent receives the task's `content` as its primary instructions alongside the ticket description as background context.
 
-3. **Tasks should be self-contained specs.** Because each task is worked on independently, its `content` must include everything the agent needs to complete that specific piece of work. Do not assume the agent remembers what it did in previous tasks.
+3. **Every ticket should have at least one task.** A ticket cannot be moved to the Ready column (to start agent work) without tasks.
 
-## Writing the Ticket Description (Task 0)
+4. **Tasks should be self-contained specs.** Because each task is worked on independently, its `content` must include everything the agent needs to complete that specific piece of work. Do not assume the agent remembers what it did in previous tasks.
 
-The ticket description serves as both the **overall project spec** and the **first task's instructions**. Structure it as a high-level specification that:
+## Writing the Ticket Description
+
+The ticket description serves as **shared context** for all tasks. It is NOT a task itself. Structure it as a high-level specification that:
 
 - Provides a complete overview of what the ticket accomplishes
 - Describes the architecture and design decisions
 - Lists all relevant files and their roles
 - Includes setup/teardown instructions if applicable (e.g., how to run the app, test commands)
-- Serves as the foundational context that subsequent tasks can reference
+- Serves as the foundational context that every task can reference
 
 Think of it as the "project brief" — it sets the stage for everything that follows.
 
@@ -150,7 +152,7 @@ Each task's `content` field should be a **self-contained specification** that in
 ## Important Rules
 
 - Priority must be one of: low, medium, high, urgent.
-- Each ticket can have zero or more tasks.
+- Each ticket must have at least one task. The ticket description alone is not actionable work.
 - You can create multiple tickets in one response.
 - Only output the JSON block when you have enough information. Otherwise, ask clarifying questions to understand what the user needs.
 - The ticket description should follow a **detailed markdown specification** format including:
@@ -374,7 +376,7 @@ Let me know if you want changes."###;
         assert!(prompt.contains("Create auth tickets"));
         assert!(prompt.contains("markdown specification"));
         assert!(prompt.contains("self-contained"));
-        assert!(prompt.contains("Task 0"));
+        assert!(prompt.contains("context, not a task"));
         assert!(prompt.contains("MUST contain only valid JSON"));
     }
 

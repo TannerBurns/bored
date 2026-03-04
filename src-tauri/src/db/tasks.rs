@@ -552,20 +552,19 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Note: ticket creation auto-creates Task 1, so we add Task 2 here
         let task = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
                 task_type: TaskType::Custom,
-                title: Some("Task 2".to_string()),
+                title: Some("Task 1".to_string()),
                 content: Some("Do something".to_string()),
             })
             .unwrap();
 
         assert_eq!(task.ticket_id, ticket_id);
-        assert_eq!(task.order_index, 1); // 1 because Task 0 was auto-created
+        assert_eq!(task.order_index, 0);
         assert_eq!(task.task_type, TaskType::Custom);
-        assert_eq!(task.title, Some("Task 2".to_string()));
+        assert_eq!(task.title, Some("Task 1".to_string()));
         assert_eq!(task.status, TaskStatus::Pending);
     }
 
@@ -574,12 +573,11 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Note: ticket creation auto-creates Task 0, so these will be 1, 2, 3
         let task1 = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
                 task_type: TaskType::Custom,
-                title: Some("Task 2".to_string()),
+                title: Some("Task 1".to_string()),
                 content: None,
             })
             .unwrap();
@@ -602,9 +600,9 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(task1.order_index, 1); // Starts at 1 because 0 was auto-created
-        assert_eq!(task2.order_index, 2);
-        assert_eq!(task3.order_index, 3);
+        assert_eq!(task1.order_index, 0);
+        assert_eq!(task2.order_index, 1);
+        assert_eq!(task3.order_index, 2);
     }
 
     #[test]
@@ -612,7 +610,14 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Note: ticket creation auto-creates Task 0
+        db.create_task(&CreateTask {
+            ticket_id: ticket_id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("First".to_string()),
+            content: None,
+        })
+        .unwrap();
+
         db.create_task(&CreateTask {
             ticket_id: ticket_id.clone(),
             task_type: TaskType::Custom,
@@ -621,20 +626,11 @@ mod tests {
         })
         .unwrap();
 
-        db.create_task(&CreateTask {
-            ticket_id: ticket_id.clone(),
-            task_type: TaskType::Custom,
-            title: Some("Third".to_string()),
-            content: None,
-        })
-        .unwrap();
-
         let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
 
-        assert_eq!(tasks.len(), 3); // 1 auto-created + 2 manual
-        assert_eq!(tasks[0].title, Some("Test Ticket".to_string())); // Auto-created from title
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].title, Some("First".to_string()));
         assert_eq!(tasks[1].title, Some("Second".to_string()));
-        assert_eq!(tasks[2].title, Some("Third".to_string()));
     }
 
     #[test]
@@ -642,10 +638,14 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Note: ticket creation auto-creates Task 0, so that should be the first pending task
-        let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
-        assert!(!tasks.is_empty());
-        let auto_task_id = tasks[0].id.clone();
+        let task1 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Task 1".to_string()),
+                content: None,
+            })
+            .unwrap();
 
         db.create_task(&CreateTask {
             ticket_id: ticket_id.clone(),
@@ -657,8 +657,7 @@ mod tests {
 
         let next = db.get_next_pending_task(&ticket_id).unwrap();
         assert!(next.is_some());
-        // Should be the auto-created task (order_index 0)
-        assert_eq!(next.unwrap().id, auto_task_id);
+        assert_eq!(next.unwrap().id, task1.id);
     }
 
     #[test]
@@ -736,13 +735,6 @@ mod tests {
         assert!(reset.run_id.is_none());
         assert!(reset.started_at.is_none());
         assert!(reset.completed_at.is_none());
-
-        // Task should now be eligible for get_next_pending_task
-        // First complete the auto-created task so our reset task is next
-        let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
-        let auto_task = &tasks[0];
-        db.start_task(&auto_task.id, "run-0").unwrap();
-        db.complete_task(&auto_task.id).unwrap();
 
         let next = db.get_next_pending_task(&ticket_id).unwrap();
         assert!(next.is_some());
@@ -822,28 +814,23 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Ticket creation auto-creates Task 0, so there's already a pending task
-        assert!(db.has_pending_tasks(&ticket_id).unwrap());
-
-        // Complete the auto-created task
-        let tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
-        db.start_task(&tasks[0].id, "run-1").unwrap();
-        db.complete_task(&tasks[0].id).unwrap();
-
-        // Now there should be no pending tasks
         assert!(!db.has_pending_tasks(&ticket_id).unwrap());
 
-        // Add a new pending task
-        db.create_task(&CreateTask {
-            ticket_id: ticket_id.clone(),
-            task_type: TaskType::Custom,
-            title: None,
-            content: None,
-        })
-        .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Task".to_string()),
+                content: None,
+            })
+            .unwrap();
 
-        // Should have pending task again
         assert!(db.has_pending_tasks(&ticket_id).unwrap());
+
+        db.start_task(&task.id, "run-1").unwrap();
+        db.complete_task(&task.id).unwrap();
+
+        assert!(!db.has_pending_tasks(&ticket_id).unwrap());
     }
 
     #[test]
@@ -851,16 +838,20 @@ mod tests {
         let db = create_test_db();
         let ticket_id = setup_ticket(&db);
 
-        // Ticket creation auto-creates Task 0
-        let auto_tasks = db.get_tasks_for_ticket(&ticket_id).unwrap();
-        let auto_task = &auto_tasks[0];
+        let task1 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Task 1".to_string()),
+                content: None,
+            })
+            .unwrap();
 
-        // Create additional tasks
         let task2 = db
             .create_task(&CreateTask {
                 ticket_id: ticket_id.clone(),
                 task_type: TaskType::Custom,
-                title: None,
+                title: Some("Task 2".to_string()),
                 content: None,
             })
             .unwrap();
@@ -868,22 +859,20 @@ mod tests {
         db.create_task(&CreateTask {
             ticket_id: ticket_id.clone(),
             task_type: TaskType::Custom,
-            title: None,
+            title: Some("Task 3".to_string()),
             content: None,
         })
         .unwrap();
 
-        // Complete auto-created task
-        db.start_task(&auto_task.id, "run-1").unwrap();
-        db.complete_task(&auto_task.id).unwrap();
+        db.start_task(&task1.id, "run-1").unwrap();
+        db.complete_task(&task1.id).unwrap();
 
-        // Start task2
         db.start_task(&task2.id, "run-2").unwrap();
 
         let counts = db.get_task_counts(&ticket_id).unwrap();
-        assert_eq!(counts.pending, 1); // The 3rd task we created
-        assert_eq!(counts.in_progress, 1); // task2
-        assert_eq!(counts.completed, 1); // auto-created task
+        assert_eq!(counts.pending, 1);
+        assert_eq!(counts.in_progress, 1);
+        assert_eq!(counts.completed, 1);
         assert_eq!(counts.failed, 0);
     }
 

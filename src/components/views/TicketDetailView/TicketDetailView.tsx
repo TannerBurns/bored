@@ -6,6 +6,7 @@ import { FullscreenDescriptionModal } from '../../board/FullscreenDescriptionMod
 import { FullscreenCommentModal } from '../../board/FullscreenCommentModal';
 import { CreateCommentModal } from '../../board/CreateCommentModal';
 import { useBoardStore } from '../../../stores/boardStore';
+import { validateTransition } from '../../board/TransitionGuard';
 import { useTicketEdit } from '../../board/TicketModal/hooks/useTicketEdit';
 import { useEpicData } from '../../board/TicketModal/hooks/useEpicData';
 import { useRunsHistory } from '../../board/TicketModal/hooks/useRunsHistory';
@@ -321,7 +322,14 @@ export function TicketDetailView({
           agentRuns={runsHistory.agentRuns}
           editState={editState}
           parentEpic={epicData.parentEpic}
-          onMoveTicket={(newColumnId) => moveTicket(ticket.id, newColumnId)}
+          onMoveTicket={(newColumnId) => {
+            const validation = validateTransition(ticket, columns, newColumnId, tasks.length);
+            if (!validation.valid) {
+              logger.error(validation.reason ?? 'Invalid transition');
+              return;
+            }
+            moveTicket(ticket.id, newColumnId);
+          }}
           onRunWithAgent={onRunWithAgent}
           onDelete={onDelete}
           onBack={onClose}

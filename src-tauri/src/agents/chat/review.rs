@@ -47,7 +47,7 @@ impl ChatAgent {
             })?;
 
         let branch_diff = get_branch_diff_sync(&self.db, &ticket_id)
-            .map_err(|e| ChatAgentError::AgentFailed(e))?
+            .map_err(ChatAgentError::AgentFailed)?
             .diff;
 
         let (working_dir_path, worktree_path, repo_path_for_cleanup) =
@@ -532,10 +532,27 @@ fn resolve_review_working_dir(
                 let branch = ticket.branch_name;
                 if let Some(branch_name) = branch {
                     let repo = PathBuf::from(project_path);
+                    let worktree_id = format!("review-{}", chat_id);
+
+                    let expected_path =
+                        crate::agents::worktree::get_default_worktree_base().join(&worktree_id);
+                    if expected_path.exists() && expected_path.join(".git").exists() {
+                        tracing::info!(
+                            "Reusing existing review worktree at {} for branch {}",
+                            expected_path.display(),
+                            branch_name
+                        );
+                        return Ok((
+                            expected_path.to_string_lossy().to_string(),
+                            Some(expected_path),
+                            Some(repo),
+                        ));
+                    }
+
                     match crate::agents::worktree::create_worktree_with_existing_branch(
                         &repo,
                         &branch_name,
-                        &format!("review-{}", chat_id),
+                        &worktree_id,
                         None,
                     ) {
                         Ok(wt_info) => {

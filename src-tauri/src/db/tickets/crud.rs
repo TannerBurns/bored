@@ -1,4 +1,4 @@
-use crate::db::models::{CreateTask, CreateTicket, TaskType, Ticket, UpdateTicket};
+use crate::db::models::{CreateTicket, Ticket, UpdateTicket};
 use crate::db::{Database, DbError};
 
 impl Database {
@@ -262,52 +262,6 @@ impl Database {
                 paused_run_id: None,
             })
         })?;
-
-        // Auto-create Task 1 from the ticket description
-        // This is the initial task that defines the work to be done
-        // CRITICAL: Every ticket MUST have at least one task. Workers expect this invariant.
-        // If task creation fails, we must delete the ticket and return an error to maintain consistency.
-        //
-        // UTF-8 handling: chars().count() counts Unicode code points (not bytes), which is
-        // consistent with SQLite's length() function used in the V8 migration. Both correctly
-        // handle multi-byte UTF-8 characters like emoji. Extended grapheme clusters (e.g.,
-        // emoji with skin tone modifiers) are counted as multiple code points by both.
-        let task_title = if created_ticket.title.chars().count() > 50 {
-            format!(
-                "{}...",
-                created_ticket.title.chars().take(47).collect::<String>()
-            )
-        } else {
-            created_ticket.title.clone()
-        };
-
-        if let Err(e) = self.create_task(&CreateTask {
-            ticket_id: created_ticket.id.clone(),
-            task_type: TaskType::Custom,
-            title: Some(task_title),
-            content: if created_ticket.description_md.is_empty() {
-                None
-            } else {
-                Some(created_ticket.description_md.clone())
-            },
-        }) {
-            // Task creation failed - delete the ticket to maintain invariant
-            tracing::error!(
-                "Failed to create initial task for ticket {}: {}. Deleting ticket to maintain invariant.",
-                created_ticket.id, e
-            );
-            if let Err(delete_err) = self.delete_ticket(&created_ticket.id) {
-                tracing::error!(
-                    "Failed to delete ticket {} after task creation failure: {}",
-                    created_ticket.id,
-                    delete_err
-                );
-            }
-            return Err(DbError::Validation(format!(
-                "Failed to create initial task for ticket: {}. Ticket creation aborted.",
-                e
-            )));
-        }
 
         Ok(created_ticket)
     }
