@@ -54,8 +54,9 @@ impl ChatAgent {
             resolve_review_working_dir(&self.db, &ticket_id, &project.path, &self.config.chat_id)?;
         let working_dir = Path::new(&working_dir_path);
 
+        let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
         let val_messages = chat_to_validation_messages(&messages);
-        let prompt = if val_messages.is_empty() {
+        let prompt = if is_first_turn {
             build_initial_prompt(
                 &ticket.title,
                 &ticket.description_md,
@@ -83,6 +84,7 @@ impl ChatAgent {
         let assistant_msg = self
             .save_assistant_message(&response_text, metadata.as_ref())
             .await?;
+        self.persist_log_events(&stdout, &assistant_msg.id);
         self.extract_and_store_cost(&stdout, Some(&assistant_msg.id))
             .await?;
 
@@ -268,6 +270,47 @@ impl ChatAgent {
                     }
                     Err(e) => {
                         tracing::error!("Failed to start app: {}", e);
+                        self.save_system_message(&format!(
+                            "App failed to start: `{}` (error: {})",
+                            start_app.command, e
+                        ))
+                        .await;
+                        self.save_user_message(&format!(
+                            "The app failed to start. Command `{}` encountered an error: {}\n\nPlease diagnose the issue and output a `run_command` to fix it, or a new `start_app` to try again.",
+                            start_app.command, e
+                        )).await;
+
+                        if !fix_tasks_already_extracted {
+                            let ids = process_fix_tasks_for_chat(
+                                &current_response,
+                                &self.db,
+                                &self.config.chat_id,
+                                &ticket_id,
+                                &ticket.title,
+                                &board_id,
+                                &self.event_tx,
+                            );
+                            all_fix_task_ids.extend(ids);
+                        }
+
+                        let (next_response, next_stdout, next_msg) =
+                            self.review_agent_followup(&ticket, &branch_diff).await?;
+                        let follow_fix_ids = process_fix_tasks_for_chat(
+                            &next_response,
+                            &self.db,
+                            &self.config.chat_id,
+                            &ticket_id,
+                            &ticket.title,
+                            &board_id,
+                            &self.event_tx,
+                        );
+                        all_fix_task_ids.extend(follow_fix_ids);
+                        self.extract_and_store_cost(&next_stdout, Some(&next_msg.id))
+                            .await?;
+                        current_response = next_response;
+                        last_assistant_msg = next_msg;
+                        fix_tasks_already_extracted = true;
+                        continue;
                     }
                     Ok(StartResult::Running) => {}
                 }
@@ -418,6 +461,7 @@ impl ChatAgent {
             None
         };
         let msg = self.save_assistant_message(&text, meta.as_ref()).await?;
+        self.persist_log_events(&stdout, &msg.id);
 
         Ok((text, stdout, msg))
     }

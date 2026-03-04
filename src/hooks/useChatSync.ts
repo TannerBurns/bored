@@ -41,6 +41,7 @@ export function useChatSync(
     loadChats,
     refreshChat,
     loadMessages,
+    loadChatEvents,
     addAgentLog,
     clearAgentLogs,
     addAppLogs,
@@ -135,6 +136,7 @@ export function useChatSync(
               if (data.role === 'assistant') {
                 setAgentThinking(false);
                 clearAgentLogs();
+                loadChatEvents(data.chat_id);
               }
             }
             break;
@@ -210,6 +212,7 @@ export function useChatSync(
     loadChats,
     refreshChat,
     loadMessages,
+    loadChatEvents,
     addAgentLog,
     clearAgentLogs,
     bufferAppLog,

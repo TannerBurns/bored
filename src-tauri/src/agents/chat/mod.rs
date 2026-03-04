@@ -19,10 +19,9 @@ use crate::db::models::{ChatMessage, ChatMessageRole, ChatMode, ChatRunStatus, C
 use crate::db::Database;
 
 use super::cost::RunCostData;
-use super::log_utils::extract_log_display_message;
 use super::registry::AgentRegistry;
 use super::spawner;
-use super::{AgentRunConfig, LogCallback, LogLine};
+use super::{AgentRunConfig, LogCallback, LogLine, LogStream};
 
 pub struct ChatAgent {
     db: Arc<Database>,
@@ -240,21 +239,83 @@ impl ChatAgent {
         Ok(message)
     }
 
+    /// Parse captured stdout and persist meaningful NDJSON events as ChatEvent records.
+    pub(crate) fn persist_log_events(&self, stdout: &str, message_id: &str) {
+        const SKIP_TYPES: &[&str] = &[
+            "thinking",
+            "content_block_delta",
+            "stream_event",
+            "content_block_start",
+            "content_block_stop",
+            "message_start",
+            "message_delta",
+            "message_stop",
+        ];
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || !trimmed.starts_with('{') {
+                continue;
+            }
+
+            let json: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let event_type = match json.get("type").and_then(|t| t.as_str()) {
+                Some(t) if !SKIP_TYPES.contains(&t) => t.to_string(),
+                _ => continue,
+            };
+
+            if let Err(e) = self.db.create_chat_event(
+                &self.config.chat_id,
+                Some(message_id),
+                &event_type,
+                &json,
+            ) {
+                tracing::warn!("Failed to persist chat event: {}", e);
+            }
+        }
+    }
+
     fn make_log_callback(&self) -> Option<Arc<LogCallback>> {
         let tx = self.event_tx.clone();
         let chat_id = self.config.chat_id.clone();
 
         Some(Arc::new(Box::new(move |line: LogLine| {
             let content = line.content.trim();
-            if content.len() > 3 {
-                if let Some(msg) = extract_log_display_message(content) {
-                    let _ = tx.send(LiveEvent::ChatLogEntry {
-                        chat_id: chat_id.clone(),
-                        stream: "stdout".to_string(),
-                        message: msg,
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                    });
+            if content.len() <= 3 {
+                return;
+            }
+
+            let stream_str = match line.stream {
+                LogStream::Stdout => "stdout",
+                LogStream::Stderr => "stderr",
+            };
+
+            if content.starts_with('{') {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+                    let dominated = json.get("type").and_then(|t| t.as_str());
+                    match dominated {
+                        Some("assistant") | Some("system") | Some("tool_call") => {
+                            let _ = tx.send(LiveEvent::ChatLogEntry {
+                                chat_id: chat_id.clone(),
+                                stream: stream_str.to_string(),
+                                message: content.to_string(),
+                                timestamp: line.timestamp.to_rfc3339(),
+                            });
+                        }
+                        _ => {}
+                    }
                 }
+            } else {
+                let _ = tx.send(LiveEvent::ChatLogEntry {
+                    chat_id: chat_id.clone(),
+                    stream: stream_str.to_string(),
+                    message: content.to_string(),
+                    timestamp: line.timestamp.to_rfc3339(),
+                });
             }
         })))
     }

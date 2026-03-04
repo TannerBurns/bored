@@ -109,6 +109,7 @@ impl ChatAgent {
         let assistant_msg = self
             .save_assistant_message(&parsed.message, metadata.as_ref())
             .await?;
+        self.persist_log_events(&stdout, &assistant_msg.id);
 
         self.extract_and_store_cost(&stdout, Some(&assistant_msg.id))
             .await?;
@@ -324,6 +325,7 @@ impl ChatAgent {
                         let msg = self
                             .save_assistant_message(&response.message, metadata.as_ref())
                             .await?;
+                        self.persist_log_events(&stdout, &msg.id);
                         self.extract_and_store_cost(&stdout, Some(&msg.id)).await?;
 
                         if response.is_complete {

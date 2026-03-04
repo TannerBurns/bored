@@ -42,6 +42,7 @@ impl ChatAgent {
         let (response, stdout) = self.run_agent(&prompt).await?;
 
         let message = self.save_assistant_message(&response, None).await?;
+        self.persist_log_events(&stdout, &message.id);
         self.extract_and_store_cost(&stdout, Some(&message.id))
             .await?;
 

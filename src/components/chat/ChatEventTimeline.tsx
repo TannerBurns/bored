@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import type { ChatEvent } from '../../types';
-import type { TimelineEntry } from '../board/TicketModal/LogTimeline/types';
 import { TimelineRow } from '../board/TicketModal/LogTimeline/LogTimelineView';
 import { LogTimelineView } from '../board/TicketModal/LogTimeline/LogTimelineView';
+import { parseLogEvents } from '../board/TicketModal/LogTimeline/parseLogEvents';
 import type { RunEvent } from '../board/TicketModal/types';
 
 interface ChatEventTimelineProps {
@@ -10,43 +10,10 @@ interface ChatEventTimelineProps {
   agentType: string;
 }
 
-function parseChatEventsToEntries(events: ChatEvent[]): TimelineEntry[] {
-  const entries: TimelineEntry[] = [];
-
-  for (const event of events) {
-    const payload = event.payload as Record<string, unknown>;
-    const summary = (payload.summary as string) || event.eventType;
-    const content = payload.content as string | undefined;
-    const toolName = payload.toolName as string | undefined;
-    const toolInput = payload.toolInput as string | undefined;
-
-    let type: TimelineEntry['type'] = 'system';
-    if (event.eventType === 'tool_use') type = 'tool_use';
-    else if (event.eventType === 'tool_result') type = 'tool_result';
-    else if (event.eventType === 'assistant') type = 'assistant';
-    else if (event.eventType === 'error') type = 'error';
-    else if (event.eventType === 'result') type = 'result';
-
-    entries.push({
-      id: event.id,
-      type,
-      timestamp: typeof event.createdAt === 'string' ? event.createdAt : new Date(event.createdAt).toISOString(),
-      summary,
-      content,
-      toolName,
-      toolInput,
-      rawJson: JSON.stringify(payload),
-      isStderr: false,
-    });
-  }
-
-  return entries;
-}
-
 function chatEventsToRunEvents(events: ChatEvent[]): RunEvent[] {
   return events.map((e) => ({
     id: e.id,
-    eventType: e.eventType,
+    eventType: 'log_stdout',
     payload: { raw: JSON.stringify(e.payload) },
     createdAt: typeof e.createdAt === 'string' ? e.createdAt : new Date(e.createdAt).toISOString(),
   }));
@@ -56,7 +23,10 @@ export function ChatEventTimeline({ events, agentType }: ChatEventTimelineProps)
   const [isExpanded, setIsExpanded] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const entries = useMemo(() => parseChatEventsToEntries(events), [events]);
+  const entries = useMemo(
+    () => parseLogEvents(chatEventsToRunEvents(events), agentType),
+    [events, agentType],
+  );
 
   if (entries.length === 0) return null;
 
