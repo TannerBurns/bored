@@ -4,13 +4,9 @@ import type { Chat, Ticket } from '../../types';
 import { CostBadge } from '../common/CostBadge';
 import { formatRelativeTime } from '../../lib/utils';
 import { useChatStore } from '../../stores/chatStore';
+import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+import { getAgentIcon, getAgentBrandColor, getAgentDisplayName } from '../common/AgentIcons';
 import { MODE_BADGE_COLORS, MODE_LABELS } from './index';
-
-const AGENT_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  cursor: 'Cursor',
-  codex: 'Codex',
-};
 
 interface ChatHeaderProps {
   chat: Chat;
@@ -21,6 +17,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({ chat, projectName, onNavigateToSpec, onOpenTicket }: ChatHeaderProps) {
   const chatCost = useChatStore((s) => s.chatCost);
+  const agents = useAgentRegistryStore((s) => s.agents);
   const hasSpec = chat.mode === 'spec_builder' && chat.specId;
   const isReview = chat.mode === 'review' && chat.ticketId;
 
@@ -32,6 +29,10 @@ export function ChatHeader({ chat, projectName, onNavigateToSpec, onOpenTicket }
       .then(setTicket)
       .catch(() => setTicket(null));
   }, [isReview, chat.ticketId]);
+
+  const agentInfo = agents.find((a) => a.id === chat.agentType);
+  const AgentIcon = getAgentIcon(chat.agentType);
+  const brandColor = getAgentBrandColor(chat.agentType, agentInfo?.brandColor);
 
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-board-border">
@@ -45,7 +46,12 @@ export function ChatHeader({ chat, projectName, onNavigateToSpec, onOpenTicket }
           </span>
         </div>
         <div className="flex items-center gap-2 mt-1 text-xs text-board-text-muted">
-          <span>{AGENT_LABELS[chat.agentType] || chat.agentType}</span>
+          <AgentIcon
+            size={13}
+            style={brandColor ? { color: brandColor } : undefined}
+            className={!brandColor ? 'text-board-text-secondary' : undefined}
+          />
+          <span>{getAgentDisplayName(chat.agentType, agentInfo?.displayName)}</span>
           {projectName && (
             <>
               <span className="opacity-40">·</span>

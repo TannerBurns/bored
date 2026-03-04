@@ -4,6 +4,8 @@ import { Button } from '../common/Button';
 import { useChatStore } from '../../stores/chatStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { getProjects, getBoards, getTickets, getColumns } from '../../lib/tauri';
+import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
+import { cn } from '../../lib/utils';
 import type { ChatMode, Project, Board, Ticket, Column } from '../../types';
 
 interface NewChatModalProps {
@@ -163,18 +165,33 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-board-text-muted mb-1.5">Agent</label>
-            <select
-              value={selectedAgent}
-              onChange={(e) => setSelectedAgent(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-            >
-              <option value="">Select an agent...</option>
-              {availableAgents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.displayName}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              {availableAgents.map((agent) => {
+                const Icon = getAgentIcon(agent.id);
+                const brandColor = getAgentBrandColor(agent.id, agent.brandColor);
+                const isSelected = selectedAgent === agent.id;
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => setSelectedAgent(agent.id)}
+                    className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors',
+                      isSelected
+                        ? 'border-board-accent bg-board-accent/10 text-board-accent'
+                        : 'border-board-border bg-board-surface-raised text-board-text hover:border-board-border/80'
+                    )}
+                  >
+                    <Icon
+                      size={16}
+                      style={brandColor ? { color: brandColor } : undefined}
+                      className={!brandColor ? 'text-board-text-secondary' : undefined}
+                    />
+                    {agent.displayName}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div>
