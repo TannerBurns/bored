@@ -52,7 +52,7 @@ export function MarkdownViewer({ content, className }: MarkdownViewerProps) {
         // Code styling with glass effect
         'prose-code:text-board-accent prose-code:glass-subtle prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-lg prose-code:text-sm prose-code:before:content-none prose-code:after:content-none',
         // Pre/code block with glass effect and gradient border
-        'prose-pre:glass prose-pre:rounded-xl prose-pre:border-none prose-pre:relative',
+        'prose-pre:glass prose-pre:rounded-xl prose-pre:border-none prose-pre:relative prose-pre:overflow-x-auto',
         // Blockquote with gradient left border
         'prose-blockquote:border-l-4 prose-blockquote:border-l-board-accent prose-blockquote:text-board-text-muted prose-blockquote:pl-4 prose-blockquote:italic',
         'prose-ul:text-board-text-secondary prose-ol:text-board-text-secondary',
@@ -68,6 +68,11 @@ export function MarkdownViewer({ content, className }: MarkdownViewerProps) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: ExternalLink,
+          table: ({ children, ...props }) => (
+            <div className="overflow-x-auto">
+              <table {...props}>{children}</table>
+            </div>
+          ),
         }}
       >
         {content}
