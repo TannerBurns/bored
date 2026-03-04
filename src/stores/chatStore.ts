@@ -31,6 +31,10 @@ interface ChatState {
 
   chatCost: AggregatedCost | null;
 
+  agentLogsByChat: Record<string, ChatLogEntry[]>;
+  thinkingChatIds: Record<string, boolean>;
+  appLogsByChat: Record<string, ChatLogEntry[]>;
+
   loadChats: () => Promise<void>;
   loadOlderChats: () => Promise<void>;
   createChat: (input: CreateChat) => Promise<Chat>;
@@ -42,11 +46,11 @@ interface ChatState {
   loadChatCost: (chatId: string) => Promise<void>;
   updateChatCost: () => Promise<void>;
 
-  addAgentLog: (log: ChatLogEntry) => void;
-  clearAgentLogs: () => void;
-  addAppLog: (log: ChatLogEntry) => void;
-  addAppLogs: (logs: ChatLogEntry[]) => void;
-  setAgentThinking: (thinking: boolean) => void;
+  addAgentLog: (chatId: string, log: ChatLogEntry) => void;
+  clearAgentLogs: (chatId: string) => void;
+  addAppLog: (chatId: string, log: ChatLogEntry) => void;
+  addAppLogs: (chatId: string, logs: ChatLogEntry[]) => void;
+  setAgentThinking: (chatId: string, thinking: boolean) => void;
   setAppRunning: (running: boolean) => void;
   refreshChat: (chatId: string) => Promise<void>;
   updateChatTitle: (chatId: string, title: string) => void;
@@ -65,6 +69,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appLogs: [],
   isAppRunning: false,
   chatCost: null,
+  agentLogsByChat: {},
+  thinkingChatIds: {},
+  appLogsByChat: {},
 
   loadChats: async () => {
     try {
@@ -100,13 +107,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectChat: async (chatId: string) => {
     try {
       const chat = await invoke<Chat>('get_chat', { chatId });
+      const { agentLogsByChat, thinkingChatIds, appLogsByChat } = get();
       set({
         currentChat: chat,
         messages: [],
         chatEvents: [],
-        agentLogs: [],
-        appLogs: [],
         chatCost: null,
+        isAgentThinking: thinkingChatIds[chatId] ?? false,
+        agentLogs: agentLogsByChat[chatId] ?? [],
+        appLogs: appLogsByChat[chatId] ?? [],
       });
       await Promise.all([
         get().loadMessages(chatId),
@@ -121,14 +130,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   deleteChat: async (chatId: string) => {
     try {
       await invoke('delete_chat', { chatId });
-      set((state) => ({
-        chats: state.chats.filter((c) => c.id !== chatId),
-        currentChat:
-          state.currentChat?.id === chatId ? null : state.currentChat,
-        messages: state.currentChat?.id === chatId ? [] : state.messages,
-        chatEvents: state.currentChat?.id === chatId ? [] : state.chatEvents,
-        chatCost: state.currentChat?.id === chatId ? null : state.chatCost,
-      }));
+      set((state) => {
+        const { [chatId]: _al, ...restAgentLogs } = state.agentLogsByChat;
+        const { [chatId]: _th, ...restThinking } = state.thinkingChatIds;
+        const { [chatId]: _ap, ...restAppLogs } = state.appLogsByChat;
+        return {
+          chats: state.chats.filter((c) => c.id !== chatId),
+          currentChat:
+            state.currentChat?.id === chatId ? null : state.currentChat,
+          messages: state.currentChat?.id === chatId ? [] : state.messages,
+          chatEvents: state.currentChat?.id === chatId ? [] : state.chatEvents,
+          chatCost: state.currentChat?.id === chatId ? null : state.chatCost,
+          isAgentThinking: state.currentChat?.id === chatId ? false : state.isAgentThinking,
+          agentLogs: state.currentChat?.id === chatId ? [] : state.agentLogs,
+          appLogs: state.currentChat?.id === chatId ? [] : state.appLogs,
+          agentLogsByChat: restAgentLogs,
+          thinkingChatIds: restThinking,
+          appLogsByChat: restAppLogs,
+        };
+      });
     } catch (e) {
       logger.error('Failed to delete chat', e);
     }
@@ -160,18 +180,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { currentChat } = get();
     if (!currentChat) return;
 
-    set({ isAgentThinking: true });
+    const chatId = currentChat.id;
+    get().setAgentThinking(chatId, true);
 
     try {
       const timeoutSecs =
         timeoutMinutes != null ? timeoutMinutes * 60 : undefined;
       await invoke('send_chat_message', {
-        chatId: currentChat.id,
+        chatId,
         content,
         timeoutSecs,
       });
     } finally {
-      set({ isAgentThinking: false, agentLogs: [] });
+      get().setAgentThinking(chatId, false);
+      get().clearAgentLogs(chatId);
     }
   },
 
@@ -190,32 +212,64 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await get().loadChatCost(currentChat.id);
   },
 
-  addAgentLog: (log: ChatLogEntry) => {
-    set((state) => ({ agentLogs: [...state.agentLogs, log] }));
-  },
-
-  clearAgentLogs: () => set({ agentLogs: [] }),
-
-  addAppLog: (log: ChatLogEntry) => {
+  addAgentLog: (chatId: string, log: ChatLogEntry) => {
     set((state) => {
-      const next = [...state.appLogs, log];
+      const existing = state.agentLogsByChat[chatId] ?? [];
+      const updated = [...existing, log];
+      const isCurrent = state.currentChat?.id === chatId;
       return {
-        appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next,
+        agentLogsByChat: { ...state.agentLogsByChat, [chatId]: updated },
+        ...(isCurrent ? { agentLogs: updated } : {}),
       };
     });
   },
 
-  addAppLogs: (logs: ChatLogEntry[]) => {
+  clearAgentLogs: (chatId: string) => {
+    set((state) => {
+      const isCurrent = state.currentChat?.id === chatId;
+      return {
+        agentLogsByChat: { ...state.agentLogsByChat, [chatId]: [] },
+        ...(isCurrent ? { agentLogs: [] } : {}),
+      };
+    });
+  },
+
+  addAppLog: (chatId: string, log: ChatLogEntry) => {
+    set((state) => {
+      const existing = state.appLogsByChat[chatId] ?? [];
+      const next = [...existing, log];
+      const capped = next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next;
+      const isCurrent = state.currentChat?.id === chatId;
+      return {
+        appLogsByChat: { ...state.appLogsByChat, [chatId]: capped },
+        ...(isCurrent ? { appLogs: capped } : {}),
+      };
+    });
+  },
+
+  addAppLogs: (chatId: string, logs: ChatLogEntry[]) => {
     if (logs.length === 0) return;
     set((state) => {
-      const next = [...state.appLogs, ...logs];
+      const existing = state.appLogsByChat[chatId] ?? [];
+      const next = [...existing, ...logs];
+      const capped = next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next;
+      const isCurrent = state.currentChat?.id === chatId;
       return {
-        appLogs: next.length > MAX_APP_LOGS ? next.slice(-MAX_APP_LOGS) : next,
+        appLogsByChat: { ...state.appLogsByChat, [chatId]: capped },
+        ...(isCurrent ? { appLogs: capped } : {}),
       };
     });
   },
 
-  setAgentThinking: (thinking: boolean) => set({ isAgentThinking: thinking }),
+  setAgentThinking: (chatId: string, thinking: boolean) => {
+    set((state) => {
+      const isCurrent = state.currentChat?.id === chatId;
+      return {
+        thinkingChatIds: { ...state.thinkingChatIds, [chatId]: thinking },
+        ...(isCurrent ? { isAgentThinking: thinking } : {}),
+      };
+    });
+  },
 
   setAppRunning: (running: boolean) => set({ isAppRunning: running }),
 

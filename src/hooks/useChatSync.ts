@@ -50,19 +50,25 @@ export function useChatSync(
     updateChatTitle,
   } = useChatStore();
 
-  const appLogBufferRef = useRef<ChatLogEntry[]>([]);
+  const appLogBufferRef = useRef<Map<string, ChatLogEntry[]>>(new Map());
   const flushTimerRef = useRef<number | null>(null);
 
   const flushAppLogs = useCallback(() => {
-    if (appLogBufferRef.current.length > 0) {
-      addAppLogs(appLogBufferRef.current);
-      appLogBufferRef.current = [];
+    const buffer = appLogBufferRef.current;
+    if (buffer.size > 0) {
+      for (const [chatId, logs] of buffer.entries()) {
+        addAppLogs(chatId, logs);
+      }
+      appLogBufferRef.current = new Map();
     }
   }, [addAppLogs]);
 
   const bufferAppLog = useCallback(
-    (entry: ChatLogEntry) => {
-      appLogBufferRef.current.push(entry);
+    (chatId: string, entry: ChatLogEntry) => {
+      const buffer = appLogBufferRef.current;
+      const existing = buffer.get(chatId) ?? [];
+      existing.push(entry);
+      buffer.set(chatId, existing);
       if (flushTimerRef.current === null) {
         flushTimerRef.current = window.setTimeout(() => {
           flushTimerRef.current = null;
@@ -79,9 +85,12 @@ export function useChatSync(
         clearTimeout(flushTimerRef.current);
         flushTimerRef.current = null;
       }
-      if (appLogBufferRef.current.length > 0) {
-        addAppLogs(appLogBufferRef.current);
-        appLogBufferRef.current = [];
+      const buffer = appLogBufferRef.current;
+      if (buffer.size > 0) {
+        for (const [chatId, logs] of buffer.entries()) {
+          addAppLogs(chatId, logs);
+        }
+        appLogBufferRef.current = new Map();
       }
     };
   }, [addAppLogs]);
@@ -124,15 +133,16 @@ export function useChatSync(
             break;
 
           case 'chat_message_added':
-            if (
-              data.chat_id &&
-              useChatStore.getState().currentChat?.id === data.chat_id
-            ) {
-              loadMessages(data.chat_id);
-              if (data.role === 'assistant') {
-                setAgentThinking(false);
-                clearAgentLogs();
+            if (data.chat_id) {
+              const isCurrentChat =
+                useChatStore.getState().currentChat?.id === data.chat_id;
+              if (isCurrentChat) {
+                loadMessages(data.chat_id);
                 loadChatEvents(data.chat_id);
+              }
+              if (data.role === 'assistant') {
+                setAgentThinking(data.chat_id, false);
+                clearAgentLogs(data.chat_id);
               }
             }
             break;
@@ -144,14 +154,9 @@ export function useChatSync(
             break;
 
           case 'chat_log_entry':
-            if (
-              data.chat_id &&
-              useChatStore.getState().currentChat?.id === data.chat_id &&
-              data.message &&
-              data.timestamp
-            ) {
-              setAgentThinking(true);
-              addAgentLog({
+            if (data.chat_id && data.message && data.timestamp) {
+              setAgentThinking(data.chat_id, true);
+              addAgentLog(data.chat_id, {
                 stream: data.stream || 'stdout',
                 message: data.message,
                 timestamp: data.timestamp,
@@ -160,23 +165,19 @@ export function useChatSync(
             break;
 
           case 'chat_cost_updated':
-            if (
-              data.chat_id &&
-              useChatStore.getState().currentChat?.id === data.chat_id
-            ) {
-              updateChatCost();
+            if (data.chat_id) {
+              if (
+                useChatStore.getState().currentChat?.id === data.chat_id
+              ) {
+                updateChatCost();
+              }
             }
             loadChats();
             break;
 
           case 'chat_app_log':
-            if (
-              data.chat_id &&
-              useChatStore.getState().currentChat?.id === data.chat_id &&
-              data.message &&
-              data.timestamp
-            ) {
-              bufferAppLog({
+            if (data.chat_id && data.message && data.timestamp) {
+              bufferAppLog(data.chat_id, {
                 stream: data.stream || 'stdout',
                 message: data.message,
                 timestamp: data.timestamp,

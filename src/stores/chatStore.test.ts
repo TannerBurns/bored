@@ -56,6 +56,9 @@ function resetStore() {
     appLogs: [],
     isAppRunning: false,
     chatCost: null,
+    agentLogsByChat: {},
+    thinkingChatIds: {},
+    appLogsByChat: {},
   });
 }
 
@@ -66,19 +69,33 @@ describe('useChatStore', () => {
   });
 
   describe('addAgentLog', () => {
-    it('appends a log entry', () => {
+    it('appends to map and flat state when current chat matches', () => {
+      useChatStore.setState({ currentChat: mockChat });
       const log = { stream: 'stdout', message: 'thinking...', timestamp: '2024-06-01T00:00:00Z' };
-      useChatStore.getState().addAgentLog(log);
+      useChatStore.getState().addAgentLog('chat-1', log);
 
-      expect(useChatStore.getState().agentLogs).toHaveLength(1);
-      expect(useChatStore.getState().agentLogs[0]).toEqual(log);
+      const state = useChatStore.getState();
+      expect(state.agentLogs).toHaveLength(1);
+      expect(state.agentLogs[0]).toEqual(log);
+      expect(state.agentLogsByChat['chat-1']).toHaveLength(1);
+    });
+
+    it('appends to map only when chat does not match current', () => {
+      useChatStore.setState({ currentChat: mockChat });
+      const log = { stream: 'stdout', message: 'other chat', timestamp: '2024-06-01T00:00:00Z' };
+      useChatStore.getState().addAgentLog('chat-other', log);
+
+      const state = useChatStore.getState();
+      expect(state.agentLogs).toHaveLength(0);
+      expect(state.agentLogsByChat['chat-other']).toHaveLength(1);
     });
 
     it('preserves ordering across multiple additions', () => {
+      useChatStore.setState({ currentChat: mockChat });
       const log1 = { stream: 'stdout', message: 'first', timestamp: '2024-06-01T00:00:00Z' };
       const log2 = { stream: 'stdout', message: 'second', timestamp: '2024-06-01T00:00:01Z' };
-      useChatStore.getState().addAgentLog(log1);
-      useChatStore.getState().addAgentLog(log2);
+      useChatStore.getState().addAgentLog('chat-1', log1);
+      useChatStore.getState().addAgentLog('chat-1', log2);
 
       const logs = useChatStore.getState().agentLogs;
       expect(logs).toHaveLength(2);
@@ -88,26 +105,41 @@ describe('useChatStore', () => {
   });
 
   describe('clearAgentLogs', () => {
-    it('clears all agent logs', () => {
-      useChatStore.getState().addAgentLog({ stream: 'stdout', message: 'log', timestamp: '' });
-      useChatStore.getState().clearAgentLogs();
+    it('clears logs for the specified chat', () => {
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().addAgentLog('chat-1', { stream: 'stdout', message: 'log', timestamp: '' });
+      useChatStore.getState().clearAgentLogs('chat-1');
 
       expect(useChatStore.getState().agentLogs).toHaveLength(0);
+      expect(useChatStore.getState().agentLogsByChat['chat-1']).toHaveLength(0);
+    });
+
+    it('does not affect flat state when clearing a non-current chat', () => {
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().addAgentLog('chat-1', { stream: 'stdout', message: 'keep', timestamp: '' });
+      useChatStore.getState().addAgentLog('chat-other', { stream: 'stdout', message: 'clear', timestamp: '' });
+
+      useChatStore.getState().clearAgentLogs('chat-other');
+
+      expect(useChatStore.getState().agentLogs).toHaveLength(1);
+      expect(useChatStore.getState().agentLogsByChat['chat-other']).toHaveLength(0);
     });
   });
 
   describe('addAppLog', () => {
-    it('appends a single app log', () => {
+    it('appends a single app log to current chat', () => {
+      useChatStore.setState({ currentChat: mockChat });
       const log = { stream: 'stdout', message: 'app output', timestamp: '' };
-      useChatStore.getState().addAppLog(log);
+      useChatStore.getState().addAppLog('chat-1', log);
 
       expect(useChatStore.getState().appLogs).toHaveLength(1);
       expect(useChatStore.getState().appLogs[0]).toEqual(log);
     });
 
     it('caps at MAX_APP_LOGS (200)', () => {
+      useChatStore.setState({ currentChat: mockChat });
       for (let i = 0; i < 210; i++) {
-        useChatStore.getState().addAppLog({ stream: 'stdout', message: `log-${i}`, timestamp: '' });
+        useChatStore.getState().addAppLog('chat-1', { stream: 'stdout', message: `log-${i}`, timestamp: '' });
       }
 
       const logs = useChatStore.getState().appLogs;
@@ -119,29 +151,32 @@ describe('useChatStore', () => {
 
   describe('addAppLogs (batch)', () => {
     it('appends multiple logs at once', () => {
+      useChatStore.setState({ currentChat: mockChat });
       const logs = [
         { stream: 'stdout', message: 'a', timestamp: '' },
         { stream: 'stdout', message: 'b', timestamp: '' },
       ];
-      useChatStore.getState().addAppLogs(logs);
+      useChatStore.getState().addAppLogs('chat-1', logs);
 
       expect(useChatStore.getState().appLogs).toHaveLength(2);
     });
 
     it('no-ops on empty array', () => {
-      useChatStore.getState().addAppLog({ stream: 'stdout', message: 'existing', timestamp: '' });
-      useChatStore.getState().addAppLogs([]);
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().addAppLog('chat-1', { stream: 'stdout', message: 'existing', timestamp: '' });
+      useChatStore.getState().addAppLogs('chat-1', []);
 
       expect(useChatStore.getState().appLogs).toHaveLength(1);
     });
 
     it('caps combined logs at 200', () => {
+      useChatStore.setState({ currentChat: mockChat });
       const batch = Array.from({ length: 250 }, (_, i) => ({
         stream: 'stdout',
         message: `batch-${i}`,
         timestamp: '',
       }));
-      useChatStore.getState().addAppLogs(batch);
+      useChatStore.getState().addAppLogs('chat-1', batch);
 
       const logs = useChatStore.getState().appLogs;
       expect(logs.length).toBeLessThanOrEqual(200);
@@ -150,15 +185,70 @@ describe('useChatStore', () => {
   });
 
   describe('setAgentThinking', () => {
-    it('sets thinking to true', () => {
-      useChatStore.getState().setAgentThinking(true);
+    it('sets thinking for current chat', () => {
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().setAgentThinking('chat-1', true);
+
       expect(useChatStore.getState().isAgentThinking).toBe(true);
+      expect(useChatStore.getState().thinkingChatIds['chat-1']).toBe(true);
     });
 
     it('sets thinking back to false', () => {
-      useChatStore.getState().setAgentThinking(true);
-      useChatStore.getState().setAgentThinking(false);
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().setAgentThinking('chat-1', true);
+      useChatStore.getState().setAgentThinking('chat-1', false);
+
       expect(useChatStore.getState().isAgentThinking).toBe(false);
+    });
+
+    it('does not affect flat state for non-current chat', () => {
+      useChatStore.setState({ currentChat: mockChat });
+      useChatStore.getState().setAgentThinking('chat-other', true);
+
+      expect(useChatStore.getState().isAgentThinking).toBe(false);
+      expect(useChatStore.getState().thinkingChatIds['chat-other']).toBe(true);
+    });
+  });
+
+  describe('selectChat restores per-chat state', () => {
+    it('restores thinking and logs from maps', async () => {
+      useChatStore.setState({
+        agentLogsByChat: {
+          'chat-1': [{ stream: 'stdout', message: 'restored', timestamp: '' }],
+        },
+        thinkingChatIds: { 'chat-1': true },
+        appLogsByChat: {
+          'chat-1': [{ stream: 'stdout', message: 'app-restored', timestamp: '' }],
+        },
+      });
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(mockChat)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(null);
+
+      await useChatStore.getState().selectChat('chat-1');
+
+      const state = useChatStore.getState();
+      expect(state.isAgentThinking).toBe(true);
+      expect(state.agentLogs).toHaveLength(1);
+      expect(state.agentLogs[0].message).toBe('restored');
+      expect(state.appLogs).toHaveLength(1);
+      expect(state.appLogs[0].message).toBe('app-restored');
+    });
+
+    it('defaults to empty when no prior state', async () => {
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(mockChat)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(null);
+
+      await useChatStore.getState().selectChat('chat-1');
+
+      expect(useChatStore.getState().isAgentThinking).toBe(false);
+      expect(useChatStore.getState().agentLogs).toHaveLength(0);
+      expect(useChatStore.getState().appLogs).toHaveLength(0);
     });
   });
 
@@ -285,34 +375,23 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().chatEvents).toHaveLength(1);
       expect(useChatStore.getState().chatCost?.totalCostUsd).toBe(0.05);
     });
-
-    it('resets transient state on selection', async () => {
-      useChatStore.setState({
-        agentLogs: [{ stream: 'stdout', message: 'old', timestamp: '' }],
-        appLogs: [{ stream: 'stdout', message: 'old app', timestamp: '' }],
-      });
-      vi.mocked(invoke)
-        .mockResolvedValueOnce(mockChat)
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce(null);
-
-      await useChatStore.getState().selectChat('chat-1');
-
-      expect(useChatStore.getState().agentLogs).toHaveLength(0);
-      expect(useChatStore.getState().appLogs).toHaveLength(0);
-    });
   });
 
   describe('deleteChat', () => {
-    it('removes chat from list', async () => {
-      useChatStore.setState({ chats: [mockChat] });
+    it('removes chat from list and cleans up maps', async () => {
+      useChatStore.setState({
+        chats: [mockChat],
+        agentLogsByChat: { 'chat-1': [{ stream: 'stdout', message: 'old', timestamp: '' }] },
+        thinkingChatIds: { 'chat-1': true },
+      });
       vi.mocked(invoke).mockResolvedValueOnce(undefined);
 
       await useChatStore.getState().deleteChat('chat-1');
 
       expect(invoke).toHaveBeenCalledWith('delete_chat', { chatId: 'chat-1' });
       expect(useChatStore.getState().chats).toHaveLength(0);
+      expect(useChatStore.getState().agentLogsByChat['chat-1']).toBeUndefined();
+      expect(useChatStore.getState().thinkingChatIds['chat-1']).toBeUndefined();
     });
 
     it('clears currentChat if it was the deleted one', async () => {
@@ -364,6 +443,7 @@ describe('useChatStore', () => {
       });
       expect(useChatStore.getState().isAgentThinking).toBe(false);
       expect(useChatStore.getState().agentLogs).toHaveLength(0);
+      expect(useChatStore.getState().thinkingChatIds['chat-1']).toBe(false);
     });
 
     it('converts timeout minutes to seconds', async () => {
@@ -464,6 +544,9 @@ describe('useChatStore', () => {
       expect(state.appLogs).toEqual([]);
       expect(state.isAppRunning).toBe(false);
       expect(state.chatCost).toBeNull();
+      expect(state.agentLogsByChat).toEqual({});
+      expect(state.thinkingChatIds).toEqual({});
+      expect(state.appLogsByChat).toEqual({});
     });
   });
 });
