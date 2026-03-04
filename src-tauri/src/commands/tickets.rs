@@ -467,7 +467,7 @@ pub async fn resolve_clarification(
     agent_type: Option<String>,
     db: State<'_, Arc<Database>>,
     agent_settings: State<'_, AgentSettingsManager>,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<Ticket, String> {
     tracing::info!(
         "Resolving clarification for ticket {} (response={} chars)",

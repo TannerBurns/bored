@@ -28,7 +28,7 @@ fn resolve_provider(
 #[tauri::command]
 pub async fn get_agent_status(
     agent_id: String,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<AgentStatus, String> {
     let provider = resolve_provider(&registry, &agent_id)?;
 
@@ -41,7 +41,7 @@ pub async fn get_agent_status(
 #[tauri::command]
 pub async fn check_agent_available(
     agent_id: String,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<bool, String> {
     let provider = resolve_provider(&registry, &agent_id)?;
     Ok(provider.is_available())

@@ -259,7 +259,7 @@ fn main() {
                 }
             });
 
-            app.manage(agent_registry);
+            app.manage(Arc::new(agent_registry));
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());

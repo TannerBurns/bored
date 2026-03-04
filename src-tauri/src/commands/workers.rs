@@ -71,7 +71,7 @@ pub async fn start_worker(
     agent_settings: State<'_, AgentSettingsManager>,
     running_agents: State<'_, RunningAgents>,
     workflow_settings_state: State<'_, WorkflowSettingsState>,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<StartWorkerResponse, String> {
     let StartWorkerRequest {
         agent_type,

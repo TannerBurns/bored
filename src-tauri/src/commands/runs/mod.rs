@@ -95,7 +95,7 @@ pub async fn start_agent_run(
     running_agents: State<'_, RunningAgents>,
     agent_settings: State<'_, AgentSettingsManager>,
     workflow_settings_state: State<'_, crate::commands::workflow_settings::WorkflowSettingsState>,
-    registry: State<'_, AgentRegistry>,
+    registry: State<'_, Arc<AgentRegistry>>,
 ) -> Result<String, String> {
     let StartRunInput {
         ticket_id,
