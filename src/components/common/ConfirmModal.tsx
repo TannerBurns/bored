@@ -33,6 +33,13 @@ export function ConfirmModal({
     return () => { mountedRef.current = false; };
   }, []);
 
+  useEffect(() => {
+    if (open) {
+      setIsLoading(false);
+      setError(null);
+    }
+  }, [open]);
+
   const handleCancel = () => {
     if (isLoading) return;
     onCancel?.();

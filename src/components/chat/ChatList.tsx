@@ -75,7 +75,6 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
         variant="danger"
         onConfirm={async () => {
           if (chatToDelete) await deleteChat(chatToDelete.id);
-          setChatToDelete(null);
         }}
       />
     </div>
