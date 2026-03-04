@@ -22,6 +22,8 @@ pub fn spawn_title_generation(
     registry: Arc<AgentRegistry>,
     agent_id: String,
     repo_path: std::path::PathBuf,
+    agent_config: HashMap<String, serde_json::Value>,
+    model: Option<String>,
 ) {
     tokio::spawn(async move {
         let prompt = format!(
@@ -45,8 +47,8 @@ pub fn spawn_title_generation(
             repo_path,
             prompt,
             timeout_secs: Some(60),
-            model: None,
-            agent_config: HashMap::new(),
+            model,
+            agent_config,
             session_id: None,
         };
 

@@ -282,6 +282,8 @@ impl ChatAgent {
             self.registry.clone(),
             self.config.agent_id.clone(),
             self.config.repo_path.clone(),
+            self.config.agent_config.clone(),
+            self.config.model.clone(),
         );
     }
 

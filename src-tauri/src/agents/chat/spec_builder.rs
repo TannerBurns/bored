@@ -84,11 +84,15 @@ impl ChatAgent {
             .await;
         }
 
-        let conv_messages = Self::convert_to_conv_messages(&messages, &spec_id);
+        let has_assistant_response = messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
 
-        let prompt = if conv_messages.is_empty() {
+        let prompt = if !has_assistant_response {
             build_initial_prompt(&spec.user_input)
         } else {
+            let conv_messages: Vec<_> = Self::convert_to_conv_messages(&messages, &spec_id)
+                .into_iter()
+                .skip(1) // skip the first user message; it's already in spec.user_input
+                .collect();
             build_conversation_prompt(&spec.user_input, &conv_messages)
         };
 
