@@ -17,6 +17,7 @@ pub struct ClaudeApiConfig {
     pub thinking_enabled: Option<bool>,
     pub extended_context_enabled: Option<bool>,
     pub chrome_enabled: Option<bool>,
+    pub max_turns: Option<u32>,
 }
 
 impl ClaudeApiConfig {
@@ -26,6 +27,10 @@ impl ClaudeApiConfig {
 
     fn get_bool(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<bool> {
         map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_bool())
+    }
+
+    fn get_u32(map: &std::collections::HashMap<String, serde_json::Value>, snake: &str, camel: &str) -> Option<u32> {
+        map.get(snake).or_else(|| map.get(camel)).and_then(|v| v.as_u64()).map(|v| v as u32)
     }
 
     /// Accepts both snake_case and camelCase keys for backward compatibility.
@@ -39,6 +44,7 @@ impl ClaudeApiConfig {
             thinking_enabled: Self::get_bool(map, "thinking_enabled", "thinkingEnabled"),
             extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled"),
             chrome_enabled: Self::get_bool(map, "chrome_enabled", "chromeEnabled"),
+            max_turns: Self::get_u32(map, "max_turns", "maxTurns"),
         }
     }
 
