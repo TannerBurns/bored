@@ -9,11 +9,12 @@ use uuid::Uuid;
 impl Database {
     pub fn create_chat(&self, input: &CreateChat) -> Result<Chat, DbError> {
         match input.mode {
-            ChatMode::TicketBuilder => {
+            ChatMode::TicketBuilder | ChatMode::SpecBuilder => {
                 if input.board_id.is_none() {
-                    return Err(DbError::Validation(
-                        "ticket_builder mode requires board_id".to_string(),
-                    ));
+                    return Err(DbError::Validation(format!(
+                        "{} mode requires board_id",
+                        input.mode.as_str(),
+                    )));
                 }
             }
             ChatMode::Review => {
