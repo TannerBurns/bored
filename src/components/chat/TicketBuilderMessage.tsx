@@ -29,35 +29,51 @@ const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'bg-red-500/20 text-red-400',
 };
 
+function tryParseJson(text: string): { tickets: ParsedTicket[] } | null {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.tickets && Array.isArray(parsed.tickets)) return parsed;
+  } catch { /* fall through */ }
+
+  try {
+    const repaired = repairUnquotedValues(text);
+    const parsed = JSON.parse(repaired);
+    if (parsed?.tickets && Array.isArray(parsed.tickets)) return parsed;
+  } catch { /* fall through */ }
+
+  return null;
+}
+
+function repairUnquotedValues(text: string): string {
+  return text.replace(
+    /"(content|title|description)":\s+([A-Za-z])/g,
+    '"$1": "$2',
+  );
+}
+
 function parseTicketBuilderResponse(content: string): TicketBuilderParsed | null {
   const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
   if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[1]);
-      if (!parsed.tickets || !Array.isArray(parsed.tickets)) return null;
+    const parsed = tryParseJson(jsonMatch[1]);
+    if (parsed) {
       const jsonStart = content.indexOf(jsonMatch[0]);
       return {
         tickets: parsed.tickets,
         textBefore: content.slice(0, jsonStart).trim(),
         textAfter: content.slice(jsonStart + jsonMatch[0].length).trim(),
       };
-    } catch {
-      return null;
     }
   }
 
   const rawMatch = content.match(/\{[\s\S]*"tickets"[\s\S]*\}/);
   if (rawMatch) {
-    try {
-      const parsed = JSON.parse(rawMatch[0]);
-      if (!parsed.tickets || !Array.isArray(parsed.tickets)) return null;
+    const parsed = tryParseJson(rawMatch[0]);
+    if (parsed) {
       return {
         tickets: parsed.tickets,
         textBefore: content.slice(0, rawMatch.index).trim(),
         textAfter: content.slice(rawMatch.index! + rawMatch[0].length).trim(),
       };
-    } catch {
-      return null;
     }
   }
 

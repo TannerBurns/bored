@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::db::models::{ChatMessage, ChatMessageRole, Priority};
@@ -158,6 +159,7 @@ Each task's `content` field should be a **self-contained specification** that in
   - `## Technical Notes` — implementation hints, relevant files, architecture considerations
 - You may include additional sections as appropriate (e.g., `## Dependencies`, `## Edge Cases`).
 - Every task must have both a `title` (short summary) and `content` (detailed spec).
+- **JSON formatting**: All string values MUST be wrapped in double quotes. Use `\\n` for newlines within strings. Never output bare/unquoted string values.
 
 ## Board Context
 
@@ -191,7 +193,20 @@ Each task's `content` field should be a **self-contained specification** that in
 
 pub fn parse_ticket_builder_response(text: &str) -> Option<TicketBuilderOutput> {
     let json_str = extract_json_block(text)?;
-    serde_json::from_str(json_str).ok()
+    if let Ok(output) = serde_json::from_str(json_str) {
+        return Some(output);
+    }
+    let repaired = repair_unquoted_values(json_str);
+    serde_json::from_str(&repaired).ok()
+}
+
+/// LLMs sometimes omit the opening quote on string values while keeping the
+/// closing quote, producing `"content": Fix the bug."` instead of
+/// `"content": "Fix the bug."`. This repairs that pattern for known keys.
+fn repair_unquoted_values(text: &str) -> String {
+    let re = Regex::new(r#""(content|title|description)":\s+([A-Za-z])"#)
+        .expect("static regex");
+    re.replace_all(text, r#""$1": "$2"#).to_string()
 }
 
 fn extract_json_block(text: &str) -> Option<&str> {
@@ -268,6 +283,50 @@ Let me know if you want changes."###;
         let parsed = parse_ticket_builder_response(text).unwrap();
         assert_eq!(parsed.tickets.len(), 1);
         assert_eq!(parsed.tickets[0].title, "Fix bug");
+    }
+
+    #[test]
+    fn parse_repairs_missing_opening_quote() {
+        let text = r###"Here are the tickets:
+
+```json
+{
+  "tickets": [
+    {
+      "title": "Add tests",
+      "description": "## Overview\nAdd test coverage.",
+      "priority": "medium",
+      "tasks": [
+        {
+          "title": "Add unit tests",
+          "content": "Create test file at `handler_test.go`."
+        },
+        {
+          "title": "Update router tests",
+          "content": Refactor `router_test.go` to use real handlers. Test all routes."
+        }
+      ]
+    }
+  ]
+}
+```
+"###;
+
+        let parsed = parse_ticket_builder_response(text).unwrap();
+        assert_eq!(parsed.tickets.len(), 1);
+        let tasks = parsed.tickets[0].tasks.as_ref().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].content.as_deref(), Some("Create test file at `handler_test.go`."));
+        assert_eq!(
+            tasks[1].content.as_deref(),
+            Some("Refactor `router_test.go` to use real handlers. Test all routes.")
+        );
+    }
+
+    #[test]
+    fn repair_unquoted_values_is_idempotent_on_valid_json() {
+        let valid = r#"{"title": "Hello", "content": "World"}"#;
+        assert_eq!(repair_unquoted_values(valid), valid);
     }
 
     #[test]
