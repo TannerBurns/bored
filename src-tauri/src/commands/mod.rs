@@ -84,7 +84,7 @@ pub struct AgentInfo {
 /// Return the list of all registered agents with their availability status.
 #[tauri::command]
 pub fn get_available_agents(
-    registry: tauri::State<'_, crate::agents::registry::AgentRegistry>,
+    registry: tauri::State<'_, std::sync::Arc<crate::agents::registry::AgentRegistry>>,
 ) -> Vec<AgentInfo> {
     registry
         .providers()
