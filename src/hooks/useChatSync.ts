@@ -48,11 +48,7 @@ export function useChatSync(
     setAgentThinking,
     updateChatCost,
     updateChatTitle,
-    currentChat,
   } = useChatStore();
-
-  const currentChatRef = useRef(currentChat);
-  currentChatRef.current = currentChat;
 
   const appLogBufferRef = useRef<ChatLogEntry[]>([]);
   const flushTimerRef = useRef<number | null>(null);
@@ -130,7 +126,7 @@ export function useChatSync(
           case 'chat_message_added':
             if (
               data.chat_id &&
-              currentChatRef.current?.id === data.chat_id
+              useChatStore.getState().currentChat?.id === data.chat_id
             ) {
               loadMessages(data.chat_id);
               if (data.role === 'assistant') {
@@ -150,7 +146,7 @@ export function useChatSync(
           case 'chat_log_entry':
             if (
               data.chat_id &&
-              currentChatRef.current?.id === data.chat_id &&
+              useChatStore.getState().currentChat?.id === data.chat_id &&
               data.message &&
               data.timestamp
             ) {
@@ -166,7 +162,7 @@ export function useChatSync(
           case 'chat_cost_updated':
             if (
               data.chat_id &&
-              currentChatRef.current?.id === data.chat_id
+              useChatStore.getState().currentChat?.id === data.chat_id
             ) {
               updateChatCost();
             }
@@ -176,7 +172,7 @@ export function useChatSync(
           case 'chat_app_log':
             if (
               data.chat_id &&
-              currentChatRef.current?.id === data.chat_id &&
+              useChatStore.getState().currentChat?.id === data.chat_id &&
               data.message &&
               data.timestamp
             ) {

@@ -169,16 +169,21 @@ Each task's `content` field should be a **self-contained specification** that in
 
     for msg in messages {
         let role_label = match msg.role {
-            ChatMessageRole::User => "User",
-            ChatMessageRole::Assistant => "Assistant",
+            ChatMessageRole::User => "user",
+            ChatMessageRole::Assistant => "assistant",
             ChatMessageRole::System => continue,
         };
-        prompt.push_str(&format!("\n{}: {}\n", role_label, msg.content));
+        prompt.push_str(&format!(
+            "\n<message role=\"{}\">\n{}\n</message>\n",
+            role_label, msg.content
+        ));
     }
 
     prompt.push_str(
         "\n## Your Task\n\nRespond to the user's latest message. \
-         Either ask clarifying questions or produce the structured ticket JSON when ready.\n",
+         Either ask clarifying questions or produce the structured ticket JSON when ready. \
+         When you output a ```json block, it MUST contain only valid JSON — no prose, \
+         commentary, or non-JSON text inside the block.\n",
     );
 
     prompt
@@ -306,10 +311,12 @@ Let me know if you want changes."###;
 
         let prompt = build_ticket_builder_prompt(&messages, "Board: My Project\nColumns: Backlog, In Progress, Done\n");
         assert!(prompt.contains("Board: My Project"));
-        assert!(prompt.contains("User: Create auth tickets"));
+        assert!(prompt.contains("<message role=\"user\">"));
+        assert!(prompt.contains("Create auth tickets"));
         assert!(prompt.contains("markdown specification"));
         assert!(prompt.contains("self-contained"));
         assert!(prompt.contains("Task 0"));
+        assert!(prompt.contains("MUST contain only valid JSON"));
     }
 
     #[test]
@@ -335,6 +342,7 @@ Let me know if you want changes."###;
 
         let prompt = build_ticket_builder_prompt(&messages, "Board: Test\n");
         assert!(!prompt.contains("system msg"));
-        assert!(prompt.contains("User: hello"));
+        assert!(prompt.contains("<message role=\"user\">"));
+        assert!(prompt.contains("hello"));
     }
 }
