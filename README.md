@@ -17,7 +17,7 @@
 
 <p align="center">
   Orchestrate AI coding agents with the same boards, tickets, and workflows you use to manage your own development work.<br>
-  Plan features with AI, generate work plans, and let <strong>Cursor</strong>, <strong>Claude Code</strong>, or <strong>Codex</strong> build them autonomously.
+  Chat with AI, plan features, generate work plans, and let <strong>Cursor</strong>, <strong>Claude Code</strong>, or <strong>Codex</strong> build them autonomously.
 </p>
 
 ---
@@ -37,10 +37,28 @@
 | **Implementation** | Code everything yourself | Agents implement tickets autonomously |
 | **Progress Tracking** | Check terminal output | Real-time event timeline and dashboards |
 | **Multi-tasking** | One task at a time | Queue tickets, workers process them in parallel |
+| **AI Conversations** | Copy-paste between tools | Chat with agents directly inside Bored |
 
 ---
 
 ## Key Features
+
+### AI Chat
+
+Chat directly with AI agents inside Bored. Four specialized modes let you have the right kind of conversation for what you're doing:
+
+| Mode | What It Does |
+|------|-------------|
+| **General** | Free-form Q&A about your code, architecture, or anything else |
+| **Spec Builder** | Conversational spec discovery — brainstorm a feature, then generate a full work plan |
+| **Ticket Builder** | Describe work in natural language and get structured tickets with tasks |
+| **Review** | Review completed work, run the app, and create fix tasks from feedback |
+
+Each chat is tied to a project and agent, with full cost tracking, live event timelines, and multi-turn conversation history.
+
+<p align="center">
+  <img src="docs/images/screenshot-chat.png" alt="AI Chat" width="700">
+</p>
 
 ### Spec Builder: Plan and Execute Large Features
 
@@ -194,6 +212,7 @@ Tasks have their own status (`Pending` → `In Progress` → `Completed` / `Fail
 2. **Create a Board** to organize your work
 3. **Add a Project** — point to a local repository
 4. **Start Building:**
+   - **Chat:** Open Chat to brainstorm, generate tickets, or review work with AI
    - **Single tickets:** Create a ticket, click **"Build with"** → Cursor, Claude, or Codex
    - **Large features:** Create a Spec, brainstorm with AI, approve the plan, and watch it execute
 
