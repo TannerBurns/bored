@@ -6,6 +6,7 @@ import { useChatStore } from '../../stores/chatStore';
 interface TicketBuilderMessageProps {
   content: string;
   chatId: string;
+  alreadyCreated: boolean;
 }
 
 interface TicketBuilderParsed {
@@ -18,7 +19,7 @@ interface ParsedTicket {
   title: string;
   description: string;
   priority?: string;
-  tasks?: { title: string }[];
+  tasks?: { title: string; content?: string }[];
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -63,11 +64,12 @@ function parseTicketBuilderResponse(content: string): TicketBuilderParsed | null
   return null;
 }
 
-export function TicketBuilderMessage({ content, chatId }: TicketBuilderMessageProps) {
+export function TicketBuilderMessage({ content, chatId, alreadyCreated }: TicketBuilderMessageProps) {
   const parsed = parseTicketBuilderResponse(content);
   const [isCreating, setIsCreating] = useState(false);
-  const [created, setCreated] = useState(false);
+  const [justCreated, setJustCreated] = useState(false);
   const loadMessages = useChatStore((s) => s.loadMessages);
+  const created = alreadyCreated || justCreated;
 
   if (!parsed) {
     return <MarkdownViewer content={content} />;
@@ -78,7 +80,7 @@ export function TicketBuilderMessage({ content, chatId }: TicketBuilderMessagePr
     try {
       const ticketsJson = JSON.stringify({ tickets: parsed.tickets });
       await createTicketsFromChat(chatId, ticketsJson);
-      setCreated(true);
+      setJustCreated(true);
       await loadMessages(chatId);
     } catch (e) {
       console.error('Failed to create tickets:', e);

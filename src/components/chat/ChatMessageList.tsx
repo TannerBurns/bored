@@ -120,7 +120,16 @@ export function ChatMessageList({
                     ) : isSpecBuilder ? (
                       <SpecBuilderMessage content={msg.content} />
                     ) : isTicketBuilder ? (
-                      <TicketBuilderMessage content={msg.content} chatId={chatId} />
+                      <TicketBuilderMessage
+                        content={msg.content}
+                        chatId={chatId}
+                        alreadyCreated={messages.some(
+                          (m) =>
+                            m.role === 'system' &&
+                            (m.metadata?.type as string) === 'tickets_created' &&
+                            new Date(m.createdAt) > new Date(msg.createdAt)
+                        )}
+                      />
                     ) : isReview ? (
                       <ReviewMessage content={msg.content} metadata={msg.metadata} />
                     ) : (

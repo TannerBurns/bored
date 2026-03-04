@@ -222,7 +222,7 @@ pub async fn create_tickets_from_chat(
                     ticket_id: ticket.id.clone(),
                     task_type: Default::default(),
                     title: Some(task.title.clone()),
-                    content: None,
+                    content: task.content.clone(),
                 })
                 .map_err(|e| e.to_string())?;
             }

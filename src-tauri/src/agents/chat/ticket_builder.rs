@@ -24,6 +24,7 @@ pub struct TicketBuilderTicket {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TicketBuilderTask {
     pub title: String,
+    pub content: Option<String>,
 }
 
 impl ChatAgent {
@@ -95,16 +96,55 @@ When you have enough information to create tickets, output a JSON block with thi
   "tickets": [
     {{
       "title": "Ticket title",
-      "description": "Full markdown specification",
+      "description": "Full markdown specification for the overall ticket",
       "priority": "medium",
       "tasks": [
-        {{ "title": "Task 1 description" }},
-        {{ "title": "Task 2 description" }}
+        {{
+          "title": "Short task title",
+          "content": "Detailed self-contained spec for this specific task"
+        }}
       ]
     }}
   ]
 }}
 ```
+
+## How Tickets and Tasks Are Structured
+
+Understanding how tickets are processed is critical for writing good specs:
+
+1. **The ticket description becomes the first task (Task 0).** It is automatically used as the initial task's content. An AI agent will work on this task first, using the description as its spec.
+
+2. **Each additional task in the `tasks` array becomes a separate task (Task 1, 2, 3, ...).** Each task is worked on sequentially by an AI agent. The agent receives the task's `content` as its primary instructions, with the ticket description available as background context.
+
+3. **Tasks should be self-contained specs.** Because each task is worked on independently, its `content` must include everything the agent needs to complete that specific piece of work. Do not assume the agent remembers what it did in previous tasks.
+
+## Writing the Ticket Description (Task 0)
+
+The ticket description serves as both the **overall project spec** and the **first task's instructions**. Structure it as a high-level specification that:
+
+- Provides a complete overview of what the ticket accomplishes
+- Describes the architecture and design decisions
+- Lists all relevant files and their roles
+- Includes setup/teardown instructions if applicable (e.g., how to run the app, test commands)
+- Serves as the foundational context that subsequent tasks can reference
+
+Think of it as the "project brief" — it sets the stage for everything that follows.
+
+## Writing Individual Task Specs
+
+Each task's `content` field should be a **self-contained specification** that includes:
+
+- **What to do**: Clear, specific instructions for this task
+- **Relevant context**: Any shared information the agent needs (file paths, architecture decisions, setup/teardown steps). It is OK and expected to repeat information from the ticket description or other tasks.
+- **Acceptance criteria**: How to verify this specific task is complete
+- **Dependencies on prior tasks**: If this task builds on work from earlier tasks, describe what was done and what to expect (e.g., "The auth middleware was added in a prior task — you should find it at `src/middleware/auth.rs`")
+
+**Overlapping information is expected and encouraged.** Common things to repeat across tasks:
+- How to start/stop the application
+- Key file paths and their purposes
+- Architecture patterns being followed
+- Testing commands and strategies
 
 ## Important Rules
 
@@ -112,12 +152,12 @@ When you have enough information to create tickets, output a JSON block with thi
 - Each ticket can have zero or more tasks.
 - You can create multiple tickets in one response.
 - Only output the JSON block when you have enough information. Otherwise, ask clarifying questions to understand what the user needs.
-- Write each ticket's description as a **detailed markdown specification** including:
+- The ticket description should follow a **detailed markdown specification** format including:
   - `## Overview` — what the ticket is about and why it matters
-  - `## Acceptance Criteria` — specific, testable conditions for completion
+  - `## Acceptance Criteria` — specific, testable conditions for overall completion
   - `## Technical Notes` — implementation hints, relevant files, architecture considerations
 - You may include additional sections as appropriate (e.g., `## Dependencies`, `## Edge Cases`).
-- Descriptions should be thorough enough that a developer can start work without additional context.
+- Every task must have both a `title` (short summary) and `content` (detailed spec).
 
 ## Board Context
 
@@ -193,7 +233,7 @@ mod tests {
       "description": "## Overview\nBuild a login page.",
       "priority": "high",
       "tasks": [
-        { "title": "Create login form component" },
+        { "title": "Create login form component", "content": "## Spec\nBuild the form with email and password fields." },
         { "title": "Add validation" }
       ]
     }
@@ -207,7 +247,13 @@ Let me know if you want changes."###;
         assert_eq!(parsed.tickets.len(), 1);
         assert_eq!(parsed.tickets[0].title, "Add login page");
         assert_eq!(parsed.tickets[0].priority.as_deref(), Some("high"));
-        assert_eq!(parsed.tickets[0].tasks.as_ref().unwrap().len(), 2);
+        let tasks = parsed.tickets[0].tasks.as_ref().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(
+            tasks[0].content.as_deref(),
+            Some("## Spec\nBuild the form with email and password fields.")
+        );
+        assert!(tasks[1].content.is_none());
     }
 
     #[test]
@@ -262,6 +308,8 @@ Let me know if you want changes."###;
         assert!(prompt.contains("Board: My Project"));
         assert!(prompt.contains("User: Create auth tickets"));
         assert!(prompt.contains("markdown specification"));
+        assert!(prompt.contains("self-contained"));
+        assert!(prompt.contains("Task 0"));
     }
 
     #[test]
