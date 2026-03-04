@@ -152,7 +152,10 @@ impl ChatAgent {
             .map(|m| m.content.clone())
             .unwrap_or_default();
 
-        let board_id = chat.board_id.clone().unwrap_or_default();
+        let board_id = chat
+            .board_id
+            .clone()
+            .ok_or(ChatAgentError::MissingField("board_id"))?;
 
         let spec = self
             .db

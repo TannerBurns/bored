@@ -24,9 +24,12 @@ pub async fn create_chat(
     input: CreateChat,
 ) -> Result<Chat, String> {
     match input.mode {
-        ChatMode::TicketBuilder => {
+        ChatMode::TicketBuilder | ChatMode::SpecBuilder => {
             if input.board_id.is_none() {
-                return Err("board_id is required for ticket_builder mode".into());
+                return Err(format!(
+                    "board_id is required for {} mode",
+                    input.mode.as_str()
+                ));
             }
         }
         ChatMode::Review => {
