@@ -50,9 +50,15 @@ impl ChatAgent {
         messages: Vec<ChatMessage>,
         app_manager: Option<&AppProcessManager>,
     ) -> Result<ChatMessage, ChatAgentError> {
-        let is_first_message = messages.len() == 1;
+        if messages.len() == 1 {
+            if let Some(first) = messages.first() {
+                if first.role == ChatMessageRole::User {
+                    self.maybe_generate_title(&first.content);
+                }
+            }
+        }
 
-        let result = match self.config.mode {
+        match self.config.mode {
             ChatMode::General => self.run_general(messages).await,
             ChatMode::SpecBuilder => self.run_spec_builder(messages).await,
             ChatMode::TicketBuilder => self.run_ticket_builder(messages).await,
@@ -61,17 +67,7 @@ impl ChatAgent {
                     .ok_or(ChatAgentError::MissingField("app_process_manager"))?;
                 self.run_review(messages, mgr).await
             }
-        };
-
-        if is_first_message {
-            if let Ok(ref msg) = result {
-                if let Some(first) = self.first_user_content(msg) {
-                    self.maybe_generate_title(&first);
-                }
-            }
         }
-
-        result
     }
 
     /// Shared agent execution: status updates, spawner call, log streaming,
@@ -346,15 +342,6 @@ impl ChatAgent {
             self.config.agent_config.clone(),
             self.config.model.clone(),
         );
-    }
-
-    /// Extract the first user message content from the conversation (for title generation).
-    fn first_user_content(&self, _current_msg: &ChatMessage) -> Option<String> {
-        let messages = self.db.get_chat_messages(&self.config.chat_id).ok()?;
-        messages
-            .iter()
-            .find(|m| m.role == ChatMessageRole::User)
-            .map(|m| m.content.clone())
     }
 
 }
