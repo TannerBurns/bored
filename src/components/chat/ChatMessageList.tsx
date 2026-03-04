@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChatMessage, ChatEvent, ChatMode, RunCostData } from '../../types';
 import type { ChatLogEntry } from '../../stores/chatStore';
 import { MarkdownViewer } from '../common/MarkdownViewer';
@@ -19,6 +19,45 @@ interface ChatMessageListProps {
   onNavigateToSpec?: (specId: string) => void;
   onOpenTicket?: (ticketId: string) => void;
   renderAssistantMessage?: (message: ChatMessage) => ReactNode;
+}
+
+function CopyMarkdownButton({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => clearTimeout(timerRef.current);
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable
+    }
+  }, [content]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="opacity-0 group-hover/assistant:opacity-100 transition-opacity p-1 rounded-md hover:bg-board-border/40 text-board-text-muted hover:text-board-text"
+      title="Copy as Markdown"
+    >
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 function TurnCostBadge({ metadata }: { metadata?: Record<string, unknown> }) {
@@ -113,7 +152,7 @@ export function ChatMessageList({
                   <ChatEventTimeline events={messageEvents} agentType={agentType} />
                 )}
 
-                <div className="flex justify-start">
+                <div className="flex justify-start group/assistant">
                   <div className="max-w-[85%] rounded-xl px-4 py-2.5 text-sm glass text-board-text">
                     {renderAssistantMessage ? (
                       renderAssistantMessage(msg)
@@ -135,6 +174,9 @@ export function ChatMessageList({
                     ) : (
                       <MarkdownViewer content={msg.content} />
                     )}
+                  </div>
+                  <div className="flex items-start pt-1.5 ml-1">
+                    <CopyMarkdownButton content={msg.content} />
                   </div>
                 </div>
 
