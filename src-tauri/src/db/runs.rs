@@ -220,7 +220,7 @@ impl Database {
     }
 
     /// Get recent runs with full context (board, project, ticket info) for the runs view.
-    /// Uses LEFT JOINs so runs referencing specs (planner/brainstorm) are also returned.
+    /// Uses LEFT JOINs so runs referencing specs (planner/spec_discovery) are also returned.
     pub fn get_recent_runs_with_context(&self, limit: u32) -> Result<Vec<AgentRunWithContext>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -1553,14 +1553,14 @@ mod tests {
                 agent_type: "claude".to_string(),
                 repo_path: "/tmp".to_string(),
                 parent_run_id: None,
-                stage: Some("brainstorm".to_string()),
+                stage: Some("spec_discovery".to_string()),
                 ..Default::default()
             })
             .unwrap();
 
         let fetched = db.get_run(&run.id).unwrap();
         assert_eq!(fetched.ticket_id, "spec-abc-123");
-        assert_eq!(fetched.stage, Some("brainstorm".to_string()));
+        assert_eq!(fetched.stage, Some("spec_discovery".to_string()));
     }
 
     #[test]
@@ -1727,7 +1727,7 @@ mod tests {
             agent_type: "claude".to_string(),
             repo_path: "/tmp".to_string(),
             parent_run_id: None,
-            stage: Some("brainstorm".to_string()),
+            stage: Some("spec_discovery".to_string()),
             ..Default::default()
         })
         .unwrap();

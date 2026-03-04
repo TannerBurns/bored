@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseLogEvents } from './parseLogEvents';
+import { parseLogEvents, parseAgentLogToEntries } from './parseLogEvents';
+import type { AgentLog } from './parseLogEvents';
 import type { RunEvent } from '../types';
 
 function mkEvent(overrides: Partial<RunEvent> = {}): RunEvent {
@@ -782,6 +783,290 @@ describe('parseLogEvents', () => {
 
       const entries = parseLogEvents(events, 'claude');
       expect(entries.map(e => e.id)).toEqual(['z', 'a', 'm']);
+    });
+  });
+});
+
+function mkLog(overrides: Partial<AgentLog> = {}): AgentLog {
+  return {
+    stream: 'stdout',
+    message: '',
+    timestamp: '2025-06-15T12:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('parseAgentLogToEntries', () => {
+  describe('filtering', () => {
+    it('returns empty array for empty input', () => {
+      expect(parseAgentLogToEntries([], 'claude')).toEqual([]);
+    });
+
+    it('skips logs with empty or whitespace-only messages', () => {
+      const logs = [
+        mkLog({ message: '' }),
+        mkLog({ message: '   ' }),
+        mkLog({ message: '\n\t' }),
+        mkLog({ message: 'valid' }),
+      ];
+
+      const entries = parseAgentLogToEntries(logs, 'claude');
+      expect(entries).toHaveLength(1);
+      expect(entries[0].summary).toBe('valid');
+    });
+  });
+
+  describe('plain text logs', () => {
+    it('creates streaming entry for stdout text', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: 'Starting agent...' })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('streaming');
+      expect(entries[0].summary).toBe('Starting agent...');
+      expect(entries[0].isStderr).toBe(false);
+    });
+
+    it('creates error entry for stderr text', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ stream: 'stderr', message: 'Connection refused' })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('error');
+      expect(entries[0].isStderr).toBe(true);
+    });
+
+    it('truncates long non-JSON summaries at 120 chars', () => {
+      const longText = 'A'.repeat(200);
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: longText })],
+        'claude',
+      );
+
+      expect(entries[0].summary.length).toBeLessThanOrEqual(123);
+      expect(entries[0].summary.endsWith('...')).toBe(true);
+    });
+  });
+
+  describe('malformed JSON', () => {
+    it('creates streaming entry for invalid JSON on stdout', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: '{ broken json' })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('streaming');
+    });
+
+    it('creates error entry for invalid JSON on stderr', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ stream: 'stderr', message: '{ broken' })],
+        'claude',
+      );
+
+      expect(entries[0].type).toBe('error');
+      expect(entries[0].isStderr).toBe(true);
+    });
+  });
+
+  describe('Claude JSON events', () => {
+    it('parses system init event', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: JSON.stringify({ type: 'system', subtype: 'init' }) })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('system');
+      expect(entries[0].summary).toBe('Agent starting...');
+    });
+
+    it('parses assistant text message', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: 'I will fix that.' }] },
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('assistant');
+      expect(entries[0].content).toBe('I will fix that.');
+    });
+
+    it('parses assistant tool_use message', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'assistant',
+            message: {
+              content: [{
+                type: 'tool_use',
+                name: 'read_file',
+                input: { file_path: '/src/main.ts' },
+              }],
+            },
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('tool_use');
+      expect(entries[0].toolName).toBe('read_file');
+    });
+
+    it('parses result event with cost data', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'result',
+            usage: { input_tokens: 800, output_tokens: 300 },
+            total_cost_usd: 0.015,
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('result');
+      expect(entries[0].costData?.totalCostUsd).toBe(0.015);
+    });
+
+    it('skips thinking and stream_event types', () => {
+      const entries = parseAgentLogToEntries(
+        [
+          mkLog({ message: JSON.stringify({ type: 'thinking' }) }),
+          mkLog({ message: JSON.stringify({ type: 'stream_event' }) }),
+          mkLog({ message: JSON.stringify({ type: 'content_block_delta' }) }),
+        ],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(0);
+    });
+  });
+
+  describe('Codex JSON events', () => {
+    it('parses agent_message from item.completed', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'item.completed',
+            item: { type: 'agent_message', text: 'Found the bug' },
+          }),
+        })],
+        'codex',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('assistant');
+      expect(entries[0].content).toBe('Found the bug');
+    });
+
+    it('parses command_execution from item.completed', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'item.completed',
+            item: { type: 'command_execution', command: 'npm test', aggregated_output: 'ok' },
+          }),
+        })],
+        'codex',
+      );
+
+      expect(entries[0].type).toBe('tool_use');
+      expect(entries[0].toolName).toBe('Command');
+    });
+
+    it('parses turn.completed with usage', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'turn.completed',
+            usage: { input_tokens: 1000, output_tokens: 400 },
+          }),
+        })],
+        'codex',
+      );
+
+      expect(entries[0].type).toBe('result');
+      expect(entries[0].costData?.inputTokens).toBe(1000);
+      expect(entries[0].costData?.outputTokens).toBe(400);
+    });
+  });
+
+  describe('agent type routing', () => {
+    it('routes to Codex parser when agentType is codex', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: JSON.stringify({ type: 'turn.completed' }) })],
+        'codex',
+      );
+
+      expect(entries[0].summary).toContain('Turn complete');
+    });
+
+    it('routes to Claude parser for other agent types', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({ message: JSON.stringify({ type: 'result' }) })],
+        'claude',
+      );
+
+      expect(entries[0].type).toBe('result');
+    });
+  });
+
+  describe('incremental IDs', () => {
+    it('assigns sequential IDs based on entries array length', () => {
+      const entries = parseAgentLogToEntries(
+        [
+          mkLog({ message: 'plain text one' }),
+          mkLog({ message: 'plain text two' }),
+          mkLog({ message: 'plain text three' }),
+        ],
+        'claude',
+      );
+
+      expect(entries.map(e => e.id)).toEqual(['0', '1', '2']);
+    });
+  });
+
+  describe('mixed event sequence', () => {
+    it('processes a realistic mix of plain text, JSON events, and errors', () => {
+      const logs: AgentLog[] = [
+        mkLog({ message: 'Agent starting up', timestamp: '2025-06-15T12:00:00Z' }),
+        mkLog({
+          message: JSON.stringify({ type: 'system', subtype: 'init' }),
+          timestamp: '2025-06-15T12:00:01Z',
+        }),
+        mkLog({
+          message: JSON.stringify({
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: 'Analyzing...' }] },
+          }),
+          timestamp: '2025-06-15T12:00:02Z',
+        }),
+        mkLog({ stream: 'stderr', message: 'Warning: deprecated API', timestamp: '2025-06-15T12:00:03Z' }),
+        mkLog({
+          message: JSON.stringify({ type: 'result', total_cost_usd: 0.01 }),
+          timestamp: '2025-06-15T12:00:04Z',
+        }),
+      ];
+
+      const entries = parseAgentLogToEntries(logs, 'claude');
+
+      expect(entries).toHaveLength(5);
+      expect(entries.map(e => e.type)).toEqual([
+        'streaming', 'system', 'assistant', 'error', 'result',
+      ]);
     });
   });
 });

@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useSettingsStore, WORKFLOW_STAGE_INFO, DEFAULT_STAGE_ORDER, REQUIRED_STAGE_KEYS, BUILTIN_CATALOG_COMMANDS } from './settingsStore';
 
+vi.mock('../lib/tauri', () => ({
+  syncAgentConfigs: vi.fn().mockResolvedValue(undefined),
+  setNotificationsEnabled: vi.fn().mockResolvedValue(undefined),
+  listCursorModels: vi.fn().mockResolvedValue({ models: [], currentModel: null, defaultModel: null }),
+}));
+
+import { listCursorModels } from '../lib/tauri';
+
 describe('useSettingsStore', () => {
   beforeEach(() => {
     useSettingsStore.setState({
@@ -446,7 +454,7 @@ describe('useSettingsStore', () => {
         currentModel: 'opus-4.6-thinking',
         defaultModel: 'opus-4.6-thinking',
       };
-      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+      vi.mocked(listCursorModels).mockResolvedValueOnce(mockResult);
 
       useSettingsStore.setState({ cursorModelsSynced: false });
       await useSettingsStore.getState().syncCursorModels();
@@ -464,8 +472,6 @@ describe('useSettingsStore', () => {
       for (const stage of Object.values(cursorConfig.workflowStages)) {
         expect(stage.model).toBe('opus-4.6-thinking');
       }
-
-      vi.doUnmock('../lib/tauri');
     });
 
     it('subsequent sync does not overwrite cursor config models', async () => {
@@ -476,14 +482,13 @@ describe('useSettingsStore', () => {
         currentModel: 'opus-4.6-thinking',
         defaultModel: 'opus-4.6-thinking',
       };
-      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+      vi.mocked(listCursorModels).mockResolvedValueOnce(mockResult);
 
       useSettingsStore.setState({ cursorModelsSynced: true });
       useSettingsStore.getState().updateAgentConfig('cursor', { plannerModel: 'sonnet-4.5' });
       await useSettingsStore.getState().syncCursorModels();
 
       expect(useSettingsStore.getState().getAgentConfig('cursor').plannerModel).toBe('sonnet-4.5');
-      vi.doUnmock('../lib/tauri');
     });
 
     it('first sync without currentModel does not update cursor config models', async () => {
@@ -494,7 +499,7 @@ describe('useSettingsStore', () => {
         currentModel: null,
         defaultModel: null,
       };
-      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+      vi.mocked(listCursorModels).mockResolvedValueOnce(mockResult);
 
       useSettingsStore.setState({ cursorModelsSynced: false });
       const configBefore = useSettingsStore.getState().getAgentConfig('cursor');
@@ -504,8 +509,6 @@ describe('useSettingsStore', () => {
       expect(state.cursorModelsSynced).toBe(true);
       expect(state.cursorModels).toHaveLength(1);
       expect(state.getAgentConfig('cursor').plannerModel).toBe(configBefore.plannerModel);
-
-      vi.doUnmock('../lib/tauri');
     });
 
     it('first sync does not affect other agents', async () => {
@@ -516,7 +519,7 @@ describe('useSettingsStore', () => {
         currentModel: 'opus-4.6-thinking',
         defaultModel: 'opus-4.6-thinking',
       };
-      vi.doMock('../lib/tauri', () => ({ listCursorModels: () => Promise.resolve(mockResult) }));
+      vi.mocked(listCursorModels).mockResolvedValueOnce(mockResult);
 
       const claudeConfigBefore = useSettingsStore.getState().getAgentConfig('claude');
       useSettingsStore.setState({ cursorModelsSynced: false });
@@ -524,8 +527,6 @@ describe('useSettingsStore', () => {
 
       const claudeConfigAfter = useSettingsStore.getState().getAgentConfig('claude');
       expect(claudeConfigAfter.plannerModel).toBe(claudeConfigBefore.plannerModel);
-
-      vi.doUnmock('../lib/tauri');
     });
   });
 

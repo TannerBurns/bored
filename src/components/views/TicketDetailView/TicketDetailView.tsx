@@ -37,7 +37,7 @@ export interface TicketDetailViewProps {
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: string) => void;
-  onValidate?: (ticketId: string, agentType: string) => void;
+  onNavigateToChat?: () => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
 }
@@ -52,7 +52,7 @@ export function TicketDetailView({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
-  onValidate,
+  onNavigateToChat,
   onDelete,
   onAgentComplete,
 }: TicketDetailViewProps) {
@@ -276,7 +276,7 @@ export function TicketDetailView({
                 agentEvents={agentEvents}
                 onUpdate={onUpdate}
                 onOpenFullscreen={() => setIsFullscreenOpen(true)}
-                onValidate={onValidate}
+                onNavigateToChat={onNavigateToChat}
                 onBack={onClose}
               />
             )}

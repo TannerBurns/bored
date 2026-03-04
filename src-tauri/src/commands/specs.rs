@@ -27,7 +27,7 @@ pub struct CreateSpecInput {
     pub name: String,
     pub user_input: String,
     pub model: Option<String>,
-    /// Optional settings (e.g. agentType for brainstorm)
+    /// Optional settings (e.g. agentType for spec discovery)
     pub settings: Option<serde_json::Value>,
 }
 

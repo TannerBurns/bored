@@ -1,4 +1,4 @@
-//! Brainstorm agent for conversational spec refinement with codebase exploration.
+//! Spec discovery agent for conversational spec refinement with codebase exploration.
 
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -16,20 +16,20 @@ mod parsing;
 mod prompts;
 
 // Public re-exports
-pub use config::{BrainstormConfig, BrainstormError, BrainstormResponse};
+pub use config::{SpecDiscoveryConfig, SpecDiscoveryError, SpecDiscoveryResponse};
 pub use parsing::{parse_response, response_has_questions};
-pub use prompts::{build_conversation_prompt, build_initial_prompt};
+pub use prompts::{build_conversation_prompt, build_initial_prompt, bullet_list, COMPLETION_PROMPT};
 
-pub struct BrainstormAgent {
+pub struct SpecDiscoveryAgent {
     db: Arc<Database>,
-    config: BrainstormConfig,
+    config: SpecDiscoveryConfig,
     event_tx: broadcast::Sender<LiveEvent>,
 }
 
-impl BrainstormAgent {
+impl SpecDiscoveryAgent {
     pub fn new(
         db: Arc<Database>,
-        config: BrainstormConfig,
+        config: SpecDiscoveryConfig,
         event_tx: broadcast::Sender<LiveEvent>,
     ) -> Self {
         Self {
@@ -39,7 +39,7 @@ impl BrainstormAgent {
         }
     }
 
-    pub async fn start_conversation(&self) -> Result<BrainstormResponse, BrainstormError> {
+    pub async fn start_conversation(&self) -> Result<SpecDiscoveryResponse, SpecDiscoveryError> {
         let prompt = build_initial_prompt(&self.config.user_input);
 
         let response = self.run_agent(&prompt).await?;
@@ -52,7 +52,7 @@ impl BrainstormAgent {
     pub async fn process_message(
         &self,
         messages: &[ConversationMessage],
-    ) -> Result<BrainstormResponse, BrainstormError> {
+    ) -> Result<SpecDiscoveryResponse, SpecDiscoveryError> {
         let prompt = build_conversation_prompt(&self.config.user_input, messages);
 
         let response = self.run_agent(&prompt).await?;
@@ -62,13 +62,13 @@ impl BrainstormAgent {
         Ok(parsed)
     }
 
-    async fn run_agent(&self, prompt: &str) -> Result<String, BrainstormError> {
+    async fn run_agent(&self, prompt: &str) -> Result<String, SpecDiscoveryError> {
         let db_run = self.db.create_run(&CreateRun {
             ticket_id: self.config.spec_id.clone(),
             agent_type: self.config.agent_id.clone(),
             repo_path: self.config.repo_path.to_string_lossy().to_string(),
             parent_run_id: None,
-            stage: Some("brainstorm".to_string()),
+            stage: Some("spec_discovery".to_string()),
             ..Default::default()
         });
         let db_run_id = db_run.as_ref().ok().map(|r| r.id.clone());
@@ -80,7 +80,7 @@ impl BrainstormAgent {
             agent_id: self.config.agent_id.clone(),
             ticket_id: self.config.spec_id.clone(),
             run_id: format!(
-                "brainstorm-{}-{}",
+                "spec_discovery-{}-{}",
                 self.config.spec_id,
                 uuid::Uuid::new_v4()
             ),
@@ -101,8 +101,8 @@ impl BrainstormAgent {
                 let display_message = extract_log_display_message(content);
                 
                 if let Some(msg) = display_message {
-                    tracing::debug!("Brainstorm log: {}", truncate_to_char_boundary(&msg, 80));
-                    let _ = tx_clone.send(LiveEvent::BrainstormLogEntry {
+                    tracing::debug!("Spec discovery log: {}", truncate_to_char_boundary(&msg, 80));
+                    let _ = tx_clone.send(LiveEvent::SpecDiscoveryLogEntry {
                         spec_id: spec_id.clone(),
                         message: msg,
                         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -129,14 +129,14 @@ impl BrainstormAgent {
                 if let Some(ref id) = db_run_id {
                     let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
                 }
-                return Err(BrainstormError::AgentFailed(msg));
+                return Err(SpecDiscoveryError::AgentFailed(msg));
             }
             Err(e) => {
                 let msg = format!("Task join error: {}", e);
                 if let Some(ref id) = db_run_id {
                     let _ = self.db.update_run_status(id, RunStatus::Error, None, Some(&msg));
                 }
-                return Err(BrainstormError::AgentFailed(msg));
+                return Err(SpecDiscoveryError::AgentFailed(msg));
             }
         };
 
@@ -163,7 +163,7 @@ impl BrainstormAgent {
                 metadata["cost"] = serde_json::to_value(cost).unwrap_or_default();
             }
             if let Err(e) = self.db.set_run_metadata(id, &metadata) {
-                tracing::warn!("Failed to save brainstorm run metadata: {}", e);
+                tracing::warn!("Failed to save spec discovery run metadata: {}", e);
             }
         }
 
@@ -173,7 +173,7 @@ impl BrainstormAgent {
         let text = self.config.provider.extract_text(&output);
 
         if text.is_empty() {
-            return Err(BrainstormError::AgentFailed(
+            return Err(SpecDiscoveryError::AgentFailed(
                 "Agent returned empty response".to_string(),
             ));
         }
@@ -181,7 +181,7 @@ impl BrainstormAgent {
         Ok(text)
     }
 
-    async fn save_assistant_message(&self, content: &str) -> Result<(), BrainstormError> {
+    async fn save_assistant_message(&self, content: &str) -> Result<(), SpecDiscoveryError> {
         let msg = self
             .db
             .create_conversation_message(&CreateConversationMessage {
@@ -189,7 +189,7 @@ impl BrainstormAgent {
                 role: ConversationRole::Assistant,
                 content: content.to_string(),
             })
-            .map_err(|e| BrainstormError::Database(e.to_string()))?;
+            .map_err(|e| SpecDiscoveryError::Database(e.to_string()))?;
 
         let _ = self.event_tx.send(LiveEvent::ConversationMessageAdded {
             spec_id: self.config.spec_id.clone(),
@@ -208,12 +208,12 @@ mod tests {
     use crate::agents::claude::provider::ClaudeProvider;
     use std::path::PathBuf;
 
-    fn create_test_agent() -> BrainstormAgent {
+    fn create_test_agent() -> SpecDiscoveryAgent {
         let db = Arc::new(Database::open_in_memory().unwrap());
         let (tx, _) = broadcast::channel(16);
-        BrainstormAgent::new(
+        SpecDiscoveryAgent::new(
             db,
-            BrainstormConfig {
+            SpecDiscoveryConfig {
                 spec_id: "test".to_string(),
                 user_input: "test".to_string(),
                 repo_path: PathBuf::from("/tmp"),

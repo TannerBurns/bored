@@ -136,7 +136,8 @@ const STATUS_CONFIG: Record<RunStatus, { color: string; bg: string; label: strin
 
 const STAGE_LABELS: Record<string, string> = {
   planner: 'Planner',
-  brainstorm: 'Brainstorm',
+  spec_discovery: 'Spec Discovery',
+  brainstorm: 'Spec Discovery',
   'validation-chat': 'Validation',
   diagnostic: 'Diagnostic',
 };

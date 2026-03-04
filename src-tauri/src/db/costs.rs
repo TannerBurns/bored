@@ -90,6 +90,15 @@ impl Database {
         )
     }
 
+    /// Get aggregated cost for a chat across all its chat_runs.
+    pub fn get_chat_cost(&self, chat_id: &str) -> Result<AggregatedCost, DbError> {
+        self.aggregate_cost_by_query(
+            r#"SELECT metadata_json FROM chat_runs
+               WHERE chat_id = ? AND metadata_json IS NOT NULL"#,
+            chat_id,
+        )
+    }
+
     /// Backfill cost data for completed runs that are missing it.
     /// Returns the number of runs that were backfilled.
     ///

@@ -457,10 +457,18 @@ fn main() {
             commands::specs::get_specs_with_versions,
             commands::specs::get_all_specs_with_versions,
             commands::specs::create_new_spec_version,
-            // Conversation (brainstorming) commands
-            commands::conversations::get_conversation_messages,
-            commands::conversations::send_conversation_message,
-            commands::conversations::start_conversation,
+            // Chat commands
+            commands::chat::create_chat,
+            commands::chat::get_chats,
+            commands::chat::get_chat,
+            commands::chat::delete_chat,
+            commands::chat::get_chat_messages,
+            commands::chat::get_chat_events,
+            commands::chat::get_chat_cost,
+            commands::chat::send_chat_message,
+            commands::chat::stop_chat_app,
+            commands::chat::get_chat_app_status,
+            commands::chat::create_tickets_from_chat,
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,
@@ -468,16 +476,6 @@ fn main() {
             // Release notes
             commands::release_notes::get_release_notes,
             commands::release_notes::get_all_release_notes,
-            // Validation commands
-            commands::validation::create_validation_session,
-            commands::validation::get_validation_session,
-            commands::validation::get_validation_sessions,
-            commands::validation::delete_validation_session,
-            commands::validation::get_validation_messages,
-            commands::validation::send_validation_message,
-            commands::validation::stop_validation_app,
-            commands::validation::get_validation_app_status,
-            commands::validation::create_fix_tasks,
             // Next steps commands (push, PR, diff, open)
             commands::next_steps::push_branch,
             commands::next_steps::create_pull_request,

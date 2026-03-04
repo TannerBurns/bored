@@ -183,6 +183,26 @@ impl Database {
                 }
             }
 
+            // Include chat_runs costs
+            {
+                let chat_time_filter = time_filter_clause(days, "cr.created_at");
+                let mut stmt = conn.prepare(&format!(
+                    r#"SELECT cr.metadata_json FROM chat_runs cr
+                       WHERE cr.metadata_json IS NOT NULL
+                       {}"#,
+                    chat_time_filter
+                ))?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+                for row in rows.flatten() {
+                    if let Some(cost) = parse_cost(&row) {
+                        total_cost_usd += effective_cost_usd(&cost);
+                        total_input_tokens += cost.input_tokens;
+                        total_output_tokens += cost.output_tokens;
+                        total_cache_read_tokens += cost.cache_read_tokens;
+                    }
+                }
+            }
+
             let git_time_filter = time_filter_clause(days, "g.collected_at");
             let (total_commits, total_prs, total_lines_added, total_lines_removed): (
                 i64,
@@ -332,7 +352,7 @@ impl Database {
                 }
             }
 
-            // Cost and tokens per day
+            // Cost and tokens per day (agent_runs)
             {
                 let mut stmt = conn.prepare(&format!(
                     r#"SELECT date(r.started_at) as d, r.metadata_json
@@ -341,6 +361,29 @@ impl Database {
                        AND r.started_at >= datetime('now', '-{} days')
                        {}"#,
                     days, EXCLUDE_PARENT_RUNS_FILTER
+                ))?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows.flatten() {
+                    if let Some(cost) = parse_cost(&row.1) {
+                        if let Some(point) = date_map.get_mut(&row.0) {
+                            point.cost_usd += effective_cost_usd(&cost);
+                            point.tokens_used +=
+                                cost.input_tokens + cost.output_tokens + cost.cache_read_tokens;
+                        }
+                    }
+                }
+            }
+
+            // Cost and tokens per day (chat_runs)
+            {
+                let mut stmt = conn.prepare(&format!(
+                    r#"SELECT date(cr.created_at) as d, cr.metadata_json
+                       FROM chat_runs cr
+                       WHERE cr.metadata_json IS NOT NULL
+                       AND cr.created_at >= datetime('now', '-{} days')"#,
+                    days
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -371,52 +414,62 @@ impl Database {
             let time_filter = time_filter_clause(days, "r.started_at");
             let mut model_map: HashMap<String, ModelBreakdownEntry> = HashMap::new();
 
-            let mut stmt = conn.prepare(&format!(
+            let agent_sql = format!(
                 r#"SELECT r.metadata_json FROM agent_runs r
                    WHERE r.metadata_json IS NOT NULL
                    {}
                    {}"#,
                 EXCLUDE_PARENT_RUNS_FILTER, time_filter
-            ))?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            );
+            let chat_time_filter = time_filter_clause(days, "cr.created_at");
+            let chat_sql = format!(
+                r#"SELECT cr.metadata_json FROM chat_runs cr
+                   WHERE cr.metadata_json IS NOT NULL
+                   {}"#,
+                chat_time_filter
+            );
 
-            for row in rows.flatten() {
-                if let Some(cost) = parse_cost(&row) {
-                    if cost.model_usage.is_empty() {
-                        // No per-model breakdown; aggregate under "unknown"
-                        let entry = model_map
-                            .entry("unknown".to_string())
-                            .or_insert_with(|| ModelBreakdownEntry {
-                                model: "unknown".to_string(),
-                                ..Default::default()
-                            });
-                        entry.cost_usd += cost.total_cost_usd;
-                        entry.input_tokens += cost.input_tokens;
-                        entry.output_tokens += cost.output_tokens;
-                        entry.run_count += 1;
-                    } else {
-                        let dominant_model = cost
-                            .model_usage
-                            .iter()
-                            .max_by(|a, b| {
-                                a.1.cost_usd
-                                    .partial_cmp(&b.1.cost_usd)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                            .map(|(name, _)| name.clone());
+            for sql in [&agent_sql, &chat_sql] {
+                let mut stmt = conn.prepare(sql)?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
 
-                        for (model_name, model_data) in &cost.model_usage {
+                for row in rows.flatten() {
+                    if let Some(cost) = parse_cost(&row) {
+                        if cost.model_usage.is_empty() {
                             let entry = model_map
-                                .entry(model_name.clone())
+                                .entry("unknown".to_string())
                                 .or_insert_with(|| ModelBreakdownEntry {
-                                    model: model_name.clone(),
+                                    model: "unknown".to_string(),
                                     ..Default::default()
                                 });
-                            entry.cost_usd += model_data.cost_usd;
-                            entry.input_tokens += model_data.input_tokens;
-                            entry.output_tokens += model_data.output_tokens;
-                            if dominant_model.as_ref() == Some(model_name) {
-                                entry.run_count += 1;
+                            entry.cost_usd += cost.total_cost_usd;
+                            entry.input_tokens += cost.input_tokens;
+                            entry.output_tokens += cost.output_tokens;
+                            entry.run_count += 1;
+                        } else {
+                            let dominant_model = cost
+                                .model_usage
+                                .iter()
+                                .max_by(|a, b| {
+                                    a.1.cost_usd
+                                        .partial_cmp(&b.1.cost_usd)
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                                .map(|(name, _)| name.clone());
+
+                            for (model_name, model_data) in &cost.model_usage {
+                                let entry = model_map
+                                    .entry(model_name.clone())
+                                    .or_insert_with(|| ModelBreakdownEntry {
+                                        model: model_name.clone(),
+                                        ..Default::default()
+                                    });
+                                entry.cost_usd += model_data.cost_usd;
+                                entry.input_tokens += model_data.input_tokens;
+                                entry.output_tokens += model_data.output_tokens;
+                                if dominant_model.as_ref() == Some(model_name) {
+                                    entry.run_count += 1;
+                                }
                             }
                         }
                     }

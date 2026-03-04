@@ -1,8 +1,8 @@
-//! Prompt building for brainstorm conversations.
+//! Prompt building for spec discovery conversations.
 
 use crate::db::{ConversationMessage, ConversationRole};
 
-/// Build the initial prompt for starting a brainstorm conversation
+/// Build the initial prompt for starting a spec discovery conversation
 pub fn build_initial_prompt(user_input: &str) -> String {
     format!(
         r#"# Spec Discovery Session
@@ -101,7 +101,7 @@ Start by exploring the codebase, then respond with the JSON block."#,
     )
 }
 
-/// Build a prompt for continuing a brainstorm conversation
+/// Build a prompt for continuing a spec discovery conversation
 pub fn build_conversation_prompt(user_input: &str, messages: &[ConversationMessage]) -> String {
     let mut conversation_history = String::new();
 
@@ -193,6 +193,28 @@ When you have enough information (you understand scope, integration points, tech
 Continue based on the user's latest response."#,
         user_input, conversation_history
     )
+}
+
+/// Prompt appended to a conversation when the agent returns only observations
+/// (no questions), to trigger automatic spec completion.
+pub const COMPLETION_PROMPT: &str = "Based on your observations and the conversation so far, you have enough information. \
+    Please produce the final specification JSON block now. \
+    The spec is the ONLY document implementing agents will see — capture EVERY detail from the conversation.\n\
+    ```json\n{\n  \"spec_complete\": true,\n  \"observations\": \"<comprehensive final summary>\",\n  \"structured_spec\": {\n    \
+    \"requirements\": [\"Requirement 1: <specific, self-contained requirement>\", \"Requirement 2: <another requirement>\"],\n    \
+    \"decisions\": [\"Decision: WHAT — WHY — HOW it affects implementation\"],\n    \
+    \"constraints\": [\"Constraint with context and codebase evidence\"],\n    \
+    \"technical_notes\": [\"Create/Modify <path> — <details>\", \"Follow pattern in <path> — <what to replicate>\"]\n  }\n}\n```\n\
+    IMPORTANT: requirements and technical_notes MUST be JSON arrays of strings, not single strings. \
+    Each array item should be one concrete, actionable statement. Do NOT embed code fences inside array values.";
+
+/// Format a slice of strings as a markdown bullet list (`- item\n- item`).
+pub fn bullet_list(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|s| format!("- {}", s))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

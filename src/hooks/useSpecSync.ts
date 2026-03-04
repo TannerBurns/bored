@@ -12,29 +12,16 @@ interface SpecLiveEvent {
     | 'plan_approved'
     | 'plan_execution_started'
     | 'plan_execution_completed'
-    | 'planner_log_entry'
-    | 'conversation_message_added'
-    | 'conversation_complete'
-    | 'brainstorm_log_entry'
-    | 'brainstorm_generating_spec';
+    | 'planner_log_entry';
   spec_id?: string;
   board_id?: string;
   query?: string;
   status?: string;
   epic_ids?: string[];
-  // For planner_log_entry
   phase?: string;
   level?: string;
   message?: string;
   timestamp?: string;
-  // For conversation_message_added
-  message_id?: string;
-  role?: string;
-  content?: string;
-  // For conversation_complete
-  structured_spec?: unknown;
-  // For brainstorm_generating_spec
-  version_number?: number;
 }
 
 interface UseSpecSyncOptions {
@@ -68,11 +55,6 @@ export function useSpecSync(
     loadVersions,
     addLogEntry,
     clearLogs,
-    addConversationMessage,
-    setAgentThinking,
-    addBrainstormLog,
-    clearBrainstormLogs,
-    setGeneratingSpec,
   } = useSpecStore();
 
   const handleEvent = useCallback(
@@ -196,7 +178,6 @@ export function useSpecSync(
           break;
           
         case 'planner_log_entry':
-          // Add real-time log entry from agent output
           if (spec_id && event.message) {
             addLogEntry({
               specId: spec_id,
@@ -205,68 +186,6 @@ export function useSpecSync(
               message: event.message,
               timestamp: event.timestamp || new Date().toISOString(),
             });
-          }
-          break;
-          
-        case 'conversation_message_added':
-          // Add new conversation message in real-time
-          if (spec_id && event.message_id && event.role && event.content !== undefined) {
-            addConversationMessage({
-              id: event.message_id,
-              specId: spec_id,
-              role: event.role as 'user' | 'assistant' | 'system',
-              content: event.content,
-              createdAt: new Date(),
-            });
-          }
-          break;
-          
-        case 'conversation_complete':
-          // Conversation finished, refresh spec to get updated status.
-          // IMPORTANT: Do NOT clear isGeneratingSpec before the spec is
-          // refreshed. Clearing it early causes a render gap where neither
-          // the "Creating Spec" nor the "Generating Plan" indicator shows.
-          if (spec_id) {
-            setAgentThinking(false);
-            clearBrainstormLogs();
-            try {
-              const updated = await getSpec(spec_id);
-              setSpecs(getSpecs().map((s) => (s.id === spec_id ? updated : s)));
-              if (getCurrentSpec()?.id === spec_id) {
-                setCurrentSpec(updated);
-                // Transition planning/exploring flags based on the refreshed
-                // status so the UI seamlessly shows the correct indicator
-                // before we clear the generating state.
-                const status = updated.latestVersion?.status;
-                setPlanning(status === 'planning');
-                setExploring(status === 'exploring');
-              }
-            } catch (error) {
-              logger.error('Failed to refresh spec after conversation complete', error);
-            } finally {
-              // Clear generating state only AFTER the spec has been refreshed
-              // (or the refresh failed) to avoid a UI gap.
-              setGeneratingSpec(false);
-            }
-          }
-          break;
-          
-        case 'brainstorm_log_entry':
-          // Add real-time log from brainstorm agent
-          if (spec_id && event.message) {
-            if (getCurrentSpec()?.id === spec_id) {
-              addBrainstormLog(event.message);
-            }
-          }
-          break;
-          
-        case 'brainstorm_generating_spec':
-          // Agent is generating the spec (no more questions)
-          if (spec_id) {
-            if (getCurrentSpec()?.id === spec_id) {
-              setGeneratingSpec(true, event.version_number);
-              clearBrainstormLogs();
-            }
           }
           break;
       }
@@ -282,11 +201,6 @@ export function useSpecSync(
       setSpecs,
       addLogEntry,
       clearLogs,
-      addConversationMessage,
-      setAgentThinking,
-      addBrainstormLog,
-      clearBrainstormLogs,
-      setGeneratingSpec,
     ]
   );
 
@@ -294,7 +208,7 @@ export function useSpecSync(
     if (!apiUrl || !token) return;
 
     // Filter to only spec-related events
-    const typeFilter = 'spec_created,spec_updated,spec_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry,conversation_message_added,conversation_complete,brainstorm_log_entry,brainstorm_generating_spec';
+    const typeFilter = 'spec_created,spec_updated,spec_deleted,exploration_progress,plan_generated,plan_approved,plan_execution_started,plan_execution_completed,planner_log_entry';
     
     const params = new URLSearchParams({ token, types: typeFilter });
     const url = `${apiUrl}/v1/stream/filtered?${params}`;

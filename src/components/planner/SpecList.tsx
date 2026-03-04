@@ -25,7 +25,7 @@ const statusColors: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
-  conversing: 'Brainstorming',
+  conversing: 'Spec Discovery',
   exploring: 'Exploring',
   planning: 'Planning',
   awaiting_approval: 'Awaiting Approval',

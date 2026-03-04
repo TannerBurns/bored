@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SpecVersionStatus {
-    /// In brainstorming conversation - refining requirements
+    /// In spec discovery conversation - refining requirements
     #[default]
     Conversing,
     /// Agent is exploring the codebase
@@ -356,7 +356,7 @@ impl ConversationRole {
     }
 }
 
-/// A message in a spec brainstorming conversation
+/// A message in a spec discovery conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMessage {
@@ -590,7 +590,7 @@ mod tests {
 
         #[test]
         fn deserialize_with_snake_case_technical_notes() {
-            // The brainstorm prompt examples use "technical_notes" (snake_case),
+            // The spec discovery prompt examples use "technical_notes" (snake_case),
             // so agents may output it that way instead of "technicalNotes" (camelCase).
             let json = r#"{
                 "requirements": ["Build auth"],

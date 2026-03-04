@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import type { AppLogEntry } from '../../stores/validationStore';
+import type { ChatLogEntry } from '../../stores/chatStore';
 
 interface AppLogPanelProps {
-  logs: AppLogEntry[];
+  logs: ChatLogEntry[];
   isAppRunning: boolean;
+  onStopApp?: () => void;
 }
 
-/** Max lines rendered to keep the DOM lightweight */
 const MAX_RENDERED = 200;
 
-export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
+export function AppLogPanel({ logs, isAppRunning, onStopApp }: AppLogPanelProps) {
   const scrollRef = useRef<HTMLPreElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  // Build a single string from the tail of the log buffer
   const { text, omitted } = useMemo(() => {
     const start = Math.max(0, logs.length - MAX_RENDERED);
     const slice = logs.slice(start);
@@ -47,9 +46,19 @@ export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
             </span>
           )}
         </div>
-        {logs.length > 0 && (
-          <span className="text-xs text-board-text-muted">{logs.length} lines</span>
-        )}
+        <div className="flex items-center gap-2">
+          {logs.length > 0 && (
+            <span className="text-xs text-board-text-muted">{logs.length} lines</span>
+          )}
+          {isAppRunning && onStopApp && (
+            <button
+              onClick={onStopApp}
+              className="px-2 py-0.5 text-xs rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+            >
+              Stop App
+            </button>
+          )}
+        </div>
       </div>
 
       <pre
@@ -64,7 +73,7 @@ export function AppLogPanel({ logs, isAppRunning }: AppLogPanelProps) {
         ) : (
           <>
             {omitted > 0 && (
-              <span className="text-board-text-muted">... {omitted} earlier lines omitted ...\n\n</span>
+              <span className="text-board-text-muted">... {omitted} earlier lines omitted ...{'\n\n'}</span>
             )}
             {text}
           </>

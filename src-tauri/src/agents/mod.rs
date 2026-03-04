@@ -1,4 +1,5 @@
-pub mod brainstorm;
+pub mod spec_discovery;
+pub mod chat;
 pub mod claude;
 pub mod cli_utils;
 pub mod codex;
@@ -31,10 +32,11 @@ pub use spawner::{
     run_agent_via_provider, run_agent_via_provider_with_cancel,
     CancelHandle, OnSpawnCallback, SpawnError,
 };
-pub use brainstorm::{
-    BrainstormAgent, BrainstormConfig, BrainstormError, BrainstormResponse,
+pub use spec_discovery::{
+    SpecDiscoveryAgent, SpecDiscoveryConfig, SpecDiscoveryError, SpecDiscoveryResponse,
     build_conversation_prompt, build_initial_prompt, parse_response, response_has_questions,
 };
+pub use chat::{ChatAgent, ChatAgentConfig, ChatAgentError};
 pub use runner::{
     create_cancel_handles, execute_agent_run, AgentCompleteEvent, AgentErrorEvent, AgentLogEvent,
     CancelHandlesMap, RunnerConfig, RunnerResult,

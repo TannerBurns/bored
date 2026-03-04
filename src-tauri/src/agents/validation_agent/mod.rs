@@ -9,9 +9,10 @@ use crate::db::models::ValidationMessage;
 use crate::db::{CreateRun, Database, RunStatus};
 
 mod app_process;
-mod prompts;
+pub(crate) mod parsing;
+pub(crate) mod prompts;
 
-pub use app_process::{AppProcessManager, StartResult};
+pub use app_process::{AppLogEventKind, AppProcessManager, StartResult};
 use prompts::{build_conversation_prompt, build_initial_prompt};
 use crate::agents::log_utils::extract_log_display_message;
 use crate::agents::provider::AgentProvider;

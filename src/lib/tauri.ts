@@ -238,43 +238,6 @@ export async function repairSpecsTable(): Promise<string> {
   return invoke('repair_specs_table');
 }
 
-// Conversation (brainstorming) functions
-import type { ConversationMessage } from '../types';
-
-export async function getConversationMessages(specId: string): Promise<ConversationMessage[]> {
-  return invoke('get_conversation_messages', { specId });
-}
-
-export async function sendConversationMessage(
-  specId: string,
-  content: string,
-  timeoutMinutes?: number,
-  agentType?: string
-): Promise<ConversationMessage> {
-  return invoke('send_conversation_message', {
-    input: {
-      specId,
-      content,
-      timeoutMinutes,
-      agentType: agentType ?? null,
-    },
-  });
-}
-
-export async function startConversation(
-  specId: string,
-  timeoutMinutes?: number,
-  agentType?: string
-): Promise<ConversationMessage> {
-  return invoke('start_conversation', {
-    input: {
-      specId,
-      timeoutMinutes,
-      agentType: agentType ?? null,
-    },
-  });
-}
-
 export async function getTicketCost(ticketId: string): Promise<AggregatedCost> {
   return invoke('get_ticket_cost', { ticketId });
 }
@@ -296,108 +259,6 @@ export async function getReleaseNotes(version: string): Promise<ReleaseNote | nu
 
 export async function getAllReleaseNotes(): Promise<ReleaseNote[]> {
   return invoke('get_all_release_notes');
-}
-
-// Validation functions
-import type {
-  ValidationSession,
-  ValidationMessage,
-  FixTask,
-  PushResult,
-  PullRequestResult,
-  BranchDiff,
-  FileDiff,
-} from '../types';
-
-export async function createValidationSession(input: {
-  ticketId: string;
-  projectId?: string;
-  agentType?: string;
-}): Promise<ValidationSession> {
-  return invoke('create_validation_session', { input });
-}
-
-export async function getValidationSession(
-  sessionId: string
-): Promise<ValidationSession> {
-  return invoke('get_validation_session', { sessionId });
-}
-
-export async function getValidationSessions(
-  ticketId: string
-): Promise<ValidationSession[]> {
-  return invoke('get_validation_sessions', { ticketId });
-}
-
-export async function deleteValidationSession(
-  sessionId: string
-): Promise<void> {
-  return invoke('delete_validation_session', { sessionId });
-}
-
-export async function getValidationMessages(
-  sessionId: string
-): Promise<ValidationMessage[]> {
-  return invoke('get_validation_messages', { sessionId });
-}
-
-export async function sendValidationMessage(
-  sessionId: string,
-  content: string,
-  options?: { model?: string; timeoutMinutes?: number }
-): Promise<ValidationMessage> {
-  return invoke('send_validation_message', {
-    request: {
-      sessionId,
-      content,
-      options: options
-        ? { model: options.model ?? null, timeoutMinutes: options.timeoutMinutes ?? null }
-        : null,
-    },
-  });
-}
-
-export async function stopValidationApp(sessionId: string): Promise<void> {
-  return invoke('stop_validation_app', { sessionId });
-}
-
-export interface ValidationAppStatus {
-  running: boolean;
-}
-
-export async function getValidationAppStatus(
-  sessionId: string
-): Promise<ValidationAppStatus> {
-  return invoke('get_validation_app_status', { sessionId });
-}
-
-export async function createFixTasks(input: {
-  sessionId: string;
-  ticketId: string;
-  tasks: FixTask[];
-}): Promise<string[]> {
-  return invoke('create_fix_tasks', { input });
-}
-
-// Next steps functions
-export async function pushBranch(ticketId: string): Promise<PushResult> {
-  return invoke('push_branch', { ticketId });
-}
-
-export async function createPullRequest(
-  ticketId: string,
-  title?: string,
-  body?: string
-): Promise<PullRequestResult> {
-  return invoke('create_pull_request', { ticketId, title, body });
-}
-
-export async function getBranchDiff(ticketId: string): Promise<BranchDiff> {
-  return invoke('get_branch_diff', { ticketId });
-}
-
-export async function getBranchDiffFiles(ticketId: string): Promise<FileDiff[]> {
-  return invoke('get_branch_diff_files', { ticketId });
 }
 
 // Cursor model list from CLI
@@ -442,6 +303,11 @@ export async function getAgentBreakdown(days: number | null): Promise<AgentBreak
 
 export async function backfillGitStats(): Promise<number> {
   return invoke('backfill_git_stats');
+}
+
+// Chat: ticket builder
+export async function createTicketsFromChat(chatId: string, ticketsJson: string): Promise<string[]> {
+  return invoke('create_tickets_from_chat', { chatId, ticketsJson });
 }
 
 // Per-agent workflow settings sync

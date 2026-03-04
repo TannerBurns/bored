@@ -1,4 +1,5 @@
 mod boards;
+mod chats;
 mod comments;
 mod conversations;
 mod costs;
@@ -1038,7 +1039,7 @@ impl Database {
             }
 
             // Migration from version 16 to 17: Remove FK constraint on agent_runs.ticket_id
-            // so runs can reference specs (planner/brainstorm) in addition to tickets.
+            // so runs can reference specs (planner/spec_discovery) in addition to tickets.
             if current_version > 0 && current_version < 17 {
                 tracing::info!("Running migration to version 17: remove FK on agent_runs.ticket_id");
 
@@ -1077,6 +1078,86 @@ impl Database {
                 )?;
 
                 tracing::info!("Migration to version 17 complete: agent_runs FK constraint removed");
+            }
+
+            // Migration to version 18: unified chat tables
+            if current_version < 18 {
+                tracing::info!("Running migration to version 18: add chat tables");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS chats (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT,
+                        agent_type TEXT NOT NULL,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        mode TEXT NOT NULL CHECK(mode IN ('general', 'spec_builder', 'ticket_builder', 'review')),
+                        board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                        ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                        spec_id TEXT REFERENCES specs(id) ON DELETE SET NULL,
+                        model TEXT,
+                        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'thinking', 'completed', 'error')),
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_chats_project ON chats(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_chats_mode ON chats(mode);
+                    CREATE INDEX IF NOT EXISTS idx_chats_board ON chats(board_id) WHERE board_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_chats_ticket ON chats(ticket_id) WHERE ticket_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_chats_spec ON chats(spec_id) WHERE spec_id IS NOT NULL;
+                    CREATE INDEX IF NOT EXISTS idx_chats_created ON chats(created_at);
+
+                    CREATE TABLE IF NOT EXISTS chat_messages (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                        role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
+                        content TEXT NOT NULL,
+                        metadata_json TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_chat_messages_chat ON chat_messages(chat_id);
+                    CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(chat_id, created_at);
+
+                    CREATE TABLE IF NOT EXISTS chat_events (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                        message_id TEXT REFERENCES chat_messages(id) ON DELETE CASCADE,
+                        event_type TEXT NOT NULL,
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_chat_events_chat ON chat_events(chat_id);
+                    CREATE INDEX IF NOT EXISTS idx_chat_events_message ON chat_events(message_id) WHERE message_id IS NOT NULL;
+
+                    CREATE TABLE IF NOT EXISTS chat_runs (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+                        chat_message_id TEXT REFERENCES chat_messages(id) ON DELETE SET NULL,
+                        agent_type TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running', 'finished', 'error')),
+                        metadata_json TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_chat_runs_chat ON chat_runs(chat_id);
+                    CREATE INDEX IF NOT EXISTS idx_chat_runs_message ON chat_runs(chat_message_id) WHERE chat_message_id IS NOT NULL;
+                    "#,
+                )?;
+
+                tracing::info!("Migration to version 18 complete: chat tables added");
+            }
+
+            // Migration to version 19: agent session ID for chat conversation resumption
+            if current_version < 19 {
+                tracing::info!("Running migration to version 19: add agent_session_id to chats");
+                conn.execute_batch(
+                    "ALTER TABLE chats ADD COLUMN agent_session_id TEXT;",
+                )?;
+                tracing::info!("Migration to version 19 complete: agent_session_id added");
             }
 
             conn.execute(

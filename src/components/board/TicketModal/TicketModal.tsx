@@ -35,7 +35,7 @@ export function TicketModal({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
-  onValidate,
+  onNavigateToChat,
   onDelete,
   onAgentComplete,
 }: TicketModalProps) {
@@ -220,7 +220,7 @@ export function TicketModal({
           <NextStepsPanel
             ticket={ticket}
             columns={columns}
-            onValidate={onValidate}
+            onNavigateToChat={onNavigateToChat}
           />
 
           {/* Ticket Cost Summary */}

@@ -86,6 +86,15 @@ export const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    id: 'chat',
+    label: 'Chat',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
   { 
     id: 'specs', 
     label: 'Specs',
@@ -96,16 +105,6 @@ export const NAV_ITEMS: NavItem[] = [
         <line x1="16" y1="13" x2="8" y2="13" />
         <line x1="16" y1="17" x2="8" y2="17" />
         <line x1="10" y1="9" x2="8" y2="9" />
-      </svg>
-    ),
-  },
-  {
-    id: 'validation',
-    label: 'Validation',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-        <polyline points="22 4 12 14.01 9 11.01" />
       </svg>
     ),
   },

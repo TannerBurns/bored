@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
@@ -8,16 +9,19 @@ import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
 import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView, TicketDetailView } from './components/views';
-import { ValidationView } from './components/validation';
+import { ChatView } from './components/chat';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
+import { useSpecStore } from './stores/specStore';
+import { useChatStore } from './stores/chatStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useBoardSync } from './hooks/useBoardSync';
 import { useSpecSync } from './hooks/useSpecSync';
-import { useValidationSync } from './hooks/useValidationSync';
+import { useChatSync } from './hooks/useChatSync';
 import { useAppData, useAgentsData, useSpecsData } from './hooks/useAppData';
 import { useTicketHandlers } from './hooks/useTicketHandlers';
 import { useReleaseNotes } from './hooks/useReleaseNotes';
+import { getTicket } from './lib/tauri';
 import { NAV_ITEMS } from './lib/constants';
 import type { Board as BoardType } from './types';
 import './index.css';
@@ -29,9 +33,6 @@ function App() {
   const [boardToRename, setBoardToRename] = useState<BoardType | null>(null);
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
   const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
-  const [validationTicketId, setValidationTicketId] = useState<string | null>(null);
-  const [validationAgentType, setValidationAgentType] = useState<string | null>(null);
-
   const { theme } = useSettingsStore();
   const {
     boards,
@@ -93,7 +94,7 @@ function App() {
   const showOnboarding = onboardingActive === true;
 
   useSpecSync(apiConfig?.url || '', apiConfig?.token || '');
-  useValidationSync(apiConfig?.url || '', apiConfig?.token || '');
+  useChatSync(apiConfig?.url || '', apiConfig?.token || '');
   useAgentsData(activeNav, setProjects, setRecentRuns);
   useSpecsData(activeNav);
 
@@ -132,23 +133,46 @@ function App() {
     setRenameBoardModalOpen(true);
   };
 
-  const handleValidateFromTicket = (ticketId: string, agentType: string) => {
+  const handleNavigateToSpec = useCallback(async (specId: string) => {
+    try {
+      const spec = await useSpecStore.getState().getSpec(specId);
+      useSpecStore.getState().setCurrentSpec(spec);
+      setActiveNav('specs');
+    } catch (e) {
+      console.warn('Failed to navigate to spec:', e);
+    }
+  }, []);
+
+  const handleOpenChatForSpec = useCallback(async (specId: string) => {
+    try {
+      const chats = await invoke<Array<{ id: string; specId?: string }>>('get_chats', {
+        limit: 50,
+        offset: 0,
+      });
+      const chat = chats.find((c) => c.specId === specId);
+      if (chat) {
+        await useChatStore.getState().selectChat(chat.id);
+        setActiveNav('chat');
+      }
+    } catch (e) {
+      console.warn('Failed to open chat for spec:', e);
+    }
+  }, []);
+
+  const handleNavigateToChat = useCallback(() => {
     closeTicketModal();
-    setValidationTicketId(ticketId);
-    setValidationAgentType(agentType);
-    setActiveNav('validation');
-  };
+    setActiveNav('chat');
+  }, [closeTicketModal]);
 
   const openTicketById = useCallback(async (ticketId: string) => {
     try {
-      const { getTicket } = await import('./lib/tauri');
       const ticket = await getTicket(ticketId);
       setActiveNav('boards');
       openTicketModal(ticket);
     } catch (e) {
       console.warn('Failed to open ticket from tray:', e);
     }
-  }, [setActiveNav, openTicketModal]);
+  }, [openTicketModal]);
 
   useEffect(() => {
     const unlisteners: Promise<() => void>[] = [];
@@ -206,7 +230,7 @@ function App() {
             onAddComment={handleAddComment}
             onUpdateComment={handleUpdateComment}
             onRunWithAgent={handleRunWithAgent}
-            onValidate={handleValidateFromTicket}
+            onNavigateToChat={handleNavigateToChat}
             onDelete={handleDeleteTicket}
             onAgentComplete={handleAgentComplete}
           />
@@ -265,10 +289,13 @@ function App() {
               />
             )}
 
+            {activeNav === 'chat' && <ChatView onNavigateToSpec={handleNavigateToSpec} onOpenTicket={openTicketById} />}
+
             {activeNav === 'specs' && (
               <SpecsView
                 currentBoard={currentBoard}
                 onCreateSpecClick={() => setIsCreateSpecModalOpen(true)}
+                onOpenChat={handleOpenChatForSpec}
               />
             )}
 
@@ -277,17 +304,6 @@ function App() {
             )}
 
             {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
-
-            {activeNav === 'validation' && (
-              <ValidationView
-                initialTicketId={validationTicketId ?? undefined}
-                initialAgentType={validationAgentType ?? undefined}
-                onConsumedInitial={() => {
-                  setValidationTicketId(null);
-                  setValidationAgentType(null);
-                }}
-              />
-            )}
 
             {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
           </>
@@ -341,6 +357,7 @@ function App() {
           onOpenChange={setIsCreateSpecModalOpen}
           boardId={currentBoard.id}
           projectId={currentBoard.defaultProjectId}
+          onChatCreated={() => setActiveNav('chat')}
         />
       )}
 

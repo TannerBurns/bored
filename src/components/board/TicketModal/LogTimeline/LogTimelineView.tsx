@@ -89,7 +89,7 @@ function relativeTime(ts: string, baseTs: string): string {
   return `+${mins}m${remSecs}s`;
 }
 
-function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimestamp: string }) {
+export function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; baseTimestamp: string }) {
   const [expanded, setExpanded] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const config = TYPE_CONFIG[entry.type];

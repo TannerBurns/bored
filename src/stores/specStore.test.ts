@@ -46,7 +46,6 @@ describe('useSpecStore', () => {
       currentVersions: [],
       selectedVersion: null,
       selectedVersionId: null,
-      activeTab: 'chat',
       scrollToProgress: false,
       specTickets: [],
       liveLogs: [],
@@ -186,12 +185,11 @@ describe('useSpecStore', () => {
   });
 
   describe('selectSpecForProgress', () => {
-    it('selects spec, switches to versions tab, and enables scroll', () => {
+    it('selects spec and enables scroll', () => {
       useSpecStore.getState().selectSpecForProgress(mockSpec);
 
       const state = useSpecStore.getState();
       expect(state.currentSpec?.id).toBe('scratch-1');
-      expect(state.activeTab).toBe('versions');
       expect(state.selectedVersion?.id).toBe('version-1');
       expect(state.selectedVersionId).toBe('version-1');
       expect(state.currentVersions).toHaveLength(1);
@@ -216,19 +214,10 @@ describe('useSpecStore', () => {
 
       const state = useSpecStore.getState();
       expect(state.currentSpec?.id).toBe('scratch-1');
-      expect(state.activeTab).toBe('versions');
       expect(state.selectedVersion).toBeNull();
       expect(state.selectedVersionId).toBeNull();
       expect(state.currentVersions).toHaveLength(0);
       expect(state.scrollToProgress).toBe(true);
-    });
-
-    it('differs from selectSpec by setting versions tab instead of chat', () => {
-      useSpecStore.getState().selectSpec(mockSpec);
-      expect(useSpecStore.getState().activeTab).toBe('chat');
-
-      useSpecStore.getState().selectSpecForProgress(mockSpec);
-      expect(useSpecStore.getState().activeTab).toBe('versions');
     });
   });
 
@@ -282,7 +271,6 @@ describe('useSpecStore', () => {
       const state = useSpecStore.getState();
       expect(state.selectedVersion?.id).toBe('version-1');
       expect(state.selectedVersionId).toBe('version-1');
-      expect(state.activeTab).toBe('versions');
     });
 
     it('resets scrollToProgress to false', () => {
@@ -500,30 +488,4 @@ describe('useSpecStore', () => {
     });
   });
 
-  describe('addBrainstormLog', () => {
-    it('adds a log message', () => {
-      useSpecStore.getState().addBrainstormLog('first');
-      expect(useSpecStore.getState().brainstormLogs).toEqual(['first']);
-    });
-
-    it('caps logs at 4 entries for rolling visual effect', () => {
-      const store = useSpecStore.getState();
-      store.addBrainstormLog('msg-1');
-      store.addBrainstormLog('msg-2');
-      store.addBrainstormLog('msg-3');
-      store.addBrainstormLog('msg-4');
-      store.addBrainstormLog('msg-5');
-
-      const logs = useSpecStore.getState().brainstormLogs;
-      expect(logs).toHaveLength(4);
-      expect(logs[0]).toBe('msg-2');
-      expect(logs[3]).toBe('msg-5');
-    });
-
-    it('clearBrainstormLogs empties the array', () => {
-      useSpecStore.getState().addBrainstormLog('entry');
-      useSpecStore.getState().clearBrainstormLogs();
-      expect(useSpecStore.getState().brainstormLogs).toEqual([]);
-    });
-  });
 });

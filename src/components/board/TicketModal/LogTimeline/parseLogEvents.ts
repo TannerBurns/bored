@@ -351,6 +351,62 @@ function parseCodexEvent(
   return [];
 }
 
+export interface AgentLog {
+  stream: string;
+  message: string;
+  timestamp: string;
+}
+
+export function parseAgentLogToEntries(
+  logs: AgentLog[],
+  agentType: string,
+): TimelineEntry[] {
+  const isCodex = agentType === 'codex';
+  const entries: TimelineEntry[] = [];
+  const taskDescriptions = new Map<string, string>();
+
+  for (const log of logs) {
+    const trimmed = log.message.trim();
+    if (!trimmed) continue;
+    const isStderr = log.stream === 'stderr';
+
+    if (!trimmed.startsWith('{')) {
+      entries.push({
+        id: entries.length.toString(),
+        type: isStderr ? 'error' : 'streaming',
+        timestamp: log.timestamp,
+        summary: truncate(trimmed, 120),
+        rawJson: log.message,
+        isStderr,
+      });
+      continue;
+    }
+
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(trimmed);
+    } catch {
+      entries.push({
+        id: entries.length.toString(),
+        type: isStderr ? 'error' : 'streaming',
+        timestamp: log.timestamp,
+        summary: truncate(trimmed, 120),
+        rawJson: log.message,
+        isStderr,
+      });
+      continue;
+    }
+
+    const parsed = isCodex
+      ? parseCodexEvent(log.message, json, entries.length.toString(), log.timestamp, isStderr)
+      : parseClaudeEvent(log.message, json, entries.length.toString(), log.timestamp, isStderr, taskDescriptions);
+
+    entries.push(...parsed);
+  }
+
+  return entries;
+}
+
 export function parseLogEvents(events: RunEvent[], agentType: string): TimelineEntry[] {
   const isCodex = agentType === 'codex';
   const entries: TimelineEntry[] = [];

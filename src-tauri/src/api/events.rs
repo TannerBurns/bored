@@ -109,15 +109,16 @@ fn event_matches_filter(
             LiveEvent::PlanExecutionCompleted { .. } => "plan_execution_completed",
             LiveEvent::PlannerLogEntry { .. } => "planner_log_entry",
             LiveEvent::ConversationMessageAdded { .. } => "conversation_message_added",
-            LiveEvent::ConversationComplete { .. } => "conversation_complete",
-            LiveEvent::BrainstormLogEntry { .. } => "brainstorm_log_entry",
-            LiveEvent::BrainstormGeneratingSpec { .. } => "brainstorm_generating_spec",
-            LiveEvent::ValidationSessionCreated { .. } => "validation_session_created",
-            LiveEvent::ValidationSessionUpdated { .. } => "validation_session_updated",
-            LiveEvent::ValidationMessageAdded { .. } => "validation_message_added",
-            LiveEvent::ValidationFixTasksCreated { .. } => "validation_fix_tasks_created",
+            LiveEvent::SpecDiscoveryLogEntry { .. } => "spec_discovery_log_entry",
             LiveEvent::ValidationLogEntry { .. } => "validation_log_entry",
             LiveEvent::ValidationAppLog { .. } => "validation_app_log",
+            LiveEvent::ChatCreated { .. } => "chat_created",
+            LiveEvent::ChatUpdated { .. } => "chat_updated",
+            LiveEvent::ChatMessageAdded { .. } => "chat_message_added",
+            LiveEvent::ChatTitleGenerated { .. } => "chat_title_generated",
+            LiveEvent::ChatLogEntry { .. } => "chat_log_entry",
+            LiveEvent::ChatCostUpdated { .. } => "chat_cost_updated",
+            LiveEvent::ChatAppLog { .. } => "chat_app_log",
         };
 
         if !types.iter().any(|t| t == event_type) {

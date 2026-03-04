@@ -1,0 +1,165 @@
+import { useState } from 'react';
+import { createTicketsFromChat } from '../../lib/tauri';
+import { MarkdownViewer } from '../common/MarkdownViewer';
+import { useChatStore } from '../../stores/chatStore';
+
+interface TicketBuilderMessageProps {
+  content: string;
+  chatId: string;
+}
+
+interface TicketBuilderParsed {
+  tickets: ParsedTicket[];
+  textBefore: string;
+  textAfter: string;
+}
+
+interface ParsedTicket {
+  title: string;
+  description: string;
+  priority?: string;
+  tasks?: { title: string }[];
+}
+
+const PRIORITY_COLORS: Record<string, string> = {
+  low: 'bg-green-500/20 text-green-400',
+  medium: 'bg-yellow-500/20 text-yellow-400',
+  high: 'bg-orange-500/20 text-orange-400',
+  urgent: 'bg-red-500/20 text-red-400',
+};
+
+function parseTicketBuilderResponse(content: string): TicketBuilderParsed | null {
+  const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (!parsed.tickets || !Array.isArray(parsed.tickets)) return null;
+      const jsonStart = content.indexOf(jsonMatch[0]);
+      return {
+        tickets: parsed.tickets,
+        textBefore: content.slice(0, jsonStart).trim(),
+        textAfter: content.slice(jsonStart + jsonMatch[0].length).trim(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const rawMatch = content.match(/\{[\s\S]*"tickets"[\s\S]*\}/);
+  if (rawMatch) {
+    try {
+      const parsed = JSON.parse(rawMatch[0]);
+      if (!parsed.tickets || !Array.isArray(parsed.tickets)) return null;
+      return {
+        tickets: parsed.tickets,
+        textBefore: content.slice(0, rawMatch.index).trim(),
+        textAfter: content.slice(rawMatch.index! + rawMatch[0].length).trim(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+export function TicketBuilderMessage({ content, chatId }: TicketBuilderMessageProps) {
+  const parsed = parseTicketBuilderResponse(content);
+  const [isCreating, setIsCreating] = useState(false);
+  const [created, setCreated] = useState(false);
+  const loadMessages = useChatStore((s) => s.loadMessages);
+
+  if (!parsed) {
+    return <MarkdownViewer content={content} />;
+  }
+
+  const handleCreateTickets = async () => {
+    setIsCreating(true);
+    try {
+      const ticketsJson = JSON.stringify({ tickets: parsed.tickets });
+      await createTicketsFromChat(chatId, ticketsJson);
+      setCreated(true);
+      await loadMessages(chatId);
+    } catch (e) {
+      console.error('Failed to create tickets:', e);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <div>
+      {parsed.textBefore && <MarkdownViewer content={parsed.textBefore} />}
+
+      <div className="space-y-3 my-4">
+        {parsed.tickets.map((ticket, i) => (
+          <TicketPreviewCard key={i} ticket={ticket} />
+        ))}
+      </div>
+
+      {!created && (
+        <button
+          onClick={handleCreateTickets}
+          disabled={isCreating}
+          className="px-4 py-2 bg-status-info text-white rounded-lg hover:bg-status-info/90 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+        >
+          {isCreating
+            ? 'Creating...'
+            : `Create ${parsed.tickets.length} Ticket${parsed.tickets.length !== 1 ? 's' : ''}`}
+        </button>
+      )}
+
+      {created && (
+        <div className="text-sm text-green-400 flex items-center gap-1.5">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+          Tickets created
+        </div>
+      )}
+
+      {parsed.textAfter && <MarkdownViewer content={parsed.textAfter} />}
+    </div>
+  );
+}
+
+function TicketPreviewCard({ ticket }: { ticket: ParsedTicket }) {
+  const [expanded, setExpanded] = useState(false);
+  const priority = ticket.priority || 'medium';
+  const colorClass = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
+
+  return (
+    <div className="border border-board-border rounded-lg p-4 bg-board-card/30">
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`px-2 py-0.5 rounded text-xs font-medium ${colorClass}`}>
+          {priority}
+        </span>
+        <h4 className="font-medium text-board-text">{ticket.title}</h4>
+      </div>
+
+      <div className="text-sm text-board-text-muted">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-board-accent hover:underline"
+        >
+          {expanded ? 'Hide description' : 'Show description'}
+        </button>
+        {expanded && (
+          <div className="mt-2">
+            <MarkdownViewer content={ticket.description} />
+          </div>
+        )}
+      </div>
+
+      {ticket.tasks && ticket.tasks.length > 0 && (
+        <div className="text-xs text-board-text-muted mt-2 flex items-center gap-1">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+            <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+          </svg>
+          <span>{ticket.tasks.length} task{ticket.tasks.length !== 1 ? 's' : ''}: {ticket.tasks.map(t => t.title).join(', ')}</span>
+        </div>
+      )}
+    </div>
+  );
+}

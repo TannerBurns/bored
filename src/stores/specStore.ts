@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Spec, SpecVersion, SpecWithVersion, CreateSpecInput, UpdateSpecInput, Ticket, SpecEta, ConversationMessage } from '../types';
+import type { Spec, SpecVersion, SpecWithVersion, CreateSpecInput, UpdateSpecInput, Ticket, SpecEta } from '../types';
 import { logger } from '../lib/logger';
 
 /** A single log entry from the planner agent */
@@ -22,23 +22,11 @@ interface SpecState {
   selectedVersion: SpecVersion | null;
   /** ID of the selected version (for tab linking) */
   selectedVersionId: string | null;
-  /** Currently active tab in the spec detail view */
-  activeTab: 'chat' | 'versions';
   specTickets: Ticket[];
   /** Real-time log entries from agent output */
   liveLogs: SpecLogEntry[];
   /** ETA information for the current spec */
   currentEta: SpecEta | null;
-  /** Conversation messages for current spec brainstorming */
-  conversationMessages: ConversationMessage[];
-  /** Whether the agent is currently thinking/responding */
-  isAgentThinking: boolean;
-  /** Real-time log entries from brainstorm agent */
-  brainstormLogs: string[];
-  /** Whether the spec is being generated (no more questions) */
-  isGeneratingSpec: boolean;
-  /** Version number being generated */
-  generatingVersionNumber: number | null;
   /** When true, VersionDetail should auto-scroll to the EpicProgressPanel */
   scrollToProgress: boolean;
   isLoading: boolean;
@@ -62,7 +50,6 @@ interface SpecState {
   loadVersions: (specId: string) => Promise<void>;
   selectVersion: (version: SpecVersion | null) => void;
   selectVersionById: (versionId: string) => void;
-  setActiveTab: (tab: 'chat' | 'versions') => void;
   createNewVersion: (specId: string) => Promise<SpecVersion>;
   
   // Status management (operates on latest version)
@@ -90,17 +77,6 @@ interface SpecState {
   addLogEntry: (entry: Omit<SpecLogEntry, 'id'>) => void;
   clearLogs: (specId?: string) => void;
   
-  // Conversation management
-  setConversationMessages: (messages: ConversationMessage[]) => void;
-  addConversationMessage: (message: ConversationMessage) => void;
-  setAgentThinking: (thinking: boolean) => void;
-  clearConversation: () => void;
-  
-  // Brainstorm log management
-  addBrainstormLog: (message: string) => void;
-  clearBrainstormLogs: () => void;
-  setGeneratingSpec: (generating: boolean, versionNumber?: number) => void;
-  
   // State setters
   setSpecs: (specs: SpecWithVersion[]) => void;
   setCurrentSpec: (spec: SpecWithVersion | null) => void;
@@ -116,15 +92,9 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   currentVersions: [],
   selectedVersion: null,
   selectedVersionId: null,
-  activeTab: 'chat',
   specTickets: [],
   liveLogs: [],
   currentEta: null,
-  conversationMessages: [],
-  isAgentThinking: false,
-  brainstormLogs: [],
-  isGeneratingSpec: false,
-  generatingVersionNumber: null,
   scrollToProgress: false,
   isLoading: false,
   isExploring: false,
@@ -292,7 +262,6 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       currentVersions: spec?.latestVersion ? [spec.latestVersion] : [],
       selectedVersion: spec?.latestVersion || null,
       selectedVersionId: spec?.latestVersion?.id ?? null,
-      activeTab: 'chat',
       scrollToProgress: false,
     });
   },
@@ -303,7 +272,6 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       currentVersions: spec.latestVersion ? [spec.latestVersion] : [],
       selectedVersion: spec.latestVersion || null,
       selectedVersionId: spec.latestVersion?.id ?? null,
-      activeTab: 'versions',
       scrollToProgress: true,
     });
   },
@@ -328,11 +296,7 @@ export const useSpecStore = create<SpecState>((set, get) => ({
   selectVersionById: (versionId: string) => {
     const { currentVersions } = get();
     const version = currentVersions.find(v => v.id === versionId) || null;
-    set({ selectedVersion: version, selectedVersionId: versionId, activeTab: 'versions', scrollToProgress: false });
-  },
-
-  setActiveTab: (tab: 'chat' | 'versions') => {
-    set({ activeTab: tab });
+    set({ selectedVersion: version, selectedVersionId: versionId, scrollToProgress: false });
   },
 
   createNewVersion: async (specId: string) => {
@@ -529,51 +493,6 @@ export const useSpecStore = create<SpecState>((set, get) => ({
       set({ liveLogs: [] });
     }
   },
-
-  // Conversation management
-  setConversationMessages: (messages) => set({ conversationMessages: messages }),
-  
-  addConversationMessage: (message) => {
-    set((state) => {
-      // Don't add duplicates
-      if (state.conversationMessages.some(m => m.id === message.id)) {
-        return state;
-      }
-      // Only stop thinking when an assistant message arrives (not user messages)
-      const shouldStopThinking = message.role === 'assistant';
-      return {
-        conversationMessages: [...state.conversationMessages, message],
-        // Clear thinking state when assistant responds, but DON'T clear logs
-        // Logs should persist so user can see what the agent was thinking
-        isAgentThinking: shouldStopThinking ? false : state.isAgentThinking,
-      };
-    });
-  },
-  
-  setAgentThinking: (thinking) => set({ isAgentThinking: thinking }),
-  
-  clearConversation: () => set({ 
-    conversationMessages: [], 
-    isAgentThinking: false,
-    brainstormLogs: [],
-    isGeneratingSpec: false,
-    generatingVersionNumber: null,
-  }),
-  
-  // Brainstorm log management
-  addBrainstormLog: (message) => {
-    set((state) => ({
-      brainstormLogs: [...state.brainstormLogs.slice(-3), message], // Keep last 4 for rolling visual effect
-    }));
-  },
-  
-  clearBrainstormLogs: () => set({ brainstormLogs: [] }),
-  
-  setGeneratingSpec: (generating, versionNumber) => set({ 
-    isGeneratingSpec: generating,
-    generatingVersionNumber: versionNumber ?? null,
-    isAgentThinking: generating, // Also set thinking state
-  }),
 
   // State setters
   setSpecs: (specs) => set({ specs }),
