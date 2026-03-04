@@ -297,7 +297,7 @@ impl ChatAgent {
                         port_suffix, log_file_str
                     )).await;
 
-                    let (follow_up_response, follow_up_stdout, _) =
+                    let (follow_up_response, follow_up_stdout, follow_up_msg) =
                         self.review_agent_followup(&ticket, &branch_diff).await?;
 
                     if !fix_tasks_already_extracted {
@@ -323,16 +323,7 @@ impl ChatAgent {
                     );
                     all_fix_task_ids.extend(follow_fix_ids);
 
-                    let has_fix = parse_create_fix_tasks_from_response(&follow_up_response).is_some();
-                    let follow_meta = if has_fix {
-                        Some(serde_json::json!({ "type": "fix_task_response" }))
-                    } else {
-                        None
-                    };
-                    let second_assistant = self
-                        .save_assistant_message(&follow_up_response, follow_meta.as_ref())
-                        .await?;
-                    self.extract_and_store_cost(&follow_up_stdout, Some(&second_assistant.id))
+                    self.extract_and_store_cost(&follow_up_stdout, Some(&follow_up_msg.id))
                         .await?;
 
                     if !all_fix_task_ids.is_empty() {
@@ -353,7 +344,7 @@ impl ChatAgent {
                         }
                     }
 
-                    return Ok(second_assistant);
+                    return Ok(follow_up_msg);
                 }
             }
             break;

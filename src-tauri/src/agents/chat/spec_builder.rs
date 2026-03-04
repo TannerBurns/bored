@@ -123,7 +123,6 @@ impl ChatAgent {
                 &version.id,
                 version.version_number,
                 &spec.user_input,
-                &messages,
             )
             .await?;
         }
@@ -282,7 +281,6 @@ impl ChatAgent {
         version_id: &str,
         version_number: i32,
         original_user_input: &str,
-        messages: &[ChatMessage],
     ) -> Result<(), ChatAgentError> {
         tracing::info!(
             "Spec builder: no questions returned, requesting auto-completion for spec {}",
@@ -295,7 +293,8 @@ impl ChatAgent {
         ))
         .await;
 
-        let mut conv_messages = Self::convert_to_conv_messages(messages, spec_id);
+        let fresh_messages = self.db.get_chat_messages(&self.config.chat_id)?;
+        let mut conv_messages = Self::convert_to_conv_messages(&fresh_messages, spec_id);
         conv_messages.push(ConversationMessage {
             id: "completion-request".to_string(),
             spec_id: spec_id.to_string(),
