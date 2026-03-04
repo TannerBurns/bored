@@ -96,6 +96,19 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
         vec![]
     }
 
+    // ── Lightweight config ────────────────────────────────────────────
+
+    /// Build a stripped-down `agent_config` for lightweight, single-turn tasks
+    /// (e.g. title generation). Providers should disable expensive features
+    /// (thinking, multi-agent, etc.) while preserving authentication and
+    /// connection settings. The default passes the config through unchanged.
+    fn lightweight_agent_config(
+        &self,
+        config: &HashMap<String, serde_json::Value>,
+    ) -> HashMap<String, serde_json::Value> {
+        config.clone()
+    }
+
     // ── Local provider overrides ──────────────────────────────────────
 
     /// Whether the agent_config indicates a local/self-hosted provider override.

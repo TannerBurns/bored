@@ -180,6 +180,32 @@ impl AgentProvider for ClaudeProvider {
         ]
     }
 
+    fn lightweight_agent_config(
+        &self,
+        config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
+        const PASSTHROUGH_KEYS: &[&str] = &[
+            "authToken", "auth_token",
+            "apiKey", "api_key",
+            "baseUrl", "base_url",
+            "useLocalProvider", "use_local_provider",
+            "modelOverride", "model_override",
+        ];
+
+        let mut cfg = std::collections::HashMap::new();
+        cfg.insert("thinkingEnabled".into(), serde_json::json!(false));
+        cfg.insert("chromeEnabled".into(), serde_json::json!(false));
+        cfg.insert("extendedContextEnabled".into(), serde_json::json!(false));
+        cfg.insert("maxTurns".into(), serde_json::json!(1));
+
+        for &key in PASSTHROUGH_KEYS {
+            if let Some(val) = config.get(key) {
+                cfg.insert(key.to_string(), val.clone());
+            }
+        }
+        cfg
+    }
+
     fn is_local_override(&self, agent_config: &std::collections::HashMap<String, serde_json::Value>) -> bool {
         let api_config = ClaudeApiConfig::from_agent_config(agent_config);
         api_config.use_local_provider.unwrap_or(false)

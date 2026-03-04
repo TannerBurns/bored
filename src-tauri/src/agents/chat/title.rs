@@ -11,38 +11,6 @@ use super::super::registry::AgentRegistry;
 use super::super::spawner;
 use super::super::AgentRunConfig;
 
-const AUTH_KEYS: &[&str] = &[
-    "authToken",
-    "auth_token",
-    "apiKey",
-    "api_key",
-    "baseUrl",
-    "base_url",
-    "useLocalProvider",
-    "use_local_provider",
-    "modelOverride",
-    "model_override",
-];
-
-/// Build a minimal agent_config for title generation: no thinking, no chrome,
-/// no extended context, single turn, but preserve auth/connection settings.
-fn build_title_agent_config(
-    source: &HashMap<String, serde_json::Value>,
-) -> HashMap<String, serde_json::Value> {
-    let mut cfg = HashMap::new();
-    cfg.insert("thinkingEnabled".into(), serde_json::json!(false));
-    cfg.insert("chromeEnabled".into(), serde_json::json!(false));
-    cfg.insert("extendedContextEnabled".into(), serde_json::json!(false));
-    cfg.insert("maxTurns".into(), serde_json::json!(1));
-
-    for &key in AUTH_KEYS {
-        if let Some(val) = source.get(key) {
-            cfg.insert(key.to_string(), val.clone());
-        }
-    }
-    cfg
-}
-
 /// Clean up the raw title: strip surrounding quotes, collapse whitespace, cap length.
 fn sanitize_title(raw: &str) -> String {
     let trimmed = raw
@@ -106,7 +74,7 @@ pub fn spawn_title_generation(
             }
         };
 
-        let title_config = build_title_agent_config(&agent_config);
+        let title_config = provider.lightweight_agent_config(&agent_config);
 
         let run_config = AgentRunConfig {
             agent_id: agent_id.clone(),
@@ -219,21 +187,5 @@ mod tests {
     fn sanitize_empty_returns_empty() {
         assert_eq!(sanitize_title(""), "");
         assert_eq!(sanitize_title("  "), "");
-    }
-
-    #[test]
-    fn build_title_config_disables_heavy_features() {
-        let mut source = HashMap::new();
-        source.insert("thinkingEnabled".into(), serde_json::json!(true));
-        source.insert("chromeEnabled".into(), serde_json::json!(true));
-        source.insert("authToken".into(), serde_json::json!("secret"));
-        source.insert("otherSetting".into(), serde_json::json!("value"));
-
-        let cfg = build_title_agent_config(&source);
-        assert_eq!(cfg.get("thinkingEnabled").unwrap(), &serde_json::json!(false));
-        assert_eq!(cfg.get("chromeEnabled").unwrap(), &serde_json::json!(false));
-        assert_eq!(cfg.get("maxTurns").unwrap(), &serde_json::json!(1));
-        assert_eq!(cfg.get("authToken").unwrap(), &serde_json::json!("secret"));
-        assert!(cfg.get("otherSetting").is_none());
     }
 }

@@ -652,4 +652,34 @@ fn build_command_omits_resume_when_no_session_id() {
     assert!(!args.contains(&"--resume".to_string()));
 }
 
+// ── lightweight_agent_config tests ─────────────────────────────
+
+#[test]
+fn lightweight_config_disables_thinking_and_chrome() {
+    let p = ClaudeProvider::new();
+    let mut full = HashMap::new();
+    full.insert("thinkingEnabled".into(), serde_json::json!(true));
+    full.insert("chromeEnabled".into(), serde_json::json!(true));
+
+    let cfg = p.lightweight_agent_config(&full);
+    assert_eq!(cfg["thinkingEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["chromeEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["extendedContextEnabled"], serde_json::json!(false));
+    assert_eq!(cfg["maxTurns"], serde_json::json!(1));
+}
+
+#[test]
+fn lightweight_config_preserves_auth_keys() {
+    let p = ClaudeProvider::new();
+    let mut full = HashMap::new();
+    full.insert("authToken".into(), serde_json::json!("secret"));
+    full.insert("baseUrl".into(), serde_json::json!("http://localhost"));
+    full.insert("unrelateSetting".into(), serde_json::json!("dropped"));
+
+    let cfg = p.lightweight_agent_config(&full);
+    assert_eq!(cfg["authToken"], serde_json::json!("secret"));
+    assert_eq!(cfg["baseUrl"], serde_json::json!("http://localhost"));
+    assert!(!cfg.contains_key("unrelateSetting"));
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests
