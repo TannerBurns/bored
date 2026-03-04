@@ -105,11 +105,18 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
     }
   };
 
-  return (
-    <div>
-      {parsed.textBefore && <MarkdownViewer content={parsed.textBefore} />}
+  const showTextBefore = parsed.textBefore.length > 0;
+  const showTextAfter = parsed.textAfter.length > 0;
 
-      <div className="space-y-3 my-4">
+  return (
+    <div className="space-y-3">
+      {showTextBefore && (
+        <div className="text-sm text-board-text-muted">
+          <MarkdownViewer content={parsed.textBefore} />
+        </div>
+      )}
+
+      <div className="space-y-3">
         {parsed.tickets.map((ticket, i) => (
           <TicketPreviewCard key={i} ticket={ticket} />
         ))}
@@ -136,7 +143,11 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
         </div>
       )}
 
-      {parsed.textAfter && <MarkdownViewer content={parsed.textAfter} />}
+      {showTextAfter && (
+        <div className="text-sm text-board-text-muted">
+          <MarkdownViewer content={parsed.textAfter} />
+        </div>
+      )}
     </div>
   );
 }
