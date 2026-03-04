@@ -559,7 +559,7 @@ fn process_fix_tasks_for_chat(
             .map(|t| format!("- {}", t.title))
             .collect::<Vec<_>>()
             .join("\n");
-        let _ = db.create_chat_message(
+        if let Ok(msg) = db.create_chat_message(
             chat_id,
             ChatMessageRole::System,
             &format!(
@@ -570,17 +570,18 @@ fn process_fix_tasks_for_chat(
                 "type": "fix_tasks_created",
                 "task_ids": task_ids,
             })),
-        );
+        ) {
+            let _ = event_tx.send(LiveEvent::ChatMessageAdded {
+                chat_id: chat_id.to_string(),
+                message_id: msg.id,
+                role: "system".to_string(),
+            });
+        }
         if let Ok(columns) = db.get_columns(board_id) {
             if let Some(ready_col) = columns.iter().find(|c| c.name == "Ready") {
                 let _ = db.move_ticket(ticket_id, &ready_col.id);
             }
         }
-        let _ = event_tx.send(LiveEvent::ChatMessageAdded {
-            chat_id: chat_id.to_string(),
-            message_id: String::new(),
-            role: "system".to_string(),
-        });
     }
 
     task_ids

@@ -298,7 +298,10 @@ impl ChatAgent {
         .await;
 
         let fresh_messages = self.db.get_chat_messages(&self.config.chat_id)?;
-        let mut conv_messages = Self::convert_to_conv_messages(&fresh_messages, spec_id);
+        let mut conv_messages: Vec<_> = Self::convert_to_conv_messages(&fresh_messages, spec_id)
+            .into_iter()
+            .skip(1)
+            .collect();
         conv_messages.push(ConversationMessage {
             id: "completion-request".to_string(),
             spec_id: spec_id.to_string(),
