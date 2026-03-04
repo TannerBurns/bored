@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { ChatListItem } from './ChatListItem';
 import { useChatStore } from '../../stores/chatStore';
+import { ConfirmModal } from '../common/ConfirmModal';
+import type { Chat } from '../../types';
 
 interface ChatListProps {
   projectMap: Record<string, string>;
@@ -10,7 +13,10 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
   const chats = useChatStore((s) => s.chats);
   const currentChat = useChatStore((s) => s.currentChat);
   const selectChat = useChatStore((s) => s.selectChat);
+  const deleteChat = useChatStore((s) => s.deleteChat);
   const loadOlderChats = useChatStore((s) => s.loadOlderChats);
+
+  const [chatToDelete, setChatToDelete] = useState<Chat | null>(null);
 
   const showLoadMore = chats.length > 0 && chats.length % 10 === 0;
 
@@ -45,6 +51,7 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
                 isActive={currentChat?.id === chat.id}
                 projectName={projectMap[chat.projectId]}
                 onClick={() => selectChat(chat.id)}
+                onDelete={() => setChatToDelete(chat)}
               />
             ))}
             {showLoadMore && (
@@ -58,6 +65,19 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
           </>
         )}
       </div>
+
+      <ConfirmModal
+        open={chatToDelete !== null}
+        onOpenChange={(open) => { if (!open) setChatToDelete(null); }}
+        title="Delete Chat"
+        message={`Delete "${chatToDelete?.title || 'Untitled Chat'}"? This will permanently remove the chat and all its messages.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={async () => {
+          if (chatToDelete) await deleteChat(chatToDelete.id);
+          setChatToDelete(null);
+        }}
+      />
     </div>
   );
 }
