@@ -109,17 +109,8 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
     }
   };
 
-  const showTextBefore = parsed.textBefore.length > 0;
-  const showTextAfter = parsed.textAfter.length > 0;
-
   return (
     <div className="space-y-3">
-      {showTextBefore && (
-        <div className="text-sm text-board-text-muted">
-          <MarkdownViewer content={parsed.textBefore} />
-        </div>
-      )}
-
       <div className="space-y-3">
         {parsed.tickets.map((ticket, i) => (
           <TicketPreviewCard key={i} ticket={ticket} />
@@ -144,12 +135,6 @@ export function TicketBuilderMessage({ content, chatId, alreadyCreated }: Ticket
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>
           Tickets created
-        </div>
-      )}
-
-      {showTextAfter && (
-        <div className="text-sm text-board-text-muted">
-          <MarkdownViewer content={parsed.textAfter} />
         </div>
       )}
     </div>
