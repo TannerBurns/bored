@@ -1,5 +1,82 @@
 [
   {
+    "version": "0.1.0-beta.42",
+    "published_at": "2026-03-04",
+    "summary": "Unified chat system replacing the separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing and dashboard metrics accuracy improvements.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Unified chat system with four modes — General (freeform Q&A), Spec Builder (guided spec creation), Ticket Builder (ticket generation from conversation), and Review (post-completion code review) — replacing the separate validation and conversation subsystems",
+          "Chat UI with ChatView, ChatPanel, ChatHeader, ChatList, ChatMessageList, ChatThinkingView, ChatEventTimeline, and NewChatModal components",
+          "Real-time SSE chat event streaming with per-chat scoping that prevents cross-chat event leaking",
+          "Agent log timeline view on completed assistant messages with persisted ChatEvent records",
+          "Lightweight agent config abstraction in AgentProvider trait — providers strip expensive features for single-turn tasks like title generation",
+          "TaskDraftList component for inline task creation at ticket creation time",
+          "Copy-as-markdown button on assistant chat messages",
+          "Delete chat with confirmation flow",
+          "Multi-task ticket routing — tickets with pending tasks route to Ready instead of Review after task completion"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Brainstorm agent renamed to spec_discovery for clarity",
+          "Title generation runs in parallel with the agent response",
+          "Per-chat state isolation for agent logs, thinking indicators, and app logs across chat switches",
+          "Ticket description decoupled from tasks — description is now shared context rather than auto-created Task 0",
+          "At least one task required before moving a non-epic ticket to Ready (frontend and backend enforcement)",
+          "Agent brand icons in NewChatModal and ChatHeader for visual consistency",
+          "Dashboard avg run time uses monotonic duration_secs from run metadata instead of DB timestamps",
+          "Git stats collected at run completion after detour merge before branches are deleted",
+          "Removed ~5,900 lines of replaced validation/conversation code"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed duplicate assistant message in review mode from redundant save call",
+          "Fixed AgentRegistry state type mismatch causing runtime panic on chat commands",
+          "Fixed title generation timeouts from spawning a full agent with thinking enabled for a trivial task",
+          "Fixed cross-chat event leaking when switching chats due to stale React ref",
+          "Fixed malformed JSON in ticket builder responses with regex-based repair for missing opening quotes",
+          "Fixed ConfirmModal spinner stuck forever after React StrictMode double-invoke",
+          "Fixed multi-task tickets stuck in Review after first task completion",
+          "Fixed sub-runs failing during spawn left stuck in Running status",
+          "Fixed lines changed showing zero for detour branches deleted before backfill",
+          "Fixed stale git stats never refreshed after initial backfill"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added chatStore.test.ts with 39 tests covering CRUD, message loading, and per-chat state isolation",
+          "Added 20 parseAgentLogToEntries tests and 7 formatRelativeTime utility tests",
+          "Added 3 finish_workflow integration tests covering all multi-task routing branches",
+          "Added lightweight_config and TransitionGuard task requirement tests"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.41",
+        "highlight": "Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications."
+      },
+      {
+        "version": "0.1.0-beta.40",
+        "highlight": "Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run"
+      },
+      {
+        "version": "0.1.0-beta.39",
+        "highlight": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps"
+      },
+      {
+        "version": "0.1.0-beta.38",
+        "highlight": "Native OS notification banners with sound, in-app toast notifications via sonner, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants"
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.41",
     "published_at": "2026-03-02",
     "summary": "Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed redundant in-app toast notifications in favor of native OS notifications.",

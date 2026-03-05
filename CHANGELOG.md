@@ -2,6 +2,91 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.42] - 2026-03-04
+
+Unified chat system replacing the separate validation and conversation flows with a single interface for all agent interactions. Four chat modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing now correctly queues remaining tasks instead of prematurely moving tickets to Review. Dashboard metrics accuracy improvements for run time and lines changed.
+
+### New Features
+
+- Unified chat system with four modes — General (freeform Q&A), Spec Builder (guided spec creation), Ticket Builder (ticket generation from conversation), and Review (post-completion code review) — replacing the separate validation and conversation subsystems with a single consistent interface
+- ChatView, ChatPanel, ChatHeader, ChatList, ChatMessageList, ChatThinkingView, ChatEventTimeline, and NewChatModal components forming the full chat UI
+- Chat store (Zustand) with full CRUD, message loading, agent log management, and per-chat state isolation for thinking indicators and log timelines
+- SSE-based real-time chat event streaming via useChatSync hook with per-chat scoping that prevents cross-chat event leaking
+- Chat backend with five mode handlers — general, spec_builder, ticket_builder, review, and title generation — in the new agents/chat module
+- Agent log timeline view on completed assistant messages — persisted ChatEvent records enable viewing the full agent tool-call timeline after a response completes
+- Lightweight agent config abstraction in AgentProvider trait — each provider strips expensive features (thinking, chrome, multi-agent) for single-turn tasks like title generation
+- TaskDraftList component in CreateTicketModal for inline task creation at ticket creation time
+- Copy-as-markdown button on assistant chat messages for copying raw markdown source
+- Delete chat with confirmation flow via hover trash icon on chat list items
+- TicketBuilderMessage with task content field — agent can provide detailed, self-contained specs per task with JSON repair for malformed responses
+- Multi-task ticket routing — tickets with pending tasks route to Ready instead of Review after task completion, so the next task is picked up automatically
+
+### Improvements
+
+- Brainstorm agent renamed to spec_discovery agent for clarity
+- Title generation runs in parallel with the agent response instead of waiting for it to finish
+- Per-chat maps for agent logs, thinking state, and app logs — switching chats restores the correct state without losing accumulated logs from background chats
+- Agent brand icons in NewChatModal and ChatHeader matching the icon style used across Build-With, settings, and spec creation
+- Ticket description decoupled from tasks — description is now shared context included in all task prompts rather than being auto-created as Task 0
+- At least one task required before moving a non-epic ticket to the Ready column (frontend and backend enforcement)
+- MessageInput textarea increased from 1 row to 4 rows default with 300px max auto-resize height for composing multi-line messages
+- Conversation history wrapped in XML tags in ticket builder prompt to prevent the model from confusing user text with its own context
+- SpecBuilder chat mode requires board_id at both the command and DB layer to prevent runtime panics
+- Default 600s timeout applied when send_chat_message omits it, preventing agent processes from running indefinitely
+- ConfirmModal resets loading and error state on open, fixing stuck spinners on consecutive deletions
+- Markdown table and code block overflow handled with horizontal scrolling instead of clipping past the glass background
+- Removed: validation/ components, ConversationView, MessageList, validationStore, useValidationSync, conversations and validation commands, ~5,900 lines of replaced code
+- Dashboard avg run time now uses monotonic duration_secs from run metadata instead of DB timestamps inflated by setup overhead
+- Git stats collected at run completion after detour merge so lines changed are captured before branches are deleted
+- Backfill refreshes all ticket stats on every call instead of skipping tickets with existing stats
+- upsert_git_stats preserves prs_created via MAX to prevent backfill from resetting PR counts
+
+### Bug Fixes
+
+- Fixed duplicate assistant message in review mode start_app branch — review_agent_followup already persists the message internally
+- Fixed stale conversation context in spec builder auto-completion — messages are now re-fetched from DB after the agent saves its response
+- Fixed AgentRegistry state type mismatch (plain vs Arc) causing runtime panic when chat commands were invoked
+- Fixed spec builder using wrong prompt on first turn — initial prompt was dead code because the user message was always present in conv_messages
+- Fixed title generation spawning a full agent with thinking and tools enabled, causing timeouts and silent failures
+- Fixed --max-turns flag (nonexistent in Claude CLI) replaced with --tools "" for tool-free title generation
+- Fixed cross-chat event leaking when switching chats — stale React ref replaced with synchronous Zustand state reads
+- Fixed malformed JSON in ticket builder responses — regex-based repair handles missing opening quotes on string values
+- Fixed ConfirmModal mountedRef not restored after React StrictMode double-invoke, leaving the modal spinner stuck forever
+- Fixed board_id validation missing for SpecBuilder at the DB layer, allowing callers bypassing the command layer to create specs without a board
+- Fixed multi-task tickets stuck in Review after first task completion — finish_workflow now checks for pending tasks and routes to Ready
+- Fixed sub-runs that fail during spawn left stuck in Running status — now properly marked Error with duration metadata
+- Fixed avg run time inflated by setup overhead between sub-run creation and agent execution
+- Fixed lines changed showing zero for detour branches merged and deleted before dashboard backfill could capture stats
+- Fixed stale git stats never refreshed after initial backfill
+
+### Testing
+
+- Added chatStore.test.ts with 39 tests covering CRUD, message loading, per-chat state isolation, and agent log buffering
+- Added 20 parseAgentLogToEntries tests for chat-based log timeline parsing
+- Added 7 formatRelativeTime utility tests
+- Added ticket_builder repair tests for malformed JSON handling (9 total)
+- Added 3 finish_workflow integration tests covering all routing branches (Review, Ready with pending tasks, Ready after completion)
+- Added lightweight_config_produces_valid_command test verifying Claude and Codex provider lightweight configs
+- Added TransitionGuard test for task requirement enforcement on Ready transitions
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.41, here is a summary of the major features introduced in recent releases:
+
+**beta.41 — Full Run Tracking for All CLI Agents**
+Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications.
+
+**beta.40 — FK Constraint Fix for Clarification Rewrite**
+Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run.
+
+**beta.39 — Session Tracking Across Implementation Todos**
+Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps.
+
+**beta.38 — Notification Banners, In-App Toasts & Todo Cost Badges**
+Native OS notification banners with sound, in-app toast notifications via sonner for Review/Blocked transitions, per-todo cost badges in the implementation checklist, and improved SafetyCommitNotice with three contextual visual variants.
+
+---
+
 ## [0.1.0-beta.41] - 2026-03-02
 
 Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed redundant in-app toast notifications in favor of native OS notifications.
