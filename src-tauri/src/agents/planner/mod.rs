@@ -30,7 +30,7 @@ mod parsing;
 mod prompts;
 
 // Public re-exports
-pub use config::{PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult};
+pub use config::{PlannerConfig, PlannerError, PlannerResult};
 pub use dependencies::{calculate_execution_phases, topological_sort_epics};
 pub use markdown::generate_plan_markdown;
 pub use parsing::parse_project_plan;

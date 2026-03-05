@@ -6,6 +6,7 @@ import { formatCost, formatTokens } from '../common/CostBadge';
 import { ChatThinkingView } from './ChatThinkingView';
 import { ChatEventTimeline } from './ChatEventTimeline';
 import { SpecBuilderMessage } from './SpecBuilderMessage';
+import { PlanBuilderMessage, looksLikePlanResponse } from './PlanBuilderMessage';
 import { TicketBuilderMessage } from './TicketBuilderMessage';
 
 interface ChatMessageListProps {
@@ -166,6 +167,10 @@ export function ChatMessageList({
                         )}
                       />
                     </div>
+                  ) : isSpecBuilder && (msg.metadata?.plan_response || looksLikePlanResponse(msg.content)) ? (
+                    <div className="max-w-[85%] text-sm text-board-text">
+                      <PlanBuilderMessage content={msg.content} />
+                    </div>
                   ) : (
                     <div className="max-w-[85%] rounded-xl px-4 py-2.5 text-sm glass text-board-text">
                       {renderAssistantMessage ? (
@@ -244,6 +249,77 @@ function ReviewMessage({ content, metadata }: { content: string; metadata?: Reco
   );
 }
 
+function SpecFinalizedCard({ metadata }: { metadata: Record<string, unknown> }) {
+  const requirements = (metadata.requirements as string[]) || [];
+  const decisions = (metadata.decisions as string[]) || [];
+  const constraints = (metadata.constraints as string[]) || [];
+  const technicalNotes = (metadata.technical_notes as string[]) || [];
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="max-w-[85%]">
+      <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 overflow-hidden">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-white/5 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-purple-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+          </svg>
+          <span className="text-xs font-medium text-purple-400">Spec Finalized</span>
+          <span className="text-[10px] text-board-text-muted ml-1">
+            {requirements.length} requirement{requirements.length !== 1 ? 's' : ''}, {decisions.length} decision{decisions.length !== 1 ? 's' : ''}
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className={`h-3 w-3 ml-auto text-board-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {expanded && (
+          <div className="px-3 pb-3 space-y-3 border-t border-purple-500/20 pt-2 text-xs">
+            {requirements.length > 0 && (
+              <div>
+                <span className="font-medium text-board-text">Requirements</span>
+                <ul className="list-disc list-inside text-board-text-muted mt-1 space-y-0.5">
+                  {requirements.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </div>
+            )}
+            {decisions.length > 0 && (
+              <div>
+                <span className="font-medium text-board-text">Key Decisions</span>
+                <ul className="list-disc list-inside text-board-text-muted mt-1 space-y-0.5">
+                  {decisions.map((d, i) => <li key={i}>{d}</li>)}
+                </ul>
+              </div>
+            )}
+            {constraints.length > 0 && (
+              <div>
+                <span className="font-medium text-board-text">Constraints</span>
+                <ul className="list-disc list-inside text-board-text-muted mt-1 space-y-0.5">
+                  {constraints.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+            {technicalNotes.length > 0 && (
+              <div>
+                <span className="font-medium text-board-text">Technical Notes</span>
+                <ul className="list-disc list-inside text-board-text-muted mt-1 space-y-0.5">
+                  {technicalNotes.map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SystemMessage({
   message,
   onNavigateToSpec,
@@ -260,6 +336,11 @@ function SystemMessage({
   const metaType = meta?.type as string | undefined;
   const ticketIds = meta?.ticketIds as string[] | undefined;
   const isTicketsCreated = metaType === 'tickets_created' && ticketIds && ticketIds.length > 0;
+  const isSpecFinalized = metaType === 'spec_finalized';
+
+  if (isSpecFinalized && meta) {
+    return <SpecFinalizedCard metadata={meta} />;
+  }
 
   return (
     <div className="flex justify-center">

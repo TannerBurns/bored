@@ -298,6 +298,12 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           enabled={config.autoPilotEnabled}
           onChange={(v) => updateConfig(agentId, { autoPilotEnabled: v })}
         />
+        <ToggleRow
+          label="Auto-Complete Tickets"
+          description="Automatically move tickets to Done instead of Review when the agent finishes work"
+          enabled={config.autoCompleteTickets}
+          onChange={(v) => updateConfig(agentId, { autoCompleteTickets: v })}
+        />
         {config.autoPilotEnabled && (
           <div className="flex items-center justify-between gap-3 pt-1">
             <div className="flex-1 min-w-0">
@@ -365,6 +371,30 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
               onChange={(e) => updateConfig(agentId, { codeReviewMaxIterations: parseInt(e.target.value) || 3 })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent" />
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneralSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-semibold text-board-text">General Chat Agent</h3>
+        <p className="text-xs text-board-text-muted mt-0.5">Model used for general-purpose chat conversations.</p>
+      </div>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="glass-subtle rounded-lg px-3 py-2">
+          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
+          <select value={config.generalModel}
+            onChange={(e) => updateConfig(agentId, { generalModel: e.target.value as AIModel })}
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
+            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
         </div>
       </div>
     </div>
@@ -524,6 +554,8 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
       )}
 
       <WorkflowSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <hr className="border-board-border/30" />
+      <GeneralSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
       <SpecAgentSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />

@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 import { parseAgentLogToEntries } from '../board/TicketModal/LogTimeline/parseLogEvents';
 import { TimelineRow } from '../board/TicketModal/LogTimeline/LogTimelineView';
 import type { ChatLogEntry } from '../../stores/chatStore';
+import { BoredLogo } from '../common/BoredLogo';
 
 interface ChatThinkingViewProps {
   agentLogs: ChatLogEntry[];
@@ -31,10 +32,8 @@ export function ChatThinkingView({ agentLogs, agentType }: ChatThinkingViewProps
 
   return (
     <div className="flex items-start gap-3">
-      <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-white">
-          <path d="M2 0a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V2a2 2 0 00-2-2H2zm3.5 4a.5.5 0 01.5.5V6h1.5a.5.5 0 010 1H6v1.5a.5.5 0 01-1 0V7H3.5a.5.5 0 010-1H5V4.5a.5.5 0 01.5-.5zm5 2a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM8 10.5A1.5 1.5 0 019.5 9h1A1.5 1.5 0 0112 10.5v.5a.5.5 0 01-1 0v-.5a.5.5 0 00-.5-.5h-1a.5.5 0 00-.5.5v.5a.5.5 0 01-1 0v-.5z" />
-        </svg>
+      <div className="flex-shrink-0">
+        <BoredLogo size={32} variant="gradient" gradientId="thinking-logo-grad" />
       </div>
 
       <div className="flex-1 max-w-[85%] min-w-0">

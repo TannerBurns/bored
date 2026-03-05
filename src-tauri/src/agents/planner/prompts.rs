@@ -98,9 +98,15 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
       "tickets": [
         {{
           "title": "Ticket Title (action-oriented)",
-          "description": "DETAILED mini-spec for this ticket (see Ticket Description Requirements below)",
+          "description": "Shared context for all tasks in this ticket (see Ticket Structure below)",
           "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"],
-          "branchName": "feat/epic-slug/ticket-slug"
+          "branchName": "feat/epic-slug/ticket-slug",
+          "tasks": [
+            {{
+              "title": "Short task title",
+              "content": "Self-contained spec for this task (see Task Spec Requirements below)"
+            }}
+          ]
         }}
       ]
     }},
@@ -125,57 +131,77 @@ The JSON must exactly match this schema (NOTE: use camelCase for field names):
 - `["Epic A"]` = depends on one epic
 - `["Epic A", "Epic B"]` = depends on multiple epics (waits for ALL to complete)
 
-## CRITICAL: Ticket Description Requirements
+## CRITICAL: How Tickets and Tasks Are Structured
 
-**Each ticket description is a MINI-SPEC.** The implementing agent will ONLY see the ticket title and description — it will NOT have access to the overall spec, the exploration context, or any conversation history. Therefore, each ticket description MUST be a **self-contained implementation document** that includes ALL of the following:
+Understanding how tickets are processed is critical for writing good plans:
 
-### What EVERY ticket description MUST contain:
+1. **The ticket `description` is context, NOT a task.** It provides background and shared context that is automatically included in the prompt every time an AI agent works on any task in this ticket. It is NOT executed as work itself.
 
-1. **Objective**: A clear 1-2 sentence summary of what this ticket accomplishes and WHY it's needed in the larger context.
+2. **The `tasks` array contains the actual units of work.** Each task is worked on sequentially by an AI agent. The agent receives the task's `content` as its primary instructions alongside the ticket description as background context.
 
-2. **Specific files to create or modify**: List EVERY file path that needs to be touched. For modifications, describe what changes are needed in each file. For new files, describe what they should contain.
-   - Example: "Modify `src/stores/authStore.ts` to add a `refreshToken` field to the store state and a `setRefreshToken` action"
-   - Example: "Create `src/components/auth/LoginForm.tsx` following the component pattern in `src/components/auth/SignupForm.tsx`"
+3. **Every ticket MUST have at least one task.** A ticket cannot be started without tasks.
 
-3. **Implementation details**: Describe the actual logic, algorithms, data flow, or UI behavior to implement. Don't just say "implement the feature" — describe HOW.
+4. **Tasks must be self-contained specs.** Because each task is worked on independently, its `content` must include everything the agent needs to complete that specific piece of work. Do not assume the agent remembers what it did in previous tasks.
+
+## Writing the Ticket Description
+
+The ticket description serves as **shared context** for all tasks. Structure it as a high-level specification that:
+
+- Provides a complete overview of what the ticket accomplishes and WHY
+- Describes the architecture and design decisions
+- Lists all relevant files and their roles
+- Includes patterns and conventions to follow (reference specific existing code)
+- Contains setup/testing context (how to run the app, test commands)
+- States the branch name and base branch context
+
+Think of it as the "project brief" — it sets the stage for everything that follows.
+
+**CRITICAL — Branch handling:** The system automatically creates and checks out the branch specified in `branchName` before the agent starts work. The agent will already be on the correct branch. The `## Branch` section in the description must reflect this — use phrasing like "You are already on branch X" and NEVER instruct the agent to create, checkout, or switch branches.
+
+Every ticket description MUST include a `## Branch` section that states:
+- "You are already on branch `<branchName>`." (MUST match the ticket's `branchName` field exactly)
+- "Do NOT create, checkout, or switch to any other branch."
+- For tickets that build on previous work in the same epic: "This branch is based on the previous ticket's branch `<prev-branch>`."
+- For the final consolidation merge ticket: "Merge the following branches into your current branch:" followed by ALL branch names from all epics, in order
+
+## Writing Individual Task Specs
+
+Each task's `content` field must be a **self-contained implementation specification** that includes:
+
+1. **What to do**: Clear, specific instructions for this task — which files to create or modify, what functions/methods to add, what logic to implement.
+
+2. **Relevant context**: Any shared information the agent needs (file paths, architecture decisions, patterns to follow). It is OK and expected to repeat information from the ticket description or other tasks.
+
+3. **Implementation details**: Describe the actual logic, algorithms, data flow, or UI behavior. Don't just say "implement the feature" — describe HOW:
    - What functions/methods to create and what they should do
-   - What types/interfaces to define or use (include the shape if they're new)
+   - What types/interfaces to define or use (include the shape if new)
    - What API endpoints to call or create (include request/response shapes)
-   - What database queries or migrations to write
 
-4. **Patterns and conventions to follow**: Reference specific existing code as templates.
-   - Example: "Follow the same pattern as the `useTicketSync` hook in `src/hooks/useTicketSync.ts` for the new `useEpicSync` hook"
-   - Example: "Use the same error handling pattern as `src-tauri/src/commands/tickets.rs` — return `Result<T, String>` with `.map_err(|e| e.to_string())`"
+4. **Acceptance criteria**: How to verify this specific task is complete.
 
-5. **Integration points**: How this ticket's work connects to existing code and to work from other tickets.
-   - Which existing functions/modules to import and use
-   - Which store actions to dispatch
-   - Which events to emit or listen for
+5. **Dependencies on prior tasks**: If this task builds on work from earlier tasks, describe what was done and what to expect (e.g., "The auth middleware was added in a prior task — you should find it at `src/middleware/auth.rs`").
 
-6. **Edge cases and error handling**: Specific scenarios to handle.
-   - What happens on invalid input?
-   - What happens when the network fails?
-   - What are the boundary conditions?
+**NEVER include branch/git instructions in task content.** The system automatically creates and checks out the correct branch before any task runs. Task content must NEVER tell the agent to create a branch, checkout a branch, or switch branches. The agent is already on the right branch.
 
-7. **Testing notes** (when applicable): What should be tested and how.
+**Overlapping information between tasks is expected and encouraged.** Common things to repeat across tasks:
+- How to start/stop the application
+- Key file paths and their purposes
+- Architecture patterns being followed
+- Testing commands and strategies
 
-8. **Branch context**: Every ticket description MUST include a `## Branch` section that states:
-   - The branch name this ticket will be implemented on (MUST match the ticket's `branchName` field exactly)
-   - For tickets that build on previous work in the same epic: the branch of the preceding ticket so the implementing agent knows its base
-   - For the final consolidation merge ticket: list ALL branch names from all epics that need to be merged, in order
-   - Example: "## Branch\nThis ticket is implemented on branch `feat/auth-core/add-refresh-token`.\nThis branch is based on the previous ticket's branch `feat/auth-core/setup-auth-store`."
+### Task content formatting:
+Use markdown within the content string for readability. Structure with headers, bullet points, and code references. Aim for 150-400 words per task — be thorough.
 
-### Ticket description formatting:
-Use markdown within the description string for readability. Structure with headers, bullet points, and code references. Aim for 200-500 words per ticket description — be thorough.
+### Example of a GOOD ticket with tasks:
 
-### Example of a GOOD ticket description:
+Description: "## Overview\nAdd a refresh token mechanism to the auth system so user sessions persist across browser refreshes.\n\n## Architecture\n- Auth state is managed via Zustand in `src/stores/authStore.ts`\n- All API calls go through `fetchWithAuth()` in `src/utils/api.ts`\n- The app entrypoint is `src/components/App.tsx`\n\n## Patterns to Follow\n- Zustand store pattern: use `set()` for state updates, `get()` for reading state\n- API call pattern: all calls go through `fetchWithAuth()`\n\n## Branch\nYou are already on branch `feat/auth-core/add-refresh-token`. Do NOT create, checkout, or switch to any other branch.\nThis branch is based on the previous ticket's branch `feat/auth-core/setup-auth-store`."
 
-"## Objective\nAdd a refresh token mechanism to the auth store so user sessions persist across browser refreshes.\n\n## Files to Modify\n- `src/stores/authStore.ts`: Add `refreshToken: string | null` to the store state, add `setRefreshToken(token: string)` and `clearAuth()` actions\n- `src/utils/api.ts`: Update the `fetchWithAuth()` helper to check token expiry and auto-refresh using the stored refresh token\n- `src/components/App.tsx`: Add a `useEffect` that calls `refreshSession()` on mount to restore the session from the stored refresh token\n\n## Implementation Details\n1. In `authStore.ts`, extend the `AuthState` interface to include `refreshToken`. The `setRefreshToken` action should persist the token to `localStorage` under the key `app_refresh_token`. The `clearAuth` action should remove both tokens from the store and localStorage.\n2. In `api.ts`, the `fetchWithAuth()` function currently reads the access token from the store. Add a check: if the access token is expired (decode the JWT and check `exp`), call `POST /api/auth/refresh` with the refresh token to get a new access token before proceeding with the original request.\n3. In `App.tsx`, on initial mount, check localStorage for a refresh token. If found, call the refresh endpoint to validate it and restore the session.\n\n## Patterns to Follow\n- Follow the existing Zustand store pattern in `src/stores/authStore.ts` — use `set()` for state updates, `get()` for reading state\n- Follow the API call pattern in `src/utils/api.ts` — all API calls go through `fetchWithAuth()`\n\n## Error Handling\n- If the refresh token is expired or invalid, clear all auth state and redirect to login\n- If the refresh endpoint returns a network error, retry once after 2 seconds, then clear auth\n- Never expose the refresh token in URL parameters or logs\n\n## Branch\nThis ticket is implemented on branch `feat/auth-core/add-refresh-token`.\nThis branch is based on the previous ticket's branch `feat/auth-core/setup-auth-store`."
+Task 1 - "Add refresh token to auth store": "## What to do\nModify `src/stores/authStore.ts` to add refresh token support.\n\n## Implementation Details\n1. Extend the `AuthState` interface to include `refreshToken: string | null`\n2. Add `setRefreshToken(token: string)` action that persists to `localStorage` under key `app_refresh_token`\n3. Add `clearAuth()` action that removes both access and refresh tokens from store and localStorage\n\n## Patterns\nFollow the existing Zustand store pattern in `src/stores/authStore.ts` — use `set()` for state updates.\n\n## Acceptance Criteria\n- `refreshToken` field exists in the store state\n- `setRefreshToken` persists to localStorage\n- `clearAuth` removes all auth state"
 
-### Example of a BAD ticket description (DO NOT DO THIS):
-"Implement refresh token support for authentication. Update the auth store and API utilities to handle token refresh."
+Task 2 - "Add auto-refresh to API utility": "## What to do\nUpdate `src/utils/api.ts` to check token expiry and auto-refresh.\n\n## Context\nThe auth store (modified in a prior task) now has `refreshToken` in its state, with `setRefreshToken` and `clearAuth` actions.\n\n## Implementation Details\n1. In `fetchWithAuth()`, before making the request, decode the JWT access token and check `exp`\n2. If expired, call `POST /api/auth/refresh` with the refresh token to get a new access token\n3. Update the store with the new access token, then proceed with the original request\n\n## Error Handling\n- If refresh token is expired/invalid: call `clearAuth()` and redirect to login\n- If network error on refresh endpoint: retry once after 2s, then clear auth\n- Never expose refresh token in URL parameters or logs\n\n## Acceptance Criteria\n- Expired access tokens are automatically refreshed\n- Failed refresh clears auth state"
 
-This is BAD because it tells the implementer NOTHING about which files to touch, what the code should look like, or how it integrates with the existing codebase.
+### Example of a BAD ticket (DO NOT DO THIS):
+A ticket with no tasks, where everything is crammed into the description. The description alone is NOT actionable work — tasks are the units of work that agents execute.
 
 ## Planning Guidelines
 
@@ -243,7 +269,8 @@ Scaffolding (root)
 - Each epic should have 2-6 tickets
 - Tickets should be atomic, implementable by a single AI coding agent
 - Use action-oriented titles: "Add X", "Implement Y", "Create Z"
-- **Each ticket description MUST be a comprehensive mini-spec** (see Ticket Description Requirements above)
+- **Every ticket MUST have at least one task** — the description is context, tasks are the work
+- Each task's `content` must be a self-contained spec (see Task Spec Requirements above)
 - Acceptance criteria should be specific, testable, and verifiable by looking at code
 - Include at least 3 acceptance criteria per ticket
 
@@ -278,8 +305,9 @@ Every plan MUST end with a "Consolidate Changes" epic that:
 - Has a title starting with "Consolidate" (e.g., "Consolidate Changes")
 - Depends on ALL leaf epics (epics that nothing else depends on)
 - Has a single ticket: "Merge all epic branches into consolidation branch"
-- The ticket description MUST list ALL branch names from all epics to merge (in its `## Branch` section)
 - The ticket's `branchName` should use the `chore/consolidate/` prefix (e.g., `chore/consolidate/merge-all-branches`)
+- The ticket description's `## Branch` section MUST say: "You are already on branch `chore/consolidate/merge-all-branches`. Do NOT create, checkout, or switch to any other branch. Merge the following branches into your current branch:" followed by ALL branch names from all epics, in order
+- The task content must instruct the agent to merge listed branches into the current branch — NEVER to create a new branch
 
 ## Example: Greenfield Project
 
@@ -307,8 +335,9 @@ Epic 5: "Feature: Dashboard" (dependsOn: ["Consolidate Backend and Frontend"])
 
 Epic 6: "Consolidate Changes" (dependsOn: ["Feature: Dashboard"])
 - Ticket: "Merge all epic branches into consolidation branch" → branchName: `chore/consolidate/merge-all-branches`
+  Description ## Branch section: "You are already on branch `chore/consolidate/merge-all-branches`. Do NOT create, checkout, or switch to any other branch. Merge the following branches into your current branch: `feat/scaffolding/init-tauri-react`, `feat/backend-core/implement-ipc-commands`, `feat/frontend-core/create-ui-components`, `test/integrate-be-fe/verify-e2e`, `feat/dashboard/connect-backend-data`."
 
-Now generate the JSON work plan for the user's request. Remember: every ticket description must be a detailed mini-spec. Output ONLY the JSON, no other text.
+Now generate the JSON work plan for the user's request. Remember: every ticket MUST have tasks — the description is shared context and tasks are the units of work. Output ONLY the JSON, no other text.
 "###,
         user_input = user_input,
         exploration_context = exploration_context
@@ -372,19 +401,16 @@ mod tests {
     }
 
     #[test]
-    fn test_planning_prompt_requires_mini_spec_tickets() {
+    fn test_planning_prompt_requires_tasks_in_tickets() {
         let prompt = generate_planning_prompt("Test", "Context");
 
-        // Verify the prompt instructs agents to write detailed mini-spec tickets
-        assert!(prompt.contains("MINI-SPEC"));
-        assert!(prompt.contains("self-contained implementation document"));
-        assert!(prompt.contains("Specific files to create or modify"));
+        assert!(prompt.contains("\"tasks\""));
+        assert!(prompt.contains("\"content\""));
+        assert!(prompt.contains("self-contained"));
+        assert!(prompt.contains("context, NOT a task"));
+        assert!(prompt.contains("Every ticket MUST have at least one task"));
         assert!(prompt.contains("Implementation details"));
-        assert!(prompt.contains("Patterns and conventions to follow"));
-        assert!(prompt.contains("Integration points"));
-        assert!(prompt.contains("Edge cases and error handling"));
-        assert!(prompt.contains("200-500 words per ticket"));
-        assert!(prompt.contains("Branch context"));
+        assert!(prompt.contains("150-400 words per task"));
     }
 
     #[test]
@@ -399,6 +425,24 @@ mod tests {
         assert!(prompt.contains("refactor/"));
         assert!(prompt.contains("<type>/<epic-slug>/<ticket-slug>"));
         assert!(prompt.contains("chore/consolidate/"));
+    }
+
+    #[test]
+    fn test_planning_prompt_branches_are_auto_created() {
+        let prompt = generate_planning_prompt("Test", "Context");
+
+        assert!(prompt.contains("automatically creates and checks out the branch"));
+        assert!(prompt.contains("You are already on branch"));
+        assert!(prompt.contains("Do NOT create, checkout, or switch"));
+        assert!(prompt.contains("NEVER include branch/git instructions in task content"));
+    }
+
+    #[test]
+    fn test_planning_prompt_consolidation_uses_current_branch() {
+        let prompt = generate_planning_prompt("Test", "Context");
+
+        assert!(prompt.contains("Merge the following branches into your current branch"));
+        assert!(prompt.contains("NEVER to create a new branch"));
     }
 
     #[test]

@@ -225,6 +225,14 @@ where
     }
 }
 
+/// A task within a plan ticket — the actual unit of work an AI agent executes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTicketTask {
+    pub title: String,
+    pub content: Option<String>,
+}
+
 /// A ticket in a generated plan
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -234,6 +242,9 @@ pub struct PlanTicket {
     pub acceptance_criteria: Option<Vec<String>>,
     /// Branch name assigned at planning time (skips AI generation at work time if set)
     pub branch_name: Option<String>,
+    /// Tasks are the units of work; the description is shared context.
+    #[serde(default)]
+    pub tasks: Option<Vec<PlanTicketTask>>,
 }
 
 /// A generated project plan

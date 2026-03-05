@@ -262,10 +262,13 @@ impl Database {
         message_id: Option<&str>,
         event_type: &str,
         payload: &serde_json::Value,
+        created_at: Option<&str>,
     ) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let id = Uuid::new_v4().to_string();
-            let created_at_str = chrono::Utc::now().to_rfc3339();
+            let created_at_str = created_at
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
             let payload_str = payload.to_string();
 
             conn.execute(

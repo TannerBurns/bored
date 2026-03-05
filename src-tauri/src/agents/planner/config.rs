@@ -1,9 +1,7 @@
 //! Configuration types for the planner agent.
 
 use std::path::PathBuf;
-use tokio::sync::broadcast;
 
-use crate::api::state::LiveEvent;
 use crate::db::SpecVersionStatus;
 
 use std::collections::HashMap;
@@ -29,12 +27,6 @@ pub struct PlannerConfig {
     pub timeout_secs: u64,
     /// Maximum retries per call (default: 2)
     pub max_retries: u32,
-}
-
-/// Extended config with event broadcasting
-pub struct PlannerConfigWithEvents {
-    pub config: PlannerConfig,
-    pub event_tx: Option<broadcast::Sender<LiveEvent>>,
 }
 
 /// Result of a planner execution

@@ -82,6 +82,13 @@ pub fn generate_plan_markdown(plan: &ProjectPlan) -> String {
                     md.push_str(&format!("- {}\n", c));
                 }
             }
+
+            if let Some(ref tasks) = ticket.tasks {
+                md.push_str("\n**Tasks:**\n");
+                for (k, task) in tasks.iter().enumerate() {
+                    md.push_str(&format!("{}. {}\n", k + 1, task.title));
+                }
+            }
             md.push('\n');
         }
         md.push('\n');
@@ -93,7 +100,7 @@ pub fn generate_plan_markdown(plan: &ProjectPlan) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{PlanEpic, PlanTicket};
+    use crate::db::{PlanEpic, PlanTicket, PlanTicketTask};
 
     #[test]
     fn test_generate_plan_markdown() {
@@ -108,6 +115,7 @@ mod tests {
                     description: "Ticket description".to_string(),
                     acceptance_criteria: Some(vec!["Criteria 1".to_string()]),
                     branch_name: Some("feat/epic-1/ticket-1".to_string()),
+                    tasks: None,
                 }],
             }],
         };
@@ -119,6 +127,40 @@ mod tests {
         assert!(md.contains("Epic 1: Epic 1"));
         assert!(md.contains("1.1 Ticket 1"));
         assert!(md.contains("Criteria 1"));
+    }
+
+    #[test]
+    fn test_generate_plan_markdown_with_tasks() {
+        let plan = ProjectPlan {
+            overview: "Plan with tasks".to_string(),
+            epics: vec![PlanEpic {
+                title: "Epic 1".to_string(),
+                description: "Description".to_string(),
+                depends_on: vec![],
+                tickets: vec![PlanTicket {
+                    title: "Ticket 1".to_string(),
+                    description: "Shared context".to_string(),
+                    acceptance_criteria: Some(vec!["It works".to_string()]),
+                    branch_name: Some("feat/epic-1/ticket-1".to_string()),
+                    tasks: Some(vec![
+                        PlanTicketTask {
+                            title: "Add the store".to_string(),
+                            content: Some("Create the store file".to_string()),
+                        },
+                        PlanTicketTask {
+                            title: "Wire up the UI".to_string(),
+                            content: None,
+                        },
+                    ]),
+                }],
+            }],
+        };
+
+        let md = generate_plan_markdown(&plan);
+
+        assert!(md.contains("**Tasks:**"));
+        assert!(md.contains("1. Add the store"));
+        assert!(md.contains("2. Wire up the UI"));
     }
 
     #[test]

@@ -3,6 +3,10 @@
 //! Reuses spec discovery prompt-building and response-parsing utilities while running
 //! the agent through ChatAgent's own execution pipeline (run_agent), so that
 //! ChatLogEntry events fire and messages are stored in chat_messages.
+//!
+//! Plan generation also runs in-session via run_agent, so the agent retains
+//! full conversation context (via session ID) and the user sees progress in
+//! the chat timeline.
 
 use std::sync::Arc;
 
@@ -10,7 +14,7 @@ use crate::agents::spec_discovery::{
     build_conversation_prompt, build_initial_prompt, bullet_list, parse_response,
     COMPLETION_PROMPT,
 };
-use crate::agents::planner::{PlannerAgent, PlannerConfig};
+use crate::agents::planner::{generate_plan_markdown, generate_planning_prompt, parse_project_plan};
 use crate::api::state::LiveEvent;
 use crate::db::models::{ChatMessage, ChatMessageRole};
 use crate::db::{
@@ -96,7 +100,7 @@ impl ChatAgent {
             build_conversation_prompt(&spec.user_input, &conv_messages)
         };
 
-        let (text, stdout) = self.run_agent(&prompt).await?;
+        let (text, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
         let parsed = parse_response(&text)
             .map_err(|e| ChatAgentError::AgentFailed(format!("Failed to parse response: {}", e)))?;
@@ -109,7 +113,7 @@ impl ChatAgent {
         let assistant_msg = self
             .save_assistant_message(&parsed.message, metadata.as_ref())
             .await?;
-        self.persist_log_events(&stdout, &assistant_msg.id);
+        self.persist_log_events(&ts_lines, &assistant_msg.id);
 
         self.extract_and_store_cost(&stdout, Some(&assistant_msg.id))
             .await?;
@@ -203,7 +207,7 @@ impl ChatAgent {
     }
 
     /// Handle completed spec discovery: update spec with refined requirements,
-    /// set version to Planning, and spawn plan generation.
+    /// set version to Planning, and generate the plan in-session.
     async fn handle_spec_discovery_completion(
         &self,
         spec_id: &str,
@@ -250,7 +254,7 @@ impl ChatAgent {
             .update_spec(
                 spec_id,
                 &UpdateSpec {
-                    user_input: Some(enhanced_input),
+                    user_input: Some(enhanced_input.clone()),
                     ..Default::default()
                 },
             )
@@ -273,10 +277,21 @@ impl ChatAgent {
             spec_id: spec_id.to_string(),
         });
 
-        self.send_system_message("Spec finalized. Generating plan...")
-            .await;
+        self.send_system_message_with_metadata(
+            "Spec finalized. Generating plan...",
+            &serde_json::json!({
+                "type": "spec_finalized",
+                "spec_id": spec_id,
+                "requirements": structured.requirements,
+                "decisions": structured.decisions,
+                "constraints": structured.constraints,
+                "technical_notes": structured.technical_notes,
+            }),
+        )
+        .await;
 
-        self.spawn_plan_generation(spec_id, structured);
+        self.generate_plan_in_session(spec_id, version_id, &enhanced_input)
+            .await;
 
         Ok(())
     }
@@ -317,7 +332,7 @@ impl ChatAgent {
         let prompt = build_conversation_prompt(original_user_input, &conv_messages);
 
         match self.run_agent(&prompt).await {
-            Ok((text, stdout)) => {
+            Ok((text, stdout, ts_lines)) => {
                 match parse_response(&text) {
                     Ok(response) => {
                         let metadata = if response.is_complete {
@@ -328,7 +343,7 @@ impl ChatAgent {
                         let msg = self
                             .save_assistant_message(&response.message, metadata.as_ref())
                             .await?;
-                        self.persist_log_events(&stdout, &msg.id);
+                        self.persist_log_events(&ts_lines, &msg.id);
                         self.extract_and_store_cost(&stdout, Some(&msg.id)).await?;
 
                         if response.is_complete {
@@ -384,152 +399,132 @@ impl ChatAgent {
         }
     }
 
-    /// Spawn plan generation in a background task after spec completion.
-    fn spawn_plan_generation(&self, spec_id: &str, structured: &StructuredSpec) {
-        let provider = match self.registry.get(&self.config.agent_id) {
-            Some(p) => p,
-            None => {
-                tracing::warn!("Cannot spawn plan generation: agent not found");
-                return;
-            }
-        };
+    /// Generate the plan in-session using the same chat agent session, so the
+    /// agent retains full conversation context and the user sees progress.
+    async fn generate_plan_in_session(
+        &self,
+        spec_id: &str,
+        version_id: &str,
+        enhanced_user_input: &str,
+    ) {
+        let exploration_note = "You already explored the codebase during our conversation above. \
+            Use everything you learned to create the plan — do NOT re-explore.";
 
-        let exploration_context = structured.technical_notes.join("\n");
-        let db = self.db.clone();
-        let event_tx = self.event_tx.clone();
-        let chat_id = self.config.chat_id.clone();
-        let spec_id = spec_id.to_string();
+        let prompt = generate_planning_prompt(enhanced_user_input, exploration_note);
 
-        let planner_config = PlannerConfig {
-            spec_id: spec_id.clone(),
-            max_explorations: 0,
-            auto_approve: false,
-            model: self.config.model.clone(),
-            agent_id: self.config.agent_id.clone(),
-            provider,
-            repo_path: self.config.repo_path.clone(),
-            agent_config: self.config.agent_config.clone(),
-            timeout_secs: 300,
-            max_retries: 2,
-        };
-
-        tokio::spawn(async move {
-            let conversation_context =
-                build_chat_conversation_context(&db, &chat_id, &exploration_context);
-
-            let mut agent =
-                PlannerAgent::with_events(db.clone(), planner_config, event_tx.clone());
-
-            match agent.run_plan_only(&conversation_context).await {
-                Ok(result) => {
-                    tracing::info!(
-                        "Plan generation completed for spec {}: status={:?}",
-                        spec_id,
-                        result.status,
-                    );
-
-                    let plan_msg = "Plan generated. View your spec to see the plan.";
-                    if let Ok(msg) = db.create_chat_message(
-                        &chat_id,
-                        ChatMessageRole::System,
-                        plan_msg,
-                        Some(&serde_json::json!({
-                            "action": "view_plan",
-                            "spec_id": spec_id,
-                        })),
-                    ) {
-                        let _ = event_tx.send(LiveEvent::ChatMessageAdded {
-                            chat_id: chat_id.clone(),
-                            message_id: msg.id,
-                            role: "system".to_string(),
-                        });
-                    }
+        match self.run_agent(&prompt).await {
+            Ok((text, stdout, ts_lines)) => {
+                let plan_msg = self
+                    .save_assistant_message(
+                        &text,
+                        Some(&serde_json::json!({ "plan_response": true })),
+                    )
+                    .await;
+                if let Ok(ref msg) = plan_msg {
+                    self.persist_log_events(&ts_lines, &msg.id);
+                    let _ = self.extract_and_store_cost(&stdout, Some(&msg.id)).await;
                 }
-                Err(e) => {
-                    tracing::error!("Plan generation failed for spec {}: {}", spec_id, e);
-                    let err_msg = format!("Plan generation failed: {}", e);
-                    if let Ok(msg) = db.create_chat_message(
-                        &chat_id,
-                        ChatMessageRole::System,
-                        &err_msg,
-                        None,
-                    ) {
-                        let _ = event_tx.send(LiveEvent::ChatMessageAdded {
-                            chat_id: chat_id.clone(),
-                            message_id: msg.id,
-                            role: "system".to_string(),
-                        });
-                    }
-                }
-            }
-        });
-    }
-}
 
-/// Build a conversation context summary from chat messages for the planner,
-/// mirroring the logic in conversations.rs::build_conversation_context.
-fn build_chat_conversation_context(
-    db: &Arc<Database>,
-    chat_id: &str,
-    technical_notes: &str,
-) -> String {
-    let messages = match db.get_chat_messages(chat_id) {
-        Ok(m) => m,
-        Err(_) => return technical_notes.to_string(),
-    };
+                match parse_project_plan(&text) {
+                    Ok(plan) => {
+                        let markdown = generate_plan_markdown(&plan);
+                        let plan_json = serde_json::to_value(&plan).ok();
 
-    let conversation_entries: Vec<String> = messages
-        .iter()
-        .filter(|msg| msg.role != ChatMessageRole::System)
-        .map(|msg| {
-            let role_label = match msg.role {
-                ChatMessageRole::User => "User",
-                ChatMessageRole::Assistant => "Assistant",
-                ChatMessageRole::System => "System",
-            };
-
-            if msg.role == ChatMessageRole::Assistant {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
-                    let mut parts = Vec::new();
-                    if let Some(obs) = parsed.get("observations").and_then(|v| v.as_str()) {
-                        if !obs.trim().is_empty() {
-                            parts.push(format!("**Observations:** {}", obs.trim()));
+                        if let Err(e) = self.db.set_spec_version_plan(
+                            version_id,
+                            &markdown,
+                            plan_json.as_ref(),
+                        ) {
+                            tracing::error!("Failed to save plan: {}", e);
+                            self.send_system_message(&format!("Failed to save plan: {}", e))
+                                .await;
+                            return;
                         }
-                    }
-                    if let Some(qs) = parsed.get("questions").and_then(|v| v.as_str()) {
-                        if !qs.trim().is_empty() {
-                            parts.push(format!("**Questions:** {}", qs.trim()));
+
+                        if let Err(e) = self.db.set_spec_version_status(
+                            version_id,
+                            SpecVersionStatus::AwaitingApproval,
+                        ) {
+                            tracing::error!("Failed to update spec version status: {}", e);
                         }
+
+                        self.broadcast(LiveEvent::PlanGenerated {
+                            spec_id: spec_id.to_string(),
+                        });
+                        self.broadcast(LiveEvent::SpecUpdated {
+                            spec_id: spec_id.to_string(),
+                        });
+
+                        self.send_system_message_with_metadata(
+                            "Plan generated. View your spec to review and approve the plan.",
+                            &serde_json::json!({
+                                "action": "view_plan",
+                                "spec_id": spec_id,
+                            }),
+                        ).await;
+
+                        tracing::info!(
+                            "Plan generated in-session for spec {}: {} epics, {} tickets",
+                            spec_id,
+                            plan.epics.len(),
+                            plan.epics.iter().map(|e| e.tickets.len()).sum::<usize>(),
+                        );
                     }
-                    if !parts.is_empty() {
-                        return format!("**{}:**\n{}", role_label, parts.join("\n\n"));
+                    Err(e) => {
+                        tracing::error!("Failed to parse plan JSON for spec {}: {}", spec_id, e);
+                        let _ = self.db.set_spec_version_status(
+                            version_id,
+                            SpecVersionStatus::Failed,
+                        );
+                        self.broadcast(LiveEvent::SpecUpdated {
+                            spec_id: spec_id.to_string(),
+                        });
+                        self.send_system_message(&format!(
+                            "Plan generation produced invalid output: {}",
+                            e,
+                        )).await;
                     }
                 }
             }
-            format!("**{}:** {}", role_label, msg.content)
-        })
-        .collect();
-
-    if conversation_entries.is_empty() {
-        return technical_notes.to_string();
+            Err(e) => {
+                tracing::error!("Plan generation agent call failed for spec {}: {}", spec_id, e);
+                let _ = self.db.set_spec_version_status(
+                    version_id,
+                    SpecVersionStatus::Failed,
+                );
+                self.broadcast(LiveEvent::SpecUpdated {
+                    spec_id: spec_id.to_string(),
+                });
+                self.send_system_message(&format!("Plan generation failed: {}", e))
+                    .await;
+            }
+        }
     }
 
-    let mut context = String::new();
-
-    if !technical_notes.is_empty() {
-        context.push_str("## Technical Notes from Codebase Exploration\n\n");
-        context.push_str(technical_notes);
-        context.push_str("\n\n");
+    /// Insert a system message with metadata into the chat and broadcast.
+    async fn send_system_message_with_metadata(
+        &self,
+        content: &str,
+        metadata: &serde_json::Value,
+    ) {
+        match self.db.create_chat_message(
+            &self.config.chat_id,
+            ChatMessageRole::System,
+            content,
+            Some(metadata),
+        ) {
+            Ok(msg) => {
+                self.broadcast(LiveEvent::ChatMessageAdded {
+                    chat_id: self.config.chat_id.clone(),
+                    message_id: msg.id,
+                    role: "system".to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::warn!("Failed to save system message: {}", e);
+            }
+        }
     }
-
-    context.push_str("## Discovery Conversation History\n\n");
-    context.push_str("The following is the complete Q&A from the spec discovery session. ");
-    context.push_str(
-        "Use the decisions, clarifications, and context discussed here to inform the work plan.\n\n",
-    );
-    context.push_str(&conversation_entries.join("\n\n---\n\n"));
-
-    context
 }
 
 /// Extract observations from the latest assistant message in the chat.

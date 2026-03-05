@@ -227,6 +227,7 @@ function App() {
             boardName={currentBoard?.name ?? 'Board'}
             onClose={closeTicketModal}
             onUpdate={handleUpdateTicket}
+            onMoveTicket={handleTicketMove}
             onAddComment={handleAddComment}
             onUpdateComment={handleUpdateComment}
             onRunWithAgent={handleRunWithAgent}

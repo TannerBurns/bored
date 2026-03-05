@@ -26,5 +26,3 @@ logs/
 
 # Tauri
 src-tauri/target/
-
-.plans/

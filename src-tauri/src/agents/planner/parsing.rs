@@ -140,4 +140,44 @@ Done!"#;
         let plan = parse_project_plan(text).unwrap();
         assert_eq!(plan.epics[0].tickets[0].branch_name, None);
     }
+
+    #[test]
+    fn test_parse_plan_ticket_with_tasks() {
+        let text = r#"{"overview":"Test","epics":[{
+            "title":"Epic 1","description":"Desc","dependsOn":[],
+            "tickets":[{
+                "title":"Ticket 1",
+                "description":"Context",
+                "acceptanceCriteria":["Done"],
+                "branchName":"feat/epic-1/ticket-1",
+                "tasks":[
+                    {"title":"Task A","content":"Do step A"},
+                    {"title":"Task B","content":"Do step B"}
+                ]
+            }]
+        }]}"#;
+
+        let plan = parse_project_plan(text).unwrap();
+        let ticket = &plan.epics[0].tickets[0];
+        let tasks = ticket.tasks.as_ref().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].title, "Task A");
+        assert_eq!(tasks[0].content.as_deref(), Some("Do step A"));
+        assert_eq!(tasks[1].title, "Task B");
+    }
+
+    #[test]
+    fn test_parse_plan_ticket_without_tasks_defaults_to_none() {
+        let text = r#"{"overview":"Test","epics":[{
+            "title":"Epic 1","description":"Desc","dependsOn":[],
+            "tickets":[{
+                "title":"Ticket 1",
+                "description":"Context",
+                "acceptanceCriteria":["Done"]
+            }]
+        }]}"#;
+
+        let plan = parse_project_plan(text).unwrap();
+        assert!(plan.epics[0].tickets[0].tasks.is_none());
+    }
 }

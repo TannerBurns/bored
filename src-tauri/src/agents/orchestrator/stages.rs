@@ -164,7 +164,7 @@ impl WorkflowOrchestrator {
         };
 
         // Create log callback
-        let on_log = self.create_log_callback(stage);
+        let on_log = self.create_log_callback();
 
         // Set up cancel handle registration
         let cancel_handles = self.cancel_handles.clone();
@@ -329,28 +329,19 @@ impl WorkflowOrchestrator {
     }
 
     /// Create the log callback for a stage
-    fn create_log_callback(&self, stage: &str) -> Arc<LogCallback> {
+    fn create_log_callback(&self) -> Arc<LogCallback> {
         let db_for_logs = self.db.clone();
         let window_for_logs = self.window.clone();
         let app_handle_for_logs = self.app_handle.clone();
         let parent_run_id_for_logs = self.parent_run_id.clone();
         let ticket_id_for_logs = self.ticket.id.clone();
         let db_agent_type = self.agent_id.clone();
-        let stage_for_logs = stage.to_string();
 
         Arc::new(Box::new(move |log: LogLine| {
             let stream_name = match log.stream {
                 LogStream::Stdout => "stdout",
                 LogStream::Stderr => "stderr",
             };
-            tracing::debug!(
-                "LOG [{}:{}]: [{}] - {} chars",
-                stage_for_logs,
-                parent_run_id_for_logs,
-                stream_name,
-                log.content.len()
-            );
-
             let normalized_event = NormalizedEvent {
                 run_id: parent_run_id_for_logs.clone(),
                 ticket_id: ticket_id_for_logs.clone(),

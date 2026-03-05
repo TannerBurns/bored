@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { getAgentIcon, getAgentBrandColor } from '../common';
 import { useChatStore } from '../../stores/chatStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { getProjects, getBoards, getAvailableAgents } from '../../lib/tauri';
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 import { cn } from '../../lib/utils';
@@ -24,6 +25,7 @@ export function CreateSpecModal({
   onChatCreated,
 }: CreateSpecModalProps) {
   const { createChat, selectChat } = useChatStore();
+  const getAgentConfig = useSettingsStore((s) => s.getAgentConfig);
 
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || '');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -33,7 +35,11 @@ export function CreateSpecModal({
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string>('');
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [unsortedAgents, setUnsortedAgents] = useState<AgentInfo[]>([]);
+  const agents = useMemo(
+    () => [...unsortedAgents].sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [unsortedAgents],
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { availability } = useCliAvailability();
 
@@ -62,7 +68,7 @@ export function CreateSpecModal({
 
       getAvailableAgents()
         .then((data) => {
-          setAgents(data);
+          setUnsortedAgents(data);
           if (!selectedAgent) {
             const firstAvailable = data.find((a) => a.isAvailable);
             if (firstAvailable) setSelectedAgent(firstAvailable.id);
@@ -89,11 +95,13 @@ export function CreateSpecModal({
 
     setIsSubmitting(true);
     try {
+      const config = getAgentConfig(selectedAgent);
       const chat = await createChat({
         agentType: selectedAgent,
         projectId: selectedProjectId,
         mode: 'spec_builder',
         boardId: targetBoardId || boardId,
+        model: config.plannerModel,
       });
       await selectChat(chat.id);
       setTargetBoardId('');

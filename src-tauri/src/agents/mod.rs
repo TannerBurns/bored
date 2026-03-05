@@ -25,7 +25,7 @@ pub mod worker;
 pub mod worktree;
 
 pub use planner::{
-    PlannerAgent, PlannerConfig, PlannerConfigWithEvents, PlannerError, PlannerResult,
+    PlannerAgent, PlannerConfig, PlannerError, PlannerResult,
 };
 pub use worker::{Worker, WorkerConfig, WorkerManager, WorkerState, WorkerStatus};
 pub use spawner::{

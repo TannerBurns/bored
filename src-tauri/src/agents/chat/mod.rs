@@ -23,6 +23,12 @@ use super::registry::AgentRegistry;
 use super::spawner;
 use super::{AgentRunConfig, LogCallback, LogLine, LogStream};
 
+/// A stdout line captured during agent streaming with its original timestamp.
+pub(crate) struct TimestampedLine {
+    pub content: String,
+    pub timestamp: String,
+}
+
 pub struct ChatAgent {
     db: Arc<Database>,
     config: ChatAgentConfig,
@@ -75,7 +81,7 @@ impl ChatAgent {
     pub(crate) async fn run_agent(
         &self,
         prompt: &str,
-    ) -> Result<(String, String), ChatAgentError> {
+    ) -> Result<(String, String, Vec<TimestampedLine>), ChatAgentError> {
         let provider = self
             .registry
             .get(&self.config.agent_id)
@@ -112,7 +118,9 @@ impl ChatAgent {
             );
         }
 
-        let log_callback = self.make_log_callback();
+        let captured_lines: Arc<std::sync::Mutex<Vec<TimestampedLine>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log_callback = self.make_log_callback(Some(captured_lines.clone()));
         let provider_clone = provider.clone();
 
         let spawn_result = tokio::task::spawn_blocking(move || {
@@ -164,7 +172,8 @@ impl ChatAgent {
             return Err(ChatAgentError::NoResponse);
         }
 
-        Ok((text, stdout))
+        let ts_lines = captured_lines.lock().unwrap().drain(..).collect::<Vec<_>>();
+        Ok((text, stdout, ts_lines))
     }
 
     /// Extract cost from agent output and persist a chat_run record.
@@ -235,8 +244,8 @@ impl ChatAgent {
         Ok(message)
     }
 
-    /// Parse captured stdout and persist meaningful NDJSON events as ChatEvent records.
-    pub(crate) fn persist_log_events(&self, stdout: &str, message_id: &str) {
+    /// Persist captured timestamped log lines as ChatEvent records.
+    pub(crate) fn persist_log_events(&self, lines: &[TimestampedLine], message_id: &str) {
         const SKIP_TYPES: &[&str] = &[
             "thinking",
             "content_block_delta",
@@ -248,8 +257,8 @@ impl ChatAgent {
             "message_stop",
         ];
 
-        for line in stdout.lines() {
-            let trimmed = line.trim();
+        for line in lines {
+            let trimmed = line.content.trim();
             if trimmed.is_empty() || !trimmed.starts_with('{') {
                 continue;
             }
@@ -269,13 +278,17 @@ impl ChatAgent {
                 Some(message_id),
                 &event_type,
                 &json,
+                Some(&line.timestamp),
             ) {
                 tracing::warn!("Failed to persist chat event: {}", e);
             }
         }
     }
 
-    fn make_log_callback(&self) -> Option<Arc<LogCallback>> {
+    fn make_log_callback(
+        &self,
+        capture: Option<Arc<std::sync::Mutex<Vec<TimestampedLine>>>>,
+    ) -> Option<Arc<LogCallback>> {
         let tx = self.event_tx.clone();
         let chat_id = self.config.chat_id.clone();
 
@@ -283,6 +296,19 @@ impl ChatAgent {
             let content = line.content.trim();
             if content.len() <= 3 {
                 return;
+            }
+
+            let ts = line.timestamp.to_rfc3339();
+
+            if let Some(ref cap) = capture {
+                if matches!(line.stream, LogStream::Stdout) {
+                    if let Ok(mut lines) = cap.lock() {
+                        lines.push(TimestampedLine {
+                            content: content.to_string(),
+                            timestamp: ts.clone(),
+                        });
+                    }
+                }
             }
 
             let stream_str = match line.stream {
@@ -299,7 +325,7 @@ impl ChatAgent {
                                 chat_id: chat_id.clone(),
                                 stream: stream_str.to_string(),
                                 message: content.to_string(),
-                                timestamp: line.timestamp.to_rfc3339(),
+                                timestamp: ts,
                             });
                         }
                         _ => {}
@@ -310,7 +336,7 @@ impl ChatAgent {
                     chat_id: chat_id.clone(),
                     stream: stream_str.to_string(),
                     message: content.to_string(),
-                    timestamp: line.timestamp.to_rfc3339(),
+                    timestamp: ts,
                 });
             }
         })))
@@ -381,6 +407,6 @@ mod tests {
     #[test]
     fn log_callback_is_some() {
         let agent = create_test_agent();
-        assert!(agent.make_log_callback().is_some());
+        assert!(agent.make_log_callback(None).is_some());
     }
 }
