@@ -5,3 +5,6 @@
 
 pub const DEFAULT_STAGE_MODEL: &str = "claude-opus-4-6";
 pub const DEFAULT_DIAGNOSTIC_MODEL: &str = "claude-sonnet-4-6";
+pub const DEFAULT_GENERAL_CHAT_MODEL: &str = "claude-opus-4-6";
+pub const DEFAULT_PLANNER_CHAT_MODEL: &str = "claude-opus-4-5";
+pub const DEFAULT_VALIDATION_CHAT_MODEL: &str = "claude-sonnet-4-6";

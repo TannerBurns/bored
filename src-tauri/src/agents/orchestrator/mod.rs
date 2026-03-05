@@ -125,6 +125,7 @@ pub struct WorkflowOrchestrator {
     full_execution_order: Vec<String>,
     workflow_mode: config::WorkflowMode,
     auto_pilot_model: String,
+    auto_complete_tickets: bool,
     stage_runner: Arc<dyn StageRunner>,
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
@@ -189,7 +190,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -202,6 +203,7 @@ impl WorkflowOrchestrator {
                     order,
                     ws.auto_pilot_enabled,
                     ws.auto_pilot_model.clone(),
+                    ws.auto_complete_tickets,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -213,6 +215,7 @@ impl WorkflowOrchestrator {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                     false,
                     crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+                    false,
                 )
             };
 
@@ -282,6 +285,7 @@ impl WorkflowOrchestrator {
             full_execution_order,
             workflow_mode,
             auto_pilot_model,
+            auto_complete_tickets,
             stage_runner: Arc::new(DefaultStageRunner),
             implementation_todos: RwLock::new(Vec::new()),
         }

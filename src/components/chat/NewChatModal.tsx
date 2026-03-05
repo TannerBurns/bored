@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { useChatStore } from '../../stores/chatStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { getProjects, getBoards, getTickets, getColumns } from '../../lib/tauri';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
@@ -63,6 +64,7 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
 
   const { agents, loadAgents } = useAgentRegistryStore();
   const { createChat, selectChat } = useChatStore();
+  const getAgentConfig = useSettingsStore((s) => s.getAgentConfig);
 
   useEffect(() => {
     if (open) {
@@ -103,7 +105,7 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
     }
   }, [selectedBoard, selectedMode]);
 
-  const needsStep3 = selectedMode === 'ticket_builder' || selectedMode === 'review';
+  const needsStep3 = selectedMode === 'spec_builder' || selectedMode === 'ticket_builder' || selectedMode === 'review';
 
   const handleModeSelect = (mode: ChatMode) => {
     setSelectedMode(mode);
@@ -123,12 +125,22 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
     if (!selectedMode || !selectedAgent || !selectedProject) return;
     setIsSubmitting(true);
     try {
+      const config = getAgentConfig(selectedAgent);
+      const modeModelMap: Record<ChatMode, string | undefined> = {
+        general: config.generalModel,
+        spec_builder: config.plannerModel,
+        ticket_builder: config.plannerModel,
+        review: config.validationModel,
+      };
+      const model = modeModelMap[selectedMode];
+
       const chat = await createChat({
         agentType: selectedAgent,
         projectId: selectedProject,
         mode: selectedMode,
         boardId: selectedBoard || undefined,
         ticketId: selectedTicket || undefined,
+        model,
       });
       await selectChat(chat.id);
       onOpenChange(false);
@@ -139,7 +151,10 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
     }
   };
 
-  const availableAgents = agents.filter((a) => a.isAvailable);
+  const availableAgents = useMemo(
+    () => agents.filter((a) => a.isAvailable).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [agents],
+  );
 
   const stepTitle =
     step === 1 ? 'Select Mode' : step === 2 ? 'Select Agent & Project' : 'Additional Options';

@@ -467,6 +467,7 @@ describe('useSettingsStore', () => {
       const cursorConfig = state.getAgentConfig('cursor');
       expect(cursorConfig.autoPilotModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.plannerModel).toBe('opus-4.6-thinking');
+      expect(cursorConfig.generalModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.validationModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.diagnosticModel).toBe('opus-4.6-thinking');
       for (const stage of Object.values(cursorConfig.workflowStages)) {
@@ -531,10 +532,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 17', () => {
+    it('uses version 19', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(17);
+      expect(options.version).toBe(19);
     });
   });
 
@@ -955,6 +956,44 @@ describe('useSettingsStore', () => {
     });
   });
 
+  describe('sync payload includes new model and config fields', () => {
+    it('agentConfigs include autoCompleteTickets for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor', 'codex']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.autoCompleteTickets).toBe('boolean');
+      }
+    });
+
+    it('agentConfigs include generalModel for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor', 'codex']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.generalModel).toBe('string');
+        expect(config.generalModel.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('agentConfigs include plannerModel and validationModel for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor', 'codex']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.plannerModel).toBe('string');
+        expect(config.plannerModel.length).toBeGreaterThan(0);
+        expect(typeof config.validationModel).toBe('string');
+        expect(config.validationModel.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('autoCompleteTickets survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoCompleteTickets: true });
+      const config = useSettingsStore.getState().agentConfigs.claude;
+      expect(config.autoCompleteTickets).toBe(true);
+      expect(config.stageOrder).toBeDefined();
+      expect(config.generalModel).toBeDefined();
+    });
+  });
+
   describe('diagnostic agent settings', () => {
     it('has correct default diagnosticModel', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
@@ -964,6 +1003,191 @@ describe('useSettingsStore', () => {
     it('sets diagnosticModel', () => {
       useSettingsStore.getState().updateAgentConfig('claude', { diagnosticModel: 'claude-opus-4-5' });
       expect(useSettingsStore.getState().getAgentConfig('claude').diagnosticModel).toBe('claude-opus-4-5');
+    });
+  });
+
+  describe('generalModel settings', () => {
+    beforeEach(() => {
+      useSettingsStore.getState().updateAgentConfig('claude', { generalModel: 'claude-opus-4-6' });
+      useSettingsStore.getState().updateAgentConfig('cursor', { generalModel: 'claude-opus-4-6' });
+    });
+
+    it('has correct default generalModel for claude', () => {
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.generalModel).toBe('claude-opus-4-6');
+    });
+
+    it('has correct default generalModel for codex', () => {
+      const config = useSettingsStore.getState().getAgentConfig('codex');
+      expect(config.generalModel).toBe('gpt-5.3-codex');
+    });
+
+    it('sets generalModel', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { generalModel: 'claude-opus-4-5' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').generalModel).toBe('claude-opus-4-5');
+    });
+
+    it('generalModel is per-agent', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { generalModel: 'claude-opus-4-5' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').generalModel).toBe('claude-opus-4-5');
+      expect(useSettingsStore.getState().getAgentConfig('cursor').generalModel).toBe('claude-opus-4-6');
+    });
+  });
+
+  describe('auto-complete tickets settings', () => {
+    beforeEach(() => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoCompleteTickets: false });
+      useSettingsStore.getState().updateAgentConfig('cursor', { autoCompleteTickets: false });
+      useSettingsStore.getState().updateAgentConfig('codex', { autoCompleteTickets: false });
+    });
+
+    it('has autoCompleteTickets false by default for claude', () => {
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.autoCompleteTickets).toBe(false);
+    });
+
+    it('has autoCompleteTickets false by default for cursor', () => {
+      const config = useSettingsStore.getState().getAgentConfig('cursor');
+      expect(config.autoCompleteTickets).toBe(false);
+    });
+
+    it('has autoCompleteTickets false by default for codex', () => {
+      const config = useSettingsStore.getState().getAgentConfig('codex');
+      expect(config.autoCompleteTickets).toBe(false);
+    });
+
+    it('toggles autoCompleteTickets to true', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoCompleteTickets: true });
+      expect(useSettingsStore.getState().getAgentConfig('claude').autoCompleteTickets).toBe(true);
+    });
+
+    it('autoCompleteTickets is per-agent', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { autoCompleteTickets: true });
+      expect(useSettingsStore.getState().getAgentConfig('claude').autoCompleteTickets).toBe(true);
+      expect(useSettingsStore.getState().getAgentConfig('cursor').autoCompleteTickets).toBe(false);
+    });
+  });
+
+  describe('migration: version < 18 adds generalModel', () => {
+    it('adds generalModel with correct default for claude and cursor', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabled: false,
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+            cursor: {
+              autoPilotEnabled: false,
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        17
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { generalModel?: string }>;
+      expect(configs.claude.generalModel).toBe('claude-opus-4-6');
+      expect(configs.cursor.generalModel).toBe('claude-opus-4-6');
+    });
+
+    it('adds generalModel with codex default for codex agent', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            codex: {
+              autoPilotEnabled: false,
+              workflowStages: { plan: { enabled: true, model: 'gpt-5.3-codex' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        17
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { generalModel?: string }>;
+      expect(configs.codex.generalModel).toBe('gpt-5.3-codex');
+    });
+
+    it('preserves existing generalModel through migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabled: false,
+              generalModel: 'claude-opus-4-5',
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        17
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { generalModel?: string }>;
+      expect(configs.claude.generalModel).toBe('claude-opus-4-5');
+    });
+  });
+
+  describe('migration: version < 19 adds autoCompleteTickets', () => {
+    it('adds autoCompleteTickets: false to all agents when missing', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabled: false,
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+            cursor: {
+              autoPilotEnabled: false,
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        18
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoCompleteTickets?: boolean }>;
+      expect(configs.claude.autoCompleteTickets).toBe(false);
+      expect(configs.cursor.autoCompleteTickets).toBe(false);
+    });
+
+    it('preserves existing autoCompleteTickets: true through migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabled: false,
+              autoCompleteTickets: true,
+              workflowStages: { plan: { enabled: true, model: 'claude-opus-4-6' } },
+              stageOrder: ['branchGen', 'plan', 'implement', 'commit'],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        18
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoCompleteTickets?: boolean }>;
+      expect(configs.claude.autoCompleteTickets).toBe(true);
     });
   });
 });

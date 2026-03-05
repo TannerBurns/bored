@@ -369,7 +369,7 @@ pub async fn start_planner(
         provider: provider.clone(),
         repo_path: PathBuf::from(&project.path),
         agent_config,
-        timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(300),
+        timeout_secs: input.timeout_minutes.map(|m| m as u64 * 60).unwrap_or(600),
         max_retries: input.max_retries.unwrap_or(2),
     };
 

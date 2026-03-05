@@ -318,6 +318,9 @@ export async function syncAgentConfigs(agentConfigs: Record<string, {
   stageTimeoutHours: number;
   stageMaxRetries: number;
   diagnosticModel: string;
+  generalModel: string;
+  plannerModel: string;
+  validationModel: string;
 }>): Promise<void> {
   return invoke('sync_agent_configs', { agentConfigs });
 }

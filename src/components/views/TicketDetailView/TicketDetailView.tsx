@@ -35,6 +35,7 @@ export interface TicketDetailViewProps {
   boardName: string;
   onClose: () => void;
   onUpdate: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
+  onMoveTicket: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: string) => void;
@@ -50,6 +51,7 @@ export function TicketDetailView({
   boardName,
   onClose,
   onUpdate,
+  onMoveTicket,
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
@@ -66,7 +68,6 @@ export function TicketDetailView({
   const [createCommentInitialContent, setCreateCommentInitialContent] = useState('');
   const [commentClearTrigger, setCommentClearTrigger] = useState(0);
 
-  const moveTicket = useBoardStore((s) => s.moveTicket);
   const tickets = useBoardStore((s) => s.tickets);
   const allTasks = useBoardStore((s) => s.tasks);
   const openTicketModal = useBoardStore((s) => s.openTicketModal);
@@ -328,7 +329,7 @@ export function TicketDetailView({
               logger.error(validation.reason ?? 'Invalid transition');
               return;
             }
-            moveTicket(ticket.id, newColumnId);
+            onMoveTicket(ticket.id, newColumnId);
           }}
           onRunWithAgent={onRunWithAgent}
           onDelete={onDelete}

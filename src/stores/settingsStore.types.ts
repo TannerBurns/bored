@@ -111,6 +111,7 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
 export interface AgentConfig {
   autoPilotEnabled: boolean;
   autoPilotModel: AIModel;
+  autoCompleteTickets: boolean;
   workflowStages: WorkflowStages;
   stageOrder: string[];
   stageTimeoutHours: number;
@@ -122,6 +123,8 @@ export interface AgentConfig {
   plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
+
+  generalModel: AIModel;
 
   validationModel: AIModel;
   validationTimeoutMinutes: number;
@@ -178,6 +181,7 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoCompleteTickets: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -188,6 +192,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
+  generalModel: 'claude-opus-4-6',
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'claude-sonnet-4-6',
@@ -205,6 +210,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
 const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoCompleteTickets: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -215,6 +221,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
+  generalModel: 'claude-opus-4-6',
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'claude-sonnet-4-6',
@@ -224,6 +231,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'gpt-5.3-codex',
+  autoCompleteTickets: false,
   workflowStages: { ...DEFAULT_CODEX_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -234,6 +242,7 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
+  generalModel: 'gpt-5.3-codex',
   validationModel: 'gpt-5.2-codex',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'gpt-5.2-codex',

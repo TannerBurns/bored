@@ -5,7 +5,6 @@ use crate::db::{Board, Column, Database};
 
 #[tauri::command]
 pub async fn get_boards(db: State<'_, Arc<Database>>) -> Result<Vec<Board>, String> {
-    tracing::debug!("Getting all boards");
     db.get_boards().map_err(|e| e.to_string())
 }
 
@@ -14,7 +13,6 @@ pub async fn get_columns(
     board_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<Column>, String> {
-    tracing::debug!("Getting columns for board: {}", board_id);
     db.get_columns(&board_id).map_err(|e| e.to_string())
 }
 

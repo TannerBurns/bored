@@ -28,6 +28,9 @@ pub struct WorkflowSettings {
     /// Model used for the auto-pilot command-selection call.
     #[serde(default = "default_auto_pilot_model")]
     pub auto_pilot_model: String,
+    /// Whether to move tickets directly to Done instead of Review when the agent finishes.
+    #[serde(default)]
+    pub auto_complete_tickets: bool,
     /// Per-stage configuration (enabled/disabled + model selection).
     /// Keys are stage names (e.g. "plan", "implement", "code-review", "deslop", etc.).
     pub stage_configs: HashMap<String, StageConfig>,
@@ -40,6 +43,15 @@ pub struct WorkflowSettings {
     /// Model for the diagnostic agent (defaults to sonnet-4.6).
     #[serde(default = "default_diagnostic_model")]
     pub diagnostic_model: String,
+    /// Model for general chat mode.
+    #[serde(default = "default_general_model")]
+    pub general_model: String,
+    /// Model for spec builder / ticket builder chat modes.
+    #[serde(default = "default_planner_model")]
+    pub planner_model: String,
+    /// Model for review chat mode.
+    #[serde(default = "default_validation_model")]
+    pub validation_model: String,
     /// Full stage ordering (frontend stage keys, e.g. "code-review", "cleanup").
     /// Contains all stage keys including required stages.
     #[serde(default)]
@@ -60,16 +72,32 @@ fn default_auto_pilot_model() -> String {
     crate::agents::models::DEFAULT_STAGE_MODEL.to_string()
 }
 
+fn default_general_model() -> String {
+    crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL.to_string()
+}
+
+fn default_planner_model() -> String {
+    crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL.to_string()
+}
+
+fn default_validation_model() -> String {
+    crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL.to_string()
+}
+
 impl Default for WorkflowSettings {
     fn default() -> Self {
         Self {
             auto_pilot_enabled: false,
             auto_pilot_model: default_auto_pilot_model(),
+            auto_complete_tickets: false,
             stage_configs: HashMap::new(),
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
             stage_max_retries: 2,
             diagnostic_model: default_diagnostic_model(),
+            general_model: default_general_model(),
+            planner_model: default_planner_model(),
+            validation_model: default_validation_model(),
             stage_order: None,
             synced: false,
         }
@@ -542,5 +570,182 @@ mod tests {
     fn workflow_settings_default_auto_pilot_disabled() {
         let settings = WorkflowSettings::default();
         assert!(!settings.auto_pilot_enabled);
+    }
+
+    #[test]
+    fn auto_complete_tickets_defaults_to_false_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.auto_complete_tickets);
+    }
+
+    #[test]
+    fn auto_complete_tickets_deserializes_true() {
+        let json = r#"{
+            "autoCompleteTickets":true,
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_complete_tickets);
+    }
+
+    #[test]
+    fn auto_complete_tickets_serializes_camel_case() {
+        let settings = WorkflowSettings {
+            auto_complete_tickets: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("autoCompleteTickets"));
+    }
+
+    #[test]
+    fn auto_complete_tickets_round_trips() {
+        let original = WorkflowSettings {
+            auto_complete_tickets: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert!(restored.auto_complete_tickets);
+    }
+
+    #[test]
+    fn workflow_settings_default_auto_complete_disabled() {
+        let settings = WorkflowSettings::default();
+        assert!(!settings.auto_complete_tickets);
+    }
+
+    #[test]
+    fn general_model_defaults_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.general_model, crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL);
+    }
+
+    #[test]
+    fn general_model_deserializes_custom_value() {
+        let json = r#"{
+            "generalModel":"claude-opus-4-5",
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.general_model, "claude-opus-4-5");
+    }
+
+    #[test]
+    fn general_model_round_trips() {
+        let original = WorkflowSettings {
+            general_model: "claude-opus-4-5".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.general_model, "claude-opus-4-5");
+    }
+
+    #[test]
+    fn planner_model_defaults_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.planner_model, crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL);
+    }
+
+    #[test]
+    fn planner_model_deserializes_custom_value() {
+        let json = r#"{
+            "plannerModel":"claude-opus-4-6",
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.planner_model, "claude-opus-4-6");
+    }
+
+    #[test]
+    fn planner_model_round_trips() {
+        let original = WorkflowSettings {
+            planner_model: "claude-opus-4-6".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.planner_model, "claude-opus-4-6");
+    }
+
+    #[test]
+    fn validation_model_defaults_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.validation_model, crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL);
+    }
+
+    #[test]
+    fn validation_model_deserializes_custom_value() {
+        let json = r#"{
+            "validationModel":"claude-opus-4-6",
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.validation_model, "claude-opus-4-6");
+    }
+
+    #[test]
+    fn validation_model_round_trips() {
+        let original = WorkflowSettings {
+            validation_model: "claude-opus-4-6".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.validation_model, "claude-opus-4-6");
+    }
+
+    #[test]
+    fn all_new_model_fields_serialize_camel_case() {
+        let settings = WorkflowSettings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("generalModel"));
+        assert!(json.contains("plannerModel"));
+        assert!(json.contains("validationModel"));
+    }
+
+    #[test]
+    fn workflow_settings_default_has_correct_model_defaults() {
+        let settings = WorkflowSettings::default();
+        assert_eq!(settings.general_model, "claude-opus-4-6");
+        assert_eq!(settings.planner_model, "claude-opus-4-5");
+        assert_eq!(settings.validation_model, "claude-sonnet-4-6");
     }
 }

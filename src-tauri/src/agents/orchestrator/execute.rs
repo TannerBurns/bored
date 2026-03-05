@@ -131,6 +131,12 @@ impl WorkflowOrchestrator {
                 self.ticket.id
             );
             self.move_ticket_to_column("Ready");
+        } else if self.auto_complete_tickets {
+            tracing::info!(
+                "Auto-complete enabled: moving ticket {} directly to Done",
+                self.ticket.id
+            );
+            self.move_ticket_to_column("Done");
         } else {
             self.move_ticket_to_column("Review");
         }

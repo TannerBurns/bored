@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 
 use crate::api::state::LiveEvent;
 use crate::db::{
-    CreateTicket, Database, Priority, ProjectPlan, Spec, SpecVersion,
+    CreateTask, CreateTicket, Database, Priority, ProjectPlan, Spec, SpecVersion,
     SpecVersionStatus, WorkflowType,
 };
 
@@ -267,7 +267,7 @@ impl PlanExecutor {
                     board_id: board_id.to_string(),
                     column_id: column_id.to_string(),
                     title: plan_ticket.title.clone(),
-                    description_md: description,
+                    description_md: description.clone(),
                     priority: Priority::Medium,
                     labels: vec!["plan-generated".to_string()],
                     project_id: Some(project_id.to_string()),
@@ -281,6 +281,32 @@ impl PlanExecutor {
                     spec_version_id: Some(version_id.to_string()),
                 })
                 .map_err(|e| PlannerError::Database(e.to_string()))?;
+
+            if let Some(tasks) = plan_ticket.tasks.as_ref().filter(|t| !t.is_empty()) {
+                for task in tasks {
+                    self.db
+                        .create_task(&CreateTask {
+                            ticket_id: ticket.id.clone(),
+                            task_type: Default::default(),
+                            title: Some(task.title.clone()),
+                            content: task.content.clone(),
+                        })
+                        .map_err(|e| PlannerError::Database(e.to_string()))?;
+                }
+            } else {
+                tracing::warn!(
+                    "Ticket '{}' has no tasks in plan, creating fallback task from description",
+                    plan_ticket.title,
+                );
+                self.db
+                    .create_task(&CreateTask {
+                        ticket_id: ticket.id.clone(),
+                        task_type: Default::default(),
+                        title: Some(plan_ticket.title.clone()),
+                        content: Some(description.clone()),
+                    })
+                    .map_err(|e| PlannerError::Database(e.to_string()))?;
+            }
 
             ticket_ids.push(ticket.id);
         }

@@ -252,6 +252,7 @@ export const useSettingsStore = create<SettingsState>()(
                 autoPilotModel: currentModel,
                 workflowStages: updatedStages,
                 plannerModel: currentModel,
+                generalModel: currentModel,
                 validationModel: currentModel,
                 diagnosticModel: currentModel,
               },
@@ -304,7 +305,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 17,
+      version: 19,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -396,6 +397,7 @@ export const useSettingsStore = create<SettingsState>()(
             return {
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
+              autoCompleteTickets: false,
               workflowStages: (!isCodex && stages) ? { ...stages } : base.workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
@@ -406,6 +408,7 @@ export const useSettingsStore = create<SettingsState>()(
               plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
               plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
+              generalModel: base.generalModel,
               validationModel: keepOrDefault(state.validationModel, base.validationModel),
               validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
               diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
@@ -515,6 +518,7 @@ export const useSettingsStore = create<SettingsState>()(
           for (const cfg of [configs?.claude, configs?.cursor].filter(Boolean) as Record<string, unknown>[]) {
             cfg.autoPilotModel = mapModel(cfg.autoPilotModel);
             cfg.plannerModel = mapModel(cfg.plannerModel);
+            cfg.generalModel = mapModel(cfg.generalModel);
             cfg.validationModel = mapModel(cfg.validationModel);
             cfg.diagnosticModel = mapModel(cfg.diagnosticModel);
             const stages = cfg.workflowStages as Record<string, { enabled: boolean; model: string }> | undefined;
@@ -522,6 +526,28 @@ export const useSettingsStore = create<SettingsState>()(
               for (const val of Object.values(stages)) {
                 const mapped = SHORT_TO_CLAUDE[val.model];
                 if (mapped) val.model = mapped;
+              }
+            }
+          }
+        }
+
+        if (version < 18) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const [agentId, cfg] of Object.entries(configs)) {
+              if (cfg.generalModel === undefined) {
+                cfg.generalModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6';
+              }
+            }
+          }
+        }
+
+        if (version < 19) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (cfg.autoCompleteTickets === undefined) {
+                cfg.autoCompleteTickets = false;
               }
             }
           }
@@ -537,22 +563,30 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
     autoPilotEnabled: boolean;
     autoPilotModel: string;
+    autoCompleteTickets: boolean;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
     codeReviewMaxIterations: number;
     stageTimeoutHours: number;
     stageMaxRetries: number;
     diagnosticModel: string;
+    generalModel: string;
+    plannerModel: string;
+    validationModel: string;
     stageOrder: string[];
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
       autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6'),
+      autoCompleteTickets: config.autoCompleteTickets ?? false,
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,
       stageMaxRetries: config.stageMaxRetries,
       diagnosticModel: config.diagnosticModel,
+      generalModel: config.generalModel,
+      plannerModel: config.plannerModel,
+      validationModel: config.validationModel,
       stageOrder: config.stageOrder,
     };
   }

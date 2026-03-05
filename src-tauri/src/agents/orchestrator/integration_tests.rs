@@ -181,6 +181,7 @@ fn make_workflow_settings(auto_pilot: bool, synced: bool) -> Arc<Mutex<PerAgentS
                 DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
             ),
             synced,
+            ..Default::default()
         },
     );
     Arc::new(Mutex::new(map))
@@ -1094,6 +1095,7 @@ fn make_workflow_settings_for_agent(agent_id: &str) -> Arc<Mutex<PerAgentSetting
             diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
             stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
             synced: true,
+            ..Default::default()
         },
     );
     Arc::new(Mutex::new(map))
@@ -1819,6 +1821,99 @@ fn finish_workflow_moves_to_ready_when_pending_tasks_remain() {
     let settings = make_workflow_settings(false, true);
 
     // seed_ticket creates one task; add a second pending task
+    db.create_task(&CreateTask {
+        ticket_id: ticket.id.clone(),
+        task_type: TaskType::Custom,
+        title: Some("Second task".to_string()),
+        content: None,
+    })
+    .unwrap();
+
+    let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task1.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task1);
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("test");
+
+    assert_eq!(get_ticket_column_name(&db, &ticket.id), "Ready");
+}
+
+fn make_workflow_settings_auto_complete(auto_pilot: bool, auto_complete: bool, synced: bool) -> Arc<Mutex<PerAgentSettings>> {
+    let mut map = HashMap::new();
+    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
+    let diag = crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL;
+    let default_stages: HashMap<String, StageConfig> = [
+        ("branchGen", diag),
+        ("plan", stage),
+        ("implement", stage),
+        ("code-review", stage),
+        ("cleanup", diag),
+        ("commit", diag),
+    ]
+    .into_iter()
+    .map(|(k, m)| {
+        (
+            k.to_string(),
+            StageConfig {
+                enabled: true,
+                model: m.to_string(),
+            },
+        )
+    })
+    .collect();
+
+    map.insert(
+        "stub".to_string(),
+        WorkflowSettings {
+            auto_pilot_enabled: auto_pilot,
+            auto_pilot_model: crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+            auto_complete_tickets: auto_complete,
+            stage_configs: default_stages,
+            code_review_max_iterations: 3,
+            stage_timeout_hours: 1,
+            stage_max_retries: 2,
+            diagnostic_model: crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL.to_string(),
+            stage_order: Some(
+                DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
+            ),
+            synced,
+            ..Default::default()
+        },
+    );
+    Arc::new(Mutex::new(map))
+}
+
+#[test]
+fn finish_workflow_moves_to_done_when_auto_complete_enabled() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_auto_complete(false, true, true);
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("test");
+
+    assert_eq!(get_ticket_column_name(&db, &ticket.id), "Done");
+}
+
+#[test]
+fn finish_workflow_moves_to_ready_even_with_auto_complete_when_pending_tasks() {
+    use crate::db::models::{CreateTask, TaskType};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_auto_complete(false, true, true);
+
     db.create_task(&CreateTask {
         ticket_id: ticket.id.clone(),
         task_type: TaskType::Custom,

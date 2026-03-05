@@ -11,7 +11,6 @@ pub async fn get_ticket_cost(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<agents::AggregatedCost, String> {
-    tracing::debug!("Getting cost for ticket: {}", ticket_id);
     db.get_ticket_cost(&ticket_id).map_err(|e| e.to_string())
 }
 

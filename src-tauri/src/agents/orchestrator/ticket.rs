@@ -111,6 +111,13 @@ impl WorkflowOrchestrator {
                     self.ticket.title
                 ),
             ),
+            "Done" => (
+                "Ticket Completed",
+                format!(
+                    "\"{}\" has been auto-completed and moved to Done.",
+                    self.ticket.title
+                ),
+            ),
             "Blocked" => (
                 "Ticket Blocked",
                 format!(

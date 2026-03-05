@@ -73,7 +73,7 @@ impl ChatAgent {
             )
         };
 
-        let (response_text, stdout) = self.run_agent(&prompt).await?;
+        let (response_text, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
         let has_fix_task = parse_create_fix_tasks_from_response(&response_text).is_some();
         let metadata = if has_fix_task {
@@ -84,7 +84,7 @@ impl ChatAgent {
         let assistant_msg = self
             .save_assistant_message(&response_text, metadata.as_ref())
             .await?;
-        self.persist_log_events(&stdout, &assistant_msg.id);
+        self.persist_log_events(&ts_lines, &assistant_msg.id);
         self.extract_and_store_cost(&stdout, Some(&assistant_msg.id))
             .await?;
 
@@ -452,7 +452,7 @@ impl ChatAgent {
             &val_messages,
         );
 
-        let (text, stdout) = self.run_agent(&prompt).await?;
+        let (text, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
         let has_fix = parse_create_fix_tasks_from_response(&text).is_some();
         let meta = if has_fix {
@@ -461,7 +461,7 @@ impl ChatAgent {
             None
         };
         let msg = self.save_assistant_message(&text, meta.as_ref()).await?;
-        self.persist_log_events(&stdout, &msg.id);
+        self.persist_log_events(&ts_lines, &msg.id);
 
         Ok((text, stdout, msg))
     }

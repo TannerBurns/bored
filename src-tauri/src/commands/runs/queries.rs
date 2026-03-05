@@ -23,7 +23,6 @@ pub async fn get_agent_runs(
     ticket_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<AgentRun>, String> {
-    tracing::debug!("Getting agent runs for ticket: {}", ticket_id);
     db.get_runs(&ticket_id).map_err(|e| e.to_string())
 }
 
@@ -36,7 +35,6 @@ pub async fn get_recent_runs_with_context(
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<AgentRunWithContext>, String> {
     let limit = limit.unwrap_or(50);
-    tracing::debug!("Getting recent {} agent runs with context", limit);
     db.get_recent_runs_with_context(limit).map_err(|e| e.to_string())
 }
 
@@ -45,7 +43,6 @@ pub async fn get_agent_run(
     run_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<AgentRun, String> {
-    tracing::debug!("Getting agent run: {}", run_id);
     db.get_run(&run_id).map_err(|e| e.to_string())
 }
 
@@ -54,7 +51,6 @@ pub async fn get_run_events(
     run_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<crate::db::AgentEvent>, String> {
-    tracing::debug!("Getting events for run: {}", run_id);
     db.get_events(&run_id).map_err(|e| e.to_string())
 }
 
@@ -63,8 +59,6 @@ pub async fn get_implementation_todos(
     run_id: String,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<crate::agents::orchestrator::TodoStatus>, String> {
-    tracing::debug!("Getting implementation todos for run: {}", run_id);
-
     let run = db.get_run(&run_id).map_err(|e| e.to_string())?;
 
     let todos = run

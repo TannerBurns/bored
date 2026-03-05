@@ -41,10 +41,10 @@ impl ChatAgent {
         let board_context = build_board_context(&self.db, &board_id)?;
         let prompt = build_ticket_builder_prompt(&messages, &board_context);
 
-        let (response, stdout) = self.run_agent(&prompt).await?;
+        let (response, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
         let message = self.save_assistant_message(&response, None).await?;
-        self.persist_log_events(&stdout, &message.id);
+        self.persist_log_events(&ts_lines, &message.id);
         self.extract_and_store_cost(&stdout, Some(&message.id))
             .await?;
 

@@ -15,6 +15,7 @@ use crate::db::models::{
 };
 use crate::db::Database;
 
+use super::workflow_settings::WorkflowSettingsState;
 use super::AgentSettingsManager;
 
 #[tauri::command]
@@ -104,6 +105,7 @@ pub async fn send_chat_message(
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     registry: State<'_, Arc<AgentRegistry>>,
     agent_settings: State<'_, AgentSettingsManager>,
+    workflow_settings: State<'_, WorkflowSettingsState>,
     app_process_manager: State<'_, AppProcessManager>,
     chat_id: String,
     content: String,
@@ -128,12 +130,25 @@ pub async fn send_chat_message(
 
     let agent_config = agent_settings.agent_config_for(&chat.agent_type);
 
+    let model = chat.model.clone().or_else(|| {
+        let ws = workflow_settings.get_for_agent(&chat.agent_type);
+        if !ws.synced {
+            return None;
+        }
+        let m = match chat.mode {
+            ChatMode::General => &ws.general_model,
+            ChatMode::SpecBuilder | ChatMode::TicketBuilder => &ws.planner_model,
+            ChatMode::Review => &ws.validation_model,
+        };
+        if m.is_empty() { None } else { Some(m.clone()) }
+    });
+
     let config = ChatAgentConfig {
         chat_id: chat_id.clone(),
         mode: chat.mode,
         agent_id: chat.agent_type.clone(),
         repo_path: PathBuf::from(&project.path),
-        model: chat.model.clone(),
+        model,
         agent_config,
         timeout_secs: Some(timeout_secs.unwrap_or(600)),
     };
