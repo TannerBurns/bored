@@ -112,6 +112,7 @@ mod tests {
 auto - Auto
 composer-1.5 - Composer 1.5
 composer-1 - Composer 1
+gpt-5.4 - GPT-5.4
 gpt-5.3-codex - GPT-5.3 Codex
 opus-4.6-thinking - Claude 4.6 Opus (Thinking)  (default)
 opus-4.6 - Claude 4.6 Opus
@@ -126,7 +127,7 @@ Tip: use --model <id> (or /model <id> in interactive mode) to switch.
     #[test]
     fn parse_sample_output() {
         let result = parse_list_models_output(SAMPLE_OUTPUT).unwrap();
-        assert_eq!(result.models.len(), 10);
+        assert_eq!(result.models.len(), 11);
         assert_eq!(result.current_model.as_deref(), Some("sonnet-4.5-thinking"));
         assert_eq!(result.default_model.as_deref(), Some("opus-4.6-thinking"));
     }

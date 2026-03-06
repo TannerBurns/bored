@@ -88,6 +88,7 @@ impl AgentProvider for CodexStubProvider {
     fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
     fn available_models(&self) -> Vec<(&str, &str)> {
         vec![
+            ("gpt-5.4", "GPT-5.4"),
             ("gpt-5.3-codex", "GPT-5.3 Codex"),
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]
@@ -1190,8 +1191,8 @@ async fn command_selection_prompt_uses_codex_models_not_claude() {
 
     // Examples should use Codex models
     assert!(
-        prompt.contains(r#""model": "gpt-5.3-codex""#),
-        "Codex examples should use gpt-5.3-codex as capable model"
+        prompt.contains(r#""model": "gpt-5.4""#),
+        "Codex examples should use gpt-5.4 as capable model"
     );
     assert!(
         prompt.contains(r#""model": "gpt-5.2-codex""#),
@@ -1269,7 +1270,7 @@ fn real_codex_cli_output_round_trip() {
     for s in &selections {
         assert!(cmds.contains(&s.command), "Codex: command '{}' must be in available list", s.command);
         assert!(
-            ["gpt-5.3-codex", "gpt-5.2-codex"].contains(&s.model.as_str()),
+            ["gpt-5.4", "gpt-5.3-codex", "gpt-5.2-codex"].contains(&s.model.as_str()),
             "Codex: model '{}' must be a valid Codex model", s.model
         );
     }

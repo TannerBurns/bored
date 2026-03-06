@@ -28,6 +28,7 @@ pub fn normalize_model_name(name: &str) -> String {
         "claude-sonnet-4-6" | "claude-sonnet-4.6" => "sonnet-4.6".to_string(),
         "claude-sonnet-4-5" | "claude-sonnet-4.5" => "sonnet-4.5".to_string(),
         "claude-haiku-3" | "claude-haiku-3-5" | "claude-haiku-3.5" => "haiku-3.5".to_string(),
+        "gpt-5.4" | "gpt-5-4" => "gpt-5.4".to_string(),
         "gpt-5.3-codex" | "gpt-5-3-codex" => "gpt-5.3-codex".to_string(),
         "gpt-5.2-codex" | "gpt-5-2-codex" => "gpt-5.2-codex".to_string(),
         _ => {

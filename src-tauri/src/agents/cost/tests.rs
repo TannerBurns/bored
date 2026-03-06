@@ -561,6 +561,8 @@ fn cost_by_agent_empty_registry_empty_output_returns_none() {
 
 #[test]
 fn normalize_model_name_maps_codex_variants() {
+    assert_eq!(normalize_model_name("gpt-5.4"), "gpt-5.4");
+    assert_eq!(normalize_model_name("gpt-5-4"), "gpt-5.4");
     assert_eq!(normalize_model_name("gpt-5.3-codex"), "gpt-5.3-codex");
     assert_eq!(normalize_model_name("gpt-5-3-codex"), "gpt-5.3-codex");
     assert_eq!(normalize_model_name("gpt-5.2-codex"), "gpt-5.2-codex");
@@ -569,12 +571,17 @@ fn normalize_model_name_maps_codex_variants() {
 
 #[test]
 fn normalize_model_name_codex_is_case_insensitive() {
+    assert_eq!(normalize_model_name("GPT-5.4"), "gpt-5.4");
     assert_eq!(normalize_model_name("GPT-5.3-CODEX"), "gpt-5.3-codex");
     assert_eq!(normalize_model_name("Gpt-5.2-Codex"), "gpt-5.2-codex");
 }
 
 #[test]
 fn compute_cost_codex_uses_codex_pricing() {
+    let cost_54 = compute_cost_from_tokens("gpt-5.4", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
+    let expected_54 = 3.00 + 12.0 + 0.30 + 3.75;
+    assert!((cost_54 - expected_54).abs() < 0.01, "GPT-5.4: expected {expected_54}, got {cost_54}");
+
     let cost_53 = compute_cost_from_tokens("gpt-5.3-codex", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
     let expected_53 = 2.50 + 10.0 + 0.25 + 3.13;
     assert!((cost_53 - expected_53).abs() < 0.01, "GPT-5.3 Codex: expected {expected_53}, got {cost_53}");

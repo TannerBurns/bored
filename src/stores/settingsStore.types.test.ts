@@ -34,10 +34,10 @@ describe('getDefaultConfigForAgent', () => {
 
   it('returns codex config with codex-native models', () => {
     const config = getDefaultConfigForAgent('codex');
-    expect(config.plannerModel).toBe('gpt-5.3-codex');
+    expect(config.plannerModel).toBe('gpt-5.4');
     expect(config.validationModel).toBe('gpt-5.2-codex');
     expect(config.diagnosticModel).toBe('gpt-5.2-codex');
-    expect(config.workflowStages.plan.model).toBe('gpt-5.3-codex');
+    expect(config.workflowStages.plan.model).toBe('gpt-5.4');
     expect(config.workflowStages.branchGen.model).toBe('gpt-5.2-codex');
     expect(config.settings).toEqual({ ossEnabled: false, localProvider: 'ollama', modelOverride: '', reasoningEffort: 'high', multiAgentEnabled: true });
   });
@@ -91,9 +91,9 @@ describe('constants', () => {
     expect(CLAUDE_MODEL_OPTIONS.map((o) => o.value)).toEqual(['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5']);
   });
 
-  it('CODEX_MODEL_OPTIONS has 2 GPT models', () => {
-    expect(CODEX_MODEL_OPTIONS).toHaveLength(2);
-    expect(CODEX_MODEL_OPTIONS.map((o) => o.value)).toEqual(['gpt-5.3-codex', 'gpt-5.2-codex']);
+  it('CODEX_MODEL_OPTIONS has 3 GPT models', () => {
+    expect(CODEX_MODEL_OPTIONS).toHaveLength(3);
+    expect(CODEX_MODEL_OPTIONS.map((o) => o.value)).toEqual(['gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex']);
   });
 
   it('DEFAULT_STAGE_ORDER contains all 9 stage keys', () => {

@@ -486,7 +486,7 @@ export const useSettingsStore = create<SettingsState>()(
                 cfg.autoPilotEnabled = false;
               }
               if (cfg.autoPilotModel === undefined) {
-                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6';
+                cfg.autoPilotModel = agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6';
               }
             }
           }
@@ -536,7 +536,7 @@ export const useSettingsStore = create<SettingsState>()(
           if (configs) {
             for (const [agentId, cfg] of Object.entries(configs)) {
               if (cfg.generalModel === undefined) {
-                cfg.generalModel = agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6';
+                cfg.generalModel = agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6';
               }
             }
           }
@@ -577,7 +577,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   for (const [agentId, config] of Object.entries(configs)) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
-      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.3-codex' : 'claude-opus-4-6'),
+      autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6'),
       autoCompleteTickets: config.autoCompleteTickets ?? false,
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,

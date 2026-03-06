@@ -409,6 +409,7 @@ mod tests {
 
     fn codex_models() -> Vec<(&'static str, &'static str)> {
         vec![
+            ("gpt-5.4", "GPT-5.4"),
             ("gpt-5.3-codex", "GPT-5.3 Codex"),
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]
@@ -618,10 +619,11 @@ These will ensure quality."#;
     fn prompt_uses_codex_models_when_provided() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
+        assert!(prompt.contains("`gpt-5.4` (GPT-5.4)"));
         assert!(prompt.contains("`gpt-5.3-codex` (GPT-5.3 Codex)"));
         assert!(prompt.contains("`gpt-5.2-codex` (GPT-5.2 Codex)"));
         assert!(!prompt.contains("opus"), "Codex prompt should not mention opus models");
-        assert!(prompt.contains(r#""model": "gpt-5.3-codex""#), "examples should use codex models");
+        assert!(prompt.contains(r#""model": "gpt-5.4""#), "examples should use codex models");
         assert!(prompt.contains(r#""model": "gpt-5.2-codex""#), "examples should use codex models");
     }
 
@@ -634,7 +636,7 @@ These will ensure quality."#;
         assert!(claude_prompt.contains(r#""model": "claude-sonnet-4-5""#), "Claude examples should use claude-sonnet-4-5");
 
         let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
-        assert!(codex_prompt.contains(r#""model": "gpt-5.3-codex""#), "Codex examples should use gpt-5.3-codex");
+        assert!(codex_prompt.contains(r#""model": "gpt-5.4""#), "Codex examples should use gpt-5.4");
         assert!(codex_prompt.contains(r#""model": "gpt-5.2-codex""#), "Codex examples should use gpt-5.2-codex");
     }
 
@@ -772,7 +774,7 @@ These will ensure quality."#;
     #[test]
     fn pick_models_codex() {
         let (c, e) = pick_example_models(&codex_models()).unwrap();
-        assert_eq!(c, "gpt-5.3-codex");
+        assert_eq!(c, "gpt-5.4");
         assert_eq!(e, "gpt-5.2-codex");
     }
 
