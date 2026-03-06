@@ -12,7 +12,7 @@ interface ListViewProps {
   onTicketClick?: (ticket: Ticket) => void;
 }
 
-function formatDate(date: Date | undefined): string {
+function formatDate(date: Date | string | undefined): string {
   if (!date) return '--';
   const d = new Date(date);
   const now = new Date();

@@ -54,10 +54,10 @@ export interface Ticket {
   descriptionMd: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   labels: string[];
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: Date | string;
+  updatedAt: Date | string;
   lockedByRunId?: string;
-  lockExpiresAt?: Date;
+  lockExpiresAt?: Date | string;
   projectId?: string;
   workflowType?: WorkflowType;
   model?: string;
@@ -74,7 +74,7 @@ export interface Ticket {
   /** Link back to spec version that created this ticket */
   specVersionId?: string;
   /** When the ticket was paused (if currently paused) */
-  pausedAt?: Date;
+  pausedAt?: Date | string;
   /** Which workflow stage was active when paused (e.g., "branch", "implement", "deslop", "review") */
   pausedAtStage?: string;
   /** The run ID that was in progress when paused */
