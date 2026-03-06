@@ -1,5 +1,67 @@
 [
   {
+    "version": "0.1.0-beta.43",
+    "published_at": "2026-03-05",
+    "summary": "Per-mode chat model selection, auto-complete tickets, and in-session plan generation. Chat modes now use independent model configurations. Auto-complete moves tickets directly to Done for trusted workflows. Plan generation runs in-session with full conversation context.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector synced to backend WorkflowSettings",
+          "Auto-complete tickets setting — per-agent toggle that moves tickets directly to Done instead of Review when the orchestrator finishes work",
+          "In-session plan generation — spec builder generates plans using the same chat agent session, preserving full conversation context and showing progress in the chat timeline",
+          "PlanBuilderMessage component for rendering plan JSON inline in chat with collapsible epic/ticket cards",
+          "SpecFinalizedCard for displaying spec finalization details as structured metadata inline in the chat timeline",
+          "PlanTicketTask schema for structured task breakdown — tickets now contain an explicit tasks array with self-contained per-task specs",
+          "GeneralSection in agent settings page for configuring the general chat model per agent"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Planning prompt restructured — ticket description is shared context, tasks array contains executable work units with self-contained specs",
+          "Planning prompt branch handling clarified — agents told the branch is already created and checked out",
+          "Chat log events persist with original timestamps captured during agent streaming instead of at persistence time",
+          "Agent sorting in NewChatModal and CreateSpecModal memoized to avoid re-sorting on every render",
+          "Zustand store version bumped to 19 with migrations v18 (generalModel) and v19 (autoCompleteTickets)"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed plan generation losing conversation context — separate PlannerAgent discarded session history; in-session generation preserves full exploration context",
+          "Fixed pending tasks check priority vs auto-complete in finish_workflow routing"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added settingsStore migration v18/v19 tests, generalModel and autoCompleteTickets settings tests with per-agent isolation",
+          "Added WorkflowSettings serde tests for general_model, planner_model, validation_model fields",
+          "Added orchestrator integration tests for auto-complete: moves to Done when enabled, pending tasks override auto-complete"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.42",
+        "highlight": "Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks."
+      },
+      {
+        "version": "0.1.0-beta.41",
+        "highlight": "Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications."
+      },
+      {
+        "version": "0.1.0-beta.40",
+        "highlight": "Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run."
+      },
+      {
+        "version": "0.1.0-beta.39",
+        "highlight": "Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.42",
     "published_at": "2026-03-04",
     "summary": "Unified chat system replacing the separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing and dashboard metrics accuracy improvements.",

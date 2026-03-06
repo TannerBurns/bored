@@ -2,6 +2,63 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.43] - 2026-03-05
+
+Per-mode chat model selection, auto-complete tickets, and in-session plan generation. Chat modes now use independent model configurations — General, Spec Builder/Ticket Builder, and Review each have their own model selector. Auto-complete setting moves tickets directly to Done instead of Review for trusted workflows. Plan generation runs in-session with full conversation context instead of spawning a separate background agent.
+
+### New Features
+
+- Per-mode chat model selection — General, Spec Builder/Ticket Builder (planner), and Review chat modes each have an independent model selector synced from frontend agent configs to backend WorkflowSettings, so users can pick the appropriate model for each workload (e.g. Opus for general Q&A, Sonnet for reviews)
+- Auto-complete tickets setting — per-agent toggle that moves tickets directly to Done instead of Review when the orchestrator finishes work, eliminating the manual review step for trusted workflows
+- In-session plan generation — spec builder now generates plans using the same chat agent session via run_agent instead of spawning a separate PlannerAgent, preserving full conversation context and showing progress in the chat timeline
+- PlanBuilderMessage component for rendering plan JSON inline in chat with collapsible epic/ticket cards, overview summary, and ticket count badges
+- SpecFinalizedCard for displaying spec finalization details (requirements, decisions, constraints, technical notes) as structured metadata inline in the chat timeline
+- PlanTicketTask schema for structured task breakdown in plans — tickets now contain an explicit tasks array with self-contained per-task specs instead of relying solely on the ticket description
+- GeneralSection in agent settings page for configuring the general chat model per agent
+
+### Improvements
+
+- Planning prompt restructured — ticket description is now shared context for all tasks, with the tasks array containing the executable units of work; each task's content must be a self-contained implementation spec (150–400 words) that includes everything the agent needs
+- Planning prompt branch handling clarified — agents are told the branch is already created and checked out, with explicit instructions never to create, checkout, or switch branches
+- Consolidation merge ticket prompt updated to instruct the agent to merge listed branches into the current branch rather than creating a new one
+- Chat log events now persist with original timestamps (TimestampedLine) captured during agent streaming instead of using the time of persistence, fixing event timeline ordering for long-running responses
+- Agent sorting in NewChatModal and CreateSpecModal memoized to avoid re-sorting on every render
+- Removed dead PlannerConfigWithEvents struct, unused stage parameter from create_log_callback, and redundant tracing::debug calls in command handlers
+- Zustand store version bumped to 19 with migrations v18 (generalModel) and v19 (autoCompleteTickets) that add correct defaults per agent
+
+### Bug Fixes
+
+- Fixed plan generation losing conversation context — spawning a separate PlannerAgent discarded the spec builder's session history; in-session generation now preserves the full exploration context
+- Fixed pending tasks check taking priority over auto-complete — finish_workflow now checks pending tasks first, then auto-complete, then falls through to Review
+
+### Testing
+
+- Added settingsStore migration v18 and v19 tests covering generalModel defaults (per-agent), autoCompleteTickets defaults, and preservation of existing values through migration
+- Added generalModel settings tests for per-agent isolation, default values, and round-trip updates
+- Added auto-complete tickets settings tests for default state, toggle behavior, and per-agent isolation
+- Added sync payload shape tests verifying autoCompleteTickets, generalModel, plannerModel, and validationModel are included for all agents
+- Added looksLikePlanResponse utility tests for PlanBuilderMessage
+- Added WorkflowSettings serde tests for general_model, planner_model, validation_model fields (defaults, custom values, round-trips, camelCase serialization)
+- Added orchestrator integration tests for auto-complete: finish_workflow moves to Done when enabled, and pending tasks still override auto-complete by routing to Ready
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.42, here is a summary of the major features introduced in recent releases:
+
+**beta.42 — Unified Chat System**
+Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks instead of prematurely moving tickets to Review.
+
+**beta.41 — Full Run Tracking for All CLI Agents**
+Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications.
+
+**beta.40 — FK Constraint Fix for Clarification Rewrite**
+Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run.
+
+**beta.39 — Session Tracking Across Implementation Todos**
+Session tracking across implementation todo steps — each todo resumes the same agent session, preserving codebase context and conversation history across sequential steps.
+
+---
+
 ## [0.1.0-beta.42] - 2026-03-04
 
 Unified chat system replacing the separate validation and conversation flows with a single interface for all agent interactions. Four chat modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing now correctly queues remaining tasks instead of prematurely moving tickets to Review. Dashboard metrics accuracy improvements for run time and lines changed.
