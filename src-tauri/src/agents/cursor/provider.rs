@@ -87,6 +87,7 @@ impl AgentProvider for CursorProvider {
             ("opus-4.5", "Opus 4.5"),
             ("sonnet-4.6", "Sonnet 4.6"),
             ("sonnet-4.5", "Sonnet 4.5"),
+            ("gpt-5.4", "GPT-5.4"),
             ("gpt-5.3-codex", "GPT-5.3 Codex"),
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]

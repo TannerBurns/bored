@@ -123,6 +123,7 @@ impl AgentProvider for CodexProvider {
 
     fn available_models(&self) -> Vec<(&str, &str)> {
         vec![
+            ("gpt-5.4", "GPT-5.4"),
             ("gpt-5.3-codex", "GPT-5.3 Codex"),
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]

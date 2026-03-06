@@ -1,4 +1,4 @@
-export type AIModel = 'claude-opus-4-6' | 'claude-opus-4-5' | 'claude-sonnet-4-6' | 'claude-sonnet-4-5' | 'gpt-5.3-codex' | 'gpt-5.2-codex' | (string & {});
+export type AIModel = 'claude-opus-4-6' | 'claude-opus-4-5' | 'claude-sonnet-4-6' | 'claude-sonnet-4-5' | 'gpt-5.4' | 'gpt-5.3-codex' | 'gpt-5.2-codex' | (string & {});
 
 export const CLAUDE_MODEL_OPTIONS: { value: AIModel; label: string }[] = [
   { value: 'claude-opus-4-6', label: 'Opus 4.6' },
@@ -8,6 +8,7 @@ export const CLAUDE_MODEL_OPTIONS: { value: AIModel; label: string }[] = [
 ];
 
 export const CODEX_MODEL_OPTIONS: { value: AIModel; label: string }[] = [
+  { value: 'gpt-5.4', label: 'GPT-5.4' },
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
   { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
 ];
@@ -150,13 +151,13 @@ export const DEFAULT_CLAUDE_WORKFLOW_STAGES: WorkflowStages = {
 /** Codex uses its own native model identifiers. */
 export const DEFAULT_CODEX_WORKFLOW_STAGES: WorkflowStages = {
   branchGen:         { enabled: true, model: 'gpt-5.2-codex' },
-  plan:              { enabled: true, model: 'gpt-5.3-codex' },
-  implement:         { enabled: true, model: 'gpt-5.3-codex' },
-  'code-review':     { enabled: true, model: 'gpt-5.3-codex' },
+  plan:              { enabled: true, model: 'gpt-5.4' },
+  implement:         { enabled: true, model: 'gpt-5.4' },
+  'code-review':     { enabled: true, model: 'gpt-5.4' },
   cleanup:           { enabled: true, model: 'gpt-5.2-codex' },
-  'unit-tests':      { enabled: true, model: 'gpt-5.3-codex' },
-  'review-changes':  { enabled: true, model: 'gpt-5.3-codex' },
-  deslop:            { enabled: true, model: 'gpt-5.3-codex' },
+  'unit-tests':      { enabled: true, model: 'gpt-5.4' },
+  'review-changes':  { enabled: true, model: 'gpt-5.4' },
+  deslop:            { enabled: true, model: 'gpt-5.4' },
   commit:            { enabled: true, model: 'gpt-5.2-codex' },
 };
 
@@ -230,19 +231,19 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
-  autoPilotModel: 'gpt-5.3-codex',
+  autoPilotModel: 'gpt-5.4',
   autoCompleteTickets: false,
   workflowStages: { ...DEFAULT_CODEX_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
-  plannerModel: 'gpt-5.3-codex',
+  plannerModel: 'gpt-5.4',
   plannerAutoApprove: false,
   plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
-  generalModel: 'gpt-5.3-codex',
+  generalModel: 'gpt-5.4',
   validationModel: 'gpt-5.2-codex',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'gpt-5.2-codex',

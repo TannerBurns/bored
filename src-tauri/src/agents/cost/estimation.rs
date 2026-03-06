@@ -24,12 +24,20 @@ struct ModelPricing {
 ///   Claude Opus  4.6 / 4.5:  $5    input, $25 output, $0.50 cache-read, $6.25 cache-write
 ///   Claude Sonnet 4.5 / 4  :  $3    input, $15 output, $0.30 cache-read, $3.75 cache-write
 ///   Claude Haiku  4.5       :  $1    input, $5  output, $0.10 cache-read, $1.25 cache-write
+///   GPT-5.4                 :  $3.00 input, $12 output, $0.30 cache-read, $3.75 cache-write
 ///   GPT-5.3 Codex           :  $2.50 input, $10 output, $0.25 cache-read, $3.13 cache-write
 ///   GPT-5.2 Codex           :  $1.25 input, $5  output, $0.13 cache-read, $1.56 cache-write
 fn get_model_pricing(model: &str) -> ModelPricing {
     let normalized = model.to_lowercase().replace(['-', '_'], " ");
 
-    if normalized.contains("gpt 5.3 codex") || normalized.contains("gpt 5 3 codex") {
+    if normalized == "gpt 5.4" || normalized == "gpt 5 4" {
+        ModelPricing {
+            input_per_mtok: 3.00,
+            output_per_mtok: 12.0,
+            cache_read_per_mtok: 0.30,
+            cache_write_per_mtok: 3.75,
+        }
+    } else if normalized.contains("gpt 5.3 codex") || normalized.contains("gpt 5 3 codex") {
         ModelPricing {
             input_per_mtok: 2.50,
             output_per_mtok: 10.0,

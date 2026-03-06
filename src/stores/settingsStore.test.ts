@@ -1019,7 +1019,7 @@ describe('useSettingsStore', () => {
 
     it('has correct default generalModel for codex', () => {
       const config = useSettingsStore.getState().getAgentConfig('codex');
-      expect(config.generalModel).toBe('gpt-5.3-codex');
+      expect(config.generalModel).toBe('gpt-5.4');
     });
 
     it('sets generalModel', () => {
@@ -1114,7 +1114,7 @@ describe('useSettingsStore', () => {
       ) as unknown as Record<string, unknown>;
 
       const configs = migrated.agentConfigs as Record<string, { generalModel?: string }>;
-      expect(configs.codex.generalModel).toBe('gpt-5.3-codex');
+      expect(configs.codex.generalModel).toBe('gpt-5.4');
     });
 
     it('preserves existing generalModel through migration', () => {

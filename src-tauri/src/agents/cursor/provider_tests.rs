@@ -127,6 +127,7 @@ fn available_models_includes_claude_and_codex_models() {
     let ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
     assert!(ids.contains(&"opus-4.6"), "should include Claude models");
     assert!(ids.contains(&"sonnet-4.6"), "should include Claude models");
+    assert!(ids.contains(&"gpt-5.4"), "should include Codex models");
     assert!(ids.contains(&"gpt-5.3-codex"), "should include Codex models");
     assert!(ids.contains(&"gpt-5.2-codex"), "should include Codex models");
     for (id, label) in &models {
