@@ -160,7 +160,7 @@ export function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; ba
         <div className="mt-1 ml-16 space-y-1">
           {entry.content && (
             <pre className="text-xs text-board-text-secondary bg-board-surface-raised rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono">
-              {entry.content}
+              {typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content)}
             </pre>
           )}
           <button
@@ -171,7 +171,7 @@ export function TimelineRow({ entry, baseTimestamp }: { entry: TimelineEntry; ba
           </button>
           {showRaw && (
             <pre className="text-[10px] text-board-text-muted bg-black/40 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono">
-              {entry.rawJson}
+              {typeof entry.rawJson === 'string' ? entry.rawJson : JSON.stringify(entry.rawJson)}
             </pre>
           )}
         </div>
@@ -193,8 +193,9 @@ function RawLogsView({ events }: { events: RunEvent[] }) {
   return (
     <div className="bg-black/80 rounded p-2 max-h-[70vh] overflow-y-auto font-mono text-xs">
       {logEvents.map((event) => {
-        const payload = event.payload as { raw?: string } | null;
-        const content = payload?.raw || '';
+        const payload = event.payload as { raw?: unknown } | null;
+        const rawValue = payload?.raw;
+        const content = typeof rawValue === 'string' ? rawValue : (rawValue ? JSON.stringify(rawValue) : '');
         const eventTypeStr = getEventTypeString(event.eventType);
         const isStderr = eventTypeStr === 'log_stderr';
         return (

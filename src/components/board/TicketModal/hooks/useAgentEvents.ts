@@ -163,7 +163,7 @@ export function useAgentEvents({
         logger.error('agent-error received', event.payload);
         if (event.payload.runId === runId) {
           setIsAgentRunning(false);
-          setAgentError(event.payload.error);
+          setAgentError(typeof event.payload.error === 'string' ? event.payload.error : String(event.payload.error));
           // Reload runs
           invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
             (runs) => setAgentRunsRef.current(runs)
