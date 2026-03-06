@@ -115,7 +115,7 @@ export function useBoardSync(): BoardSyncState {
           // Update the ticket's columnId in local state
           setTickets((prev) =>
             prev.map((t) =>
-              t.id === ticketId ? { ...t, columnId, updatedAt: new Date() } : t
+              t.id === ticketId ? { ...t, columnId, updatedAt: new Date().toISOString() } : t
             )
           );
         });

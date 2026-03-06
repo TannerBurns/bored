@@ -23,7 +23,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
   } = useBoardStore();
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
-    const updatedAt = new Date();
+    const updatedAt = new Date().toISOString();
     const originalTickets = tickets;
     setTickets((prev) =>
       prev.map((t) =>
@@ -48,7 +48,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
   };
 
   const handleUpdateTicket = async (ticketId: string, updates: Partial<Ticket>) => {
-    const updatedAt = new Date();
+    const updatedAt = new Date().toISOString();
     const updatesWithTimestamp = { ...updates, updatedAt };
     const originalTickets = tickets;
     setTickets((prev) =>
@@ -109,7 +109,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
       });
       logger.info('Agent run started', { runId });
       
-      const updates = { lockedByRunId: runId, updatedAt: new Date() };
+      const updates = { lockedByRunId: runId, updatedAt: new Date().toISOString() };
       logger.debug('Updating ticket with lockedByRunId', { runId });
       
       setTickets((prev) =>
@@ -132,11 +132,15 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
   const handleAgentComplete = async (runId: string, status: string) => {
     logger.info('Agent run completed', { runId, status });
     if (selectedTicket) {
-      const updates = { lockedByRunId: undefined, updatedAt: new Date() };
+      const updatedAt = new Date().toISOString();
       setTickets((prev) =>
-        prev.map((t) => (t.id === selectedTicket.id ? { ...t, ...updates } : t))
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, lockedByRunId: undefined, updatedAt } : t))
       );
-      await storeUpdateTicket(selectedTicket.id, updates);
+      try {
+        await storeUpdateTicket(selectedTicket.id, { lockedByRunId: undefined, updatedAt } as Partial<Ticket>);
+      } catch (error) {
+        logger.error('Failed to update ticket after agent complete:', error);
+      }
     }
   };
 

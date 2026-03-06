@@ -24,7 +24,7 @@ interface BoardState {
   deleteBoard: (boardId: string) => Promise<void>;
   createTicket: (input: CreateTicketInput) => Promise<Ticket>;
   updateTicket: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
-  moveTicket: (ticketId: string, columnId: string, updatedAt?: Date) => Promise<void>;
+  moveTicket: (ticketId: string, columnId: string, updatedAt?: Date | string) => Promise<void>;
   selectTicket: (ticket: Ticket | null) => void;
   loadComments: (ticketId: string) => Promise<void>;
   addComment: (ticketId: string, body: string) => Promise<void>;
@@ -165,7 +165,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   },
 
   updateTicket: async (ticketId: string, updates: Partial<Ticket>) => {
-    const updatedAt = updates.updatedAt ?? new Date();
+    const updatedAt = updates.updatedAt ?? new Date().toISOString();
     const updatesWithTimestamp = { ...updates, updatedAt };
     await invoke('update_ticket', { ticketId, updates: updatesWithTimestamp });
     set((state) => ({
@@ -179,8 +179,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }));
   },
 
-  moveTicket: async (ticketId: string, columnId: string, updatedAt?: Date) => {
-    const timestamp = updatedAt ?? new Date();
+  moveTicket: async (ticketId: string, columnId: string, updatedAt?: Date | string) => {
+    const timestamp = updatedAt ?? new Date().toISOString();
     set((state) => ({
       tickets: state.tickets.map((t) =>
         t.id === ticketId ? { ...t, columnId, updatedAt: timestamp } : t
