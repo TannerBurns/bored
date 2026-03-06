@@ -509,8 +509,8 @@ function AutoPilotSelections({ run }: { run: AgentRun }) {
               key={i}
               className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-board-accent/15 text-board-accent border border-board-accent/25"
             >
-              <span className="font-medium">{s.command}</span>
-              <span className="text-board-text-muted">{s.model}</span>
+              <span className="font-medium">{String(s.command ?? '')}</span>
+              <span className="text-board-text-muted">{String(s.model ?? '')}</span>
             </span>
           ))}
         </div>
@@ -580,7 +580,7 @@ function ExpandedRunDetails({
         <div className="mt-2">
           <p className="text-xs font-medium text-board-text-muted mb-1">Summary:</p>
           <p className="text-xs text-board-text-secondary whitespace-pre-wrap bg-board-surface-raised p-2 rounded">
-            {run.summaryMd}
+            {typeof run.summaryMd === 'string' ? run.summaryMd : String(run.summaryMd)}
           </p>
         </div>
       )}
