@@ -26,6 +26,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     plannerMaxExplorations: 10,
     plannerTimeoutMinutes: 10,
     plannerMaxRetries: 2,
+    ticketBuilderModel: 'claude-opus-4-5',
     validationModel: 'claude-sonnet-4-6',
     validationTimeoutMinutes: 10,
     diagnosticModel: 'claude-sonnet-4-6',
@@ -129,6 +130,11 @@ describe('AgentSettingsPage', () => {
     it('renders Spec Agent section', () => {
       render(<AgentSettingsPage agentId="claude" />);
       expect(screen.getByText('Spec Agent')).toBeInTheDocument();
+    });
+
+    it('renders Ticket Builder Agent section', () => {
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.getByText('Ticket Builder Agent')).toBeInTheDocument();
     });
 
     it('renders Validation Agent section', () => {

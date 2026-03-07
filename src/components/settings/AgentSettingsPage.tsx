@@ -452,6 +452,30 @@ function SpecAgentSection({ agentId, config, models, modelColWidth }: { agentId:
   );
 }
 
+function TicketBuilderSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-semibold text-board-text">Ticket Builder Agent</h3>
+        <p className="text-xs text-board-text-muted mt-0.5">Model used for ticket builder chat conversations.</p>
+      </div>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="glass-subtle rounded-lg px-3 py-2">
+          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
+          <select value={config.ticketBuilderModel}
+            onChange={(e) => updateConfig(agentId, { ticketBuilderModel: e.target.value as AIModel })}
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
+            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ValidationSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
@@ -558,6 +582,8 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
       <GeneralSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
       <SpecAgentSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <hr className="border-board-border/30" />
+      <TicketBuilderSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
       <ValidationSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />

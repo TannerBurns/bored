@@ -443,8 +443,6 @@ impl ChatAgent {
     }
 
     /// Get a follow-up response from the agent using fresh messages from the DB.
-    /// When a session exists the prompt only contains messages the session hasn't
-    /// seen, avoiding redundant diff/ticket/history that would exceed context limits.
     async fn review_agent_followup(
         &self,
         ticket: &crate::db::models::Ticket,
@@ -518,9 +516,7 @@ impl ChatAgent {
     }
 }
 
-/// Extract messages after the last assistant response. These are the messages
-/// the agent session hasn't seen yet (new system/user context added since the
-/// last turn).
+/// Extract messages after the last assistant response.
 fn extract_new_messages(messages: &[ValidationMessage]) -> Vec<ValidationMessage> {
     let last_assistant_idx = messages
         .iter()

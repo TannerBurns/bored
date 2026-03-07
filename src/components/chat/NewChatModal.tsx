@@ -129,7 +129,7 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
       const modeModelMap: Record<ChatMode, string | undefined> = {
         general: config.generalModel,
         spec_builder: config.plannerModel,
-        ticket_builder: config.plannerModel,
+        ticket_builder: config.ticketBuilderModel,
         review: config.validationModel,
       };
       const model = modeModelMap[selectedMode];

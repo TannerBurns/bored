@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { cn } from '../../lib/utils';
 import { Board } from '../board/Board';
 import { ListView } from '../board/ListView';
@@ -7,6 +7,7 @@ import type { Column, Ticket } from '../../types';
 type ViewMode = 'board' | 'list';
 
 const STORAGE_KEY = 'bored:board-view-modes';
+const HIDE_DONE_KEY = 'bored:hide-done';
 
 function loadPersistedModes(): Record<string, ViewMode> {
   try {
@@ -19,6 +20,20 @@ function loadPersistedModes(): Record<string, ViewMode> {
 function persistModes(modes: Record<string, ViewMode>) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(modes));
+  } catch { /* storage full / unavailable */ }
+}
+
+function loadHideDone(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(HIDE_DONE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore corrupt data */ }
+  return {};
+}
+
+function persistHideDone(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(HIDE_DONE_KEY, JSON.stringify(state));
   } catch { /* storage full / unavailable */ }
 }
 
@@ -46,8 +61,10 @@ export function BoardsView({
   onCreateBoardClick,
 }: BoardsViewProps) {
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>(loadPersistedModes);
+  const [hideDoneState, setHideDoneState] = useState<Record<string, boolean>>(loadHideDone);
 
   const viewMode: ViewMode = currentBoardId ? (viewModes[currentBoardId] ?? 'board') : 'board';
+  const hideDone = currentBoardId ? (hideDoneState[currentBoardId] ?? false) : false;
 
   const setViewMode = useCallback((mode: ViewMode) => {
     if (!currentBoardId) return;
@@ -57,6 +74,33 @@ export function BoardsView({
       return next;
     });
   }, [currentBoardId]);
+
+  const toggleHideDone = useCallback(() => {
+    if (!currentBoardId) return;
+    setHideDoneState((prev) => {
+      const next = { ...prev, [currentBoardId]: !prev[currentBoardId] };
+      persistHideDone(next);
+      return next;
+    });
+  }, [currentBoardId]);
+
+  const doneColumnIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const col of columns) {
+      if (col.name.toLowerCase() === 'done') ids.add(col.id);
+    }
+    return ids;
+  }, [columns]);
+
+  const filteredColumns = useMemo(
+    () => hideDone ? columns.filter((c) => !doneColumnIds.has(c.id)) : columns,
+    [columns, hideDone, doneColumnIds],
+  );
+
+  const filteredTickets = useMemo(
+    () => hideDone ? tickets.filter((t) => !doneColumnIds.has(t.columnId)) : tickets,
+    [tickets, hideDone, doneColumnIds],
+  );
 
   if (!isDataLoaded) {
     return (
@@ -112,8 +156,38 @@ export function BoardsView({
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
-      {/* View mode toggle */}
-      <div className="flex justify-end mb-3 flex-shrink-0">
+      {/* Toolbar: filter + view mode toggle */}
+      <div className="flex justify-end items-center gap-2 mb-3 flex-shrink-0">
+        {doneColumnIds.size > 0 && (
+          <button
+            type="button"
+            onClick={toggleHideDone}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 border',
+              hideDone
+                ? 'bg-board-accent/15 text-board-accent border-board-accent/30'
+                : 'glass-subtle text-board-text-muted hover:text-board-text border-board-border',
+            )}
+            title={hideDone ? 'Show done tickets' : 'Hide done tickets'}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {hideDone ? (
+                <>
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </>
+              ) : (
+                <>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </>
+              )}
+            </svg>
+            {hideDone ? 'Done hidden' : 'Hide done'}
+          </button>
+        )}
+
         <div className="flex items-center glass-subtle rounded-lg p-0.5 border border-board-border">
           <button
             type="button"
@@ -162,8 +236,8 @@ export function BoardsView({
       <div className="flex-1 overflow-hidden">
         {viewMode === 'board' ? (
           <Board
-            columns={columns}
-            tickets={tickets}
+            columns={filteredColumns}
+            tickets={filteredTickets}
             projectMap={projectMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}
@@ -171,7 +245,7 @@ export function BoardsView({
         ) : (
           <ListView
             columns={columns}
-            tickets={tickets}
+            tickets={filteredTickets}
             projectMap={projectMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}

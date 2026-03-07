@@ -46,9 +46,12 @@ pub struct WorkflowSettings {
     /// Model for general chat mode.
     #[serde(default = "default_general_model")]
     pub general_model: String,
-    /// Model for spec builder / ticket builder chat modes.
+    /// Model for spec builder chat mode.
     #[serde(default = "default_planner_model")]
     pub planner_model: String,
+    /// Model for ticket builder chat mode.
+    #[serde(default = "default_ticket_builder_model")]
+    pub ticket_builder_model: String,
     /// Model for review chat mode.
     #[serde(default = "default_validation_model")]
     pub validation_model: String,
@@ -80,6 +83,10 @@ fn default_planner_model() -> String {
     crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL.to_string()
 }
 
+fn default_ticket_builder_model() -> String {
+    crate::agents::models::DEFAULT_TICKET_BUILDER_CHAT_MODEL.to_string()
+}
+
 fn default_validation_model() -> String {
     crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL.to_string()
 }
@@ -97,6 +104,7 @@ impl Default for WorkflowSettings {
             diagnostic_model: default_diagnostic_model(),
             general_model: default_general_model(),
             planner_model: default_planner_model(),
+            ticket_builder_model: default_ticket_builder_model(),
             validation_model: default_validation_model(),
             stage_order: None,
             synced: false,
@@ -738,6 +746,7 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("generalModel"));
         assert!(json.contains("plannerModel"));
+        assert!(json.contains("ticketBuilderModel"));
         assert!(json.contains("validationModel"));
     }
 
@@ -746,6 +755,7 @@ mod tests {
         let settings = WorkflowSettings::default();
         assert_eq!(settings.general_model, "claude-opus-4-6");
         assert_eq!(settings.planner_model, "claude-opus-4-5");
+        assert_eq!(settings.ticket_builder_model, "claude-opus-4-5");
         assert_eq!(settings.validation_model, "claude-sonnet-4-6");
     }
 }

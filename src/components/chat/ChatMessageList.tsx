@@ -178,7 +178,7 @@ export function ChatMessageList({
                       ) : isSpecBuilder ? (
                         <SpecBuilderMessage content={msg.content} />
                       ) : isReview ? (
-                        <ReviewMessage content={msg.content} metadata={msg.metadata} />
+                        <ReviewMessage content={msg.content} />
                       ) : (
                         <MarkdownViewer content={msg.content} />
                       )}
@@ -205,7 +205,48 @@ export function ChatMessageList({
   );
 }
 
-function FixTaskCard({ task }: { task: { title: string; description?: string; status?: string } }) {
+import { parseReviewBlocks } from './parseReviewBlocks';
+import type { ParsedFixTask, ParsedCommand } from './parseReviewBlocks';
+
+function CommandCard({ command }: { command: ParsedCommand }) {
+  if (command.type === 'run_command') {
+    return (
+      <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+        </svg>
+        <span className="text-[10px] font-medium text-blue-400 uppercase tracking-wide">Run</span>
+        <code className="text-xs text-board-text font-mono bg-board-card/50 px-1.5 py-0.5 rounded">{command.command}</code>
+      </div>
+    );
+  }
+
+  if (command.type === 'start_app') {
+    return (
+      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+        </svg>
+        <span className="text-[10px] font-medium text-emerald-400 uppercase tracking-wide">Start App</span>
+        <code className="text-xs text-board-text font-mono bg-board-card/50 px-1.5 py-0.5 rounded">{command.command}</code>
+        {command.port && (
+          <span className="text-[10px] text-board-text-muted ml-auto">port {command.port}</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 flex items-center gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+      </svg>
+      <span className="text-[10px] font-medium text-red-400 uppercase tracking-wide">Stop App</span>
+    </div>
+  );
+}
+
+function FixTaskCard({ task }: { task: ParsedFixTask }) {
   const statusColors: Record<string, string> = {
     pending: 'bg-yellow-500/20 text-yellow-400',
     running: 'bg-blue-500/20 text-blue-400',
@@ -215,7 +256,7 @@ function FixTaskCard({ task }: { task: { title: string; description?: string; st
   const statusColor = statusColors[task.status || 'pending'] || statusColors.pending;
 
   return (
-    <div className="border border-board-border rounded-lg p-3">
+    <div className="border border-board-border rounded-lg p-3 bg-board-card/30">
       <div className="flex items-center gap-2">
         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
           {task.status || 'pending'}
@@ -223,25 +264,54 @@ function FixTaskCard({ task }: { task: { title: string; description?: string; st
         <span className="font-medium text-sm">{task.title}</span>
       </div>
       {task.description && (
-        <p className="text-xs text-board-text-muted mt-1 line-clamp-2">{task.description}</p>
+        <p className="text-xs text-board-text-muted mt-1.5">{task.description}</p>
+      )}
+      {task.acceptanceCriteria && task.acceptanceCriteria.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-board-border/50">
+          <span className="text-[10px] font-medium text-board-text-muted uppercase tracking-wide">Acceptance Criteria</span>
+          <ul className="mt-1 space-y-0.5">
+            {task.acceptanceCriteria.map((criterion, i) => (
+              <li key={i} className="text-xs text-board-text-muted flex items-start gap-1.5">
+                <span className="text-board-text-muted/50 mt-0.5">•</span>
+                <span>{criterion}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
 }
 
-function ReviewMessage({ content, metadata }: { content: string; metadata?: Record<string, unknown> }) {
-  const metaType = metadata?.type as string | undefined;
-  const isFixTasks = metaType === 'fix_tasks_created';
-  const taskIds = metadata?.task_ids as string[] | undefined;
+function ReviewMessage({ content }: { content: string }) {
+  const { cleanedContent, tasks, commands } = parseReviewBlocks(content);
+  const hasBlocks = tasks.length > 0 || commands.length > 0;
+
+  if (!hasBlocks) {
+    return <MarkdownViewer content={content} />;
+  }
 
   return (
     <div className="space-y-3">
-      <MarkdownViewer content={content} />
-      {isFixTasks && taskIds && taskIds.length > 0 && (
-        <div className="space-y-2 mt-2">
-          <span className="text-xs font-medium text-board-text-muted">Fix Tasks Created</span>
-          {taskIds.map((id) => (
-            <FixTaskCard key={id} task={{ title: `Task ${id.slice(0, 8)}...`, status: 'pending' }} />
+      {cleanedContent && <MarkdownViewer content={cleanedContent} />}
+      {commands.length > 0 && (
+        <div className="space-y-2">
+          {commands.map((cmd, i) => (
+            <CommandCard key={i} command={cmd} />
+          ))}
+        </div>
+      )}
+      {tasks.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-medium text-board-text-muted">Fix Tasks Created</span>
+          </div>
+          {tasks.map((task, i) => (
+            <FixTaskCard key={i} task={task} />
           ))}
         </div>
       )}
@@ -337,9 +407,42 @@ function SystemMessage({
   const ticketIds = meta?.ticketIds as string[] | undefined;
   const isTicketsCreated = metaType === 'tickets_created' && ticketIds && ticketIds.length > 0;
   const isSpecFinalized = metaType === 'spec_finalized';
+  const isFixTasksCreated = metaType === 'fix_tasks_created';
 
   if (isSpecFinalized && meta) {
     return <SpecFinalizedCard metadata={meta} />;
+  }
+
+  if (isFixTasksCreated) {
+    const { tasks } = parseReviewBlocks(message.content);
+    const taskTitles = tasks.length > 0
+      ? tasks
+      : (message.content.match(/^- (.+)$/gm) || []).map((line) => ({
+          title: line.replace(/^- /, ''),
+        }));
+
+    return (
+      <div className="max-w-[85%]">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+          <div className="flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-medium text-amber-400">Fix Tasks Created</span>
+          </div>
+          {taskTitles.map((task, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-board-text pl-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/60 flex-shrink-0" />
+              <span>{task.title}</span>
+            </div>
+          ))}
+          <p className="text-[10px] text-board-text-muted pt-1">
+            A worker agent will pick these up automatically.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
