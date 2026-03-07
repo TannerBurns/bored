@@ -169,7 +169,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(db: Arc<Database>, api_token: String) -> Self {
-        let (event_tx, _) = broadcast::channel(256);
+        let (event_tx, _) = broadcast::channel(1024);
         Self {
             db,
             api_token,

@@ -127,6 +127,8 @@ export interface AgentConfig {
 
   generalModel: AIModel;
 
+  ticketBuilderModel: AIModel;
+
   validationModel: AIModel;
   validationTimeoutMinutes: number;
 
@@ -194,6 +196,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
   generalModel: 'claude-opus-4-6',
+  ticketBuilderModel: 'claude-opus-4-5',
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'claude-sonnet-4-6',
@@ -223,6 +226,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
   generalModel: 'claude-opus-4-6',
+  ticketBuilderModel: 'claude-opus-4-5',
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'claude-sonnet-4-6',
@@ -244,6 +248,7 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
   generalModel: 'gpt-5.4',
+  ticketBuilderModel: 'gpt-5.4',
   validationModel: 'gpt-5.2-codex',
   validationTimeoutMinutes: 10,
   diagnosticModel: 'gpt-5.2-codex',

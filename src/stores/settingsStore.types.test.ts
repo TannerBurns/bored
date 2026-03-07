@@ -18,6 +18,7 @@ describe('getDefaultConfigForAgent', () => {
   it('returns claude config with Claude-specific settings', () => {
     const config = getDefaultConfigForAgent('claude');
     expect(config.plannerModel).toBe('claude-opus-4-5');
+    expect(config.ticketBuilderModel).toBe('claude-opus-4-5');
     expect(config.diagnosticModel).toBe('claude-sonnet-4-6');
     expect(config.settings).toHaveProperty('authToken');
     expect(config.settings).toHaveProperty('thinkingEnabled');
@@ -27,6 +28,7 @@ describe('getDefaultConfigForAgent', () => {
   it('returns cursor config with empty settings (no thinkingEnabled)', () => {
     const config = getDefaultConfigForAgent('cursor');
     expect(config.plannerModel).toBe('claude-opus-4-5');
+    expect(config.ticketBuilderModel).toBe('claude-opus-4-5');
     expect(config.settings).toEqual({});
     expect(config.settings).not.toHaveProperty('thinkingEnabled');
     expect(config.settings).not.toHaveProperty('authToken');
@@ -35,6 +37,7 @@ describe('getDefaultConfigForAgent', () => {
   it('returns codex config with codex-native models', () => {
     const config = getDefaultConfigForAgent('codex');
     expect(config.plannerModel).toBe('gpt-5.4');
+    expect(config.ticketBuilderModel).toBe('gpt-5.4');
     expect(config.validationModel).toBe('gpt-5.2-codex');
     expect(config.diagnosticModel).toBe('gpt-5.2-codex');
     expect(config.workflowStages.plan.model).toBe('gpt-5.4');

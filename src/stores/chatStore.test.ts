@@ -432,7 +432,11 @@ describe('useChatStore', () => {
   describe('sendMessage', () => {
     it('sets thinking during send and clears after', async () => {
       useChatStore.setState({ currentChat: mockChat });
-      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(undefined)   // send_chat_message
+        .mockResolvedValueOnce(mockMessages) // loadMessages -> get_chat_messages
+        .mockResolvedValueOnce(mockEvents)   // loadChatEvents -> get_chat_events
+        .mockResolvedValueOnce(mockChat);    // refreshChat -> get_chat
 
       await useChatStore.getState().sendMessage('Hello');
 
@@ -446,9 +450,32 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().thinkingChatIds['chat-1']).toBe(false);
     });
 
+    it('refreshes messages, events, and chat after send', async () => {
+      useChatStore.setState({ currentChat: mockChat, chats: [mockChat] });
+      const updatedChat = { ...mockChat, title: 'Updated Title' };
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(undefined)     // send_chat_message
+        .mockResolvedValueOnce(mockMessages)   // loadMessages
+        .mockResolvedValueOnce(mockEvents)     // loadChatEvents
+        .mockResolvedValueOnce(updatedChat);   // refreshChat
+
+      await useChatStore.getState().sendMessage('Hello');
+
+      expect(invoke).toHaveBeenCalledWith('get_chat_messages', { chatId: 'chat-1' });
+      expect(invoke).toHaveBeenCalledWith('get_chat_events', { chatId: 'chat-1' });
+      expect(invoke).toHaveBeenCalledWith('get_chat', { chatId: 'chat-1' });
+      expect(useChatStore.getState().messages).toHaveLength(2);
+      expect(useChatStore.getState().chatEvents).toHaveLength(1);
+      expect(useChatStore.getState().currentChat?.title).toBe('Updated Title');
+    });
+
     it('converts timeout minutes to seconds', async () => {
       useChatStore.setState({ currentChat: mockChat });
-      vi.mocked(invoke).mockResolvedValueOnce(undefined);
+      vi.mocked(invoke)
+        .mockResolvedValueOnce(undefined)    // send_chat_message
+        .mockResolvedValueOnce([])           // loadMessages
+        .mockResolvedValueOnce([])           // loadChatEvents
+        .mockResolvedValueOnce(mockChat);    // refreshChat
 
       await useChatStore.getState().sendMessage('test', 5);
 
@@ -474,6 +501,27 @@ describe('useChatStore', () => {
       ).rejects.toThrow('Send failed');
 
       expect(useChatStore.getState().isAgentThinking).toBe(false);
+    });
+
+    it('skips loadMessages/loadChatEvents when user navigated away', async () => {
+      useChatStore.setState({ currentChat: mockChat, chats: [mockChat], messages: [] });
+      const otherChat: Chat = { ...mockChat, id: 'chat-other', title: 'Other' };
+
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+        if (cmd === 'send_chat_message') {
+          useChatStore.setState({ currentChat: otherChat });
+          return undefined;
+        }
+        if (cmd === 'get_chat') return mockChat;
+        return [];
+      });
+
+      await useChatStore.getState().sendMessage('Hello');
+
+      expect(invoke).toHaveBeenCalledWith('send_chat_message', expect.anything());
+      expect(invoke).not.toHaveBeenCalledWith('get_chat_messages', expect.anything());
+      expect(invoke).not.toHaveBeenCalledWith('get_chat_events', expect.anything());
+      expect(invoke).toHaveBeenCalledWith('get_chat', { chatId: 'chat-1' });
     });
   });
 

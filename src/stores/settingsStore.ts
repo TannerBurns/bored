@@ -253,6 +253,7 @@ export const useSettingsStore = create<SettingsState>()(
                 workflowStages: updatedStages,
                 plannerModel: currentModel,
                 generalModel: currentModel,
+                ticketBuilderModel: currentModel,
                 validationModel: currentModel,
                 diagnosticModel: currentModel,
               },
@@ -409,6 +410,7 @@ export const useSettingsStore = create<SettingsState>()(
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
               plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
               generalModel: base.generalModel,
+              ticketBuilderModel: base.ticketBuilderModel,
               validationModel: keepOrDefault(state.validationModel, base.validationModel),
               validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
               diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
@@ -571,6 +573,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     diagnosticModel: string;
     generalModel: string;
     plannerModel: string;
+    ticketBuilderModel: string;
     validationModel: string;
     stageOrder: string[];
   }> = {};
@@ -586,6 +589,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       diagnosticModel: config.diagnosticModel,
       generalModel: config.generalModel,
       plannerModel: config.plannerModel,
+      ticketBuilderModel: config.ticketBuilderModel,
       validationModel: config.validationModel,
       stageOrder: config.stageOrder,
     };

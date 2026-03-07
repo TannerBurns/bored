@@ -7,7 +7,9 @@ use crate::agents::validation_agent::parsing::{
     parse_create_fix_tasks_from_response, parse_run_command_from_response,
     parse_start_app_from_response, parse_stop_app_from_response,
 };
-use crate::agents::validation_agent::prompts::{build_conversation_prompt, build_initial_prompt};
+use crate::agents::validation_agent::prompts::{
+    build_conversation_prompt, build_initial_prompt, build_resumption_prompt,
+};
 use crate::agents::validation_agent::{AppLogEventKind, AppProcessManager, StartResult};
 use crate::api::state::LiveEvent;
 use crate::commands::next_steps::get_branch_diff_sync;
@@ -55,6 +57,7 @@ impl ChatAgent {
         let working_dir = Path::new(&working_dir_path);
 
         let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
+        let has_session = chat.agent_session_id.is_some();
         let val_messages = chat_to_validation_messages(&messages);
         let prompt = if is_first_turn {
             build_initial_prompt(
@@ -63,6 +66,9 @@ impl ChatAgent {
                 &branch_diff,
                 None,
             )
+        } else if has_session {
+            let new_msgs = extract_new_messages(&val_messages);
+            build_resumption_prompt(&new_msgs)
         } else {
             build_conversation_prompt(
                 &ticket.title,
@@ -444,13 +450,26 @@ impl ChatAgent {
     ) -> Result<(String, String, ChatMessage), ChatAgentError> {
         let messages = self.db.get_chat_messages(&self.config.chat_id)?;
         let val_messages = chat_to_validation_messages(&messages);
-        let prompt = build_conversation_prompt(
-            &ticket.title,
-            &ticket.description_md,
-            branch_diff,
-            None,
-            &val_messages,
-        );
+
+        let has_session = self
+            .db
+            .get_chat(&self.config.chat_id)
+            .ok()
+            .and_then(|c| c.agent_session_id)
+            .is_some();
+
+        let prompt = if has_session {
+            let new_msgs = extract_new_messages(&val_messages);
+            build_resumption_prompt(&new_msgs)
+        } else {
+            build_conversation_prompt(
+                &ticket.title,
+                &ticket.description_md,
+                branch_diff,
+                None,
+                &val_messages,
+            )
+        };
 
         let (text, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
@@ -494,6 +513,17 @@ impl ChatAgent {
                 role: "user".to_string(),
             });
         }
+    }
+}
+
+/// Extract messages after the last assistant response.
+fn extract_new_messages(messages: &[ValidationMessage]) -> Vec<ValidationMessage> {
+    let last_assistant_idx = messages
+        .iter()
+        .rposition(|m| m.role == ValidationMessageRole::Assistant);
+    match last_assistant_idx {
+        Some(idx) => messages[idx + 1..].to_vec(),
+        None => messages.to_vec(),
     }
 }
 
@@ -774,4 +804,61 @@ fn post_fix_tasks_completion_chat(
     });
 
     Some(msg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_msg(id: &str, role: ValidationMessageRole, content: &str) -> ValidationMessage {
+        ValidationMessage {
+            id: id.into(),
+            session_id: String::new(),
+            role,
+            content: content.into(),
+            metadata: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn extract_new_messages_after_assistant() {
+        let messages = vec![
+            make_msg("1", ValidationMessageRole::User, "start"),
+            make_msg("2", ValidationMessageRole::Assistant, "ok starting"),
+            make_msg("3", ValidationMessageRole::System, "ran npm install"),
+            make_msg("4", ValidationMessageRole::User, "command output"),
+        ];
+        let new = extract_new_messages(&messages);
+        assert_eq!(new.len(), 2);
+        assert_eq!(new[0].content, "ran npm install");
+        assert_eq!(new[1].content, "command output");
+    }
+
+    #[test]
+    fn extract_new_messages_no_assistant() {
+        let messages = vec![
+            make_msg("1", ValidationMessageRole::User, "hello"),
+            make_msg("2", ValidationMessageRole::System, "info"),
+        ];
+        let new = extract_new_messages(&messages);
+        assert_eq!(new.len(), 2);
+    }
+
+    #[test]
+    fn extract_new_messages_empty() {
+        let new = extract_new_messages(&[]);
+        assert!(new.is_empty());
+    }
+
+    #[test]
+    fn extract_new_messages_assistant_is_last() {
+        let messages = vec![
+            make_msg("1", ValidationMessageRole::User, "start"),
+            make_msg("2", ValidationMessageRole::Assistant, "done"),
+        ];
+        let new = extract_new_messages(&messages);
+        assert!(new.is_empty());
+    }
 }

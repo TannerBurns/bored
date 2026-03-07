@@ -137,7 +137,8 @@ pub async fn send_chat_message(
         }
         let m = match chat.mode {
             ChatMode::General => &ws.general_model,
-            ChatMode::SpecBuilder | ChatMode::TicketBuilder => &ws.planner_model,
+            ChatMode::SpecBuilder => &ws.planner_model,
+            ChatMode::TicketBuilder => &ws.ticket_builder_model,
             ChatMode::Review => &ws.validation_model,
         };
         if m.is_empty() { None } else { Some(m.clone()) }

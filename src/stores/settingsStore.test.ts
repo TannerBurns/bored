@@ -468,6 +468,7 @@ describe('useSettingsStore', () => {
       expect(cursorConfig.autoPilotModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.plannerModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.generalModel).toBe('opus-4.6-thinking');
+      expect(cursorConfig.ticketBuilderModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.validationModel).toBe('opus-4.6-thinking');
       expect(cursorConfig.diagnosticModel).toBe('opus-4.6-thinking');
       for (const stage of Object.values(cursorConfig.workflowStages)) {
@@ -974,12 +975,14 @@ describe('useSettingsStore', () => {
       }
     });
 
-    it('agentConfigs include plannerModel and validationModel for all agents', () => {
+    it('agentConfigs include plannerModel, ticketBuilderModel, and validationModel for all agents', () => {
       const state = useSettingsStore.getState();
       for (const agentId of ['claude', 'cursor', 'codex']) {
         const config = state.getAgentConfig(agentId);
         expect(typeof config.plannerModel).toBe('string');
         expect(config.plannerModel.length).toBeGreaterThan(0);
+        expect(typeof config.ticketBuilderModel).toBe('string');
+        expect(config.ticketBuilderModel.length).toBeGreaterThan(0);
         expect(typeof config.validationModel).toBe('string');
         expect(config.validationModel.length).toBeGreaterThan(0);
       }
@@ -1031,6 +1034,48 @@ describe('useSettingsStore', () => {
       useSettingsStore.getState().updateAgentConfig('claude', { generalModel: 'claude-opus-4-5' });
       expect(useSettingsStore.getState().getAgentConfig('claude').generalModel).toBe('claude-opus-4-5');
       expect(useSettingsStore.getState().getAgentConfig('cursor').generalModel).toBe('claude-opus-4-6');
+    });
+  });
+
+  describe('ticketBuilderModel settings', () => {
+    beforeEach(() => {
+      useSettingsStore.getState().updateAgentConfig('claude', { ticketBuilderModel: 'claude-opus-4-5' });
+      useSettingsStore.getState().updateAgentConfig('cursor', { ticketBuilderModel: 'claude-opus-4-5' });
+    });
+
+    it('has correct default ticketBuilderModel for claude', () => {
+      const config = useSettingsStore.getState().getAgentConfig('claude');
+      expect(config.ticketBuilderModel).toBe('claude-opus-4-5');
+    });
+
+    it('has correct default ticketBuilderModel for cursor', () => {
+      const config = useSettingsStore.getState().getAgentConfig('cursor');
+      expect(config.ticketBuilderModel).toBe('claude-opus-4-5');
+    });
+
+    it('has correct default ticketBuilderModel for codex', () => {
+      const config = useSettingsStore.getState().getAgentConfig('codex');
+      expect(config.ticketBuilderModel).toBe('gpt-5.4');
+    });
+
+    it('sets ticketBuilderModel', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { ticketBuilderModel: 'claude-sonnet-4-6' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').ticketBuilderModel).toBe('claude-sonnet-4-6');
+    });
+
+    it('ticketBuilderModel is per-agent', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { ticketBuilderModel: 'claude-sonnet-4-6' });
+      expect(useSettingsStore.getState().getAgentConfig('claude').ticketBuilderModel).toBe('claude-sonnet-4-6');
+      expect(useSettingsStore.getState().getAgentConfig('cursor').ticketBuilderModel).toBe('claude-opus-4-5');
+    });
+
+    it('does not affect other config fields when updating ticketBuilderModel', () => {
+      const before = useSettingsStore.getState().getAgentConfig('claude');
+      useSettingsStore.getState().updateAgentConfig('claude', { ticketBuilderModel: 'claude-sonnet-4-5' });
+      const after = useSettingsStore.getState().getAgentConfig('claude');
+      expect(after.plannerModel).toBe(before.plannerModel);
+      expect(after.generalModel).toBe(before.generalModel);
+      expect(after.validationModel).toBe(before.validationModel);
     });
   });
 
