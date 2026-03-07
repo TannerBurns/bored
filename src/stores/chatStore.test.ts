@@ -502,6 +502,27 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().isAgentThinking).toBe(false);
     });
+
+    it('skips loadMessages/loadChatEvents when user navigated away', async () => {
+      useChatStore.setState({ currentChat: mockChat, chats: [mockChat], messages: [] });
+      const otherChat: Chat = { ...mockChat, id: 'chat-other', title: 'Other' };
+
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+        if (cmd === 'send_chat_message') {
+          useChatStore.setState({ currentChat: otherChat });
+          return undefined;
+        }
+        if (cmd === 'get_chat') return mockChat;
+        return [];
+      });
+
+      await useChatStore.getState().sendMessage('Hello');
+
+      expect(invoke).toHaveBeenCalledWith('send_chat_message', expect.anything());
+      expect(invoke).not.toHaveBeenCalledWith('get_chat_messages', expect.anything());
+      expect(invoke).not.toHaveBeenCalledWith('get_chat_events', expect.anything());
+      expect(invoke).toHaveBeenCalledWith('get_chat', { chatId: 'chat-1' });
+    });
   });
 
   describe('refreshChat', () => {
