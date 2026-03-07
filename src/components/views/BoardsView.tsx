@@ -244,7 +244,7 @@ export function BoardsView({
           />
         ) : (
           <ListView
-            columns={columns}
+            columns={filteredColumns}
             tickets={filteredTickets}
             projectMap={projectMap}
             onTicketMove={onTicketMove}
