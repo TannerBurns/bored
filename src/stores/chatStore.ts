@@ -193,6 +193,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
       await get().loadMessages(chatId);
       await get().loadChatEvents(chatId);
+      await get().refreshChat(chatId);
     } finally {
       get().setAgentThinking(chatId, false);
       get().clearAgentLogs(chatId);

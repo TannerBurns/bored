@@ -18,7 +18,7 @@ pub use state::{AppState, LiveEvent};
 
 /// Create a new event broadcaster channel
 pub fn create_event_channel() -> broadcast::Sender<LiveEvent> {
-    let (tx, _) = broadcast::channel(256);
+    let (tx, _) = broadcast::channel(1024);
     tx
 }
 
