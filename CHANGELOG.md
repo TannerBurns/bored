@@ -2,6 +2,62 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.44] - 2026-03-07
+
+Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat now uses lightweight prompts on session resumption to avoid exceeding context limits. Ticket builder chat has its own model selector independent from spec builder. Boards support a hide-done toggle to declutter completed work. GPT-5.4 is now the default Codex model. Two React error #310 crashes fixed across ticket transitions and Agent tab rendering.
+
+### New Features
+
+- Separate ticket builder chat model — ticket builder conversations now use an independent model selector (ticketBuilderModel) separate from spec builder, threaded through AgentConfig, WorkflowSettings, settings UI, and sync payload so users can pick the appropriate model for each chat mode
+- Hide-done board filter — per-board toggle in board and list views that filters out the Done column and its tickets, persisted in localStorage for quick decluttering of completed work
+- Review message JSON block parsing — review agent responses containing run_command, start_app, stop_app, and create_fix_task JSON blocks are now rendered as styled CommandCard and FixTaskCard components instead of raw markdown
+- GPT-5.4 model support — added to all model option lists across frontend and backend with cost estimation pricing ($3.00/$12.00/$0.30/$3.75 per MTok), now the default Codex model for plan, implement, code-review, unit-tests, review-changes, and deslop stages
+
+### Improvements
+
+- Review chat lightweight session resumption — follow-up turns with an existing Claude CLI session now send only new messages since the last assistant response instead of re-sending full system instructions, ticket description, branch diff, and entire conversation history, preventing context limit exhaustion after 1-2 exchanges
+- 20-message history cap as a fallback for review chats without an active session, preventing unbounded prompt growth
+- Chat UI state refresh after agent responds — loadMessages and loadChatEvents are called after the command returns, fixing cases where the sidebar stayed in thinking state or messages were invisible until navigation
+- Chat title reliability — refreshChat called after sendMessage so the chat title and status are always reloaded from the DB regardless of SSE event delivery; broadcast channel capacity increased from 256 to 1024 to reduce lag-induced event drops during burst activity
+- Validation agent prompts updated to explore project structure (docker-compose, Makefile, README) before starting apps, instead of assuming npm/node projects
+- Post-send refresh guarded against chat navigation — loadMessages and loadChatEvents check that the user hasn't navigated to a different chat during long agent executions, preventing stale data from overwriting the currently-viewed chat
+- GPT-5.4 set as the default for all Codex workflow stages, autoPilotModel, plannerModel, and generalModel; existing user configs with gpt-5.3-codex are preserved unchanged
+
+### Bug Fixes
+
+- Fixed review chat "prompt too large" error — session resumption was re-sending full system instructions, 80KB branch diff, and entire conversation history on every follow-up turn even when Claude CLI session resumption (--resume) already retains prior context
+- Fixed chat UI not updating after agent responds — run_agent set status back to Active without broadcasting ChatUpdated, so the frontend never learned the agent finished
+- Fixed chat title not appearing — title generation SSE event was silently dropped when the broadcast channel lagged during burst activity from extra ChatUpdated broadcasts
+- Fixed ListView receiving unfiltered columns when hide-done was active — the Done column appeared in the list view's ColumnSelect dropdown even when hidden on the board
+- Fixed React error #310 when tickets move to Review after agent completion — optimistic ticket state updates used JavaScript Date objects instead of ISO strings, which React cannot render as children; all date values in ticket state are now consistently ISO strings matching the backend
+- Fixed React error #310 on Agent tab during run completion — agent error event payloads, run summaryMd, auto-pilot selection metadata, log timeline entry.content, entry.rawJson, and raw log payloads carrying non-string values (objects, nested JSON) now defensively coerced to strings before rendering
+- Fixed Ticket type using `Date` annotation when the runtime type from the Rust/serde backend is always an ISO string — updated to `Date | string`
+
+### Testing
+
+- Added 16 parseReviewBlocks unit tests covering CommandCard and FixTaskCard extraction from review agent responses
+- Added chatStore post-send navigation guard test verifying loadMessages/loadChatEvents are skipped when user navigated away
+- Added settingsStore tests for ticketBuilderModel defaults, per-agent isolation, and sync payload shape
+- Updated cost estimation, provider, and settings tests across 6 files for GPT-5.4 model addition
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.43, here is a summary of the major features introduced in recent releases:
+
+**beta.43 — Per-Mode Chat Models, Auto-Complete Tickets & In-Session Plans**
+Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done instead of Review for trusted workflows. In-session plan generation preserves full conversation context.
+
+**beta.42 — Unified Chat System**
+Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks instead of prematurely moving tickets to Review.
+
+**beta.41 — Full Run Tracking for All CLI Agents**
+Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications.
+
+**beta.40 — FK Constraint Fix for Clarification Rewrite**
+Fix FK constraint error when resolving clarification via rewrite — the resolve_clarification handler now creates a proper parent run before spawning the spec-rewrite child run.
+
+---
+
 ## [0.1.0-beta.43] - 2026-03-05
 
 Per-mode chat model selection, auto-complete tickets, and in-session plan generation. Chat modes now use independent model configurations — General, Spec Builder/Ticket Builder, and Review each have their own model selector. Auto-complete setting moves tickets directly to Done instead of Review for trusted workflows. Plan generation runs in-session with full conversation context instead of spawning a separate background agent.
