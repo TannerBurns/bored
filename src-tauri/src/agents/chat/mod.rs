@@ -132,6 +132,9 @@ impl ChatAgent {
         let _ = self
             .db
             .update_chat_status(&self.config.chat_id, ChatStatus::Active);
+        self.broadcast(LiveEvent::ChatUpdated {
+            chat_id: self.config.chat_id.clone(),
+        });
 
         let result = match spawn_result {
             Ok(Ok(r)) => r,
