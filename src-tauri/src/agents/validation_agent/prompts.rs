@@ -67,6 +67,25 @@ Begin by reviewing the diff. If the app needs setup commands first (e.g. install
     )
 }
 
+/// Build a lightweight prompt for session resumption (the session already has
+/// full context from the initial turn). Only includes new messages the session
+/// hasn't seen yet.
+pub fn build_resumption_prompt(new_messages: &[ValidationMessage]) -> String {
+    let mut prompt = String::new();
+    for msg in new_messages {
+        let role = match msg.role {
+            ValidationMessageRole::User => "User",
+            ValidationMessageRole::Assistant => "Assistant",
+            ValidationMessageRole::System => "System",
+        };
+        prompt.push_str(&format!("{}: {}\n\n", role, msg.content));
+    }
+    prompt.push_str("Respond to the latest message above.");
+    prompt
+}
+
+const MAX_CONVERSATION_MESSAGES: usize = 20;
+
 /// Build a prompt for continuing the validation conversation
 pub fn build_conversation_prompt(
     ticket_title: &str,
@@ -80,8 +99,20 @@ pub fn build_conversation_prompt(
         .map(|s| format!("\n## Acceptance Criteria\n{}\n", s))
         .unwrap_or_default();
 
+    let recent_messages = if messages.len() > MAX_CONVERSATION_MESSAGES {
+        &messages[messages.len() - MAX_CONVERSATION_MESSAGES..]
+    } else {
+        messages
+    };
+
     let mut history = String::new();
-    for msg in messages {
+    if messages.len() > MAX_CONVERSATION_MESSAGES {
+        history.push_str(&format!(
+            "\n[{} earlier messages omitted]\n",
+            messages.len() - MAX_CONVERSATION_MESSAGES
+        ));
+    }
+    for msg in recent_messages {
         let role = match msg.role {
             ValidationMessageRole::User => "User",
             ValidationMessageRole::Assistant => "Assistant",
@@ -225,6 +256,84 @@ mod tests {
         let prompt =
             build_conversation_prompt("T", "D", "diff", None, &messages);
         assert!(prompt.contains("System: App started"));
+    }
+
+    // --- build_resumption_prompt ---
+
+    #[test]
+    fn resumption_prompt_formats_new_messages() {
+        let messages = vec![
+            ValidationMessage {
+                id: "1".into(),
+                session_id: "s".into(),
+                role: ValidationMessageRole::System,
+                content: "Ran `npm install` (exit 0, success)".into(),
+                metadata: None,
+                created_at: Utc::now(),
+            },
+            ValidationMessage {
+                id: "2".into(),
+                session_id: "s".into(),
+                role: ValidationMessageRole::User,
+                content: "Command finished".into(),
+                metadata: None,
+                created_at: Utc::now(),
+            },
+        ];
+        let prompt = build_resumption_prompt(&messages);
+        assert!(prompt.contains("System: Ran `npm install`"));
+        assert!(prompt.contains("User: Command finished"));
+        assert!(prompt.contains("Respond to the latest message above."));
+        assert!(!prompt.contains("Branch diff"));
+        assert!(!prompt.contains("Ticket"));
+    }
+
+    #[test]
+    fn resumption_prompt_empty_messages() {
+        let prompt = build_resumption_prompt(&[]);
+        assert!(prompt.contains("Respond to the latest message above."));
+    }
+
+    // --- conversation_prompt truncation ---
+
+    #[test]
+    fn conversation_prompt_truncates_old_messages() {
+        let mut messages = Vec::new();
+        for i in 0..30 {
+            messages.push(ValidationMessage {
+                id: format!("{}", i),
+                session_id: "s".into(),
+                role: if i % 2 == 0 {
+                    ValidationMessageRole::User
+                } else {
+                    ValidationMessageRole::Assistant
+                },
+                content: format!("message-{}", i),
+                metadata: None,
+                created_at: Utc::now(),
+            });
+        }
+        let prompt = build_conversation_prompt("T", "D", "diff", None, &messages);
+        assert!(prompt.contains("[10 earlier messages omitted]"));
+        assert!(!prompt.contains("message-0"));
+        assert!(!prompt.contains("message-9"));
+        assert!(prompt.contains("message-10"));
+        assert!(prompt.contains("message-29"));
+    }
+
+    #[test]
+    fn conversation_prompt_no_truncation_under_limit() {
+        let messages = vec![ValidationMessage {
+            id: "1".into(),
+            session_id: "s".into(),
+            role: ValidationMessageRole::User,
+            content: "hello".into(),
+            metadata: None,
+            created_at: Utc::now(),
+        }];
+        let prompt = build_conversation_prompt("T", "D", "diff", None, &messages);
+        assert!(!prompt.contains("earlier messages omitted"));
+        assert!(prompt.contains("User: hello"));
     }
 
     // --- truncate_diff ---
