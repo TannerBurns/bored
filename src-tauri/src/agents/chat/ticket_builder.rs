@@ -38,8 +38,16 @@ impl ChatAgent {
             .board_id
             .ok_or(ChatAgentError::MissingField("board_id"))?;
 
-        let board_context = build_board_context(&self.db, &board_id)?;
-        let prompt = build_ticket_builder_prompt(&messages, &board_context);
+        let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
+        let has_session = chat.agent_session_id.is_some();
+
+        let prompt = if is_first_turn || !has_session {
+            let board_context = build_board_context(&self.db, &board_id)?;
+            build_ticket_builder_prompt(&messages, &board_context)
+        } else {
+            let new_msgs = super::extract_new_chat_messages(&messages);
+            super::build_chat_resumption_prompt(&new_msgs)
+        };
 
         let (response, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
