@@ -7,10 +7,11 @@ import { MessageInput } from '../planner/MessageInput';
 import { useChatStore } from '../../stores/chatStore';
 
 const REVIEW_PRESET_PROMPTS = [
-  'Start the app',
   'Review the diff',
+  'What changed?',
+  'Create tasks for improvements',
+  'Start the app and test',
   'Run the tests',
-  'Check for issues',
 ];
 
 interface ChatPanelProps {

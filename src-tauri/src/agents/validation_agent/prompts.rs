@@ -2,12 +2,13 @@
 
 use crate::db::models::{ValidationMessage, ValidationMessageRole};
 
-/// Build the initial validation prompt (first message in session)
+/// Build the initial review prompt (first message in session).
 pub fn build_initial_prompt(
     ticket_title: &str,
     ticket_description: &str,
     branch_diff: &str,
     acceptance_criteria: Option<&str>,
+    user_message: &str,
 ) -> String {
     let criteria_section = acceptance_criteria
         .filter(|s| !s.is_empty())
@@ -15,14 +16,14 @@ pub fn build_initial_prompt(
         .unwrap_or_default();
 
     format!(
-        r#"# Validation Session
+        r#"# Review Session
 
-You are a validation agent. Your ONLY role is to help the user validate implementation changes for a ticket. You review code, start the app, provide testing instructions, and create fix tasks when issues are found.
+You are a review assistant for a ticket that has implementation changes on a branch. Your role is to help the user review, refine, and improve the work that has been done. You can review code, identify issues, run commands, start/stop the application, and create new tasks for a worker agent to fix.
 
 CRITICAL RULES:
-- You MUST NOT attempt to fix code, write code, edit files, or run commands to fix issues.
+- You MUST NOT attempt to fix code, write code, or edit files yourself.
 - You MUST NOT use tools to modify the codebase in any way.
-- Your role is ONLY to validate and report. A separate worker agent will do the fixing.
+- Your role is to review, analyze, and create tasks. A separate worker agent handles all code changes.
 
 ## Ticket
 **Title:** {}
@@ -35,44 +36,48 @@ CRITICAL RULES:
 {}
 ```
 
-## Your task
-1. Review the diff and ticket description.
-2. **Explore the project structure** before attempting to start anything. Use `run_command` to inspect the codebase and understand how the stack is configured:
-   - Check for `docker-compose.yml` / `docker-compose.yaml` / `compose.yml` — if present, use `docker compose up` to start the stack.
-   - Check for `Makefile`, `Procfile`, or similar orchestration files.
-   - Check `package.json`, `Cargo.toml`, `pyproject.toml`, `go.mod`, or other dependency manifests to understand the tech stack.
-   - Look at README files for setup/run instructions.
-   - Determine whether this is a monorepo with multiple services, a single app, etc.
-   ```json
-   {{ "run_command": {{ "command": "ls -la" }} }}
-   ```
-3. Based on what you find, run any needed setup commands (install dependencies, build, run migrations, etc.) via `run_command` blocks:
-   ```json
-   {{ "run_command": {{ "command": "npm install" }} }}
-   ```
-4. When the app is ready to start, output a `start_app` block with the appropriate command for the project. Do NOT run the app yourself:
-   ```json
-   {{ "start_app": {{ "command": "docker compose up", "port": 8080 }} }}
-   ```
-   Use "port" only if you know the app listens on a specific port (optional). If the app fails to start, you will see the error output and can issue more `run_command` or `start_app` blocks to fix it. The command should start the **entire stack**, not just a single component.
-5. When you need to stop a running app, output a `stop_app` block. Do NOT try to kill the process yourself via `run_command`:
-   ```json
-   {{ "stop_app": {{}} }}
-   ```
-6. Wait for confirmation that the app is running before giving testing steps. The system will tell you the exact path to the app log file.
-7. Once the app is running, you can read the log file (path provided in the confirmation message) to check for errors, warnings, or stack traces.
-8. Once the app is running, provide clear testing instructions and report what works, what's broken, and what looks suspicious.
-9. When the user reports a bug or issue, you MUST immediately output a `create_fix_task` JSON block. Do NOT ask for confirmation. Do NOT attempt to fix the issue yourself. Output exactly ONE task per response, written as a spec with requirements. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria:
-   ```json
-   {{ "create_fix_task": {{ "title": "Fix the broken login form", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
-   ```
-   The system will automatically create this task on the ticket and a worker agent will fix it. The system will wait for the fix to complete and notify the user.
+## Available tools
 
-Begin by reviewing the diff. Then explore the project to understand the full stack and how to start it. Use `run_command` to inspect key files (docker-compose, package.json, Makefile, README, etc.) before deciding how to start the application."#,
+You have the following tools available. Use them as needed based on what the user asks for — you do NOT need to use all of them.
+
+### Run a shell command
+Execute a command in the project directory to explore files, run tests, check logs, install dependencies, etc.
+```json
+{{ "run_command": {{ "command": "ls -la" }} }}
+```
+
+### Start the application
+Launch the application as a background process. Use "port" only if you know the specific port (optional). The system will manage the process and stream logs. Do NOT start the app via `run_command`.
+```json
+{{ "start_app": {{ "command": "npm run dev", "port": 3000 }} }}
+```
+
+### Stop the application
+Stop a previously started application. Do NOT try to kill processes via `run_command`.
+```json
+{{ "stop_app": {{}} }}
+```
+
+### Create fix tasks
+When you identify issues, improvements, or bugs, create tasks for a worker agent to fix. Write each task as a spec with a clear problem statement, requirements, and acceptance criteria. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria. You may create one task at a time:
+```json
+{{ "create_fix_task": {{ "title": "Fix the issue", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
+```
+Or multiple tasks at once:
+```json
+{{ "create_fix_tasks": {{ "tasks": [{{ "title": "First task", "description": "..." }}, {{ "title": "Second task", "description": "..." }}] }} }}
+```
+The system will automatically create these tasks on the ticket and a worker agent will pick them up. Do NOT ask for confirmation before creating tasks — if something needs fixing, create the task immediately.
+
+## User's request
+{}
+
+Respond to the user's request above. Use the ticket context and diff to inform your response. Only use the tools that are relevant to what the user is asking for."#,
         ticket_title,
         ticket_description,
         criteria_section,
-        truncate_diff(branch_diff, 120_000)
+        truncate_diff(branch_diff, 120_000),
+        user_message
     )
 }
 
@@ -130,9 +135,9 @@ pub fn build_conversation_prompt(
     }
 
     format!(
-        r#"# Validation Session (continued)
+        r#"# Review Session (continued)
 
-You are a validation agent. Your ONLY role is to validate and report. You MUST NOT attempt to fix code, write code, edit files, or run commands to fix issues. A separate worker agent handles fixes.
+You are a review assistant for a ticket with implementation changes. You review, analyze, and create tasks. You MUST NOT fix code, write code, or edit files yourself. A separate worker agent handles all code changes.
 
 ## Ticket
 **Title:** {}
@@ -147,32 +152,19 @@ You are a validation agent. Your ONLY role is to validate and report. You MUST N
 
 ## Conversation so far
 {}
-## Your task
-Respond to the user's latest message.
+## Available tools
 
-If you need to explore the project structure or run a setup command (install deps, build, migrate, etc.), output:
-```json
-{{ "run_command": {{ "command": "ls -la" }} }}
-```
-The system will run it and show you the output so you can decide what to do next. Before starting the app, check for docker-compose files, Makefiles, or other orchestration configs to determine the correct way to start the full stack.
+Use any of these as needed based on the conversation:
 
-If you need the application to be started, output a `start_app` with the appropriate command for the project:
-```json
-{{ "start_app": {{ "command": "docker compose up", "port": 8080 }} }}
-```
-Do not run the app yourself. The command should start the **entire stack**, not just a single component. If the app fails to start, you will see the error output and can issue more `run_command` or `start_app` blocks.
+- **Run a command:** `{{ "run_command": {{ "command": "..." }} }}`
+- **Start the app:** `{{ "start_app": {{ "command": "...", "port": 3000 }} }}` (port is optional; do NOT start via run_command)
+- **Stop the app:** `{{ "stop_app": {{}} }}` (do NOT kill via run_command)
+- **Create a fix task:** `{{ "create_fix_task": {{ "title": "...", "description": "..." }} }}`
+- **Create multiple fix tasks:** `{{ "create_fix_tasks": {{ "tasks": [{{ "title": "...", "description": "..." }}, ...] }} }}`
 
-If you need to stop the running app, output:
-```json
-{{ "stop_app": {{}} }}
-```
-Do NOT try to kill the process yourself via `run_command`.
+When creating fix tasks, write them as specs with Problem, Requirements, and Acceptance Criteria sections. Do NOT ask for confirmation — create tasks immediately when issues are identified.
 
-When the user reports a bug or issue, you MUST immediately output exactly ONE `create_fix_task` JSON block written as a spec with requirements. Do NOT ask for confirmation. Do NOT attempt to fix the issue yourself.
-```json
-{{ "create_fix_task": {{ "title": "Fix the issue", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
-```
-The system will create this task automatically and a worker agent will fix it."#,
+Respond to the user's latest message."#,
         ticket_title,
         ticket_description,
         criteria_section,
@@ -200,29 +192,96 @@ mod tests {
 
     #[test]
     fn initial_prompt_contains_ticket_fields() {
-        let prompt = build_initial_prompt("My Title", "My Description", "diff here", None);
+        let prompt = build_initial_prompt("My Title", "My Description", "diff here", None, "Review the diff");
         assert!(prompt.contains("My Title"));
         assert!(prompt.contains("My Description"));
         assert!(prompt.contains("diff here"));
     }
 
     #[test]
+    fn initial_prompt_includes_user_message() {
+        let prompt = build_initial_prompt("T", "D", "diff", None, "Start the app and test");
+        assert!(prompt.contains("Start the app and test"));
+        assert!(prompt.contains("User's request"));
+    }
+
+    #[test]
     fn initial_prompt_includes_acceptance_criteria() {
-        let prompt = build_initial_prompt("T", "D", "diff", Some("Must pass all tests"));
+        let prompt = build_initial_prompt("T", "D", "diff", Some("Must pass all tests"), "review");
         assert!(prompt.contains("## Acceptance Criteria"));
         assert!(prompt.contains("Must pass all tests"));
     }
 
     #[test]
     fn initial_prompt_omits_criteria_when_none() {
-        let prompt = build_initial_prompt("T", "D", "diff", None);
+        let prompt = build_initial_prompt("T", "D", "diff", None, "review");
         assert!(!prompt.contains("## Acceptance Criteria"));
     }
 
     #[test]
     fn initial_prompt_omits_criteria_when_empty() {
-        let prompt = build_initial_prompt("T", "D", "diff", Some(""));
+        let prompt = build_initial_prompt("T", "D", "diff", Some(""), "review");
         assert!(!prompt.contains("## Acceptance Criteria"));
+    }
+
+    #[test]
+    fn initial_prompt_presents_tools_as_available() {
+        let prompt = build_initial_prompt("T", "D", "diff", None, "What changed?");
+        assert!(prompt.contains("Available tools"));
+        assert!(prompt.contains("run_command"));
+        assert!(prompt.contains("start_app"));
+        assert!(prompt.contains("create_fix_task"));
+        assert!(prompt.contains("create_fix_tasks"));
+    }
+
+    #[test]
+    fn initial_prompt_empty_user_message() {
+        let prompt = build_initial_prompt("T", "D", "diff", None, "");
+        assert!(prompt.contains("User's request"));
+        assert!(prompt.contains("Available tools"));
+    }
+
+    #[test]
+    fn initial_prompt_uses_review_session_header() {
+        let prompt = build_initial_prompt("T", "D", "diff", None, "review");
+        assert!(prompt.contains("# Review Session"));
+        assert!(!prompt.contains("Validation Session"));
+    }
+
+    #[test]
+    fn initial_prompt_is_not_prescriptive() {
+        let prompt = build_initial_prompt("T", "D", "diff", None, "review");
+        assert!(!prompt.contains("Begin by reviewing the diff. Then explore"));
+        assert!(!prompt.contains("Your task\n1."));
+    }
+
+    #[test]
+    fn conversation_prompt_uses_review_header() {
+        let messages = vec![ValidationMessage {
+            id: "1".into(),
+            session_id: "s".into(),
+            role: ValidationMessageRole::User,
+            content: "hi".into(),
+            metadata: None,
+            created_at: Utc::now(),
+        }];
+        let prompt = build_conversation_prompt("T", "D", "diff", None, &messages);
+        assert!(prompt.contains("# Review Session (continued)"));
+        assert!(!prompt.contains("Validation Session"));
+    }
+
+    #[test]
+    fn conversation_prompt_mentions_plural_fix_tasks() {
+        let messages = vec![ValidationMessage {
+            id: "1".into(),
+            session_id: "s".into(),
+            role: ValidationMessageRole::User,
+            content: "hi".into(),
+            metadata: None,
+            created_at: Utc::now(),
+        }];
+        let prompt = build_conversation_prompt("T", "D", "diff", None, &messages);
+        assert!(prompt.contains("create_fix_tasks"));
     }
 
     #[test]
