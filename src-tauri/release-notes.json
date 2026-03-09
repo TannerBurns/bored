@@ -1,5 +1,54 @@
 [
   {
+    "version": "0.1.0-beta.45",
+    "published_at": "2026-03-09",
+    "summary": "User-driven review mode replacing the rigid testing workflow, session resumption for all chat modes preventing prompt-too-long errors, and multi-task parsing fix ensuring all fix tasks are created.",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "User-driven review mode — review prompts now present tools (run_command, start_app, stop_app, create_fix_task) as available capabilities instead of prescribing a rigid 9-step testing workflow, letting the agent respond to what the user actually asked for",
+          "Review mode passes the user's first message into the initial prompt so the agent addresses the user's intent instead of following a fixed script",
+          "Frontend review preset prompts updated to reflect broader use cases beyond testing",
+          "Session resumption for all chat modes — Ticket Builder, Spec Builder, and General modes now use lightweight resumption prompts on follow-up turns with an existing session, matching the pattern introduced for Review mode in beta.44",
+          "Shared extract_new_chat_messages() and build_chat_resumption_prompt() utilities extracted to chat agent mod.rs so all modes use the same message extraction and resumption prompt format",
+          "Fix-task lifecycle helpers extracted into review_tasks.rs for modularity"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed prompt-too-long errors in Ticket Builder, Spec Builder, and General chat modes — all three modes rebuilt and re-sent full conversation history plus system instructions every turn even when the agent already had context via --resume",
+          "Fixed review mode multi-task parsing dropping all but the first fix task — parse_create_fix_tasks_from_response returned early on the first create_fix_task block instead of collecting all blocks from the response"
+        ]
+      },
+      {
+        "category": "Testing",
+        "items": [
+          "Added 6 unit tests for shared session resumption utilities (extract_new_chat_messages, build_chat_resumption_prompt, has_session)"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.44",
+        "highlight": "Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model."
+      },
+      {
+        "version": "0.1.0-beta.43",
+        "highlight": "Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done. In-session plan generation preserves full conversation context."
+      },
+      {
+        "version": "0.1.0-beta.42",
+        "highlight": "Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks."
+      },
+      {
+        "version": "0.1.0-beta.41",
+        "highlight": "Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.44",
     "published_at": "2026-03-07",
     "summary": "Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. Boards support a hide-done toggle. GPT-5.4 is now the default Codex model.",

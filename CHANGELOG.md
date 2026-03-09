@@ -2,6 +2,47 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.45] - 2026-03-09
+
+User-driven review mode, session resumption for all chat modes, and multi-task parsing fix. Review mode now presents tools as available capabilities instead of prescribing a rigid testing workflow, responding to what the user actually asked for. Session resumption extended to Ticket Builder, Spec Builder, and General chat modes so follow-up turns use lightweight prompts instead of re-sending full conversation history. Multi-task parsing now collects all fix tasks from a single agent response.
+
+### Improvements
+
+- User-driven review mode — review prompts now present tools (run_command, start_app, stop_app, create_fix_task) as available capabilities instead of prescribing a rigid 9-step testing workflow, letting the agent decide which tools to use based on the user's request
+- Review mode passes the user's first message into the initial prompt so the agent addresses the user's actual intent instead of following a fixed testing script
+- Frontend review preset prompts updated to reflect broader review use cases beyond testing
+- Session resumption for all chat modes — Ticket Builder, Spec Builder, and General modes now use lightweight resumption prompts on follow-up turns with an existing session, matching the pattern introduced for Review mode in beta.44
+- Shared extract_new_chat_messages() and build_chat_resumption_prompt() utilities extracted to chat agent mod.rs so all modes use the same message extraction and resumption prompt format
+- has_session() helper added to ChatAgent for modes that don't load the chat, enabling session-aware prompt selection
+- Fix-task lifecycle helpers extracted into review_tasks.rs for modularity, separating concerns from the main review module
+
+### Bug Fixes
+
+- Fixed prompt-too-long errors in Ticket Builder, Spec Builder, and General chat modes — all three modes rebuilt and re-sent full conversation history plus system instructions every turn even when the agent already had context via --resume, causing context limit exhaustion after a few exchanges
+- Fixed review mode multi-task parsing dropping all but the first fix task — parse_create_fix_tasks_from_response returned early on the first create_fix_task block instead of collecting all blocks from the agent response
+
+### Testing
+
+- Added 6 unit tests for shared session resumption utilities covering extract_new_chat_messages, build_chat_resumption_prompt, and has_session edge cases
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.44, here is a summary of the major features introduced in recent releases:
+
+**beta.44 — Review Session Management, Ticket Builder Model & GPT-5.4**
+Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model.
+
+**beta.43 — Per-Mode Chat Models, Auto-Complete Tickets & In-Session Plans**
+Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done. In-session plan generation preserves full conversation context.
+
+**beta.42 — Unified Chat System**
+Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks.
+
+**beta.41 — Full Run Tracking for All CLI Agents**
+Run tracking and cost capture extended to all CLI agents (planner, brainstorm, validation chat) so every agent invocation appears in the Runs tab and dashboard stats. Removed in-app toast notifications in favor of native OS notifications.
+
+---
+
 ## [0.1.0-beta.44] - 2026-03-07
 
 Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat now uses lightweight prompts on session resumption to avoid exceeding context limits. Ticket builder chat has its own model selector independent from spec builder. Boards support a hide-done toggle to declutter completed work. GPT-5.4 is now the default Codex model. Two React error #310 crashes fixed across ticket transitions and Agent tab rendering.
