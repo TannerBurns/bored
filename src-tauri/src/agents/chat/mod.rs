@@ -349,6 +349,14 @@ impl ChatAgent {
         let _ = self.event_tx.send(event);
     }
 
+    fn has_session(&self) -> bool {
+        self.db
+            .get_chat(&self.config.chat_id)
+            .ok()
+            .and_then(|c| c.agent_session_id)
+            .is_some()
+    }
+
     /// Check the chat for a title and trigger generation if missing.
     fn maybe_generate_title(&self, first_user_message: &str) {
         let chat = match self.db.get_chat(&self.config.chat_id) {
@@ -373,6 +381,33 @@ impl ChatAgent {
         );
     }
 
+}
+
+/// Extract messages after the last assistant response.
+pub(crate) fn extract_new_chat_messages(messages: &[ChatMessage]) -> Vec<&ChatMessage> {
+    let last_assistant_idx = messages
+        .iter()
+        .rposition(|m| m.role == ChatMessageRole::Assistant);
+    match last_assistant_idx {
+        Some(idx) => messages[idx + 1..].iter().collect(),
+        None => messages.iter().collect(),
+    }
+}
+
+/// Build a lightweight prompt for session resumption. The session already
+/// has full context from the initial turn.
+pub(crate) fn build_chat_resumption_prompt(new_messages: &[&ChatMessage]) -> String {
+    let mut prompt = String::new();
+    for msg in new_messages {
+        let role = match msg.role {
+            ChatMessageRole::User => "User",
+            ChatMessageRole::Assistant => "Assistant",
+            ChatMessageRole::System => "System",
+        };
+        prompt.push_str(&format!("{}: {}\n\n", role, msg.content));
+    }
+    prompt.push_str("Respond to the latest message above.");
+    prompt
 }
 
 #[cfg(test)]
@@ -411,5 +446,79 @@ mod tests {
     fn log_callback_is_some() {
         let agent = create_test_agent();
         assert!(agent.make_log_callback(None).is_some());
+    }
+
+    fn make_chat_msg(id: &str, role: ChatMessageRole, content: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.into(),
+            chat_id: "c1".into(),
+            role,
+            content: content.into(),
+            metadata: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn extract_new_chat_messages_after_assistant() {
+        let messages = vec![
+            make_chat_msg("1", ChatMessageRole::User, "hello"),
+            make_chat_msg("2", ChatMessageRole::Assistant, "hi there"),
+            make_chat_msg("3", ChatMessageRole::User, "follow up"),
+        ];
+        let new = extract_new_chat_messages(&messages);
+        assert_eq!(new.len(), 1);
+        assert_eq!(new[0].content, "follow up");
+    }
+
+    #[test]
+    fn extract_new_chat_messages_no_assistant() {
+        let messages = vec![
+            make_chat_msg("1", ChatMessageRole::User, "hello"),
+        ];
+        let new = extract_new_chat_messages(&messages);
+        assert_eq!(new.len(), 1);
+        assert_eq!(new[0].content, "hello");
+    }
+
+    #[test]
+    fn extract_new_chat_messages_assistant_is_last() {
+        let messages = vec![
+            make_chat_msg("1", ChatMessageRole::User, "hello"),
+            make_chat_msg("2", ChatMessageRole::Assistant, "done"),
+        ];
+        let new = extract_new_chat_messages(&messages);
+        assert!(new.is_empty());
+    }
+
+    #[test]
+    fn extract_new_chat_messages_includes_system() {
+        let messages = vec![
+            make_chat_msg("1", ChatMessageRole::User, "hello"),
+            make_chat_msg("2", ChatMessageRole::Assistant, "ok"),
+            make_chat_msg("3", ChatMessageRole::System, "status update"),
+            make_chat_msg("4", ChatMessageRole::User, "next question"),
+        ];
+        let new = extract_new_chat_messages(&messages);
+        assert_eq!(new.len(), 2);
+        assert_eq!(new[0].content, "status update");
+        assert_eq!(new[1].content, "next question");
+    }
+
+    #[test]
+    fn build_chat_resumption_prompt_formats_messages() {
+        let messages = vec![
+            make_chat_msg("1", ChatMessageRole::User, "what about X?"),
+        ];
+        let refs: Vec<&ChatMessage> = messages.iter().collect();
+        let prompt = build_chat_resumption_prompt(&refs);
+        assert!(prompt.contains("User: what about X?"));
+        assert!(prompt.contains("Respond to the latest message above."));
+    }
+
+    #[test]
+    fn build_chat_resumption_prompt_empty() {
+        let prompt = build_chat_resumption_prompt(&[]);
+        assert_eq!(prompt, "Respond to the latest message above.");
     }
 }

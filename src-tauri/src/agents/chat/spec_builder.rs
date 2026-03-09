@@ -89,9 +89,13 @@ impl ChatAgent {
         }
 
         let has_assistant_response = messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
+        let has_session = chat.agent_session_id.is_some();
 
         let prompt = if !has_assistant_response {
             build_initial_prompt(&spec.user_input)
+        } else if has_session {
+            let new_msgs = super::extract_new_chat_messages(&messages);
+            super::build_chat_resumption_prompt(&new_msgs)
         } else {
             let conv_messages: Vec<_> = Self::convert_to_conv_messages(&messages, &spec_id)
                 .into_iter()
@@ -316,20 +320,24 @@ impl ChatAgent {
         ))
         .await;
 
-        let fresh_messages = self.db.get_chat_messages(&self.config.chat_id)?;
-        let mut conv_messages: Vec<_> = Self::convert_to_conv_messages(&fresh_messages, spec_id)
-            .into_iter()
-            .skip(1)
-            .collect();
-        conv_messages.push(ConversationMessage {
-            id: "completion-request".to_string(),
-            spec_id: spec_id.to_string(),
-            role: ConversationRole::User,
-            content: COMPLETION_PROMPT.to_string(),
-            created_at: chrono::Utc::now(),
-        });
-
-        let prompt = build_conversation_prompt(original_user_input, &conv_messages);
+        let prompt = if self.has_session() {
+            format!("User: {}\n\nRespond to the latest message above.", COMPLETION_PROMPT)
+        } else {
+            let fresh_messages = self.db.get_chat_messages(&self.config.chat_id)?;
+            let mut conv_messages: Vec<_> =
+                Self::convert_to_conv_messages(&fresh_messages, spec_id)
+                    .into_iter()
+                    .skip(1)
+                    .collect();
+            conv_messages.push(ConversationMessage {
+                id: "completion-request".to_string(),
+                spec_id: spec_id.to_string(),
+                role: ConversationRole::User,
+                content: COMPLETION_PROMPT.to_string(),
+                created_at: chrono::Utc::now(),
+            });
+            build_conversation_prompt(original_user_input, &conv_messages)
+        };
 
         match self.run_agent(&prompt).await {
             Ok((text, stdout, ts_lines)) => {

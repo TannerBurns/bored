@@ -24,7 +24,15 @@ impl ChatAgent {
         &self,
         messages: Vec<ChatMessage>,
     ) -> Result<ChatMessage, ChatAgentError> {
-        let prompt = build_general_prompt(&messages);
+        let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);
+
+        let prompt = if is_first_turn || !self.has_session() {
+            build_general_prompt(&messages)
+        } else {
+            let new_msgs = super::extract_new_chat_messages(&messages);
+            super::build_chat_resumption_prompt(&new_msgs)
+        };
+
         let (response, stdout, ts_lines) = self.run_agent(&prompt).await?;
 
         let message = self.save_assistant_message(&response, None).await?;
