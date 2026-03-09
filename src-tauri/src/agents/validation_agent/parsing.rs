@@ -76,25 +76,28 @@ fn parse_fix_task_from_json_obj(obj: &serde_json::Map<String, serde_json::Value>
 pub(crate) fn parse_create_fix_tasks_from_response(
     response_text: &str,
 ) -> Option<CreateFixTasksBlock> {
+    let mut all_tasks: Vec<FixTask> = Vec::new();
+
     for v in parse_all_json_blocks(response_text) {
         if let Some(task_obj) = v.get("create_fix_task").and_then(|s| s.as_object()) {
-            return Some(CreateFixTasksBlock {
-                tasks: vec![parse_fix_task_from_json_obj(task_obj)],
-            });
+            all_tasks.push(parse_fix_task_from_json_obj(task_obj));
         }
         if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
             if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
-                let tasks: Vec<FixTask> = tasks_arr
-                    .iter()
-                    .filter_map(|tv| tv.as_object().map(parse_fix_task_from_json_obj))
-                    .collect();
-                if !tasks.is_empty() {
-                    return Some(CreateFixTasksBlock { tasks });
+                for tv in tasks_arr {
+                    if let Some(obj) = tv.as_object() {
+                        all_tasks.push(parse_fix_task_from_json_obj(obj));
+                    }
                 }
             }
         }
     }
-    None
+
+    if all_tasks.is_empty() {
+        None
+    } else {
+        Some(CreateFixTasksBlock { tasks: all_tasks })
+    }
 }
 
 #[cfg(test)]
@@ -243,5 +246,93 @@ Please fix it."#;
         let block = parse_create_fix_tasks_from_response(text).unwrap();
         assert_eq!(block.tasks.len(), 1);
         assert_eq!(block.tasks[0].title, "Bare fix");
+    }
+
+    #[test]
+    fn fix_tasks_multiple_singular_blocks() {
+        let text = r#"I found two issues.
+
+```json
+{ "create_fix_task": { "title": "Fix A", "description": "First issue" } }
+```
+
+And another one:
+
+```json
+{ "create_fix_task": { "title": "Fix B", "description": "Second issue" } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 2);
+        assert_eq!(block.tasks[0].title, "Fix A");
+        assert_eq!(block.tasks[1].title, "Fix B");
+    }
+
+    #[test]
+    fn fix_tasks_mixed_singular_and_plural() {
+        let text = r#"```json
+{ "create_fix_task": { "title": "Solo fix", "description": "standalone" } }
+```
+
+```json
+{ "create_fix_tasks": { "tasks": [
+    { "title": "Batch A", "description": "first" },
+    { "title": "Batch B", "description": "second" }
+] } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 3);
+        assert_eq!(block.tasks[0].title, "Solo fix");
+        assert_eq!(block.tasks[1].title, "Batch A");
+        assert_eq!(block.tasks[2].title, "Batch B");
+    }
+
+    #[test]
+    fn fix_tasks_ignores_unrelated_json_blocks() {
+        let text = r#"Let me run a command first.
+
+```json
+{ "run_command": { "command": "npm test" } }
+```
+
+I found an issue:
+
+```json
+{ "create_fix_task": { "title": "Fix test failure", "description": "Tests are failing" } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix test failure");
+    }
+
+    #[test]
+    fn fix_tasks_multiple_plural_blocks() {
+        let text = r#"```json
+{ "create_fix_tasks": { "tasks": [
+    { "title": "A1", "description": "first batch" }
+] } }
+```
+
+```json
+{ "create_fix_tasks": { "tasks": [
+    { "title": "B1", "description": "second batch" },
+    { "title": "B2", "description": "second batch" }
+] } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 3);
+        assert_eq!(block.tasks[0].title, "A1");
+        assert_eq!(block.tasks[1].title, "B1");
+        assert_eq!(block.tasks[2].title, "B2");
+    }
+
+    #[test]
+    fn fix_tasks_multiple_bare_json_blocks() {
+        let text = r#"Two bugs found.
+{ "create_fix_task": { "title": "Bare A", "description": "first" } }
+{ "create_fix_task": { "title": "Bare B", "description": "second" } }"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 2);
+        assert_eq!(block.tasks[0].title, "Bare A");
+        assert_eq!(block.tasks[1].title, "Bare B");
     }
 }

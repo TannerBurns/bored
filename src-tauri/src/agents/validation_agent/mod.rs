@@ -64,6 +64,7 @@ impl ValidationAgent {
             &self.config.ticket_description,
             &self.config.branch_diff,
             self.config.acceptance_criteria.as_deref(),
+            "",
         );
         self.run_agent(&prompt).await
     }

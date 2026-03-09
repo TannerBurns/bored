@@ -1,6 +1,7 @@
 mod config;
 mod general;
 mod review;
+mod review_tasks;
 mod spec_builder;
 mod ticket_builder;
 mod title;
