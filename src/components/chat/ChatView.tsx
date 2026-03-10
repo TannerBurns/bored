@@ -137,6 +137,7 @@ export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {})
       <div className="flex-1 glass rounded-2xl overflow-hidden min-w-0">
         {currentChat ? (
           <ChatPanel
+            key={currentChat.id}
             projectName={projectMap[currentChat.projectId]}
             onNavigateToSpec={onNavigateToSpec}
             onOpenTicket={onOpenTicket}
