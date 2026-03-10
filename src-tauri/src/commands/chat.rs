@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tauri::State;
 use tokio::sync::broadcast;
 
-use crate::agents::chat::{ChatAgent, ChatAgentConfig, TicketBuilderOutput};
+use crate::agents::chat::{ChatAgent, ChatAgentConfig, ChatAgentError, TicketBuilderOutput};
 use crate::agents::cost::AggregatedCost;
 use crate::agents::registry::AgentRegistry;
 use crate::agents::validation_agent::AppProcessManager;
@@ -161,12 +161,41 @@ pub async fn send_chat_message(
         registry.inner().clone(),
     );
 
-    let assistant_msg = agent
+    match agent
         .process_message(messages, Some(&*app_process_manager))
         .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(assistant_msg)
+    {
+        Ok(msg) => Ok(msg),
+        Err(ChatAgentError::Timeout(_)) => {
+            // System message + events already persisted by run_agent
+            let msgs = db.get_chat_messages(&chat_id).map_err(|e| e.to_string())?;
+            msgs.into_iter()
+                .last()
+                .ok_or_else(|| "No messages found".to_string())
+        }
+        Err(e) => {
+            let error_content = match &e {
+                ChatAgentError::NoResponse => {
+                    "Agent returned no response".to_string()
+                }
+                other => format!("An error occurred: {}", other),
+            };
+            let sys_msg = db
+                .create_chat_message(
+                    &chat_id,
+                    ChatMessageRole::System,
+                    &error_content,
+                    Some(&serde_json::json!({ "type": "chat_error" })),
+                )
+                .map_err(|e| e.to_string())?;
+            let _ = event_tx.send(LiveEvent::ChatMessageAdded {
+                chat_id: chat_id.clone(),
+                message_id: sys_msg.id.clone(),
+                role: "system".to_string(),
+            });
+            Ok(sys_msg)
+        }
+    }
 }
 
 #[tauri::command]
