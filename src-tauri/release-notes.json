@@ -1,5 +1,42 @@
 [
   {
+    "version": "0.1.0-beta.47",
+    "published_at": "2026-03-10",
+    "summary": "Pause/resume reliability for todo-based implementation preserving agent session context, and user-facing timeout notifications in chat with red error bubbles and full event timelines.",
+    "notes": [
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed implement pause/resume losing agent context — session ID now persisted in run metadata so chat context survives pause/resume instead of starting a fresh session",
+          "Fixed frontend pause handler advancing past implement prematurely — now checks for incomplete todos before moving to next stage",
+          "Added warning logs in load_todos_from_metadata so silent failures are visible in traces instead of silently falling back to monolithic implement",
+          "Fixed initial todo progress not shown on resume — full todo checklist emitted when implement stage starts, eliminating a race window",
+          "Fixed chat agent timeout producing a blank chat — timeout detected as RunOutcome::Timeout, log events persisted, and error system message saved so timeline is preserved",
+          "Fixed frontend not reloading messages after agent error — send_chat_message returns Ok with error system message so frontend reload flow always runs",
+          "Added ChatErrorBubble component — red assistant-style bubble with warning icon and ChatEventTimeline showing what the agent did before failure"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.46",
+        "highlight": "Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits."
+      },
+      {
+        "version": "0.1.0-beta.45",
+        "highlight": "User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response."
+      },
+      {
+        "version": "0.1.0-beta.44",
+        "highlight": "Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model."
+      },
+      {
+        "version": "0.1.0-beta.43",
+        "highlight": "Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done. In-session plan generation preserves full conversation context."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.46",
     "published_at": "2026-03-10",
     "summary": "Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output, and user git identity attribution with Bored co-author trailer on all agent commits.",
