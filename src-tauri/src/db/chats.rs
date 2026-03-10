@@ -254,6 +254,74 @@ impl Database {
         })
     }
 
+    pub fn get_chat_message(&self, message_id: &str) -> Result<ChatMessage, DbError> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                r#"SELECT id, chat_id, role, content, metadata_json, created_at
+                   FROM chat_messages
+                   WHERE id = ?1"#,
+                [message_id],
+                |row| {
+                    let role_str: String = row.get(2)?;
+                    let metadata_str: Option<String> = row.get(4)?;
+                    Ok(ChatMessage {
+                        id: row.get(0)?,
+                        chat_id: row.get(1)?,
+                        role: ChatMessageRole::parse(&role_str)
+                            .unwrap_or(ChatMessageRole::User),
+                        content: row.get(3)?,
+                        metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
+                        created_at: parse_datetime(row.get(5)?),
+                    })
+                },
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DbError::NotFound(format!("Chat message not found: {}", message_id))
+                }
+                _ => DbError::Sqlite(e),
+            })
+        })
+    }
+
+    pub fn delete_chat_message(&self, message_id: &str) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM chat_events WHERE message_id = ?1",
+                [message_id],
+            )?;
+            conn.execute(
+                "DELETE FROM chat_messages WHERE id = ?1",
+                [message_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Delete all messages (and their events) created strictly after `after_created_at`.
+    pub fn delete_chat_messages_after(
+        &self,
+        chat_id: &str,
+        after_created_at: &str,
+    ) -> Result<u64, DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"DELETE FROM chat_events
+                   WHERE chat_id = ?1
+                     AND message_id IN (
+                       SELECT id FROM chat_messages
+                       WHERE chat_id = ?1 AND created_at > ?2
+                     )"#,
+                params![chat_id, after_created_at],
+            )?;
+            let deleted = conn.execute(
+                "DELETE FROM chat_messages WHERE chat_id = ?1 AND created_at > ?2",
+                params![chat_id, after_created_at],
+            )?;
+            Ok(deleted as u64)
+        })
+    }
+
     // --- Chat Events ---
 
     pub fn create_chat_event(

@@ -44,6 +44,8 @@ interface ChatState {
   loadMessages: (chatId: string) => Promise<void>;
   loadChatEvents: (chatId: string) => Promise<void>;
   sendMessage: (content: string, timeoutMinutes?: number) => Promise<void>;
+  editAndResend: (messageId: string, newContent: string) => Promise<void>;
+  cancelGeneration: () => Promise<void>;
   loadChatCost: (chatId: string) => Promise<void>;
   updateChatCost: () => Promise<void>;
 
@@ -208,6 +210,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } finally {
       get().setAgentThinking(chatId, false);
       get().clearAgentLogs(chatId);
+    }
+  },
+
+  editAndResend: async (messageId: string, newContent: string) => {
+    const { currentChat } = get();
+    if (!currentChat) return;
+
+    const chatId = currentChat.id;
+
+    try {
+      await invoke('edit_chat_message', { chatId, messageId });
+      await get().loadMessages(chatId);
+      await get().loadChatEvents(chatId);
+      await get().sendMessage(newContent);
+    } catch (e) {
+      logger.error('Edit and resend failed', e);
+      if (get().currentChat?.id === chatId) {
+        await get().loadMessages(chatId);
+        await get().loadChatEvents(chatId);
+      }
+    }
+  },
+
+  cancelGeneration: async () => {
+    const { currentChat } = get();
+    if (!currentChat) return;
+
+    const chatId = currentChat.id;
+
+    try {
+      await invoke('cancel_chat_generation', { chatId });
+    } catch (e) {
+      logger.error('Failed to cancel chat generation', e);
     }
   },
 

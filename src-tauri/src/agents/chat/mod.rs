@@ -10,7 +10,8 @@ pub use config::{ChatAgentConfig, ChatAgentError};
 pub use general::build_general_prompt;
 pub use ticket_builder::{parse_ticket_builder_response, TicketBuilderOutput, TicketBuilderTicket};
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 
@@ -22,6 +23,7 @@ use crate::db::Database;
 use super::cost::RunCostData;
 use super::registry::AgentRegistry;
 use super::spawner;
+use super::spawner::CancelHandle;
 use super::{AgentRunConfig, LogCallback, LogLine, LogStream, RunOutcome};
 
 /// A stdout line captured during agent streaming with its original timestamp.
@@ -35,6 +37,7 @@ pub struct ChatAgent {
     config: ChatAgentConfig,
     event_tx: broadcast::Sender<LiveEvent>,
     registry: Arc<AgentRegistry>,
+    cancel_handles: Option<Arc<Mutex<HashMap<String, CancelHandle>>>>,
 }
 
 impl ChatAgent {
@@ -49,7 +52,16 @@ impl ChatAgent {
             config,
             event_tx,
             registry,
+            cancel_handles: None,
         }
+    }
+
+    pub fn with_cancel_handles(
+        mut self,
+        handles: Arc<Mutex<HashMap<String, CancelHandle>>>,
+    ) -> Self {
+        self.cancel_handles = Some(handles);
+        self
     }
 
     pub async fn process_message(
@@ -124,8 +136,25 @@ impl ChatAgent {
         let log_callback = self.make_log_callback(Some(captured_lines.clone()));
         let provider_clone = provider.clone();
 
+        let on_spawn = self.cancel_handles.as_ref().map(|handles| {
+            let handles = handles.clone();
+            let chat_id = self.config.chat_id.clone();
+            let cb: spawner::OnSpawnCallback =
+                Box::new(move |cancel_handle: CancelHandle| {
+                    if let Ok(mut map) = handles.lock() {
+                        map.insert(chat_id, cancel_handle);
+                    }
+                });
+            cb
+        });
+
         let spawn_result = tokio::task::spawn_blocking(move || {
-            spawner::run_agent_via_provider(&*provider_clone, &run_config, log_callback)
+            spawner::run_agent_via_provider_with_cancel(
+                &*provider_clone,
+                &run_config,
+                log_callback,
+                on_spawn,
+            )
         })
         .await;
 
@@ -149,6 +178,11 @@ impl ChatAgent {
                 )));
             }
         };
+
+        if result.status == RunOutcome::Cancelled {
+            tracing::info!("Chat agent cancelled for {}", self.config.chat_id);
+            return Err(ChatAgentError::Cancelled);
+        }
 
         if result.status == RunOutcome::Timeout {
             let timeout_secs = self.config.timeout_secs.unwrap_or(0);

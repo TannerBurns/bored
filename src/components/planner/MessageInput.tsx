@@ -2,11 +2,19 @@ import { useState, useRef, useEffect } from 'react';
 
 interface MessageInputProps {
   onSend: (message: string) => void;
+  onCancel?: () => void;
   disabled?: boolean;
+  isGenerating?: boolean;
   placeholder?: string;
 }
 
-export function MessageInput({ onSend, disabled, placeholder = 'Type a message...' }: MessageInputProps) {
+export function MessageInput({
+  onSend,
+  onCancel,
+  disabled,
+  isGenerating,
+  placeholder = 'Type a message...',
+}: MessageInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,24 +53,41 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
           className="w-full px-3 py-2 glass rounded-xl resize-none text-xs text-board-text placeholder:text-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent/50 disabled:opacity-50 disabled:cursor-not-allowed"
         />
       </div>
-      <button
-        onClick={handleSubmit}
-        disabled={disabled || !value.trim()}
-        className="flex items-center justify-center w-12 h-12 rounded-xl bg-board-accent hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-5 w-5 text-white"
-          viewBox="0 0 20 20"
-          fill="currentColor"
+      {isGenerating && onCancel ? (
+        <button
+          onClick={onCancel}
+          className="flex items-center justify-center w-12 h-12 rounded-xl bg-red-500/80 hover:bg-red-500 transition-all duration-200"
+          title="Stop generation"
         >
-          <path
-            fillRule="evenodd"
-            d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </button>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4 text-white"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <rect x="5" y="5" width="10" height="10" rx="1" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          onClick={handleSubmit}
+          disabled={disabled || !value.trim()}
+          className="flex items-center justify-center w-12 h-12 rounded-xl bg-board-accent hover:bg-board-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 text-white"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

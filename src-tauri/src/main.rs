@@ -263,6 +263,7 @@ fn main() {
 
             app.manage(database.clone());
             app.manage(RunningAgents::new());
+            app.manage(commands::chat::RunningChatAgents::new());
             app.manage(AppProcessManager::new());
             app.manage(tray::NotificationsEnabled(
                 std::sync::atomic::AtomicBool::new(true),
@@ -469,6 +470,8 @@ fn main() {
             commands::chat::stop_chat_app,
             commands::chat::get_chat_app_status,
             commands::chat::create_tickets_from_chat,
+            commands::chat::edit_chat_message,
+            commands::chat::cancel_chat_generation,
             // Ticket pause/resume commands
             commands::tickets::pause_ticket,
             commands::tickets::resume_ticket,
