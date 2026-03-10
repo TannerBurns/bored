@@ -1,5 +1,58 @@
 [
   {
+    "version": "0.1.0-beta.48",
+    "published_at": "2026-03-10",
+    "summary": "Chat message editing with inline regeneration and mid-generation cancellation, cross-project context isolation preventing agents from seeing unrelated project data, and server-side model resolution so settings changes take effect on existing chats.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Chat message editing — edit any past user message with inline editing that truncates the conversation from that point and re-sends with the updated content; re-send unchanged messages to retry a cancelled or failed generation",
+          "Stop generation — cancel button replaces send button while the agent is generating, allowing mid-generation cancellation via CancelHandle with backend RunningChatAgents state tracking",
+          "Backend edit_chat_message and cancel_chat_generation commands with DB methods for message truncation"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Server-side model resolution — new resolve_chat_model() with clear priority chain (synced workflow settings > chat.model > mode defaults) so changing settings takes effect on existing chats",
+          "ensureAgentConfigsSynced() called before sending chat messages so agents always use current settings",
+          "Consolidated 5 duplicate agent section components into a single generic AgentSection in settings UI",
+          "Added timeout/retries configuration to general, ticket builder, validation, and diagnostic agent settings",
+          "Renamed Validation Agent to Review Agent in the settings UI",
+          "Removed deprecated plannerMaxExplorations from config"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed cross-project context leakage — review agent rejects mismatched tickets via project_id guard, ticket_builder board context filtered to only include tickets belonging to the chat's project",
+          "Fixed cancel handle lost on retry — OnSpawnCallback changed from FnOnce to FnMut so callback is invoked on every spawn attempt",
+          "Fixed editAndResend sending to wrong chat on navigation — now invokes send_chat_message directly with captured chatId",
+          "Removed frontend model passing from chat creation to eliminate stale model selection at creation time"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.47",
+        "highlight": "Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout."
+      },
+      {
+        "version": "0.1.0-beta.46",
+        "highlight": "Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits."
+      },
+      {
+        "version": "0.1.0-beta.45",
+        "highlight": "User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response."
+      },
+      {
+        "version": "0.1.0-beta.44",
+        "highlight": "Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.47",
     "published_at": "2026-03-10",
     "summary": "Pause/resume reliability for todo-based implementation preserving agent session context, and user-facing timeout notifications in chat with red error bubbles and full event timelines.",

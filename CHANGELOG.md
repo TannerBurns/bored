@@ -2,6 +2,52 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.48] - 2026-03-10
+
+Chat message editing with inline regeneration and mid-generation cancellation, cross-project context isolation, and server-side model resolution. Users can now edit any past message to regenerate from that point and stop an in-progress generation with a cancel button. Chat agents are now prevented from seeing tickets and context from unrelated projects, and model resolution is handled server-side with a clear priority chain so settings changes take effect on existing chats.
+
+### New Features
+
+- Chat message editing — edit any past user message with inline editing that truncates the conversation from that point and re-sends with the updated content; users can also re-send unchanged messages to retry a cancelled or failed generation
+- Stop generation — a cancel button replaces the send button while the agent is generating, allowing the user to cancel mid-generation via CancelHandle; backend tracks running chat agents in RunningChatAgents state for clean cancellation
+- Backend edit_chat_message and cancel_chat_generation commands with DB methods for message truncation
+
+### Improvements
+
+- Server-side model resolution — new resolve_chat_model() with clear priority chain (synced workflow settings > chat.model > mode defaults) so changing settings takes effect on existing chats without requiring chat recreation
+- ensureAgentConfigsSynced() called before sending chat messages so agents always use current settings
+- Consolidated 5 duplicate agent section components into a single generic AgentSection component in settings UI
+- Added timeout/retries configuration to general, ticket builder, validation, and diagnostic agent settings for consistent controls across all agent types
+- Renamed "Validation Agent" to "Review Agent" in the settings UI
+- Removed deprecated plannerMaxExplorations from config
+- Bumped settings store to version 20 with migration
+
+### Bug Fixes
+
+- Fixed cross-project context leakage — review agent now rejects mismatched tickets via project_id guard, and ticket_builder board context is filtered to only include tickets belonging to the chat's project
+- Fixed ticket project ownership not validated at chat creation for review mode
+- Fixed cancel handle lost on retry — OnSpawnCallback was FnOnce and consumed by .take() on the first iteration of the executor retry loop; changed to FnMut so the callback is invoked on every spawn attempt, keeping the handle map current
+- Fixed editAndResend sending to wrong chat on navigation — sets isAgentThinking immediately and invokes send_chat_message directly with the captured chatId instead of re-reading currentChat from the store
+- Removed frontend model passing from chat creation (NewChatModal, CreateSpecModal, NextStepsPanel) to eliminate stale model selection at creation time
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.47, here is a summary of the major features introduced in recent releases:
+
+**beta.47 — Pause/Resume Reliability & Chat Timeout Notifications**
+Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout.
+
+**beta.46 — Idle-Based Agent Timeout & Git Identity Attribution**
+Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits.
+
+**beta.45 — User-Driven Review Mode & Session Resumption**
+User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response.
+
+**beta.44 — Review Session Management, Ticket Builder Model & GPT-5.4**
+Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model.
+
+---
+
 ## [0.1.0-beta.47] - 2026-03-10
 
 Pause/resume reliability for todo-based implementation and user-facing timeout notifications in chat. Agent session context is now preserved across pause/resume so the agent retains prior file edits and understanding instead of starting fresh. The frontend correctly waits for all todos to complete before advancing past the implement stage. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout, replacing the previous silent failure that left the chat blank.
