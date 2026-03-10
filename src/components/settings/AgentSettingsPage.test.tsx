@@ -21,15 +21,22 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     codeReviewMaxIterations: 3,
     stageTimeoutHours: 1,
     stageMaxRetries: 2,
+    generalModel: 'claude-opus-4-6',
+    generalTimeoutMinutes: 10,
+    generalMaxRetries: 2,
     plannerModel: 'claude-opus-4-5',
     plannerAutoApprove: false,
-    plannerMaxExplorations: 10,
     plannerTimeoutMinutes: 10,
     plannerMaxRetries: 2,
     ticketBuilderModel: 'claude-opus-4-5',
+    ticketBuilderTimeoutMinutes: 10,
+    ticketBuilderMaxRetries: 2,
     validationModel: 'claude-sonnet-4-6',
     validationTimeoutMinutes: 10,
+    validationMaxRetries: 2,
     diagnosticModel: 'claude-sonnet-4-6',
+    diagnosticTimeoutMinutes: 10,
+    diagnosticMaxRetries: 2,
     settings: {},
     ...overrides,
   };
@@ -137,9 +144,9 @@ describe('AgentSettingsPage', () => {
       expect(screen.getByText('Ticket Builder Agent')).toBeInTheDocument();
     });
 
-    it('renders Validation Agent section', () => {
+    it('renders Review Agent section', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      expect(screen.getByText('Validation Agent')).toBeInTheDocument();
+      expect(screen.getByText('Review Agent')).toBeInTheDocument();
     });
 
     it('renders Diagnostic Agent section', () => {
@@ -239,11 +246,6 @@ describe('AgentSettingsPage', () => {
       render(<AgentSettingsPage agentId="claude" />);
       expect(screen.getByTestId('toggle-auto-approve-plans')).toBeInTheDocument();
     });
-
-    it('renders max explorations input', () => {
-      render(<AgentSettingsPage agentId="claude" />);
-      expect(screen.getByText('Max Exploration Queries')).toBeInTheDocument();
-    });
   });
 
   describe('workflow parameters', () => {
@@ -273,17 +275,22 @@ describe('AgentSettingsPage', () => {
     });
   });
 
-  describe('validation section', () => {
-    it('renders validation model selector', () => {
+  describe('review agent section', () => {
+    it('renders review agent heading', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      const heading = screen.getByText('Validation Agent');
-      expect(heading).toBeInTheDocument();
+      expect(screen.getByText('Review Agent')).toBeInTheDocument();
     });
 
-    it('renders validation timeout input', () => {
+    it('renders timeout inputs for all agent sections', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      const labels = screen.getAllByText('Timeout (minutes)');
-      expect(labels.length).toBeGreaterThan(0);
+      const labels = screen.getAllByText('Timeout (min)');
+      expect(labels.length).toBe(5);
+    });
+
+    it('renders max retries inputs for all agent sections', () => {
+      render(<AgentSettingsPage agentId="claude" />);
+      const labels = screen.getAllByText('Max Retries');
+      expect(labels.length).toBe(6);
     });
   });
 

@@ -377,153 +377,52 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
   );
 }
 
-function GeneralSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
+interface AgentSectionProps {
+  title: string;
+  description: string;
+  agentId: string;
+  config: AgentConfig;
+  models: { value: AIModel; label: string }[];
+  modelColWidth: number;
+  modelKey: keyof AgentConfig;
+  timeoutKey: keyof AgentConfig;
+  retriesKey: keyof AgentConfig;
+  children?: React.ReactNode;
+}
+
+function AgentSection({ title, description, agentId, config, models, modelColWidth, modelKey, timeoutKey, retriesKey, children }: AgentSectionProps) {
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-base font-semibold text-board-text">General Chat Agent</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">Model used for general-purpose chat conversations.</p>
+        <h3 className="text-base font-semibold text-board-text">{title}</h3>
+        <p className="text-xs text-board-text-muted mt-0.5">{description}</p>
       </div>
       <div className="glass rounded-lg p-3 space-y-3">
+        {children}
         <div className="glass-subtle rounded-lg px-3 py-2">
           <label className="block text-sm font-medium text-board-text mb-1">Model</label>
-          <select value={config.generalModel}
-            onChange={(e) => updateConfig(agentId, { generalModel: e.target.value as AIModel })}
+          <select value={config[modelKey] as string}
+            onChange={(e) => updateConfig(agentId, { [modelKey]: e.target.value as AIModel })}
             style={{ maxWidth: modelColWidth }}
             className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
             {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
           </select>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SpecAgentSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
-  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-board-text">Spec Agent</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">Configure how the AI spec agent generates plans.</p>
-      </div>
-      <div className="glass rounded-lg p-3 space-y-3">
-        <ToggleRow
-          label="Auto-approve Plans"
-          description="Automatically approve generated plans without manual review"
-          enabled={config.plannerAutoApprove}
-          onChange={(v) => updateConfig(agentId, { plannerAutoApprove: v })}
-        />
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Max Exploration Queries</label>
-          <input type="number" min={1} max={50} value={config.plannerMaxExplorations}
-            onChange={(e) => updateConfig(agentId, { plannerMaxExplorations: parseInt(e.target.value) || 10 })}
-            className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent" />
-          <p className="text-xs text-board-text-muted mt-0.5">Maximum exploration queries before generating a plan (1-50)</p>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="glass-subtle rounded-lg px-3 py-2">
             <label className="block text-sm font-medium text-board-text mb-1">Timeout (min)</label>
-            <input type="number" min={1} max={30} value={config.plannerTimeoutMinutes}
-              onChange={(e) => updateConfig(agentId, { plannerTimeoutMinutes: parseInt(e.target.value) || 10 })}
+            <input type="number" min={1} max={120} value={config[timeoutKey] as number}
+              onChange={(e) => updateConfig(agentId, { [timeoutKey]: Math.max(1, Math.min(120, parseInt(e.target.value) || 10)) })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent" />
           </div>
           <div className="glass-subtle rounded-lg px-3 py-2">
             <label className="block text-sm font-medium text-board-text mb-1">Max Retries</label>
-            <input type="number" min={0} max={5} value={config.plannerMaxRetries}
-              onChange={(e) => updateConfig(agentId, { plannerMaxRetries: parseInt(e.target.value) || 2 })}
+            <input type="number" min={0} max={5} value={config[retriesKey] as number}
+              onChange={(e) => updateConfig(agentId, { [retriesKey]: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })}
               className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent" />
           </div>
-        </div>
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
-          <select value={config.plannerModel}
-            onChange={(e) => updateConfig(agentId, { plannerModel: e.target.value as AIModel })}
-            style={{ maxWidth: modelColWidth }}
-            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
-            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TicketBuilderSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
-  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-board-text">Ticket Builder Agent</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">Model used for ticket builder chat conversations.</p>
-      </div>
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
-          <select value={config.ticketBuilderModel}
-            onChange={(e) => updateConfig(agentId, { ticketBuilderModel: e.target.value as AIModel })}
-            style={{ maxWidth: modelColWidth }}
-            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
-            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ValidationSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
-  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-board-text">Validation Agent</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">AI agent for ticket validation chat.</p>
-      </div>
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
-          <select value={config.validationModel}
-            onChange={(e) => updateConfig(agentId, { validationModel: e.target.value as AIModel })}
-            style={{ maxWidth: modelColWidth }}
-            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
-            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Timeout (minutes)</label>
-          <input type="number" min={1} max={120} value={config.validationTimeoutMinutes}
-            onChange={(e) => updateConfig(agentId, { validationTimeoutMinutes: Math.max(1, Math.min(120, parseInt(e.target.value) || 10)) })}
-            className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DiagnosticSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
-  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold text-board-text">Diagnostic Agent</h3>
-        <p className="text-xs text-board-text-muted mt-0.5">AI agent for diagnosing worktree and git failures.</p>
-      </div>
-      <div className="glass rounded-lg p-3 space-y-3">
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
-          <select value={config.diagnosticModel}
-            onChange={(e) => updateConfig(agentId, { diagnosticModel: e.target.value as AIModel })}
-            style={{ maxWidth: modelColWidth }}
-            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent">
-            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
         </div>
       </div>
     </div>
@@ -542,6 +441,7 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
   const base = useAgentSettings(agentConfig);
   const agent = useAgentRegistryStore((s) => s.agents.find((a) => a.id === agentId));
   const config = useSettingsStore((s) => s.agentConfigs[agentId] ?? s.getAgentConfig(agentId));
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
   const cursorModels = useSettingsStore((s) => s.cursorModels);
 
   const Icon = getAgentIcon(agentId);
@@ -579,15 +479,32 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
 
       <WorkflowSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
-      <GeneralSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <AgentSection title="General Chat Agent" description="Settings for general-purpose chat conversations."
+        agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
+        modelKey="generalModel" timeoutKey="generalTimeoutMinutes" retriesKey="generalMaxRetries" />
       <hr className="border-board-border/30" />
-      <SpecAgentSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <AgentSection title="Spec Agent" description="Configure how the AI spec agent generates plans."
+        agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
+        modelKey="plannerModel" timeoutKey="plannerTimeoutMinutes" retriesKey="plannerMaxRetries">
+        <ToggleRow
+          label="Auto-approve Plans"
+          description="Automatically approve generated plans without manual review"
+          enabled={config.plannerAutoApprove}
+          onChange={(v) => updateConfig(agentId, { plannerAutoApprove: v })}
+        />
+      </AgentSection>
       <hr className="border-board-border/30" />
-      <TicketBuilderSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <AgentSection title="Ticket Builder Agent" description="Settings for ticket builder chat conversations."
+        agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
+        modelKey="ticketBuilderModel" timeoutKey="ticketBuilderTimeoutMinutes" retriesKey="ticketBuilderMaxRetries" />
       <hr className="border-board-border/30" />
-      <ValidationSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <AgentSection title="Review Agent" description="Settings for ticket review chat."
+        agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
+        modelKey="validationModel" timeoutKey="validationTimeoutMinutes" retriesKey="validationMaxRetries" />
       <hr className="border-board-border/30" />
-      <DiagnosticSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
+      <AgentSection title="Diagnostic Agent" description="Settings for diagnosing worktree and git failures."
+        agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
+        modelKey="diagnosticModel" timeoutKey="diagnosticTimeoutMinutes" retriesKey="diagnosticMaxRetries" />
     </div>
   );
 }

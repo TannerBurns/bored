@@ -190,10 +190,6 @@ pub async fn sync_agent_configs(
     agent_configs: HashMap<String, WorkflowSettings>,
     state: State<'_, WorkflowSettingsState>,
 ) -> Result<(), String> {
-    tracing::debug!(
-        "Syncing per-agent configs from frontend: {} agents",
-        agent_configs.len(),
-    );
     let mut marked = HashMap::with_capacity(agent_configs.len());
     for (id, mut ws) in agent_configs {
         ws.synced = true;

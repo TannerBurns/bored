@@ -42,7 +42,7 @@ impl ChatAgent {
         let has_session = chat.agent_session_id.is_some();
 
         let prompt = if is_first_turn || !has_session {
-            let board_context = build_board_context(&self.db, &board_id)?;
+            let board_context = build_board_context(&self.db, &board_id, &chat.project_id)?;
             build_ticket_builder_prompt(&messages, &board_context)
         } else {
             let new_msgs = super::extract_new_chat_messages(&messages);
@@ -60,12 +60,20 @@ impl ChatAgent {
     }
 }
 
-fn build_board_context(db: &Arc<Database>, board_id: &str) -> Result<String, ChatAgentError> {
+fn build_board_context(
+    db: &Arc<Database>,
+    board_id: &str,
+    project_id: &str,
+) -> Result<String, ChatAgentError> {
     let board = db
         .get_board(board_id)?
         .ok_or(ChatAgentError::MissingField("board"))?;
     let columns = db.get_columns(board_id)?;
-    let tickets = db.get_tickets(board_id, None)?;
+    let all_tickets = db.get_tickets(board_id, None)?;
+    let tickets: Vec<_> = all_tickets
+        .into_iter()
+        .filter(|t| t.project_id.as_deref() == Some(project_id))
+        .collect();
 
     let mut context = format!("Board: {}\n", board.name);
     context.push_str("Columns: ");
@@ -413,5 +421,191 @@ Let me know if you want changes."###;
         assert!(!prompt.contains("system msg"));
         assert!(prompt.contains("<message role=\"user\">"));
         assert!(prompt.contains("hello"));
+    }
+
+    fn unique_path(suffix: &str) -> String {
+        let p = std::env::temp_dir().join(format!("test-tb-{}-{}", suffix, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&p).unwrap();
+        p.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn build_board_context_filters_tickets_by_project() {
+        use crate::db::models::{CreateProject, CreateTicket, Priority, WorkflowType};
+
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let project_a = db
+            .create_project(&CreateProject {
+                name: "Project A".into(),
+                path: unique_path("a"),
+                requires_git: false,
+            })
+            .unwrap();
+        let project_b = db
+            .create_project(&CreateProject {
+                name: "Project B".into(),
+                path: unique_path("b"),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let board = db.create_board("Shared Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = &columns[0].id;
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: col_id.clone(),
+            title: "Ticket for A".into(),
+            description_md: "".into(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project_a.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: col_id.clone(),
+            title: "Ticket for B".into(),
+            description_md: "".into(),
+            priority: Priority::High,
+            labels: vec![],
+            project_id: Some(project_b.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        let ctx_a = build_board_context(&db, &board.id, &project_a.id).unwrap();
+        assert!(ctx_a.contains("Ticket for A"), "should include project A ticket");
+        assert!(!ctx_a.contains("Ticket for B"), "should exclude project B ticket");
+
+        let ctx_b = build_board_context(&db, &board.id, &project_b.id).unwrap();
+        assert!(ctx_b.contains("Ticket for B"), "should include project B ticket");
+        assert!(!ctx_b.contains("Ticket for A"), "should exclude project A ticket");
+    }
+
+    #[test]
+    fn build_board_context_excludes_tickets_with_no_project() {
+        use crate::db::models::{CreateProject, CreateTicket, Priority, WorkflowType};
+
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let project = db
+            .create_project(&CreateProject {
+                name: "My Project".into(),
+                path: unique_path("proj"),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = &columns[0].id;
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: col_id.clone(),
+            title: "Owned ticket".into(),
+            description_md: "".into(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: col_id.clone(),
+            title: "Orphan ticket".into(),
+            description_md: "".into(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        let ctx = build_board_context(&db, &board.id, &project.id).unwrap();
+        assert!(ctx.contains("Owned ticket"));
+        assert!(!ctx.contains("Orphan ticket"), "tickets with no project_id should be excluded");
+    }
+
+    #[test]
+    fn build_board_context_empty_when_no_matching_tickets() {
+        use crate::db::models::{CreateProject, CreateTicket, Priority, WorkflowType};
+
+        let db = Arc::new(crate::db::Database::open_in_memory().unwrap());
+        let project_a = db
+            .create_project(&CreateProject {
+                name: "A".into(),
+                path: unique_path("a"),
+                requires_git: false,
+            })
+            .unwrap();
+        let project_b = db
+            .create_project(&CreateProject {
+                name: "B".into(),
+                path: unique_path("b"),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = &columns[0].id;
+
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: col_id.clone(),
+            title: "Only for B".into(),
+            description_md: "".into(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: Some(project_b.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+        let ctx = build_board_context(&db, &board.id, &project_a.id).unwrap();
+        assert!(ctx.contains("Board: Board"));
+        assert!(!ctx.contains("Existing tickets"), "should have no tickets section");
+        assert!(!ctx.contains("Only for B"));
     }
 }

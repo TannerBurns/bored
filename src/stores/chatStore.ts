@@ -8,6 +8,7 @@ import type {
   AggregatedCost,
 } from '../types';
 import { logger } from '../lib/logger';
+import { ensureAgentConfigsSynced } from './settingsStore';
 
 export interface ChatLogEntry {
   stream: string;
@@ -184,6 +185,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().setAgentThinking(chatId, true);
 
     try {
+      await ensureAgentConfigsSynced();
+
       const timeoutSecs =
         timeoutMinutes != null ? timeoutMinutes * 60 : undefined;
       await invoke('send_chat_message', {

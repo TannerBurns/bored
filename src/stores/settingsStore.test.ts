@@ -50,7 +50,6 @@ describe('useSettingsStore', () => {
       useSettingsStore.getState().updateAgentConfig('claude', {
         plannerAutoApprove: false,
         plannerModel: 'claude-opus-4-5',
-        plannerMaxExplorations: 10,
         plannerTimeoutMinutes: 10,
         plannerMaxRetries: 2,
         codeReviewMaxIterations: 3,
@@ -63,7 +62,6 @@ describe('useSettingsStore', () => {
       const config = useSettingsStore.getState().getAgentConfig('claude');
       expect(config.plannerAutoApprove).toBe(false);
       expect(config.plannerModel).toBe('claude-opus-4-5');
-      expect(config.plannerMaxExplorations).toBe(10);
       expect(config.plannerTimeoutMinutes).toBe(10);
       expect(config.plannerMaxRetries).toBe(2);
       expect(config.codeReviewMaxIterations).toBe(3);
@@ -533,10 +531,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 19', () => {
+    it('uses version 20', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(19);
+      expect(options.version).toBe(20);
     });
   });
 

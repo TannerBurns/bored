@@ -8,8 +8,6 @@ export function DiagnosticAgentSettings() {
   const config = useSettingsStore((s) => s.agentConfigs['claude']);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
 
-  const diagnosticModel = config.diagnosticModel;
-
   return (
     <div className="space-y-4">
       <div>
@@ -25,7 +23,7 @@ export function DiagnosticAgentSettings() {
             Model
           </label>
           <select
-            value={diagnosticModel}
+            value={config.diagnosticModel}
             onChange={(e) => updateConfig('claude', { diagnosticModel: e.target.value as AIModel })}
             className="w-full max-w-[180px] px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
           >
@@ -35,9 +33,39 @@ export function DiagnosticAgentSettings() {
               </option>
             ))}
           </select>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            AI model used for diagnosing errors when tickets get blocked
-          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">
+              Timeout (min)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={config.diagnosticTimeoutMinutes}
+              onChange={(e) =>
+                updateConfig('claude', { diagnosticTimeoutMinutes: Math.max(1, Math.min(120, parseInt(e.target.value) || 10)) })
+              }
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+            />
+          </div>
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">
+              Max Retries
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={config.diagnosticMaxRetries}
+              onChange={(e) =>
+                updateConfig('claude', { diagnosticMaxRetries: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })
+              }
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+            />
+          </div>
         </div>
       </div>
     </div>

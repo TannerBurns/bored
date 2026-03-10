@@ -119,20 +119,26 @@ export interface AgentConfig {
   stageMaxRetries: number;
   codeReviewMaxIterations: number;
 
+  generalModel: AIModel;
+  generalTimeoutMinutes: number;
+  generalMaxRetries: number;
+
   plannerModel: AIModel;
   plannerAutoApprove: boolean;
-  plannerMaxExplorations: number;
   plannerTimeoutMinutes: number;
   plannerMaxRetries: number;
 
-  generalModel: AIModel;
-
   ticketBuilderModel: AIModel;
+  ticketBuilderTimeoutMinutes: number;
+  ticketBuilderMaxRetries: number;
 
   validationModel: AIModel;
   validationTimeoutMinutes: number;
+  validationMaxRetries: number;
 
   diagnosticModel: AIModel;
+  diagnosticTimeoutMinutes: number;
+  diagnosticMaxRetries: number;
 
   settings: Record<string, unknown>;
 }
@@ -190,16 +196,22 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
+  generalModel: 'claude-opus-4-6',
+  generalTimeoutMinutes: 10,
+  generalMaxRetries: 2,
   plannerModel: 'claude-opus-4-5',
   plannerAutoApprove: false,
-  plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
-  generalModel: 'claude-opus-4-6',
   ticketBuilderModel: 'claude-opus-4-5',
+  ticketBuilderTimeoutMinutes: 10,
+  ticketBuilderMaxRetries: 2,
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
+  validationMaxRetries: 2,
   diagnosticModel: 'claude-sonnet-4-6',
+  diagnosticTimeoutMinutes: 10,
+  diagnosticMaxRetries: 2,
   settings: {
     authToken: '',
     apiKey: '',
@@ -220,16 +232,22 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
+  generalModel: 'claude-opus-4-6',
+  generalTimeoutMinutes: 10,
+  generalMaxRetries: 2,
   plannerModel: 'claude-opus-4-5',
   plannerAutoApprove: false,
-  plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
-  generalModel: 'claude-opus-4-6',
   ticketBuilderModel: 'claude-opus-4-5',
+  ticketBuilderTimeoutMinutes: 10,
+  ticketBuilderMaxRetries: 2,
   validationModel: 'claude-sonnet-4-6',
   validationTimeoutMinutes: 10,
+  validationMaxRetries: 2,
   diagnosticModel: 'claude-sonnet-4-6',
+  diagnosticTimeoutMinutes: 10,
+  diagnosticMaxRetries: 2,
   settings: {},
 };
 
@@ -242,16 +260,22 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   stageTimeoutHours: 1,
   stageMaxRetries: 2,
   codeReviewMaxIterations: 3,
+  generalModel: 'gpt-5.4',
+  generalTimeoutMinutes: 10,
+  generalMaxRetries: 2,
   plannerModel: 'gpt-5.4',
   plannerAutoApprove: false,
-  plannerMaxExplorations: 10,
   plannerTimeoutMinutes: 10,
   plannerMaxRetries: 2,
-  generalModel: 'gpt-5.4',
   ticketBuilderModel: 'gpt-5.4',
+  ticketBuilderTimeoutMinutes: 10,
+  ticketBuilderMaxRetries: 2,
   validationModel: 'gpt-5.2-codex',
   validationTimeoutMinutes: 10,
+  validationMaxRetries: 2,
   diagnosticModel: 'gpt-5.2-codex',
+  diagnosticTimeoutMinutes: 10,
+  diagnosticMaxRetries: 2,
   settings: {
     ossEnabled: false,
     localProvider: 'ollama',

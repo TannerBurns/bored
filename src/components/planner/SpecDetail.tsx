@@ -131,7 +131,6 @@ export function SpecDetail({ spec, onClose, onOpenChat }: SpecDetailProps) {
       await invoke('start_planner', {
         input: {
           specId: spec.id,
-          maxExplorations: agentConfig.plannerMaxExplorations,
           autoApprove: agentConfig.plannerAutoApprove,
           model,
           timeoutMinutes: agentConfig.plannerTimeoutMinutes,
