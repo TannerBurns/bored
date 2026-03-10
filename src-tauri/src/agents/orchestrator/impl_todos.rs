@@ -80,7 +80,13 @@ impl WorkflowOrchestrator {
     pub(super) fn load_todos_from_metadata(&self) {
         let current_run = match self.db.get_run(&self.parent_run_id) {
             Ok(run) => run,
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load run {} for todo metadata: {}",
+                    self.parent_run_id, e
+                );
+                return;
+            }
         };
 
         if let Some(todos) = Self::extract_todos_from_metadata(&current_run.metadata) {
@@ -92,6 +98,18 @@ impl WorkflowOrchestrator {
                 *stored = todos;
             }
             return;
+        }
+
+        if current_run.metadata.is_none() {
+            tracing::warn!(
+                "Run {} has no metadata — cannot load implementation todos",
+                self.parent_run_id
+            );
+        } else {
+            tracing::warn!(
+                "Run {} metadata exists but contains no implementation_todos",
+                self.parent_run_id
+            );
         }
 
         let prev_statuses = current_run
@@ -126,6 +144,12 @@ impl WorkflowOrchestrator {
             ) {
                 tracing::warn!("Failed to copy todo statuses to current run: {}", e);
             }
+        } else {
+            tracing::warn!(
+                "No implementation todos found in current run {} or any previous run — \
+                 implement stage will fall back to single monolithic prompt",
+                self.parent_run_id
+            );
         }
     }
 
@@ -217,5 +241,24 @@ impl WorkflowOrchestrator {
         let meta = run.metadata?;
         let raw = meta.get("implementation_todos")?;
         serde_json::from_value::<Vec<TodoStatus>>(raw.clone()).ok()
+    }
+
+    /// Persist the implementation session ID so it survives pause/resume.
+    pub(super) fn save_session_id(&self, session_id: &str) {
+        if let Err(e) = self.db.merge_run_metadata(
+            &self.parent_run_id,
+            &serde_json::json!({ "implementation_session_id": session_id }),
+        ) {
+            tracing::warn!("Failed to persist implementation session id: {}", e);
+        }
+    }
+
+    /// Load the implementation session ID from run metadata (for resume scenarios).
+    pub(super) fn load_session_id_from_metadata(&self) -> Option<String> {
+        let run = self.db.get_run(&self.parent_run_id).ok()?;
+        let meta = run.metadata?;
+        meta.get("implementation_session_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 }
