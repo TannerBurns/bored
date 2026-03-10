@@ -6,7 +6,7 @@ pub enum SpawnError {
     #[error("Failed to spawn process: {0}")]
     SpawnFailed(#[from] std::io::Error),
 
-    #[error("Process timed out after {0} seconds")]
+    #[error("Process idle timed out after {0} seconds of inactivity")]
     Timeout(u64),
 
     #[error("Process was cancelled")]

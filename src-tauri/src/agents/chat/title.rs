@@ -82,7 +82,7 @@ pub fn spawn_title_generation(
             run_id: format!("chat-title-{}", uuid::Uuid::new_v4()),
             repo_path,
             prompt,
-            timeout_secs: Some(60),
+            timeout_secs: Some(120),
             model,
             agent_config: title_config,
             session_id: None,

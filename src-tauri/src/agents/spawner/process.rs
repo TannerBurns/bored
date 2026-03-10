@@ -2,7 +2,7 @@
 
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -53,10 +53,15 @@ impl AgentProcess {
         CancelHandle::new(self.cancelled.clone())
     }
 
+    /// Wait for the child process to exit, capturing stdout/stderr.
+    ///
+    /// `idle_timeout` is an inactivity timeout: the timer resets every time a
+    /// line of output is received on stdout or stderr.  The process is only
+    /// killed when no output has been produced for the full duration.
     #[allow(clippy::type_complexity)]
     pub fn wait_with_capture(
         mut self,
-        timeout: Option<Duration>,
+        idle_timeout: Option<Duration>,
         on_log: Option<Arc<LogCallback>>,
         capture_stdout: bool,
     ) -> Result<(Option<i32>, RunOutcome, Option<String>, Option<String>), SpawnError> {
@@ -64,27 +69,40 @@ impl AgentProcess {
         let stderr = self.child.stderr.take();
         let cancelled = self.cancelled.clone();
 
+        let last_activity: Option<Arc<Mutex<Instant>>> =
+            idle_timeout.map(|_| Arc::new(Mutex::new(Instant::now())));
+
         let on_log_stdout = on_log.clone();
+        let activity_stdout = last_activity.clone();
         let stdout_handle = stdout.map(|out| {
             thread::spawn(move || {
-                read_stream_with_capture(out, LogStream::Stdout, on_log_stdout, capture_stdout)
+                read_stream_with_capture(
+                    out,
+                    LogStream::Stdout,
+                    on_log_stdout,
+                    capture_stdout,
+                    activity_stdout,
+                )
             })
         });
 
-        // Always capture stderr for transient error detection
         let on_log_stderr = on_log;
+        let activity_stderr = last_activity.clone();
         let stderr_handle = stderr.map(|err| {
             thread::spawn(move || {
-                read_stream_with_capture(err, LogStream::Stderr, on_log_stderr, true)
+                read_stream_with_capture(
+                    err,
+                    LogStream::Stderr,
+                    on_log_stderr,
+                    true,
+                    activity_stderr,
+                )
             })
         });
-
-        let deadline = timeout.map(|t| Instant::now() + t);
 
         loop {
             if cancelled.load(Ordering::Relaxed) {
                 let _ = self.child.kill();
-                // Wait for reader threads to finish before returning
                 if let Some(h) = stdout_handle {
                     let _ = h.join();
                 }
@@ -94,17 +112,17 @@ impl AgentProcess {
                 return Err(SpawnError::Cancelled);
             }
 
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
+            if let (Some(ref activity), Some(idle)) = (&last_activity, idle_timeout) {
+                let elapsed = Instant::now().duration_since(*activity.lock().unwrap());
+                if elapsed >= idle {
                     let _ = self.child.kill();
-                    // Wait for reader threads to finish before returning
                     if let Some(h) = stdout_handle {
                         let _ = h.join();
                     }
                     if let Some(h) = stderr_handle {
                         let _ = h.join();
                     }
-                    return Err(SpawnError::Timeout(timeout.unwrap().as_secs()));
+                    return Err(SpawnError::Timeout(idle.as_secs()));
                 }
             }
 

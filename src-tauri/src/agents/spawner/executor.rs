@@ -83,7 +83,7 @@ fn run_agent_inner(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    let global_deadline = timeout_secs.map(|secs| Instant::now() + Duration::from_secs(secs));
+    let idle_timeout = timeout_secs.map(Duration::from_secs);
     let mut attempt = 0;
     let mut on_spawn = on_spawn;
 
@@ -94,33 +94,6 @@ fn run_agent_inner(
             let backoff_ms = INITIAL_BACKOFF_MS * 2u64.pow(attempt - 2);
             tracing::debug!("Retry {} for run {} after {}ms", attempt, run_id, backoff_ms);
             thread::sleep(Duration::from_millis(backoff_ms));
-        }
-
-        let remaining_timeout = global_deadline.map(|deadline| {
-            let now = Instant::now();
-            if now >= deadline {
-                Duration::ZERO
-            } else {
-                deadline - now
-            }
-        });
-
-        if let Some(remaining) = remaining_timeout {
-            if remaining.is_zero() {
-                let duration_secs = start_time.elapsed().as_secs_f64();
-                tracing::warn!("Timeout before attempt {} for run {}", attempt, run_id);
-                return Ok(AgentRunResult {
-                    run_id,
-                    exit_code: None,
-                    status: RunOutcome::Timeout,
-                    summary: Some(format!(
-                        "Process timed out after {} seconds",
-                        timeout_secs.unwrap_or(0)
-                    )),
-                    duration_secs,
-                    captured_stdout: None,
-                });
-            }
         }
 
         let process = AgentProcess::spawn(
@@ -134,7 +107,7 @@ fn run_agent_inner(
             callback(process.cancel_handle());
         }
 
-        let result = process.wait_with_capture(remaining_timeout, on_log.clone(), true);
+        let result = process.wait_with_capture(idle_timeout, on_log.clone(), true);
 
         match result {
             Ok((exit_code, outcome, captured_stdout, captured_stderr)) => {
@@ -176,7 +149,10 @@ fn run_agent_inner(
                     run_id,
                     exit_code: None,
                     status: RunOutcome::Timeout,
-                    summary: Some(format!("Process timed out after {} seconds", secs)),
+                    summary: Some(format!(
+                        "Process idle timed out after {} seconds of inactivity",
+                        secs
+                    )),
                     duration_secs,
                     captured_stdout: None,
                 });

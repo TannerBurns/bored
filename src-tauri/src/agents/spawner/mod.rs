@@ -30,7 +30,10 @@ mod tests {
     #[test]
     fn spawn_error_timeout_message() {
         let err = SpawnError::Timeout(300);
-        assert_eq!(err.to_string(), "Process timed out after 300 seconds");
+        assert_eq!(
+            err.to_string(),
+            "Process idle timed out after 300 seconds of inactivity"
+        );
     }
 
     #[test]
