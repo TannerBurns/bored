@@ -22,7 +22,7 @@ use crate::db::Database;
 use super::cost::RunCostData;
 use super::registry::AgentRegistry;
 use super::spawner;
-use super::{AgentRunConfig, LogCallback, LogLine, LogStream};
+use super::{AgentRunConfig, LogCallback, LogLine, LogStream, RunOutcome};
 
 /// A stdout line captured during agent streaming with its original timestamp.
 pub(crate) struct TimestampedLine {
@@ -150,12 +150,42 @@ impl ChatAgent {
             }
         };
 
+        if result.status == RunOutcome::Timeout {
+            let timeout_secs = self.config.timeout_secs.unwrap_or(0);
+            let ts_lines = captured_lines.lock().unwrap().drain(..).collect::<Vec<_>>();
+
+            let msg_text = if timeout_secs >= 120 {
+                format!(
+                    "Agent timed out after {} minutes of inactivity",
+                    timeout_secs / 60
+                )
+            } else {
+                format!(
+                    "Agent timed out after {} seconds of inactivity",
+                    timeout_secs
+                )
+            };
+
+            if let Ok(sys_msg) = self.db.create_chat_message(
+                &self.config.chat_id,
+                ChatMessageRole::System,
+                &msg_text,
+                Some(&serde_json::json!({ "type": "chat_error" })),
+            ) {
+                self.persist_log_events(&ts_lines, &sys_msg.id);
+                self.broadcast(LiveEvent::ChatMessageAdded {
+                    chat_id: self.config.chat_id.clone(),
+                    message_id: sys_msg.id,
+                    role: "system".to_string(),
+                });
+            }
+
+            return Err(ChatAgentError::Timeout(timeout_secs));
+        }
+
         let stdout = result.captured_stdout.unwrap_or_default();
         let text = provider.extract_text(&stdout);
 
-        // Extract and persist the agent's session ID for future resumption.
-        // On the first turn this captures the new session; on subsequent turns
-        // it may update if the provider returns a fresh ID.
         if let Some(new_sid) = provider.extract_session_id(&stdout) {
             if stored_session_id.as_deref() != Some(&new_sid) {
                 tracing::info!(

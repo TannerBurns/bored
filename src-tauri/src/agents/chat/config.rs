@@ -37,6 +37,9 @@ pub enum ChatAgentError {
     #[error("Agent returned no response")]
     NoResponse,
 
+    #[error("Agent timed out after {0} seconds of inactivity")]
+    Timeout(u64),
+
     #[error("Agent execution failed: {0}")]
     AgentFailed(String),
 }

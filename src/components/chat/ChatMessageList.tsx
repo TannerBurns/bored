@@ -61,6 +61,30 @@ function CopyMarkdownButton({ content }: { content: string }) {
   );
 }
 
+function ChatErrorBubble({ content }: { content: string }) {
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] rounded-xl px-4 py-2.5 text-sm border border-red-500/30 bg-red-500/5">
+        <div className="flex items-center gap-2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4 text-red-400 flex-shrink-0"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 002 0V6zm-1 8a1 1 0 100-2 1 1 0 000 2z"
+              clipRule="evenodd"
+            />
+          </svg>
+          <span className="text-red-400">{content}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnCostBadge({ metadata }: { metadata?: Record<string, unknown> }) {
   const costData = metadata?.cost as RunCostData | undefined;
   if (!costData || costData.totalCostUsd === 0) return null;
@@ -124,6 +148,26 @@ export function ChatMessageList({
       ) : (
         <div className="space-y-4">
           {messages.map((msg) => {
+            if (
+              msg.role === 'system' &&
+              (msg.metadata?.type as string) === 'chat_error'
+            ) {
+              const errorEvents = chatEvents.filter(
+                (e) => e.messageId === msg.id,
+              );
+              return (
+                <div key={msg.id} className="space-y-1">
+                  {errorEvents.length > 0 && (
+                    <ChatEventTimeline
+                      events={errorEvents}
+                      agentType={agentType}
+                    />
+                  )}
+                  <ChatErrorBubble content={msg.content} />
+                </div>
+              );
+            }
+
             if (msg.role === 'system') {
               return (
                 <SystemMessage
