@@ -391,6 +391,10 @@ impl WorkflowOrchestrator {
             None
         };
 
+        // Emit initial progress so the frontend shows todos immediately,
+        // including previously completed ones on resume.
+        self.emit_implementation_progress(completed_count, total, "");
+
         for (idx, todo) in todos.iter().enumerate() {
             if let Some(status) = saved_statuses.get(idx) {
                 match status {
