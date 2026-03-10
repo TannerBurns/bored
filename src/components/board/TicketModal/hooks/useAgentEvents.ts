@@ -461,7 +461,14 @@ export function useAgentEvents({
       } else if (latestSubRun.endedAt && latestSubRun.status === 'finished') {
         const currentIdx = stageOrder.indexOf(latestStage);
         if (currentIdx !== -1 && currentIdx < stageOrder.length - 1) {
-          resumeStage = stageOrder[currentIdx + 1];
+          if (latestStage === 'implement') {
+            // Don't advance past implement if there are incomplete todos
+            const todos = await invoke<ImplementationTodoStatus[]>('get_implementation_todos', { runId });
+            const hasIncompleteTodos = todos.length > 0 && todos.some(t => t.status !== 'completed');
+            resumeStage = hasIncompleteTodos ? 'implement' : stageOrder[currentIdx + 1];
+          } else {
+            resumeStage = stageOrder[currentIdx + 1];
+          }
         } else {
           resumeStage = latestStage;
         }

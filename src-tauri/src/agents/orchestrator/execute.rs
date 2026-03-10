@@ -381,7 +381,19 @@ impl WorkflowOrchestrator {
             String::new()
         };
 
-        let mut implementation_session_id: Option<String> = None;
+        let mut implementation_session_id: Option<String> = if completed_count > 0 {
+            let sid = self.load_session_id_from_metadata();
+            if let Some(ref s) = sid {
+                tracing::info!("Restored implementation session id from metadata: {}", s);
+            }
+            sid
+        } else {
+            None
+        };
+
+        // Emit initial progress so the frontend shows todos immediately,
+        // including previously completed ones on resume.
+        self.emit_implementation_progress(completed_count, total, "");
 
         for (idx, todo) in todos.iter().enumerate() {
             if let Some(status) = saved_statuses.get(idx) {
@@ -451,6 +463,7 @@ impl WorkflowOrchestrator {
                                 "Captured agent session id for todo continuation: {}",
                                 sid
                             );
+                            self.save_session_id(sid);
                         }
                     }
 
