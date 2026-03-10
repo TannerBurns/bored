@@ -218,18 +218,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!currentChat) return;
 
     const chatId = currentChat.id;
+    get().setAgentThinking(chatId, true);
 
     try {
       await invoke('edit_chat_message', { chatId, messageId });
-      await get().loadMessages(chatId);
-      await get().loadChatEvents(chatId);
-      await get().sendMessage(newContent);
+
+      if (get().currentChat?.id === chatId) {
+        await get().loadMessages(chatId);
+        await get().loadChatEvents(chatId);
+      }
+
+      await ensureAgentConfigsSynced();
+      await invoke('send_chat_message', {
+        chatId,
+        content: newContent,
+      });
+
+      if (get().currentChat?.id === chatId) {
+        await get().loadMessages(chatId);
+        await get().loadChatEvents(chatId);
+      }
+      await get().refreshChat(chatId);
     } catch (e) {
       logger.error('Edit and resend failed', e);
       if (get().currentChat?.id === chatId) {
         await get().loadMessages(chatId);
         await get().loadChatEvents(chatId);
       }
+    } finally {
+      get().setAgentThinking(chatId, false);
+      get().clearAgentLogs(chatId);
     }
   },
 
