@@ -250,19 +250,14 @@ pub fn create_initial_commit(repo_path: &Path) -> Result<(), WorktreeError> {
         }
     }
 
-    // Create the initial commit
-    // Configure git user if not set (needed for commit)
-    let _ = git_command()
-        .args(["config", "user.email", "agent@bored.local"])
-        .current_dir(repo_path)
-        .output();
-    let _ = git_command()
-        .args(["config", "user.name", "Bored"])
-        .current_dir(repo_path)
-        .output();
-
+    // Create the initial commit using env vars so we don't pollute the repo config
+    // (which would shadow the user's global git identity for later reads).
     let commit_output = git_command()
         .args(["commit", "--allow-empty", "-m", "Initial commit"])
+        .env("GIT_AUTHOR_NAME", "Bored")
+        .env("GIT_AUTHOR_EMAIL", "agent@bored.local")
+        .env("GIT_COMMITTER_NAME", "Bored")
+        .env("GIT_COMMITTER_EMAIL", "agent@bored.local")
         .current_dir(repo_path)
         .output()?;
 
@@ -370,6 +365,38 @@ pub fn resolve_remote_default_branch(repo_path: &Path) -> Option<String> {
 
     tracing::debug!("Could not resolve remote default branch");
     None
+}
+
+/// Read the user's configured git `user.name` from the repo's config chain
+/// (repo -> global -> system). Returns `None` if not configured.
+pub fn get_git_user_name(repo_path: &Path) -> Option<String> {
+    let output = git_command()
+        .args(["config", "user.name"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if name.is_empty() { None } else { Some(name) }
+    } else {
+        None
+    }
+}
+
+/// Read the user's configured git `user.email` from the repo's config chain
+/// (repo -> global -> system). Returns `None` if not configured.
+pub fn get_git_user_email(repo_path: &Path) -> Option<String> {
+    let output = git_command()
+        .args(["config", "user.email"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let email = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if email.is_empty() { None } else { Some(email) }
+    } else {
+        None
+    }
 }
 
 /// Check if a path is a valid git repository

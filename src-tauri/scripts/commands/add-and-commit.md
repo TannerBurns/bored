@@ -13,6 +13,7 @@ IMPORTANT:
 - Never silence tools via suppression comments (`eslint-disable`, `ts-ignore`, `nolint`, etc.) or by commenting-out code.
 - If you remove dead code or split files for modularity, keep it clearly related to the requested change.
 - If you must change a public API, update all call sites and tests accordingly.
+- Do NOT set or modify git user identity (`git config user.name`/`user.email`, `GIT_AUTHOR_*`, `GIT_COMMITTER_*`). The correct identity is already configured via environment.
 
 ---
 
@@ -136,8 +137,9 @@ Separated from subject by a blank line. Include:
 - Risk + rollback notes (if relevant)
 - Testing (commands run and results)
 
-### Footer (optional)
+### Footer (required)
 
+- Always include this trailer as the **last line**: `Co-authored-by: Bored <agent@bored.local>`
 - `BREAKING CHANGE: <description>` if the commit introduces a breaking change
 - `Refs: <ticket IDs, PR numbers>`
 
@@ -166,6 +168,8 @@ Testing:
 
 Refs:
 - JIRA-1234
+
+Co-authored-by: Bored <agent@bored.local>
 
 ---
 

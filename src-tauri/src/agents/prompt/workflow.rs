@@ -106,11 +106,12 @@ Make any necessary improvements.
 Stage and commit all changes:
 1. Review what will be committed
 2. Stage all relevant files
-3. Create a commit message in Conventional Commits (commitizen) format:
+3. Do NOT set or modify git user identity (git config user.name/email, GIT_AUTHOR_*, GIT_COMMITTER_*) — it is already configured
+4. Create a commit message in Conventional Commits (commitizen) format:
    - Subject: `<type>(<scope>): <description>` (e.g., `feat(auth): add OAuth2 flow`)
    - Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
    - Body: what changed, why, and how
-   - Footer: BREAKING CHANGE (if any), Refs
+   - Footer: BREAKING CHANGE (if any), Refs, and always include `Co-authored-by: Bored <agent@bored.local>` as the last line
 "#
         .to_string(),
 

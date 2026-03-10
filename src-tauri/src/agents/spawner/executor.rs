@@ -11,6 +11,7 @@ use super::error::SpawnError;
 use super::process::AgentProcess;
 use super::utils::is_transient_error;
 use crate::agents::provider::AgentProvider;
+use crate::agents::worktree::{get_git_user_email, get_git_user_name};
 
 pub type OnSpawnCallback = Box<dyn FnOnce(CancelHandle) + Send>;
 
@@ -37,7 +38,19 @@ pub fn run_agent_via_provider_with_cancel(
 
     let (command, args) = provider.build_command(config);
 
-    let env_vars = provider.build_env_vars(config);
+    let mut env_vars = provider.build_env_vars(config);
+
+    // Override git identity so commits are authored/committed by the user,
+    // not by the agent CLI. The Co-authored-by trailer in the commit message
+    // (added via the add-and-commit command instructions) credits Bored.
+    if let Some(name) = get_git_user_name(&config.repo_path) {
+        env_vars.push(("GIT_AUTHOR_NAME".to_string(), name.clone()));
+        env_vars.push(("GIT_COMMITTER_NAME".to_string(), name));
+    }
+    if let Some(email) = get_git_user_email(&config.repo_path) {
+        env_vars.push(("GIT_AUTHOR_EMAIL".to_string(), email.clone()));
+        env_vars.push(("GIT_COMMITTER_EMAIL".to_string(), email));
+    }
 
     run_agent_inner(
         command,
