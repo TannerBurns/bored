@@ -2,6 +2,37 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.46] - 2026-03-10
+
+Idle-based agent timeout and user git identity attribution. Agent timeouts now reset on every line of output instead of using an absolute wall-clock deadline, preventing active agents from being killed while producing results. All agent commits are now attributed to the user with Bored credited as co-author via commit message trailer.
+
+### Improvements
+
+- Idle-based agent timeout — timeout now resets on every line of stdout/stderr output from the agent process instead of using an absolute wall-clock deadline, so active agents producing logs, tool calls, or streaming responses are no longer killed while making progress; timeout only fires when the process goes silent for the configured duration
+- Shared last_activity tracker (Arc<Mutex<Instant>>) updated by stream reader threads on each line read, with per-attempt fresh idle timers replacing the global deadline logic
+- Title generation timeout increased from 60s to 120s (now idle-based)
+- User git identity attribution — agent commits now show the user as author/committer by injecting GIT_AUTHOR_*/GIT_COMMITTER_* env vars read from the repo's git config chain (repo → global → system), matching the pattern used by GitHub Copilot and Claude Code
+- Bored co-author trailer — add-and-commit instructions require a "Co-authored-by: Bored <agent@bored.local>" trailer on every agent commit so Bored is credited as co-author
+- Initial commits in new repos no longer pollute repo-level git config — switched from git config user.name/user.email writes to per-invocation env vars for author/committer identity
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.45, here is a summary of the major features introduced in recent releases:
+
+**beta.45 — User-Driven Review Mode & Session Resumption**
+User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes (Ticket Builder, Spec Builder, General) so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response.
+
+**beta.44 — Review Session Management, Ticket Builder Model & GPT-5.4**
+Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model.
+
+**beta.43 — Per-Mode Chat Models, Auto-Complete Tickets & In-Session Plans**
+Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done. In-session plan generation preserves full conversation context.
+
+**beta.42 — Unified Chat System**
+Unified chat system replacing separate validation and conversation flows with four modes — General, Spec Builder, Ticket Builder, and Review — with consistent SSE streaming, cost tracking, and agent log display. Multi-task ticket routing correctly queues remaining tasks.
+
+---
+
 ## [0.1.0-beta.45] - 2026-03-09
 
 User-driven review mode, session resumption for all chat modes, and multi-task parsing fix. Review mode now presents tools as available capabilities instead of prescribing a rigid testing workflow, responding to what the user actually asked for. Session resumption extended to Ticket Builder, Spec Builder, and General chat modes so follow-up turns use lightweight prompts instead of re-sending full conversation history. Multi-task parsing now collects all fix tasks from a single agent response.
