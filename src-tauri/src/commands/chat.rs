@@ -37,6 +37,16 @@ pub async fn create_chat(
             if input.board_id.is_none() || input.ticket_id.is_none() {
                 return Err("board_id and ticket_id are required for review mode".into());
             }
+            if let Some(ref tid) = input.ticket_id {
+                let ticket = db
+                    .get_ticket(tid)
+                    .map_err(|e| format!("Failed to load ticket: {}", e))?;
+                if ticket.project_id.as_deref() != Some(&input.project_id) {
+                    return Err(
+                        "Ticket does not belong to the selected project".into(),
+                    );
+                }
+            }
         }
         _ => {}
     }
@@ -130,19 +140,8 @@ pub async fn send_chat_message(
 
     let agent_config = agent_settings.agent_config_for(&chat.agent_type);
 
-    let model = chat.model.clone().or_else(|| {
-        let ws = workflow_settings.get_for_agent(&chat.agent_type);
-        if !ws.synced {
-            return None;
-        }
-        let m = match chat.mode {
-            ChatMode::General => &ws.general_model,
-            ChatMode::SpecBuilder => &ws.planner_model,
-            ChatMode::TicketBuilder => &ws.ticket_builder_model,
-            ChatMode::Review => &ws.validation_model,
-        };
-        if m.is_empty() { None } else { Some(m.clone()) }
-    });
+    let ws = workflow_settings.get_for_agent(&chat.agent_type);
+    let model = resolve_chat_model(chat.model.as_deref(), &chat.mode, &ws);
 
     let config = ChatAgentConfig {
         chat_id: chat_id.clone(),
@@ -298,4 +297,248 @@ pub async fn create_tickets_from_chat(
     }
 
     Ok(ticket_ids)
+}
+
+fn default_model_for_mode(mode: &ChatMode) -> &'static str {
+    match mode {
+        ChatMode::General => crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL,
+        ChatMode::SpecBuilder => crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL,
+        ChatMode::TicketBuilder => crate::agents::models::DEFAULT_TICKET_BUILDER_CHAT_MODEL,
+        ChatMode::Review => crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL,
+    }
+}
+
+/// Resolve which model to use for a chat message.
+///
+/// Priority: synced workflow settings > chat-level stored model > mode defaults.
+///
+/// Synced settings always take priority so that changing the model in settings
+/// immediately affects all chats (existing and new). The `chat.model` field
+/// is only used as a fallback when settings haven't been synced yet.
+fn resolve_chat_model(
+    chat_model: Option<&str>,
+    mode: &ChatMode,
+    ws: &super::workflow_settings::WorkflowSettings,
+) -> Option<String> {
+    if ws.synced {
+        let m = match mode {
+            ChatMode::General => &ws.general_model,
+            ChatMode::SpecBuilder => &ws.planner_model,
+            ChatMode::TicketBuilder => &ws.ticket_builder_model,
+            ChatMode::Review => &ws.validation_model,
+        };
+
+        if !m.is_empty() {
+            return Some(m.clone());
+        }
+    }
+
+    if let Some(m) = chat_model {
+        return Some(m.to_string());
+    }
+
+    Some(default_model_for_mode(mode).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::workflow_settings::WorkflowSettings;
+
+    #[test]
+    fn resolve_model_prefers_synced_settings_over_chat_model() {
+        let ws = WorkflowSettings {
+            general_model: "ws-general".into(),
+            synced: true,
+            ..Default::default()
+        };
+        let result = resolve_chat_model(Some("old-frozen-model"), &ChatMode::General, &ws);
+        assert_eq!(
+            result.as_deref(),
+            Some("ws-general"),
+            "synced settings should take priority over chat.model"
+        );
+    }
+
+    #[test]
+    fn resolve_model_uses_chat_model_when_not_synced() {
+        let ws = WorkflowSettings::default(); // synced == false
+        let result = resolve_chat_model(Some("chat-stored-model"), &ChatMode::General, &ws);
+        assert_eq!(
+            result.as_deref(),
+            Some("chat-stored-model"),
+            "chat.model should be used as fallback when settings not synced"
+        );
+    }
+
+    #[test]
+    fn resolve_model_uses_synced_settings_when_no_chat_model() {
+        let ws = WorkflowSettings {
+            general_model: "my-general-model".into(),
+            planner_model: "my-planner-model".into(),
+            ticket_builder_model: "my-tb-model".into(),
+            validation_model: "my-review-model".into(),
+            synced: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::General, &ws).as_deref(),
+            Some("my-general-model"),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::SpecBuilder, &ws).as_deref(),
+            Some("my-planner-model"),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::TicketBuilder, &ws).as_deref(),
+            Some("my-tb-model"),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::Review, &ws).as_deref(),
+            Some("my-review-model"),
+        );
+    }
+
+    #[test]
+    fn resolve_model_falls_back_to_defaults_when_not_synced() {
+        let ws = WorkflowSettings::default(); // synced == false
+
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::General, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::SpecBuilder, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::TicketBuilder, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_TICKET_BUILDER_CHAT_MODEL),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::Review, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL),
+        );
+    }
+
+    #[test]
+    fn resolve_model_falls_back_to_defaults_when_synced_model_empty() {
+        let ws = WorkflowSettings {
+            general_model: "".into(),
+            planner_model: "".into(),
+            ticket_builder_model: "".into(),
+            validation_model: "".into(),
+            synced: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::General, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL),
+        );
+        assert_eq!(
+            resolve_chat_model(None, &ChatMode::TicketBuilder, &ws).as_deref(),
+            Some(crate::agents::models::DEFAULT_TICKET_BUILDER_CHAT_MODEL),
+        );
+    }
+
+    #[test]
+    fn resolve_model_always_returns_some() {
+        let unsynced = WorkflowSettings::default();
+        assert!(resolve_chat_model(None, &ChatMode::General, &unsynced).is_some());
+
+        let empty_synced = WorkflowSettings {
+            general_model: "".into(),
+            synced: true,
+            ..Default::default()
+        };
+        assert!(resolve_chat_model(None, &ChatMode::General, &empty_synced).is_some());
+
+        let good = WorkflowSettings {
+            general_model: "model".into(),
+            synced: true,
+            ..Default::default()
+        };
+        assert!(resolve_chat_model(None, &ChatMode::General, &good).is_some());
+    }
+
+    #[test]
+    fn default_model_for_each_mode() {
+        assert_eq!(
+            default_model_for_mode(&ChatMode::General),
+            crate::agents::models::DEFAULT_GENERAL_CHAT_MODEL,
+        );
+        assert_eq!(
+            default_model_for_mode(&ChatMode::SpecBuilder),
+            crate::agents::models::DEFAULT_PLANNER_CHAT_MODEL,
+        );
+        assert_eq!(
+            default_model_for_mode(&ChatMode::TicketBuilder),
+            crate::agents::models::DEFAULT_TICKET_BUILDER_CHAT_MODEL,
+        );
+        assert_eq!(
+            default_model_for_mode(&ChatMode::Review),
+            crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL,
+        );
+    }
+
+    fn unique_path(suffix: &str) -> String {
+        let p = std::env::temp_dir().join(format!("test-chat-{}-{}", suffix, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&p).unwrap();
+        p.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn create_chat_review_mode_rejects_mismatched_project() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+
+        let project_a = db
+            .create_project(&crate::db::models::CreateProject {
+                name: "A".into(),
+                path: unique_path("a"),
+                requires_git: false,
+            })
+            .unwrap();
+        let project_b = db
+            .create_project(&crate::db::models::CreateProject {
+                name: "B".into(),
+                path: unique_path("b"),
+                requires_git: false,
+            })
+            .unwrap();
+
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = &columns[0].id;
+
+        let ticket = db
+            .create_ticket(&crate::db::models::CreateTicket {
+                board_id: board.id.clone(),
+                column_id: col_id.clone(),
+                title: "Ticket in B".into(),
+                description_md: "".into(),
+                priority: crate::db::models::Priority::Medium,
+                labels: vec![],
+                project_id: Some(project_b.id.clone()),
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            })
+            .unwrap();
+
+        // Attempting to load this ticket under project A should detect the mismatch
+        let loaded = db.get_ticket(&ticket.id).unwrap();
+        assert_ne!(
+            loaded.project_id.as_deref(),
+            Some(project_a.id.as_str()),
+            "Ticket belongs to project B, not A"
+        );
+        assert_eq!(loaded.project_id.as_deref(), Some(project_b.id.as_str()));
+    }
 }

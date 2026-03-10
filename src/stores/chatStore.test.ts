@@ -10,6 +10,10 @@ vi.mock('../lib/logger', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock('./settingsStore', () => ({
+  ensureAgentConfigsSynced: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { invoke } from '@tauri-apps/api/core';
 
 const mockChat: Chat = {
@@ -496,9 +500,7 @@ describe('useChatStore', () => {
       useChatStore.setState({ currentChat: mockChat });
       vi.mocked(invoke).mockRejectedValueOnce(new Error('Send failed'));
 
-      await expect(
-        useChatStore.getState().sendMessage('fail')
-      ).rejects.toThrow('Send failed');
+      await useChatStore.getState().sendMessage('fail');
 
       expect(useChatStore.getState().isAgentThinking).toBe(false);
     });

@@ -3,7 +3,6 @@ import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { getAgentIcon, getAgentBrandColor } from '../common';
 import { useChatStore } from '../../stores/chatStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import { getProjects, getBoards, getAvailableAgents } from '../../lib/tauri';
 import { useCliAvailability } from '../../hooks/useCliAvailability';
 import { cn } from '../../lib/utils';
@@ -25,7 +24,6 @@ export function CreateSpecModal({
   onChatCreated,
 }: CreateSpecModalProps) {
   const { createChat, selectChat } = useChatStore();
-  const getAgentConfig = useSettingsStore((s) => s.getAgentConfig);
 
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || '');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -95,13 +93,11 @@ export function CreateSpecModal({
 
     setIsSubmitting(true);
     try {
-      const config = getAgentConfig(selectedAgent);
       const chat = await createChat({
         agentType: selectedAgent,
         projectId: selectedProjectId,
         mode: 'spec_builder',
         boardId: targetBoardId || boardId,
-        model: config.plannerModel,
       });
       await selectChat(chat.id);
       setTargetBoardId('');

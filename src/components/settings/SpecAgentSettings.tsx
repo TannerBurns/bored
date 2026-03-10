@@ -11,7 +11,6 @@ export function SpecAgentSettings() {
 
   const plannerAutoApprove = config.plannerAutoApprove;
   const plannerModel = config.plannerModel;
-  const plannerMaxExplorations = config.plannerMaxExplorations;
   const plannerTimeoutMinutes = config.plannerTimeoutMinutes;
   const plannerMaxRetries = config.plannerMaxRetries;
 
@@ -25,7 +24,6 @@ export function SpecAgentSettings() {
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
-        {/* Auto-approve toggle */}
         <div className="flex items-center justify-between glass-subtle rounded-lg px-3 py-2">
           <div>
             <span className="text-sm font-medium text-board-text">Auto-approve Plans</span>
@@ -50,55 +48,6 @@ export function SpecAgentSettings() {
           </button>
         </div>
 
-        {/* Max explorations */}
-        <div className="glass-subtle rounded-lg px-3 py-2">
-          <label className="block text-sm font-medium text-board-text mb-1">
-            Max Exploration Queries
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={50}
-            value={plannerMaxExplorations}
-            onChange={(e) => updateConfig('claude', { plannerMaxExplorations: parseInt(e.target.value) || 10 })}
-            className="w-20 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-          />
-          <p className="text-xs text-board-text-muted mt-0.5">
-            Maximum exploration queries before generating a plan (1-50)
-          </p>
-        </div>
-
-        {/* Timeout and retries */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="glass-subtle rounded-lg px-3 py-2">
-            <label className="block text-sm font-medium text-board-text mb-1">
-              Timeout (min)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={plannerTimeoutMinutes}
-              onChange={(e) => updateConfig('claude', { plannerTimeoutMinutes: parseInt(e.target.value) || 10 })}
-              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-            />
-          </div>
-          <div className="glass-subtle rounded-lg px-3 py-2">
-            <label className="block text-sm font-medium text-board-text mb-1">
-              Max Retries
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={5}
-              value={plannerMaxRetries}
-              onChange={(e) => updateConfig('claude', { plannerMaxRetries: parseInt(e.target.value) || 2 })}
-              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
-            />
-          </div>
-        </div>
-
-        {/* Model preference */}
         <div className="glass-subtle rounded-lg px-3 py-2">
           <label className="block text-sm font-medium text-board-text mb-1">
             Model
@@ -114,9 +63,35 @@ export function SpecAgentSettings() {
               </option>
             ))}
           </select>
-          <p className="text-xs text-board-text-muted mt-0.5">
-            AI model used for spec generation
-          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">
+              Timeout (min)
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={plannerTimeoutMinutes}
+              onChange={(e) => updateConfig('claude', { plannerTimeoutMinutes: Math.max(1, Math.min(120, parseInt(e.target.value) || 10)) })}
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+            />
+          </div>
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">
+              Max Retries
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={plannerMaxRetries}
+              onChange={(e) => updateConfig('claude', { plannerMaxRetries: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })}
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all"
+            />
+          </div>
         </div>
       </div>
     </div>

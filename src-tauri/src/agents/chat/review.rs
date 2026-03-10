@@ -41,6 +41,12 @@ impl ChatAgent {
             .get_ticket(&ticket_id)
             .map_err(|e| ChatAgentError::AgentFailed(e.to_string()))?;
 
+        if ticket.project_id.as_deref() != Some(&chat.project_id) {
+            return Err(ChatAgentError::AgentFailed(
+                "Ticket does not belong to the chat's project".into(),
+            ));
+        }
+
         let project = self
             .db
             .get_project(&chat.project_id)?

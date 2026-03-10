@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { BuildWithDropdown } from '../BuildWithDropdown';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
 import { useChatStore } from '../../../stores/chatStore';
-import { useSettingsStore } from '../../../stores/settingsStore';
 import type { Ticket, Column, FileDiff } from '../../../types';
 
 interface NextStepsPanelProps {
@@ -24,7 +23,6 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
 
   const createChat = useChatStore((s) => s.createChat);
   const selectChat = useChatStore((s) => s.selectChat);
-  const getAgentConfig = useSettingsStore((s) => s.getAgentConfig);
 
   useEffect(() => {
     if (!diffFullscreen) return;
@@ -93,14 +91,12 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
   const handleReviewWithAgent = useCallback(async (agentType: string) => {
     try {
       setActionLoading('review');
-      const config = getAgentConfig(agentType);
       const chat = await createChat({
         agentType,
         projectId: ticket.projectId || '',
         mode: 'review' as const,
         boardId: ticket.boardId,
         ticketId: ticket.id,
-        model: config.validationModel,
       });
       await selectChat(chat.id);
       onNavigateToChat?.();
@@ -109,7 +105,7 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
     } finally {
       setActionLoading(null);
     }
-  }, [ticket, createChat, selectChat, onNavigateToChat, getAgentConfig]);
+  }, [ticket, createChat, selectChat, onNavigateToChat]);
 
   const handleViewDiff = () => {
     setDiffVisible((v) => !v);

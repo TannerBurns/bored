@@ -306,7 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 19,
+      version: 20,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -404,24 +404,31 @@ export const useSettingsStore = create<SettingsState>()(
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
               stageMaxRetries: (state.stageMaxRetries as number) ?? base.stageMaxRetries,
               codeReviewMaxIterations: (state.codeReviewMaxIterations as number) ?? base.codeReviewMaxIterations,
+              generalModel: base.generalModel,
+              generalTimeoutMinutes: base.generalTimeoutMinutes,
+              generalMaxRetries: base.generalMaxRetries,
               plannerModel: keepOrDefault(state.plannerModel, base.plannerModel),
               plannerAutoApprove: (state.plannerAutoApprove as boolean) ?? base.plannerAutoApprove,
-              plannerMaxExplorations: (state.plannerMaxExplorations as number) ?? base.plannerMaxExplorations,
               plannerTimeoutMinutes: (state.plannerTimeoutMinutes as number) ?? base.plannerTimeoutMinutes,
               plannerMaxRetries: (state.plannerMaxRetries as number) ?? base.plannerMaxRetries,
-              generalModel: base.generalModel,
               ticketBuilderModel: base.ticketBuilderModel,
+              ticketBuilderTimeoutMinutes: base.ticketBuilderTimeoutMinutes,
+              ticketBuilderMaxRetries: base.ticketBuilderMaxRetries,
               validationModel: keepOrDefault(state.validationModel, base.validationModel),
               validationTimeoutMinutes: (state.validationTimeoutMinutes as number) ?? base.validationTimeoutMinutes,
+              validationMaxRetries: base.validationMaxRetries,
               diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
+              diagnosticTimeoutMinutes: base.diagnosticTimeoutMinutes,
+              diagnosticMaxRetries: base.diagnosticMaxRetries,
               settings: agentSettings[agentId] ?? base.settings,
             };
           };
           state.agentConfigs = { claude: buildConfig('claude'), cursor: buildConfig('cursor'), codex: buildConfig('codex') };
           delete state.workflowPreset; delete state.workflowStages;
           delete state.stageTimeoutHours; delete state.stageMaxRetries; delete state.codeReviewMaxIterations;
-          delete state.plannerModel; delete state.plannerAutoApprove; delete state.plannerMaxExplorations;
+          delete state.plannerModel; delete state.plannerAutoApprove;
           delete state.plannerTimeoutMinutes; delete state.plannerMaxRetries;
+          delete state.plannerMaxExplorations;
           delete state.validationModel; delete state.validationTimeoutMinutes;
           delete state.diagnosticModel; delete state.agentSettings;
         }
@@ -551,6 +558,22 @@ export const useSettingsStore = create<SettingsState>()(
               if (cfg.autoCompleteTickets === undefined) {
                 cfg.autoCompleteTickets = false;
               }
+            }
+          }
+        }
+
+        if (version < 20) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              delete cfg.plannerMaxExplorations;
+              if (cfg.generalTimeoutMinutes === undefined) cfg.generalTimeoutMinutes = 10;
+              if (cfg.generalMaxRetries === undefined) cfg.generalMaxRetries = 2;
+              if (cfg.ticketBuilderTimeoutMinutes === undefined) cfg.ticketBuilderTimeoutMinutes = 10;
+              if (cfg.ticketBuilderMaxRetries === undefined) cfg.ticketBuilderMaxRetries = 2;
+              if (cfg.validationMaxRetries === undefined) cfg.validationMaxRetries = 2;
+              if (cfg.diagnosticTimeoutMinutes === undefined) cfg.diagnosticTimeoutMinutes = 10;
+              if (cfg.diagnosticMaxRetries === undefined) cfg.diagnosticMaxRetries = 2;
             }
           }
         }
