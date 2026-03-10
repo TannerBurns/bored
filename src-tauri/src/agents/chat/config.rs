@@ -42,4 +42,7 @@ pub enum ChatAgentError {
 
     #[error("Agent execution failed: {0}")]
     AgentFailed(String),
+
+    #[error("Agent generation was cancelled")]
+    Cancelled,
 }

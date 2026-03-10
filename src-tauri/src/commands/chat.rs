@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::State;
 use tokio::sync::broadcast;
@@ -7,6 +8,7 @@ use tokio::sync::broadcast;
 use crate::agents::chat::{ChatAgent, ChatAgentConfig, ChatAgentError, TicketBuilderOutput};
 use crate::agents::cost::AggregatedCost;
 use crate::agents::registry::AgentRegistry;
+use crate::agents::spawner::CancelHandle;
 use crate::agents::validation_agent::AppProcessManager;
 use crate::api::state::LiveEvent;
 use crate::db::models::{
@@ -17,6 +19,25 @@ use crate::db::Database;
 
 use super::workflow_settings::WorkflowSettingsState;
 use super::AgentSettingsManager;
+
+/// Shared state for tracking cancel handles of in-flight chat agent runs.
+pub struct RunningChatAgents {
+    pub handles: Arc<Mutex<HashMap<String, CancelHandle>>>,
+}
+
+impl RunningChatAgents {
+    pub fn new() -> Self {
+        Self {
+            handles: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl Default for RunningChatAgents {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[tauri::command]
 pub async fn create_chat(
@@ -117,6 +138,7 @@ pub async fn send_chat_message(
     agent_settings: State<'_, AgentSettingsManager>,
     workflow_settings: State<'_, WorkflowSettingsState>,
     app_process_manager: State<'_, AppProcessManager>,
+    running_chats: State<'_, RunningChatAgents>,
     chat_id: String,
     content: String,
     timeout_secs: Option<u64>,
@@ -153,20 +175,37 @@ pub async fn send_chat_message(
         timeout_secs: Some(timeout_secs.unwrap_or(600)),
     };
 
+    let cancel_handles = running_chats.handles.clone();
     let agent = ChatAgent::new(
         db.inner().clone(),
         config,
         event_tx.inner().clone(),
         registry.inner().clone(),
-    );
+    )
+    .with_cancel_handles(cancel_handles);
 
-    match agent
+    let result = agent
         .process_message(messages, Some(&*app_process_manager))
-        .await
+        .await;
+
+    // Clean up cancel handle regardless of outcome
     {
+        let mut handles = running_chats
+            .handles
+            .lock()
+            .expect("running chat agents mutex poisoned");
+        handles.remove(&chat_id);
+    }
+
+    match result {
         Ok(msg) => Ok(msg),
+        Err(ChatAgentError::Cancelled) => {
+            let msgs = db.get_chat_messages(&chat_id).map_err(|e| e.to_string())?;
+            msgs.into_iter()
+                .last()
+                .ok_or_else(|| "No messages found".to_string())
+        }
         Err(ChatAgentError::Timeout(_)) => {
-            // System message + events already persisted by run_agent
             let msgs = db.get_chat_messages(&chat_id).map_err(|e| e.to_string())?;
             msgs.into_iter()
                 .last()
@@ -212,6 +251,53 @@ pub async fn get_chat_app_status(
     chat_id: String,
 ) -> Result<bool, String> {
     Ok(app_manager.is_running(&chat_id))
+}
+
+#[tauri::command]
+pub async fn edit_chat_message(
+    db: State<'_, Arc<Database>>,
+    event_tx: State<'_, broadcast::Sender<LiveEvent>>,
+    chat_id: String,
+    message_id: String,
+) -> Result<(), String> {
+    let msg = db
+        .get_chat_message(&message_id)
+        .map_err(|e| e.to_string())?;
+
+    let created_at_str = msg.created_at.to_rfc3339();
+    db.delete_chat_messages_after(&chat_id, &created_at_str)
+        .map_err(|e| e.to_string())?;
+    db.delete_chat_message(&message_id)
+        .map_err(|e| e.to_string())?;
+
+    db.update_chat_agent_session_id(&chat_id, None)
+        .map_err(|e| e.to_string())?;
+
+    let _ = event_tx.send(LiveEvent::ChatUpdated {
+        chat_id: chat_id.clone(),
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_chat_generation(
+    chat_id: String,
+    running_chats: State<'_, RunningChatAgents>,
+) -> Result<(), String> {
+    let handles = running_chats
+        .handles
+        .lock()
+        .expect("running chat agents mutex poisoned");
+
+    if let Some(handle) = handles.get(&chat_id) {
+        handle.cancel();
+        tracing::info!("Cancelled chat generation for {}", chat_id);
+    } else {
+        tracing::warn!("No cancel handle found for chat {}", chat_id);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

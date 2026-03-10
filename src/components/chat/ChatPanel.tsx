@@ -27,6 +27,8 @@ export function ChatPanel({ projectName, onNavigateToSpec, onOpenTicket }: ChatP
   const chatEvents = useChatStore((s) => s.chatEvents);
   const agentLogs = useChatStore((s) => s.agentLogs);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const editAndResend = useChatStore((s) => s.editAndResend);
+  const cancelGeneration = useChatStore((s) => s.cancelGeneration);
   const appLogs = useChatStore((s) => s.appLogs);
   const isAppRunning = useChatStore((s) => s.isAppRunning);
   const setAppRunning = useChatStore((s) => s.setAppRunning);
@@ -91,6 +93,7 @@ export function ChatPanel({ projectName, onNavigateToSpec, onOpenTicket }: ChatP
         chatId={currentChat.id}
         onNavigateToSpec={onNavigateToSpec}
         onOpenTicket={onOpenTicket}
+        onEditMessage={editAndResend}
       />
 
       <div className="border-t border-board-border p-4 space-y-2">
@@ -109,7 +112,9 @@ export function ChatPanel({ projectName, onNavigateToSpec, onOpenTicket }: ChatP
         )}
         <MessageInput
           onSend={sendMessage}
+          onCancel={cancelGeneration}
           disabled={isAgentThinking}
+          isGenerating={isAgentThinking}
           placeholder={placeholder}
         />
       </div>
