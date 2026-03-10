@@ -136,17 +136,18 @@ impl ChatAgent {
         let log_callback = self.make_log_callback(Some(captured_lines.clone()));
         let provider_clone = provider.clone();
 
-        let on_spawn = self.cancel_handles.as_ref().map(|handles| {
-            let handles = handles.clone();
-            let chat_id = self.config.chat_id.clone();
-            let cb: spawner::OnSpawnCallback =
-                Box::new(move |cancel_handle: CancelHandle| {
-                    if let Ok(mut map) = handles.lock() {
-                        map.insert(chat_id, cancel_handle);
-                    }
-                });
-            cb
-        });
+        let on_spawn: Option<spawner::OnSpawnCallback> =
+            self.cancel_handles.as_ref().map(|handles| {
+                let handles = handles.clone();
+                let chat_id = self.config.chat_id.clone();
+                let cb: spawner::OnSpawnCallback =
+                    Box::new(move |cancel_handle: CancelHandle| {
+                        if let Ok(mut map) = handles.lock() {
+                            map.insert(chat_id.clone(), cancel_handle);
+                        }
+                    });
+                cb
+            });
 
         let spawn_result = tokio::task::spawn_blocking(move || {
             spawner::run_agent_via_provider_with_cancel(

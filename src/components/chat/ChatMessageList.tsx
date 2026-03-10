@@ -95,10 +95,10 @@ function EditableUserMessage({
 
   const handleSave = useCallback(() => {
     const trimmed = editValue.trim();
-    if (!trimmed || !onEditMessage) return;
+    if (!trimmed || !onEditMessage || trimmed === message.content) return;
     setIsEditing(false);
     onEditMessage(message.id, trimmed);
-  }, [editValue, message.id, onEditMessage]);
+  }, [editValue, message.id, message.content, onEditMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

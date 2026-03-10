@@ -13,7 +13,7 @@ use super::utils::is_transient_error;
 use crate::agents::provider::AgentProvider;
 use crate::agents::worktree::{get_git_user_email, get_git_user_name};
 
-pub type OnSpawnCallback = Box<dyn FnOnce(CancelHandle) + Send>;
+pub type OnSpawnCallback = Box<dyn FnMut(CancelHandle) + Send>;
 
 pub fn run_agent_via_provider(
     provider: &dyn AgentProvider,
@@ -103,7 +103,7 @@ fn run_agent_inner(
             &env_refs,
         )?;
 
-        if let Some(callback) = on_spawn.take() {
+        if let Some(ref mut callback) = on_spawn {
             callback(process.cancel_handle());
         }
 
