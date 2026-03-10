@@ -2,6 +2,38 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.47] - 2026-03-10
+
+Pause/resume reliability for todo-based implementation and user-facing timeout notifications in chat. Agent session context is now preserved across pause/resume so the agent retains prior file edits and understanding instead of starting fresh. The frontend correctly waits for all todos to complete before advancing past the implement stage. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout, replacing the previous silent failure that left the chat blank.
+
+### Bug Fixes
+
+- Fixed implement pause/resume losing agent context — the agent session ID is now persisted in run metadata so the chat context survives pause/resume instead of starting a fresh session that loses all prior file edits and understanding
+- Fixed frontend pause handler advancing past implement prematurely — the handler now checks for incomplete todos before deciding to move to the next stage, preventing skipped work when a single todo sub-run finishes but others remain
+- Added warning logs throughout load_todos_from_metadata so silent failures (missing metadata, deserialization issues) are visible in traces instead of silently falling back to monolithic implement
+- Fixed initial todo progress not shown on resume — the full todo checklist (including previously completed items) is now emitted when the implement stage starts, eliminating a race window where the UI could briefly show no todos
+- Fixed chat agent timeout producing a blank chat with no notification — timeout is now detected as a distinct RunOutcome::Timeout variant, log events are persisted, and a system message with chat_error metadata is saved so the timeline is preserved
+- Fixed frontend not reloading messages after agent error — send_chat_message now catches all agent errors and returns Ok with an error system message instead of Err, so the frontend reload flow always runs; a catch block in chatStore sendMessage reloads messages/events as a safety net
+- Added ChatErrorBubble component — left-aligned red assistant-style bubble with warning icon, rendered with the ChatEventTimeline above it, so users see exactly what the agent did before the failure
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.46, here is a summary of the major features introduced in recent releases:
+
+**beta.46 — Idle-Based Agent Timeout & Git Identity Attribution**
+Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits.
+
+**beta.45 — User-Driven Review Mode & Session Resumption**
+User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response.
+
+**beta.44 — Review Session Management, Ticket Builder Model & GPT-5.4**
+Review chat session management, ticket builder model independence, hide-done board filter, GPT-5.4 model support, and React rendering stability fixes. Review chat uses lightweight prompts on session resumption. Ticket builder has its own model selector. GPT-5.4 is now the default Codex model.
+
+**beta.43 — Per-Mode Chat Models, Auto-Complete Tickets & In-Session Plans**
+Per-mode chat model selection — General, Spec Builder/Ticket Builder, and Review each have an independent model selector. Auto-complete tickets setting moves tickets directly to Done. In-session plan generation preserves full conversation context.
+
+---
+
 ## [0.1.0-beta.46] - 2026-03-10
 
 Idle-based agent timeout and user git identity attribution. Agent timeouts now reset on every line of output instead of using an absolute wall-clock deadline, preventing active agents from being killed while producing results. All agent commits are now attributed to the user with Bored credited as co-author via commit message trailer.
