@@ -81,9 +81,7 @@ pub trait AgentProvider: Send + Sync + std::fmt::Debug {
     fn format_command_reference(&self, command: &str) -> String;
 
     /// Extract the session/thread identifier from raw agent output.
-    fn extract_session_id(&self, _output: &str) -> Option<String> {
-        None
-    }
+    fn extract_session_id(&self, output: &str) -> Option<String>;
 
     /// Brand color hex for UI display (e.g. "#da7756").
     fn brand_color(&self) -> Option<&str> {
@@ -195,6 +193,7 @@ mod tests {
         fn config_dir_name(&self) -> &str { ".stub" }
         fn command_instructions_subdir(&self) -> &str { "commands" }
         fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn extract_session_id(&self, _output: &str) -> Option<String> { None }
     }
 
     #[test]
@@ -284,6 +283,7 @@ mod tests {
         fn effective_cost_model(&self, stage: &str, _: &HashMap<String, serde_json::Value>) -> String {
             self.override_model.clone().unwrap_or_else(|| stage.to_string())
         }
+        fn extract_session_id(&self, _output: &str) -> Option<String> { None }
     }
 
     #[test]
@@ -379,6 +379,7 @@ mod tests {
         fn effective_cost_model(&self, stage: &str, _: &HashMap<String, serde_json::Value>) -> String {
             self.override_model.clone().unwrap_or_else(|| stage.to_string())
         }
+        fn extract_session_id(&self, _output: &str) -> Option<String> { None }
     }
 
     #[test]

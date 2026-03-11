@@ -116,6 +116,9 @@ mod tests {
         fn format_command_reference(&self, command: &str) -> String {
             format!("/{}", command)
         }
+        fn extract_session_id(&self, _output: &str) -> Option<String> {
+            None
+        }
     }
 
     #[test]

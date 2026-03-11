@@ -710,6 +710,9 @@ mod tests {
             fn format_command_reference(&self, cmd: &str) -> String {
                 format!("/{}", cmd)
             }
+            fn extract_session_id(&self, _output: &str) -> Option<String> {
+                None
+            }
         }
 
         fn make_registry() -> AgentRegistry {
@@ -942,6 +945,7 @@ mod tests {
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| stage.to_string())
             }
+            fn extract_session_id(&self, _output: &str) -> Option<String> { None }
         }
 
         #[test]

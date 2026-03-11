@@ -28,6 +28,10 @@ impl WorkflowOrchestrator {
 
     /// Execute the static multi-stage workflow pipeline.
     async fn execute_multi_stage(&self) -> Result<(), String> {
+        if self.resume_from_stage.is_some() {
+            self.restore_workflow_session_id();
+        }
+
         let mut plan = String::new();
 
         for stage_key in &self.stage_order {
@@ -68,6 +72,10 @@ impl WorkflowOrchestrator {
 
     /// Execute the auto-pilot workflow where the agent decides which commands to run.
     async fn execute_auto_pilot(&self) -> Result<(), String> {
+        if self.resume_from_stage.is_some() {
+            self.restore_workflow_session_id();
+        }
+
         self.handle_branch_creation().await?;
 
         let plan = self.run_plan_stage().await?;
@@ -534,16 +542,6 @@ impl WorkflowOrchestrator {
             String::new()
         };
 
-        let mut implementation_session_id: Option<String> = if completed_count > 0 {
-            let sid = self.load_session_id_from_metadata();
-            if let Some(ref s) = sid {
-                tracing::info!("Restored implementation session id from metadata: {}", s);
-            }
-            sid
-        } else {
-            None
-        };
-
         // Emit initial progress so the frontend shows todos immediately,
         // including previously completed ones on resume.
         self.emit_implementation_progress(completed_count, total, "");
@@ -605,21 +603,9 @@ impl WorkflowOrchestrator {
                 total,
             );
 
-            match self.run_stage_with_session("implement", &prompt, implementation_session_id.as_deref()).await {
+            match self.run_stage("implement", &prompt).await {
                 Ok(result) => {
                     let raw_output = result.captured_stdout.unwrap_or_default();
-
-                    if implementation_session_id.is_none() {
-                        implementation_session_id = self.provider.extract_session_id(&raw_output);
-                        if let Some(ref sid) = implementation_session_id {
-                            tracing::info!(
-                                "Captured agent session id for todo continuation: {}",
-                                sid
-                            );
-                            self.save_session_id(sid);
-                        }
-                    }
-
                     let text = self.extract_text(&raw_output);
                     if !combined_output.is_empty() {
                         combined_output.push_str("\n\n");

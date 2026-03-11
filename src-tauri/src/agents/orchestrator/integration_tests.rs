@@ -40,6 +40,7 @@ impl AgentProvider for StubProvider {
             ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
         ]
     }
+    fn extract_session_id(&self, _output: &str) -> Option<String> { None }
 }
 
 /// Provider that extracts a session_id from output, used to test
@@ -93,6 +94,7 @@ impl AgentProvider for CodexStubProvider {
             ("gpt-5.2-codex", "GPT-5.2 Codex"),
         ]
     }
+    fn extract_session_id(&self, _output: &str) -> Option<String> { None }
 }
 
 fn create_test_db() -> Arc<Database> {
@@ -1614,7 +1616,7 @@ async fn session_id_not_extracted_when_provider_returns_none() {
 
     let runner = Arc::new(SessionCapturingRunner::new("ignored-session"));
 
-    // Use default StubProvider which does NOT implement extract_session_id
+    // StubProvider's extract_session_id always returns None
     let mut orch = WorkflowOrchestrator::new(make_config(
         db.clone(),
         ticket,
@@ -1733,8 +1735,13 @@ async fn session_id_cleared_on_retry_attempts() {
     let mut orch = WorkflowOrchestrator::new(config);
     orch.set_stage_runner(runner.clone());
 
+    {
+        let mut guard = orch.workflow_session_id.write().unwrap();
+        *guard = Some("my-session-id".to_string());
+    }
+
     let result = orch
-        .run_stage_with_session("implement", "test prompt", Some("my-session-id"))
+        .run_stage("implement", "test prompt")
         .await;
     assert!(result.is_ok());
 
