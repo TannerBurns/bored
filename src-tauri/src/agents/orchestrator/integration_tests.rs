@@ -1944,6 +1944,74 @@ fn finish_workflow_moves_to_ready_even_with_auto_complete_when_pending_tasks() {
     assert_eq!(get_ticket_column_name(&db, &ticket.id), "Ready");
 }
 
+// -- Auto-clarification task deletion: ticket column movement --
+
+#[test]
+fn delete_task_auto_clarification_moves_ticket_to_ready_when_pending_remain() {
+    use crate::db::models::{CreateTask, TaskType};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    db.create_task(&CreateTask {
+        ticket_id: ticket.id.clone(),
+        task_type: TaskType::Custom,
+        title: Some("Second task".to_string()),
+        content: None,
+    })
+    .unwrap();
+
+    let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task1.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task1.clone());
+    let orch = WorkflowOrchestrator::new(config);
+
+    db.delete_task(&task1.id).unwrap();
+    orch.move_ticket_to_column("Ready");
+
+    assert_eq!(
+        get_ticket_column_name(&db, &ticket.id),
+        "Ready",
+        "ticket must move to Ready so remaining pending tasks are picked up"
+    );
+    assert!(
+        db.has_pending_tasks(&ticket.id).unwrap(),
+        "second task should still be pending"
+    );
+}
+
+#[test]
+fn delete_task_auto_clarification_moves_ticket_to_ready_when_no_pending_remain() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task.clone());
+    let orch = WorkflowOrchestrator::new(config);
+
+    db.delete_task(&task.id).unwrap();
+    orch.move_ticket_to_column("Ready");
+
+    assert_eq!(
+        get_ticket_column_name(&db, &ticket.id),
+        "Ready",
+        "ticket must not remain stuck in In Progress after task deletion"
+    );
+}
+
 // -- Workflow session ID persistence tests --
 
 #[test]

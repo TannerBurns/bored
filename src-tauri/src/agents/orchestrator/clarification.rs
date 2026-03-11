@@ -172,8 +172,9 @@ impl WorkflowOrchestrator {
                         return None;
                     }
                     self.add_auto_clarification_comment("Task deleted", &resolution.reason);
+                    self.move_ticket_to_column("Ready");
                     tracing::info!(
-                        "Auto-clarification resolved (delete_task) for ticket {}",
+                        "Auto-clarification resolved (delete_task) for ticket {}, moved to Ready",
                         self.ticket.id,
                     );
                     Some(Err(format!(

@@ -207,6 +207,15 @@ fn handle_clarification_stop(
         )
         .map_err(|e| format!("Failed to update run status: {}", e))?;
 
+    if let Some(ref t) = config.task {
+        if let Err(e) = config.db.fail_task(&t.id) {
+            tracing::warn!(
+                "Failed to mark task {} as failed for clarification stop: {}",
+                t.id, e
+            );
+        }
+    }
+
     if let Some(ref window) = config.window {
         let event = AgentCompleteEvent {
             run_id: config.run_id.clone(),
@@ -316,6 +325,23 @@ mod tests {
         }
     }
 
+    fn make_test_config_with_task() -> RunnerConfig {
+        use crate::db::models::{CreateTask, TaskType, TaskStatus};
+
+        let mut config = make_test_config();
+        let task = config.db.create_task(&CreateTask {
+            ticket_id: config.ticket.id.clone(),
+            task_type: TaskType::Custom,
+            title: Some("Test Task".to_string()),
+            content: None,
+        }).unwrap();
+        config.db.start_task(&task.id, &config.run_id).unwrap();
+        let started = config.db.get_task(&task.id).unwrap();
+        assert_eq!(started.status, TaskStatus::InProgress);
+        config.task = Some(started);
+        config
+    }
+
     #[test]
     fn handle_workflow_error_routes_clarification_to_finished() {
         let config = make_test_config();
@@ -331,6 +357,42 @@ mod tests {
             result.summary.as_deref(),
             Some("Waiting for user clarification")
         );
+    }
+
+    #[test]
+    fn clarification_stop_fails_task_when_present() {
+        use crate::db::models::TaskStatus;
+
+        let config = make_test_config_with_task();
+        let task_id = config.task.as_ref().unwrap().id.clone();
+
+        let result = handle_workflow_error(
+            &config,
+            "Plan requires user clarification: unclear requirements".to_string(),
+            1.5,
+        );
+        assert!(result.is_ok());
+
+        let task = config.db.get_task(&task_id).unwrap();
+        assert_eq!(
+            task.status,
+            TaskStatus::Failed,
+            "task must be failed so resolve_clarification can reset it to pending"
+        );
+    }
+
+    #[test]
+    fn auto_clarification_delete_does_not_panic_on_missing_task() {
+        let config = make_test_config_with_task();
+        let task_id = config.task.as_ref().unwrap().id.clone();
+        config.db.delete_task(&task_id).unwrap();
+
+        let result = handle_workflow_error(
+            &config,
+            "Task deleted by auto-clarification: already completed".to_string(),
+            2.0,
+        );
+        assert!(result.is_ok(), "should not panic when task is already deleted");
     }
 
     #[test]
