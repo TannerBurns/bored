@@ -365,22 +365,28 @@ impl WorkflowOrchestrator {
         match auto_result {
             Ok(resolution) => match resolution.action {
                 AutoClarificationAction::UpdateTask { updated_content } => {
-                    if let Some(ref task) = self.task {
-                        if let Err(e) = self.db.update_task(
-                            &task.id,
-                            &UpdateTask {
-                                content: Some(updated_content),
-                                title: None,
-                                status: None,
-                                run_id: None,
-                            },
-                        ) {
-                            tracing::warn!(
-                                "Auto-clarification: failed to update task {}: {}",
-                                task.id,
-                                e,
-                            );
-                        }
+                    let Some(ref task) = self.task else {
+                        tracing::warn!(
+                            "Auto-clarification: UpdateTask but self.task is None for ticket {}",
+                            self.ticket.id,
+                        );
+                        return None;
+                    };
+                    if let Err(e) = self.db.update_task(
+                        &task.id,
+                        &UpdateTask {
+                            content: Some(updated_content),
+                            title: None,
+                            status: None,
+                            run_id: None,
+                        },
+                    ) {
+                        tracing::warn!(
+                            "Auto-clarification: failed to update task {}: {}",
+                            task.id,
+                            e,
+                        );
+                        return None;
                     }
                     self.add_auto_clarification_comment("Task updated", &resolution.reason);
                     tracing::info!(
@@ -390,14 +396,20 @@ impl WorkflowOrchestrator {
                     Some(Ok(()))
                 }
                 AutoClarificationAction::DeleteTask => {
-                    if let Some(ref task) = self.task {
-                        if let Err(e) = self.db.delete_task(&task.id) {
-                            tracing::warn!(
-                                "Auto-clarification: failed to delete task {}: {}",
-                                task.id,
-                                e,
-                            );
-                        }
+                    let Some(ref task) = self.task else {
+                        tracing::warn!(
+                            "Auto-clarification: DeleteTask but self.task is None for ticket {}",
+                            self.ticket.id,
+                        );
+                        return None;
+                    };
+                    if let Err(e) = self.db.delete_task(&task.id) {
+                        tracing::warn!(
+                            "Auto-clarification: failed to delete task {}: {}",
+                            task.id,
+                            e,
+                        );
+                        return None;
                     }
                     self.add_auto_clarification_comment("Task deleted", &resolution.reason);
                     tracing::info!(
