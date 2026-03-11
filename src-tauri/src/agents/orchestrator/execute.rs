@@ -217,6 +217,10 @@ impl WorkflowOrchestrator {
                 plan = self.generate_plan_text().await?;
             }
 
+            if !plan.is_empty() {
+                self.add_plan_comment(&plan);
+            }
+
             plan
         };
 

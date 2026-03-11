@@ -502,12 +502,12 @@ pub async fn resolve_clarification(
         .as_ref()
         .and_then(|id| db.get_task(id).ok());
 
-    // Clarification always targets the task content. The ticket description
-    // is shared context and should not be modified by the rewrite.
+    // When a task exists, rewrite its content. For the legacy taskless workflow
+    // (task_id is null in metadata), fall back to the ticket description.
     let original_spec = blocked_task
         .as_ref()
         .and_then(|t| t.content.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(|| ticket.description_md.clone());
 
     let agent_id = agent_type.unwrap_or_else(|| registry.default_agent_id());
     let provider = registry
@@ -577,7 +577,18 @@ pub async fn resolve_clarification(
         .map_err(|e| format!("Failed to update task content: {}", e))?;
         tracing::info!("Updated task {} content with rewritten spec", task_id);
     } else {
-        return Err("No task_id found in clarification comment metadata".to_string());
+        db.update_ticket(
+            &ticket_id,
+            &UpdateTicket {
+                description_md: Some(rewritten_spec.clone()),
+                ..Default::default()
+            },
+        )
+        .map_err(|e| format!("Failed to update ticket description: {}", e))?;
+        tracing::info!(
+            "Updated ticket {} description with rewritten spec (legacy taskless workflow)",
+            ticket_id
+        );
     }
 
     // Reset failed tasks to pending so they can be retried after clarification

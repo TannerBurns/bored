@@ -18,8 +18,6 @@ impl WorkflowOrchestrator {
             return Ok(false);
         }
 
-        self.add_plan_comment(plan);
-
         tracing::info!(
             "Running plan clarification validation for ticket {}",
             self.ticket.id
