@@ -62,6 +62,25 @@ pub enum PlanValidationError {
     DatabaseError(#[from] crate::db::DbError),
 }
 
+/// What the auto-clarification agent decided to do.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AutoClarificationAction {
+    /// Rewrite the task content to resolve the ambiguity.
+    UpdateTask { updated_content: String },
+    /// Remove the task entirely (e.g. already completed by a prior task).
+    DeleteTask,
+    /// The agent could not resolve the clarification autonomously.
+    CannotResolve,
+}
+
+/// Result returned by the auto-clarification agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoClarificationResult {
+    pub action: AutoClarificationAction,
+    pub reason: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +127,119 @@ mod tests {
     fn plan_validation_config_is_clone() {
         fn assert_clone<T: Clone>() {}
         assert_clone::<PlanValidationConfig>();
+    }
+
+    #[test]
+    fn auto_clarification_update_task_serializes_with_tag() {
+        let result = AutoClarificationResult {
+            action: AutoClarificationAction::UpdateTask {
+                updated_content: "new content".to_string(),
+            },
+            reason: "resolved ambiguity".to_string(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"action\":\"update_task\""));
+        assert!(json.contains("\"updated_content\":\"new content\""));
+        assert!(json.contains("\"reason\":\"resolved ambiguity\""));
+    }
+
+    #[test]
+    fn auto_clarification_delete_task_serializes_with_tag() {
+        let result = AutoClarificationResult {
+            action: AutoClarificationAction::DeleteTask,
+            reason: "already completed".to_string(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"action\":\"delete_task\""));
+        assert!(json.contains("\"reason\":\"already completed\""));
+        assert!(!json.contains("updated_content"));
+    }
+
+    #[test]
+    fn auto_clarification_cannot_resolve_serializes_with_tag() {
+        let result = AutoClarificationResult {
+            action: AutoClarificationAction::CannotResolve,
+            reason: "needs human input".to_string(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"action\":\"cannot_resolve\""));
+        assert!(json.contains("\"reason\":\"needs human input\""));
+    }
+
+    #[test]
+    fn auto_clarification_update_task_round_trips() {
+        let original = AutoClarificationResult {
+            action: AutoClarificationAction::UpdateTask {
+                updated_content: "rewritten spec here".to_string(),
+            },
+            reason: "chose option A".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: AutoClarificationResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.reason, "chose option A");
+        match restored.action {
+            AutoClarificationAction::UpdateTask { updated_content } => {
+                assert_eq!(updated_content, "rewritten spec here");
+            }
+            _ => panic!("Expected UpdateTask"),
+        }
+    }
+
+    #[test]
+    fn auto_clarification_delete_task_round_trips() {
+        let original = AutoClarificationResult {
+            action: AutoClarificationAction::DeleteTask,
+            reason: "duplicate".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: AutoClarificationResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.reason, "duplicate");
+        assert!(matches!(restored.action, AutoClarificationAction::DeleteTask));
+    }
+
+    #[test]
+    fn auto_clarification_cannot_resolve_round_trips() {
+        let original = AutoClarificationResult {
+            action: AutoClarificationAction::CannotResolve,
+            reason: "ambiguous".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: AutoClarificationResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.reason, "ambiguous");
+        assert!(matches!(
+            restored.action,
+            AutoClarificationAction::CannotResolve
+        ));
+    }
+
+    #[test]
+    fn auto_clarification_action_serializes_standalone() {
+        let action = AutoClarificationAction::UpdateTask {
+            updated_content: "new spec".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"action\":\"update_task\""));
+        assert!(json.contains("\"updated_content\":\"new spec\""));
+    }
+
+    #[test]
+    fn auto_clarification_action_delete_serializes_standalone() {
+        let action = AutoClarificationAction::DeleteTask;
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"action\":\"delete_task\""));
+    }
+
+    #[test]
+    fn auto_clarification_action_cannot_resolve_serializes_standalone() {
+        let action = AutoClarificationAction::CannotResolve;
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"action\":\"cannot_resolve\""));
+    }
+
+    #[test]
+    fn auto_clarification_result_is_clone() {
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<AutoClarificationResult>();
+        assert_clone::<AutoClarificationAction>();
     }
 }

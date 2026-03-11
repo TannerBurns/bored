@@ -399,6 +399,7 @@ export const useSettingsStore = create<SettingsState>()(
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
               autoCompleteTickets: false,
+              autoClarification: false,
               workflowStages: (!isCodex && stages) ? { ...stages } : base.workflowStages,
               stageOrder: [...DEFAULT_STAGE_ORDER],
               stageTimeoutHours: (state.stageTimeoutHours as number) ?? base.stageTimeoutHours,
@@ -589,6 +590,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     autoPilotEnabled: boolean;
     autoPilotModel: string;
     autoCompleteTickets: boolean;
+    autoClarification: boolean;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
     codeReviewMaxIterations: number;
     stageTimeoutHours: number;
@@ -605,6 +607,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
       autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6'),
       autoCompleteTickets: config.autoCompleteTickets ?? false,
+      autoClarification: config.autoClarification ?? false,
       stageConfigs: config.workflowStages,
       codeReviewMaxIterations: config.codeReviewMaxIterations,
       stageTimeoutHours: config.stageTimeoutHours,

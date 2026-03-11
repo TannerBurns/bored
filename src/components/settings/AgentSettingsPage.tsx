@@ -304,6 +304,12 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           enabled={config.autoCompleteTickets}
           onChange={(v) => updateConfig(agentId, { autoCompleteTickets: v })}
         />
+        <ToggleRow
+          label="Auto-Clarification"
+          description="Let the agent resolve clarification questions automatically instead of blocking the ticket for user input"
+          enabled={config.autoClarification}
+          onChange={(v) => updateConfig(agentId, { autoClarification: v })}
+        />
         {config.autoPilotEnabled && (
           <div className="flex items-center justify-between gap-3 pt-1">
             <div className="flex-1 min-w-0">

@@ -3,7 +3,8 @@
 use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
 use crate::agents::plan_validation::{
-    generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
+    auto_resolve_clarification, generate_clarification_message, validate_plan_for_clarification,
+    AutoClarificationAction, PlanValidationConfig,
 };
 use crate::agents::prompt::{
     generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
@@ -11,6 +12,7 @@ use crate::agents::prompt::{
     generate_todo_implement_prompt,
 };
 use crate::db::models::TaskType;
+use crate::db::{TaskStatus, UpdateTask};
 
 impl WorkflowOrchestrator {
     /// Execute the workflow, dispatching based on workflow mode.
@@ -280,6 +282,16 @@ impl WorkflowOrchestrator {
                     result.reason
                 );
 
+                if self.auto_clarification {
+                    if let Some(outcome) = self
+                        .try_auto_resolve_clarification(&validation_config, plan, &result.reason)
+                        .await
+                    {
+                        return outcome;
+                    }
+                    // Agent returned CannotResolve or failed — fall through to blocking
+                }
+
                 let clarification_message =
                     generate_clarification_message(&validation_config, plan)
                         .await
@@ -313,6 +325,135 @@ impl WorkflowOrchestrator {
         }
 
         Ok(())
+    }
+
+    /// Attempt to auto-resolve a clarification without user input.
+    ///
+    /// Returns `Some(Ok(()))` if the task was updated (workflow continues),
+    /// `Some(Err(...))` if the task was deleted (workflow stops for this task),
+    /// or `None` if the agent could not resolve (caller falls through to blocking).
+    async fn try_auto_resolve_clarification(
+        &self,
+        validation_config: &PlanValidationConfig,
+        plan: &str,
+        reason: &str,
+    ) -> Option<Result<(), String>> {
+        tracing::info!(
+            "Auto-clarification enabled, attempting autonomous resolution for ticket {}",
+            self.ticket.id,
+        );
+
+        let ticket_description = &self.ticket.description_md;
+        let task_content = self
+            .task
+            .as_ref()
+            .and_then(|t| t.content.as_deref())
+            .unwrap_or("");
+
+        let completed_summaries = self.build_completed_task_summaries();
+
+        let auto_result = auto_resolve_clarification(
+            validation_config,
+            plan,
+            reason,
+            ticket_description,
+            task_content,
+            &completed_summaries,
+        )
+        .await;
+
+        match auto_result {
+            Ok(resolution) => match resolution.action {
+                AutoClarificationAction::UpdateTask { updated_content } => {
+                    if let Some(ref task) = self.task {
+                        if let Err(e) = self.db.update_task(
+                            &task.id,
+                            &UpdateTask {
+                                content: Some(updated_content),
+                                title: None,
+                                status: None,
+                                run_id: None,
+                            },
+                        ) {
+                            tracing::warn!(
+                                "Auto-clarification: failed to update task {}: {}",
+                                task.id,
+                                e,
+                            );
+                        }
+                    }
+                    self.add_auto_clarification_comment("Task updated", &resolution.reason);
+                    tracing::info!(
+                        "Auto-clarification resolved (update_task) for ticket {}",
+                        self.ticket.id,
+                    );
+                    Some(Ok(()))
+                }
+                AutoClarificationAction::DeleteTask => {
+                    if let Some(ref task) = self.task {
+                        if let Err(e) = self.db.delete_task(&task.id) {
+                            tracing::warn!(
+                                "Auto-clarification: failed to delete task {}: {}",
+                                task.id,
+                                e,
+                            );
+                        }
+                    }
+                    self.add_auto_clarification_comment("Task deleted", &resolution.reason);
+                    tracing::info!(
+                        "Auto-clarification resolved (delete_task) for ticket {}",
+                        self.ticket.id,
+                    );
+                    Some(Err(format!(
+                        "Task deleted by auto-clarification: {}",
+                        resolution.reason,
+                    )))
+                }
+                AutoClarificationAction::CannotResolve => {
+                    tracing::info!(
+                        "Auto-clarification could not resolve for ticket {}: {}",
+                        self.ticket.id,
+                        resolution.reason,
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    "Auto-clarification failed for ticket {}, falling back to blocking: {}",
+                    self.ticket.id,
+                    e,
+                );
+                None
+            }
+        }
+    }
+
+    /// Build a summary of completed tasks for context in auto-clarification prompts.
+    fn build_completed_task_summaries(&self) -> String {
+        self.db
+            .get_tasks_for_ticket(&self.ticket.id)
+            .ok()
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .filter(|t| t.status == TaskStatus::Completed)
+                    .map(|t| {
+                        format!(
+                            "- [{}] {}",
+                            t.title.as_deref().unwrap_or("untitled"),
+                            t.content
+                                .as_deref()
+                                .unwrap_or("")
+                                .chars()
+                                .take(200)
+                                .collect::<String>()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default()
     }
 
     /// Run the implement stage.

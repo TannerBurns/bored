@@ -31,6 +31,9 @@ pub struct WorkflowSettings {
     /// Whether to move tickets directly to Done instead of Review when the agent finishes.
     #[serde(default)]
     pub auto_complete_tickets: bool,
+    /// Whether to auto-resolve clarification questions instead of blocking for user input.
+    #[serde(default)]
+    pub auto_clarification: bool,
     /// Per-stage configuration (enabled/disabled + model selection).
     /// Keys are stage names (e.g. "plan", "implement", "code-review", "deslop", etc.).
     pub stage_configs: HashMap<String, StageConfig>,
@@ -97,6 +100,7 @@ impl Default for WorkflowSettings {
             auto_pilot_enabled: false,
             auto_pilot_model: default_auto_pilot_model(),
             auto_complete_tickets: false,
+            auto_clarification: false,
             stage_configs: HashMap::new(),
             code_review_max_iterations: 3,
             stage_timeout_hours: 1,
@@ -626,6 +630,59 @@ mod tests {
     fn workflow_settings_default_auto_complete_disabled() {
         let settings = WorkflowSettings::default();
         assert!(!settings.auto_complete_tickets);
+    }
+
+    #[test]
+    fn auto_clarification_defaults_to_false_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.auto_clarification);
+    }
+
+    #[test]
+    fn auto_clarification_deserializes_true() {
+        let json = r#"{
+            "autoClarification":true,
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_clarification);
+    }
+
+    #[test]
+    fn auto_clarification_serializes_camel_case() {
+        let settings = WorkflowSettings {
+            auto_clarification: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("autoClarification"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn auto_clarification_round_trips() {
+        let original = WorkflowSettings {
+            auto_clarification: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert!(restored.auto_clarification);
+    }
+
+    #[test]
+    fn workflow_settings_default_auto_clarification_disabled() {
+        let settings = WorkflowSettings::default();
+        assert!(!settings.auto_clarification);
     }
 
     #[test]

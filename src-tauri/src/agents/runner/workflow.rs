@@ -133,6 +133,12 @@ pub(super) fn handle_workflow_error(
     error: String,
     duration_secs: f64,
 ) -> Result<super::config::RunnerResult, String> {
+    if error.starts_with("Plan requires user clarification:")
+        || error.starts_with("Task deleted by auto-clarification:")
+    {
+        return handle_clarification_stop(config, duration_secs);
+    }
+
     tracing::error!("Agent run {} failed: {}", config.run_id, error);
 
     config
@@ -174,6 +180,49 @@ pub(super) fn handle_workflow_error(
         status: RunStatus::Error,
         exit_code: None,
         summary: Some(format!("Workflow failed: {}", error)),
+        duration_secs,
+    })
+}
+
+/// The orchestrator already posted the clarification comment and moved the
+/// ticket to Blocked. Treat this as a successful stop — don't post an error
+/// comment that would hide the clarification banner.
+fn handle_clarification_stop(
+    config: &RunnerConfig,
+    duration_secs: f64,
+) -> Result<super::config::RunnerResult, String> {
+    tracing::info!(
+        "Agent run {} stopped for user clarification in {:.1}s",
+        config.run_id,
+        duration_secs
+    );
+
+    config
+        .db
+        .update_run_status(
+            &config.run_id,
+            RunStatus::Finished,
+            Some(0),
+            Some("Waiting for user clarification"),
+        )
+        .map_err(|e| format!("Failed to update run status: {}", e))?;
+
+    if let Some(ref window) = config.window {
+        let event = AgentCompleteEvent {
+            run_id: config.run_id.clone(),
+            status: "finished".to_string(),
+            exit_code: Some(0),
+            duration_secs,
+        };
+        if let Err(e) = window.emit("agent-complete", &event) {
+            tracing::error!("Failed to emit agent-complete event: {}", e);
+        }
+    }
+
+    Ok(super::config::RunnerResult {
+        status: RunStatus::Finished,
+        exit_code: Some(0),
+        summary: Some("Waiting for user clarification".to_string()),
         duration_secs,
     })
 }

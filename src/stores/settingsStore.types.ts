@@ -113,6 +113,7 @@ export interface AgentConfig {
   autoPilotEnabled: boolean;
   autoPilotModel: AIModel;
   autoCompleteTickets: boolean;
+  autoClarification: boolean;
   workflowStages: WorkflowStages;
   stageOrder: string[];
   stageTimeoutHours: number;
@@ -191,6 +192,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
   autoCompleteTickets: false,
+  autoClarification: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -227,6 +229,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
   autoCompleteTickets: false,
+  autoClarification: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,
@@ -255,6 +258,7 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'gpt-5.4',
   autoCompleteTickets: false,
+  autoClarification: false,
   workflowStages: { ...DEFAULT_CODEX_WORKFLOW_STAGES },
   stageOrder: [...DEFAULT_STAGE_ORDER],
   stageTimeoutHours: 1,

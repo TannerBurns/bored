@@ -139,17 +139,7 @@ impl WorkflowOrchestrator {
 
     /// Add a clarification request comment when the plan needs user input
     pub(super) fn add_clarification_comment(&self, message: &str) {
-        let is_followup_task = self
-            .task
-            .as_ref()
-            .map(|t| t.order_index > 0)
-            .unwrap_or(false);
-
-        let footer = if is_followup_task {
-            "Edit the blocked task's instructions with the requested information, then click **Resolve & Move to Ready** to continue."
-        } else {
-            "Update the ticket description with the requested information, then click **Resolve & Move to Ready** to continue."
-        };
+        let footer = "Edit the task's instructions with the requested information, then click **Resolve & Move to Ready** to continue.";
 
         let comment_text = format!(
             "## Clarification Needed\n\n{}\n\n---\n*{}*",
@@ -174,6 +164,51 @@ impl WorkflowOrchestrator {
                 "Added clarification comment for ticket {} ({} chars)",
                 self.ticket.id,
                 message.len()
+            );
+            let _ = self.emit_event(
+                "ticket-comment-added",
+                &serde_json::json!({
+                    "ticketId": self.ticket.id,
+                    "comment": comment_text,
+                }),
+            );
+        }
+    }
+
+    /// Add a comment explaining what the auto-clarification agent decided.
+    pub(super) fn add_auto_clarification_comment(&self, action_label: &str, reason: &str) {
+        let task_label = self
+            .task
+            .as_ref()
+            .and_then(|t| t.title.as_deref())
+            .unwrap_or("(untitled task)");
+
+        let comment_text = format!(
+            "## Auto-Clarification Resolved\n\n\
+             **Action:** {action_label}\n\
+             **Task:** {task_label}\n\
+             **Reason:** {reason}\n\n\
+             ---\n\
+             *Clarification was resolved automatically by the agent.*"
+        );
+        let create_comment = CreateComment {
+            ticket_id: self.ticket.id.clone(),
+            author_type: AuthorType::Agent,
+            body_md: comment_text.clone(),
+            metadata: Some(serde_json::json!({
+                "type": "auto_clarification",
+                "parent_run_id": self.parent_run_id,
+                "task_id": self.task.as_ref().map(|t| &t.id),
+                "action": action_label,
+            })),
+        };
+        if let Err(e) = self.db.create_comment(&create_comment) {
+            tracing::warn!("Failed to add auto-clarification comment: {}", e);
+        } else {
+            tracing::info!(
+                "Added auto-clarification comment for ticket {} (action={})",
+                self.ticket.id,
+                action_label,
             );
             let _ = self.emit_event(
                 "ticket-comment-added",

@@ -126,6 +126,7 @@ pub struct WorkflowOrchestrator {
     workflow_mode: config::WorkflowMode,
     auto_pilot_model: String,
     auto_complete_tickets: bool,
+    auto_clarification: bool,
     stage_runner: Arc<dyn StageRunner>,
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
@@ -190,7 +191,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets, auto_clarification) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -204,6 +205,7 @@ impl WorkflowOrchestrator {
                     ws.auto_pilot_enabled,
                     ws.auto_pilot_model.clone(),
                     ws.auto_complete_tickets,
+                    ws.auto_clarification,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -215,6 +217,7 @@ impl WorkflowOrchestrator {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                     false,
                     crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+                    false,
                     false,
                 )
             };
@@ -286,6 +289,7 @@ impl WorkflowOrchestrator {
             workflow_mode,
             auto_pilot_model,
             auto_complete_tickets,
+            auto_clarification,
             stage_runner: Arc::new(DefaultStageRunner),
             implementation_todos: RwLock::new(Vec::new()),
         }

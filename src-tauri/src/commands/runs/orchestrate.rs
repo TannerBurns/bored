@@ -344,6 +344,31 @@ fn handle_workflow_result(
                 tracing::error!("Failed to emit agent-complete event: {}", e);
             }
         }
+        Err(ref e)
+            if e.starts_with("Plan requires user clarification:")
+                || e.starts_with("Task deleted by auto-clarification:") =>
+        {
+            tracing::info!(
+                "Run {} stopped for user clarification in {:.1}s",
+                run_id, duration_secs
+            );
+            if let Err(db_err) = db.update_run_status(
+                run_id, RunStatus::Finished, Some(0),
+                Some("Waiting for user clarification"),
+            ) {
+                tracing::error!("Failed to update run {} status to Finished: {}", run_id, db_err);
+            }
+
+            let event = AgentCompleteEvent {
+                run_id: run_id.to_string(),
+                status: "finished".to_string(),
+                exit_code: Some(0),
+                duration_secs,
+            };
+            if let Err(emit_err) = window.emit("agent-complete", &event) {
+                tracing::error!("Failed to emit agent-complete event: {}", emit_err);
+            }
+        }
         Err(e) => {
             let was_cancelled_or_paused = e.contains("cancelled")
                 || e.contains("Cancelled")
