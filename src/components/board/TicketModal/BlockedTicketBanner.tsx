@@ -40,18 +40,15 @@ export function BlockedTicketBanner({
     return null;
   }
 
-  // Find the most recent clarification comment. We look specifically for
-  // clarification-type comments rather than checking only the very latest
-  // non-user comment, because stale error comments (from the same run that
-  // produced the clarification) can end up newer and would otherwise hide
-  // the banner. A newer *diagnostic* comment from a genuinely different
-  // blocking reason will still suppress the banner.
+  // Find the most recent clarification comment. A newer error or diagnostic
+  // comment from a different blocking reason will suppress the banner.
   const nonUserComments = comments
     .filter((c) => c.ticketId === ticket.id && c.authorType !== 'user')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const latestDiagnostic = nonUserComments.find(
-    (c) => c.metadata?.type === 'diagnostic'
+  const SUPPRESSING_TYPES = ['diagnostic', 'error'];
+  const latestSuppressing = nonUserComments.find(
+    (c) => SUPPRESSING_TYPES.includes(c.metadata?.type)
   );
   const latestClarification = nonUserComments.find(
     (c) => c.metadata?.type === 'clarification'
@@ -61,11 +58,11 @@ export function BlockedTicketBanner({
     return null;
   }
 
-  // If a diagnostic comment is newer than the clarification, a different
-  // blocking reason has superseded it — don't show the clarification banner.
+  // If a diagnostic or error comment is newer than the clarification, a
+  // different blocking reason has superseded it — don't show the banner.
   if (
-    latestDiagnostic &&
-    new Date(latestDiagnostic.createdAt).getTime() >
+    latestSuppressing &&
+    new Date(latestSuppressing.createdAt).getTime() >
       new Date(latestClarification.createdAt).getTime()
   ) {
     return null;
