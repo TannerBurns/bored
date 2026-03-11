@@ -29,6 +29,7 @@ use crate::db::{Database, Ticket};
 // Submodules
 mod auto_pilot;
 mod branch;
+mod clarification;
 mod code_review;
 mod comments;
 mod config;
