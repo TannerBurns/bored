@@ -226,3 +226,157 @@ fn handle_clarification_stop(
         duration_secs,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::orchestrator::CancelHandlesMap;
+    use crate::agents::provider::AgentProvider;
+    use crate::agents::AgentRunConfig;
+    use crate::db::models::{CreateTicket, Priority, WorkflowType};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Debug)]
+    struct StubProvider;
+
+    impl AgentProvider for StubProvider {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub" }
+        fn build_command(&self, _: &AgentRunConfig) -> (String, Vec<String>) {
+            ("stub".into(), vec![])
+        }
+        fn build_env_vars(&self, _: &AgentRunConfig) -> Vec<(String, String)> { vec![] }
+        fn extract_text(&self, o: &str) -> String { o.into() }
+        fn extract_cost(&self, _: &str, _: &str, _: f64) -> Option<crate::agents::cost::RunCostData> { None }
+        fn is_available(&self) -> bool { false }
+        fn get_version(&self) -> Option<String> { None }
+        fn config_dir_name(&self) -> &str { ".stub" }
+        fn command_instructions_subdir(&self) -> &str { "commands" }
+        fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn extract_session_id(&self, _output: &str) -> Option<String> { None }
+    }
+
+    fn make_test_config() -> RunnerConfig {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        let board = db.create_board("Test Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let ticket = db.create_ticket(&CreateTicket {
+            board_id: board.id,
+            column_id: columns[0].id.clone(),
+            title: "Test Ticket".to_string(),
+            description_md: "test".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        }).unwrap();
+
+        let run = db.create_run(&crate::db::CreateRun {
+            ticket_id: ticket.id.clone(),
+            agent_type: "stub".to_string(),
+            repo_path: "/tmp/test".to_string(),
+            parent_run_id: None,
+            stage: None,
+            resumed_from_run_id: None,
+        }).unwrap();
+
+        RunnerConfig {
+            db,
+            window: None,
+            app_handle: None,
+            ticket,
+            task: None,
+            run_id: run.id,
+            repo_path: PathBuf::from("/tmp/test"),
+            agent_id: "stub".to_string(),
+            provider: Arc::new(StubProvider),
+            cancel_handles: Arc::new(Mutex::new(HashMap::new())) as CancelHandlesMap,
+            worktree_branch: None,
+            branch_already_created: false,
+            is_temp_branch: false,
+            target_branch: None,
+            timeout_secs: 3600,
+            agent_config: HashMap::new(),
+            code_review_max_iterations: 3,
+            stage_timeout_secs: 3600,
+            stage_max_retries: 2,
+            resume_from_stage: None,
+            previous_run_id: None,
+            stage_configs: HashMap::new(),
+            workflow_settings: None,
+        }
+    }
+
+    #[test]
+    fn handle_workflow_error_routes_clarification_to_finished() {
+        let config = make_test_config();
+        let result = handle_workflow_error(
+            &config,
+            "Plan requires user clarification: unclear requirements".to_string(),
+            1.5,
+        );
+        let result = result.unwrap();
+        assert_eq!(result.status, RunStatus::Finished);
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(
+            result.summary.as_deref(),
+            Some("Waiting for user clarification")
+        );
+    }
+
+    #[test]
+    fn handle_workflow_error_routes_auto_clarification_delete_to_finished() {
+        let config = make_test_config();
+        let result = handle_workflow_error(
+            &config,
+            "Task deleted by auto-clarification: already completed".to_string(),
+            2.0,
+        );
+        let result = result.unwrap();
+        assert_eq!(result.status, RunStatus::Finished);
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(
+            result.summary.as_deref(),
+            Some("Waiting for user clarification")
+        );
+    }
+
+    #[test]
+    fn handle_workflow_error_routes_normal_error_to_error_status() {
+        let config = make_test_config();
+        let result = handle_workflow_error(
+            &config,
+            "Stage 'implement' failed with status Error".to_string(),
+            3.0,
+        );
+        let result = result.unwrap();
+        assert_eq!(result.status, RunStatus::Error);
+        assert!(result.exit_code.is_none());
+        assert!(result.summary.unwrap().contains("Workflow failed"));
+    }
+
+    #[test]
+    fn handle_workflow_error_does_not_match_partial_prefix() {
+        let config = make_test_config();
+        let result = handle_workflow_error(
+            &config,
+            "Something about Plan requires user clarification but not at start".to_string(),
+            1.0,
+        );
+        let result = result.unwrap();
+        assert_eq!(
+            result.status,
+            RunStatus::Error,
+            "should not match clarification when prefix is not at the start"
+        );
+    }
+}

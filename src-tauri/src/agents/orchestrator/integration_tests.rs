@@ -1943,3 +1943,230 @@ fn finish_workflow_moves_to_ready_even_with_auto_complete_when_pending_tasks() {
 
     assert_eq!(get_ticket_column_name(&db, &ticket.id), "Ready");
 }
+
+// -- Workflow session ID persistence tests --
+
+#[test]
+fn save_and_load_workflow_session_id_round_trips() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(db.clone(), ticket, run_id.clone(), settings));
+
+    assert!(
+        orch.load_workflow_session_id().is_none(),
+        "no session saved yet"
+    );
+
+    orch.save_workflow_session_id("sess-abc-123");
+
+    let loaded = orch.load_workflow_session_id();
+    assert_eq!(loaded.as_deref(), Some("sess-abc-123"));
+
+    let run = db.get_run(&run_id).unwrap();
+    let meta = run.metadata.unwrap();
+    assert_eq!(
+        meta.get("workflow_session_id").and_then(|v| v.as_str()),
+        Some("sess-abc-123"),
+        "persisted under the workflow_session_id metadata key"
+    );
+}
+
+#[test]
+fn save_workflow_session_id_overwrites_previous() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    orch.save_workflow_session_id("first");
+    orch.save_workflow_session_id("second");
+
+    assert_eq!(orch.load_workflow_session_id().as_deref(), Some("second"));
+}
+
+#[test]
+fn restore_workflow_session_id_populates_in_memory_field() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    assert!(orch.workflow_session_id.read().unwrap().is_none());
+
+    orch.save_workflow_session_id("restored-sess");
+    orch.restore_workflow_session_id();
+
+    let in_memory = orch.workflow_session_id.read().unwrap().clone();
+    assert_eq!(in_memory.as_deref(), Some("restored-sess"));
+}
+
+#[test]
+fn restore_workflow_session_id_noop_when_no_saved_id() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    orch.restore_workflow_session_id();
+
+    assert!(orch.workflow_session_id.read().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn run_stage_auto_threads_workflow_session_id() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("stage-sess-42"));
+
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db,
+        ticket,
+        run_id,
+        settings,
+        Arc::new(SessionAwareStubProvider),
+        "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    {
+        let mut guard = orch.workflow_session_id.write().unwrap();
+        *guard = Some("pre-existing-sess".to_string());
+    }
+
+    let result = orch.run_stage("plan", "test prompt").await;
+    assert!(result.is_ok());
+
+    let captured = runner.captured_session_ids();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(
+        captured[0],
+        Some("pre-existing-sess".to_string()),
+        "run_stage should auto-thread the workflow session ID"
+    );
+}
+
+#[tokio::test]
+async fn run_stage_captures_session_id_from_output() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("new-captured-sess"));
+
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db.clone(),
+        ticket,
+        run_id.clone(),
+        settings,
+        Arc::new(SessionAwareStubProvider),
+        "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    assert!(orch.workflow_session_id.read().unwrap().is_none());
+
+    let result = orch.run_stage("plan", "test prompt").await;
+    assert!(result.is_ok());
+
+    let in_memory = orch.workflow_session_id.read().unwrap().clone();
+    assert_eq!(
+        in_memory.as_deref(),
+        Some("new-captured-sess"),
+        "session ID should be captured from stage output"
+    );
+
+    let persisted = orch.load_workflow_session_id();
+    assert_eq!(
+        persisted.as_deref(),
+        Some("new-captured-sess"),
+        "session ID should be persisted to run metadata"
+    );
+}
+
+#[tokio::test]
+async fn run_stage_skips_overwrite_when_session_id_unchanged() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("same-sess"));
+
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db,
+        ticket,
+        run_id,
+        settings,
+        Arc::new(SessionAwareStubProvider),
+        "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    {
+        let mut guard = orch.workflow_session_id.write().unwrap();
+        *guard = Some("same-sess".to_string());
+    }
+
+    let result = orch.run_stage("plan", "test").await;
+    assert!(result.is_ok());
+
+    let in_memory = orch.workflow_session_id.read().unwrap().clone();
+    assert_eq!(in_memory.as_deref(), Some("same-sess"));
+}
+
+#[tokio::test]
+async fn run_stage_with_model_threads_workflow_session_id() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let runner = Arc::new(SessionCapturingRunner::new("model-sess"));
+
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db,
+        ticket,
+        run_id,
+        settings,
+        Arc::new(SessionAwareStubProvider),
+        "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    {
+        let mut guard = orch.workflow_session_id.write().unwrap();
+        *guard = Some("model-session-id".to_string());
+    }
+
+    let result = orch
+        .run_stage_with_model("implement", "prompt", "fast-model")
+        .await;
+    assert!(result.is_ok());
+
+    let captured = runner.captured_session_ids();
+    assert_eq!(
+        captured[0],
+        Some("model-session-id".to_string()),
+        "run_stage_with_model should also thread the workflow session ID"
+    );
+}
+
+#[test]
+fn workflow_session_id_initialized_to_none() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    assert!(orch.workflow_session_id.read().unwrap().is_none());
+}
