@@ -14,7 +14,6 @@ use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunSta
 
 impl WorkflowOrchestrator {
     /// Run a single stage of the workflow with retry support.
-    /// Automatically threads the workflow session ID for conversational continuity.
     pub(super) async fn run_stage(
         &self,
         stage: &str,
@@ -26,7 +25,6 @@ impl WorkflowOrchestrator {
     }
 
     /// Run a single stage with an explicit model override (used by auto-pilot).
-    /// Automatically threads the workflow session ID for conversational continuity.
     pub(super) async fn run_stage_with_model(
         &self,
         stage: &str,
@@ -53,7 +51,6 @@ impl WorkflowOrchestrator {
     }
 
     /// Restore workflow session ID from run metadata into the in-memory field.
-    /// Called during resume to re-establish session continuity.
     pub(super) fn restore_workflow_session_id(&self) {
         if let Some(sid) = self.load_workflow_session_id() {
             tracing::info!("Restored workflow session id from metadata: {}", sid);

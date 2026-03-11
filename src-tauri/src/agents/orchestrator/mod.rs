@@ -132,7 +132,6 @@ pub struct WorkflowOrchestrator {
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
     /// Session ID threaded across all workflow stages for conversational continuity.
-    /// Captured from the first stage's output and reused for all subsequent stages.
     workflow_session_id: RwLock<Option<String>>,
 }
 
