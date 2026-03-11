@@ -104,8 +104,8 @@ impl WorkflowOrchestrator {
         );
 
         let ticket_description = &self.ticket.description_md;
-        let task_content = self
-            .task
+        let current_task = self.get_task();
+        let task_content = current_task
             .as_ref()
             .and_then(|t| t.content.as_deref())
             .unwrap_or("");
@@ -125,7 +125,8 @@ impl WorkflowOrchestrator {
         match auto_result {
             Ok(resolution) => match resolution.action {
                 AutoClarificationAction::UpdateTask { updated_content } => {
-                    let Some(ref task) = self.task else {
+                    let current_task = self.get_task();
+                    let Some(ref task) = current_task else {
                         tracing::warn!(
                             "Auto-clarification: UpdateTask but self.task is None for ticket {}",
                             self.ticket.id,
@@ -148,6 +149,7 @@ impl WorkflowOrchestrator {
                         );
                         return None;
                     }
+                    self.refresh_task_from_db();
                     self.add_auto_clarification_comment("Task updated", &resolution.reason);
                     tracing::info!(
                         "Auto-clarification resolved (update_task) for ticket {}",
@@ -156,7 +158,8 @@ impl WorkflowOrchestrator {
                     Some(Ok(()))
                 }
                 AutoClarificationAction::DeleteTask => {
-                    let Some(ref task) = self.task else {
+                    let current_task = self.get_task();
+                    let Some(ref task) = current_task else {
                         tracing::warn!(
                             "Auto-clarification: DeleteTask but self.task is None for ticket {}",
                             self.ticket.id,

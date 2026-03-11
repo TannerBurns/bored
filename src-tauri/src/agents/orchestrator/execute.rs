@@ -124,7 +124,7 @@ impl WorkflowOrchestrator {
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {
-        let has_pending = self.task.is_some()
+        let has_pending = self.get_task().is_some()
             && self
                 .db
                 .has_pending_tasks(&self.ticket.id)
@@ -199,7 +199,8 @@ impl WorkflowOrchestrator {
                 return Err("Workflow cancelled".to_string());
             }
 
-            let plan_prompt = if let Some(ref task) = self.task {
+            let current_task = self.get_task();
+            let plan_prompt = if let Some(ref task) = current_task {
                 if matches!(task.task_type, TaskType::Command(_)) {
                     tracing::info!(
                         "Skipping plan stage for command task type: {:?}",
@@ -275,7 +276,8 @@ impl WorkflowOrchestrator {
         let todos = self.get_implementation_todos();
 
         if todos.is_empty() {
-            let implement_prompt = if let Some(ref task) = self.task {
+            let current_task = self.get_task();
+            let implement_prompt = if let Some(ref task) = current_task {
                 if matches!(task.task_type, TaskType::Command(_)) {
                     let custom_dir = self.custom_commands_dir();
                     generate_task_prompt(task, &self.ticket, custom_dir.as_deref())

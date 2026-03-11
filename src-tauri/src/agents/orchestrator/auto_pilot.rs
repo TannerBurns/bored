@@ -62,7 +62,8 @@ impl WorkflowOrchestrator {
         let custom_dir = self.custom_commands_dir();
         let available = discover_available_commands(custom_dir.as_deref());
 
-        let (effective_title, effective_description, ticket_context) = match &self.task {
+        let current_task = self.get_task();
+        let (effective_title, effective_description, ticket_context) = match &current_task {
             Some(task) => {
                 let title = task.title.as_deref().unwrap_or(&self.ticket.title);
                 let desc = task.content.as_deref().unwrap_or(&self.ticket.description_md);

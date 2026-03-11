@@ -85,7 +85,9 @@ pub struct WorkflowOrchestrator {
     parent_run_id: String,
     ticket: Ticket,
     /// The task being executed. If None, falls back to legacy ticket-based workflow.
-    task: Option<Task>,
+    /// Wrapped in `RwLock` so auto-clarification can refresh the content after
+    /// an `UpdateTask` resolution without requiring `&mut self`.
+    task: RwLock<Option<Task>>,
     repo_path: PathBuf,
     /// Agent ID string (e.g. "cursor", "claude").
     agent_id: String,
@@ -270,7 +272,7 @@ impl WorkflowOrchestrator {
             app_handle: config.app_handle,
             parent_run_id: config.parent_run_id,
             ticket: config.ticket,
-            task: config.task,
+            task: RwLock::new(config.task),
             repo_path: config.repo_path,
             agent_id: config.agent_id,
             provider: config.provider,
@@ -439,6 +441,33 @@ impl WorkflowOrchestrator {
                 .map(|d| d.join("custom-commands"))
                 .filter(|d| d.exists())
         })
+    }
+
+    /// Return a clone of the current in-memory task.
+    pub(super) fn get_task(&self) -> Option<Task> {
+        self.task.read().ok().and_then(|guard| guard.clone())
+    }
+
+    /// Reload the task from the database, refreshing the in-memory copy.
+    pub(super) fn refresh_task_from_db(&self) {
+        let task_id = self
+            .task
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|t| t.id.clone()));
+
+        if let Some(id) = task_id {
+            match self.db.get_task(&id) {
+                Ok(fresh) => {
+                    if let Ok(mut guard) = self.task.write() {
+                        *guard = Some(fresh);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to reload task {} from DB: {}", id, e);
+                }
+            }
+        }
     }
 
     /// Extract text from agent output using the provider.

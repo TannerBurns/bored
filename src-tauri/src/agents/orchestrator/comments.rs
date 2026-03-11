@@ -146,6 +146,7 @@ impl WorkflowOrchestrator {
             message.trim(),
             footer
         );
+        let task = self.get_task();
         let create_comment = CreateComment {
             ticket_id: self.ticket.id.clone(),
             author_type: AuthorType::Agent,
@@ -153,8 +154,8 @@ impl WorkflowOrchestrator {
             metadata: Some(serde_json::json!({
                 "type": "clarification",
                 "parent_run_id": self.parent_run_id,
-                "task_id": self.task.as_ref().map(|t| &t.id),
-                "task_order_index": self.task.as_ref().map(|t| t.order_index),
+                "task_id": task.as_ref().map(|t| &t.id),
+                "task_order_index": task.as_ref().map(|t| t.order_index),
             })),
         };
         if let Err(e) = self.db.create_comment(&create_comment) {
@@ -177,8 +178,8 @@ impl WorkflowOrchestrator {
 
     /// Add a comment explaining what the auto-clarification agent decided.
     pub(super) fn add_auto_clarification_comment(&self, action_label: &str, reason: &str) {
-        let task_label = self
-            .task
+        let task = self.get_task();
+        let task_label = task
             .as_ref()
             .and_then(|t| t.title.as_deref())
             .unwrap_or("(untitled task)");
@@ -198,7 +199,7 @@ impl WorkflowOrchestrator {
             metadata: Some(serde_json::json!({
                 "type": "auto_clarification",
                 "parent_run_id": self.parent_run_id,
-                "task_id": self.task.as_ref().map(|t| &t.id),
+                "task_id": task.as_ref().map(|t| &t.id),
                 "action": action_label,
             })),
         };
