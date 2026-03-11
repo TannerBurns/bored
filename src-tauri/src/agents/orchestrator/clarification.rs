@@ -62,6 +62,7 @@ impl WorkflowOrchestrator {
                             format!("Clarification needed: {}", result.reason)
                         });
 
+                self.add_plan_comment(plan);
                 self.add_clarification_comment(&clarification_message);
                 self.move_ticket_to_column("Blocked");
 
