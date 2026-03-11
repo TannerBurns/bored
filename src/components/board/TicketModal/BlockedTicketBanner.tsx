@@ -33,29 +33,47 @@ export function BlockedTicketBanner({
   const [isRewriting, setIsRewriting] = useState(false);
   const [userResponse, setUserResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const { resetTask, loadBoardData } = useBoardStore();
+  const { resetTask, loadBoardData, loadTasks, loadComments } = useBoardStore();
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   if (currentColumn?.name.toLowerCase() !== 'blocked') {
     return null;
   }
 
-  // Only show banner when the most recent non-user comment is a clarification;
-  // newer diagnostic/error comments indicate a different blocking reason.
+  // Find the most recent clarification comment. We look specifically for
+  // clarification-type comments rather than checking only the very latest
+  // non-user comment, because stale error comments (from the same run that
+  // produced the clarification) can end up newer and would otherwise hide
+  // the banner. A newer *diagnostic* comment from a genuinely different
+  // blocking reason will still suppress the banner.
   const nonUserComments = comments
     .filter((c) => c.ticketId === ticket.id && c.authorType !== 'user')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const mostRecentNonUserComment = nonUserComments[0];
-  if (!mostRecentNonUserComment || mostRecentNonUserComment.metadata?.type !== 'clarification') {
+  const latestDiagnostic = nonUserComments.find(
+    (c) => c.metadata?.type === 'diagnostic'
+  );
+  const latestClarification = nonUserComments.find(
+    (c) => c.metadata?.type === 'clarification'
+  );
+
+  if (!latestClarification) {
     return null;
   }
 
-  const clarificationComment = mostRecentNonUserComment;
+  // If a diagnostic comment is newer than the clarification, a different
+  // blocking reason has superseded it — don't show the clarification banner.
+  if (
+    latestDiagnostic &&
+    new Date(latestDiagnostic.createdAt).getTime() >
+      new Date(latestClarification.createdAt).getTime()
+  ) {
+    return null;
+  }
+
+  const clarificationComment = latestClarification;
 
   const blockedTaskId = clarificationComment.metadata?.task_id as string | undefined;
-  const blockedTaskOrderIndex = clarificationComment.metadata?.task_order_index as number | undefined;
-  const isFollowUpTask = blockedTaskOrderIndex != null && blockedTaskOrderIndex > 0;
   const blockedTask = blockedTaskId ? tasks.find((t) => t.id === blockedTaskId) : undefined;
   const clarificationBody = extractClarificationBody(clarificationComment.bodyMd);
   const readyColumn = columns.find((c) => c.name.toLowerCase() === 'ready');
@@ -64,7 +82,7 @@ export function BlockedTicketBanner({
     if (!readyColumn) return;
     setIsResolving(true);
     try {
-      if (isFollowUpTask && blockedTask && blockedTask.status === 'failed') {
+      if (blockedTask && blockedTask.status === 'failed') {
         await resetTask(blockedTask.id);
       }
       await onUpdate(ticket.id, { columnId: readyColumn.id });
@@ -85,6 +103,7 @@ export function BlockedTicketBanner({
       if (ticket.boardId) {
         await loadBoardData(ticket.boardId);
       }
+      await Promise.all([loadTasks(ticket.id), loadComments(ticket.id)]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -163,20 +182,13 @@ export function BlockedTicketBanner({
               </button>
             </div>
 
-            {!isFollowUpTask && (
-              <p className="text-xs text-board-text-muted">
-                Use &ldquo;Rewrite &amp; Resolve&rdquo; to have an agent merge your answers into the ticket description, or manually edit the description and use &ldquo;Resolve&rdquo;.
-              </p>
-            )}
-            {isFollowUpTask && (
-              <p className="text-xs text-board-text-muted">
-                Use &ldquo;Rewrite &amp; Resolve&rdquo; to have an agent merge your answers into the task
-                {blockedTask?.title ? (
-                  <> &ldquo;<span className="text-board-text font-medium">{blockedTask.title}</span>&rdquo;</>
-                ) : null}
-                , or manually edit the task and use &ldquo;Resolve&rdquo;.
-              </p>
-            )}
+            <p className="text-xs text-board-text-muted">
+              Use &ldquo;Rewrite &amp; Resolve&rdquo; to have an agent merge your answers into the task
+              {blockedTask?.title ? (
+                <> &ldquo;<span className="text-board-text font-medium">{blockedTask.title}</span>&rdquo;</>
+              ) : null}
+              , or manually edit the task and use &ldquo;Resolve&rdquo;.
+            </p>
           </div>
         </div>
       </div>

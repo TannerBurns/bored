@@ -126,7 +126,7 @@ describe('BlockedTicketBanner', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('renders clarification message for initial task', () => {
+  it('renders clarification message with task guidance', () => {
     render(
       <BlockedTicketBanner
         ticket={makeTicket()}
@@ -138,10 +138,10 @@ describe('BlockedTicketBanner', () => {
     );
     expect(screen.getByText('Clarification Needed')).toBeInTheDocument();
     expect(screen.getByTestId('md')).toHaveTextContent('What framework?');
-    expect(screen.getByText(/merge your answers into the ticket description/)).toBeInTheDocument();
+    expect(screen.getByText(/merge your answers into the task/)).toBeInTheDocument();
   });
 
-  it('renders follow-up task guidance when task_order_index > 0', () => {
+  it('shows task title in guidance when available', () => {
     const comment = makeClarificationComment({
       metadata: { type: 'clarification', task_id: 'task-2', task_order_index: 1 },
     });
@@ -157,10 +157,9 @@ describe('BlockedTicketBanner', () => {
     );
     expect(screen.getByText(/merge your answers into the task/)).toBeInTheDocument();
     expect(screen.getByText('Add auth')).toBeInTheDocument();
-    expect(screen.queryByText(/merge your answers into the ticket description/)).not.toBeInTheDocument();
   });
 
-  it('shows follow-up guidance without title when task not found', () => {
+  it('shows guidance without title when task not found', () => {
     const comment = makeClarificationComment({
       metadata: { type: 'clarification', task_id: 'missing', task_order_index: 2 },
     });
@@ -199,7 +198,7 @@ describe('BlockedTicketBanner', () => {
     expect(screen.getByTestId('md')).toHaveTextContent('New question');
   });
 
-  it('resolve button moves ticket to Ready column', async () => {
+  it('resolve resets failed task and moves ticket to Ready', async () => {
     render(
       <BlockedTicketBanner
         ticket={makeTicket()}
@@ -211,49 +210,25 @@ describe('BlockedTicketBanner', () => {
     );
     fireEvent.click(screen.getByText('Resolve & Move to Ready'));
     await waitFor(() => {
+      expect(mockResetTask).toHaveBeenCalledWith('task-1');
       expect(mockOnUpdate).toHaveBeenCalledWith('t1', { columnId: 'col-ready' });
     });
-    expect(mockResetTask).not.toHaveBeenCalled();
   });
 
-  it('resolve resets failed follow-up task before moving', async () => {
-    const comment = makeClarificationComment({
-      metadata: { type: 'clarification', task_id: 'task-2', task_order_index: 1 },
-    });
-    const task = makeTask({ id: 'task-2', orderIndex: 1, status: 'failed' });
+  it('resolve does not reset task if not failed', async () => {
+    const task = makeTask({ status: 'pending' });
     render(
       <BlockedTicketBanner
         ticket={makeTicket()}
         columns={makeColumns()}
-        comments={[comment]}
+        comments={[makeClarificationComment()]}
         tasks={[task]}
         onUpdate={mockOnUpdate}
       />
     );
     fireEvent.click(screen.getByText('Resolve & Move to Ready'));
     await waitFor(() => {
-      expect(mockResetTask).toHaveBeenCalledWith('task-2');
       expect(mockOnUpdate).toHaveBeenCalledWith('t1', { columnId: 'col-ready' });
-    });
-  });
-
-  it('resolve does not reset follow-up task if not failed', async () => {
-    const comment = makeClarificationComment({
-      metadata: { type: 'clarification', task_id: 'task-2', task_order_index: 1 },
-    });
-    const task = makeTask({ id: 'task-2', orderIndex: 1, status: 'pending' });
-    render(
-      <BlockedTicketBanner
-        ticket={makeTicket()}
-        columns={makeColumns()}
-        comments={[comment]}
-        tasks={[task]}
-        onUpdate={mockOnUpdate}
-      />
-    );
-    fireEvent.click(screen.getByText('Resolve & Move to Ready'));
-    await waitFor(() => {
-      expect(mockOnUpdate).toHaveBeenCalled();
     });
     expect(mockResetTask).not.toHaveBeenCalled();
   });
@@ -297,7 +272,7 @@ describe('BlockedTicketBanner', () => {
       expect(container.innerHTML).toBe('');
     });
 
-    it('returns null when a newer error comment supersedes clarification', () => {
+    it('still shows banner when a newer error comment exists (only diagnostic suppresses)', () => {
       const clarification = makeClarificationComment({
         createdAt: new Date('2024-01-01'),
       });
@@ -305,11 +280,11 @@ describe('BlockedTicketBanner', () => {
         id: 'c-err',
         ticketId: 't1',
         authorType: 'system',
-        bodyMd: '## Blocked: Workflow Error\n\nSomething failed',
+        bodyMd: '## Blocked: Workflow Error\n\nPlan requires user clarification',
         createdAt: new Date('2024-06-01'),
         metadata: { type: 'error' },
       };
-      const { container } = render(
+      render(
         <BlockedTicketBanner
           ticket={makeTicket()}
           columns={makeColumns()}
@@ -318,7 +293,7 @@ describe('BlockedTicketBanner', () => {
           onUpdate={mockOnUpdate}
         />
       );
-      expect(container.innerHTML).toBe('');
+      expect(screen.getByText('Clarification Needed')).toBeInTheDocument();
     });
 
     it('still shows banner when only user comments are newer than clarification', () => {

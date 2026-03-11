@@ -490,7 +490,24 @@ pub async fn resolve_clarification(
         .ok_or_else(|| "No clarification comment found for this ticket".to_string())?;
 
     let clarification_questions = extract_clarification_body(&clarification_comment.body_md);
-    let original_description = ticket.description_md.clone();
+
+    let blocked_task_id = clarification_comment
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("task_id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let blocked_task = blocked_task_id
+        .as_ref()
+        .and_then(|id| db.get_task(id).ok());
+
+    // Clarification always targets the task content. The ticket description
+    // is shared context and should not be modified by the rewrite.
+    let original_spec = blocked_task
+        .as_ref()
+        .and_then(|t| t.content.clone())
+        .unwrap_or_default();
 
     let agent_id = agent_type.unwrap_or_else(|| registry.default_agent_id());
     let provider = registry
@@ -525,7 +542,7 @@ pub async fn resolve_clarification(
 
     let rewrite_result = rewrite_task_with_clarification(
         &config,
-        &original_description,
+        &original_spec,
         &clarification_questions,
         &user_response,
     )
@@ -547,25 +564,21 @@ pub async fn resolve_clarification(
         }
     };
 
-    let update = UpdateTicket {
-        description_md: Some(rewritten_spec.clone()),
-        title: None,
-        priority: None,
-        labels: None,
-        project_id: None,
-        workflow_type: None,
-        model: None,
-        branch_name: None,
-        column_id: None,
-        is_epic: None,
-        epic_id: None,
-        order_in_epic: None,
-        depends_on_epic_id: None,
-        depends_on_epic_ids: vec![],
-        spec_version_id: None,
-    };
-    db.update_ticket(&ticket_id, &update)
-        .map_err(|e| e.to_string())?;
+    if let Some(ref task_id) = blocked_task_id {
+        db.update_task(
+            task_id,
+            &UpdateTask {
+                content: Some(rewritten_spec.clone()),
+                title: None,
+                status: None,
+                run_id: None,
+            },
+        )
+        .map_err(|e| format!("Failed to update task content: {}", e))?;
+        tracing::info!("Updated task {} content with rewritten spec", task_id);
+    } else {
+        return Err("No task_id found in clarification comment metadata".to_string());
+    }
 
     // Reset failed tasks to pending so they can be retried after clarification
     if let Ok(tasks) = db.get_tasks_for_ticket(&ticket_id) {

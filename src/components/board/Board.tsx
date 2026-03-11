@@ -16,17 +16,18 @@ import type { CollisionDetection } from '@dnd-kit/core';
 import { Column } from './Column';
 import { TicketPreview } from './TicketPreview';
 import { TransitionErrorToast, validateTransition } from './TransitionGuard';
-import type { Column as ColumnType, Ticket as TicketType } from '../../types';
+import type { Column as ColumnType, Ticket as TicketType, TaskCounts } from '../../types';
 
 interface BoardProps {
   columns: ColumnType[];
   tickets: TicketType[];
   projectMap?: Record<string, string>;
+  taskCountsMap?: Record<string, TaskCounts>;
   onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClick }: BoardProps) {
+export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMove, onTicketClick }: BoardProps) {
   const [activeTicket, setActiveTicket] = useState<TicketType | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -133,6 +134,7 @@ export function Board({ columns, tickets, projectMap, onTicketMove, onTicketClic
                 column={column}
                 tickets={getTicketsForColumn(column.id)}
                 projectMap={projectMap}
+                taskCountsMap={taskCountsMap}
                 onTicketClick={onTicketClick}
               />
             ))}

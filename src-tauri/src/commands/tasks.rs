@@ -3,6 +3,7 @@
 use crate::db::models::{CreateTask, Task, TaskType};
 use crate::db::tasks::TaskCounts;
 use crate::db::Database;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
@@ -134,6 +135,16 @@ pub fn get_task_counts(
     ticket_id: String,
 ) -> Result<TaskCounts, String> {
     db.get_task_counts(&ticket_id).map_err(|e| e.to_string())
+}
+
+/// Get task counts for all tickets on a board
+#[tauri::command]
+pub fn get_board_task_counts(
+    db: State<'_, Arc<Database>>,
+    board_id: String,
+) -> Result<HashMap<String, TaskCounts>, String> {
+    db.get_board_task_counts(&board_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Update a task's title or content

@@ -103,10 +103,14 @@ export function TicketDetailView({
   const isBlocked = currentColumn?.name.toLowerCase() === 'blocked';
   const needsClarification = useMemo(() => {
     if (!isBlocked) return false;
-    const ticketComments = comments
+    const nonUserComments = comments
       .filter((c) => c.ticketId === ticket.id && c.authorType !== 'user')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return ticketComments[0]?.metadata?.type === 'clarification';
+    const latestDiagnostic = nonUserComments.find((c) => c.metadata?.type === 'diagnostic');
+    const latestClarification = nonUserComments.find((c) => c.metadata?.type === 'clarification');
+    if (!latestClarification) return false;
+    if (latestDiagnostic && new Date(latestDiagnostic.createdAt).getTime() > new Date(latestClarification.createdAt).getTime()) return false;
+    return true;
   }, [comments, ticket.id, isBlocked]);
 
   // Pending task count for Tasks tab badge

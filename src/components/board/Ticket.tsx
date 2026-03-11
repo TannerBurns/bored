@@ -2,16 +2,17 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
 import { PRIORITY_BORDER_COLORS, PRIORITY_RING_COLORS, PRIORITY_RING_HOVER_COLORS } from '../../lib/constants';
-import type { Ticket as TicketType } from '../../types';
+import type { Ticket as TicketType, TaskCounts } from '../../types';
 
 interface TicketProps {
   ticket: TicketType;
   projectName?: string;
   columnName?: string;
+  taskCounts?: TaskCounts;
   onClick?: () => void;
 }
 
-export function Ticket({ ticket, projectName, columnName, onClick }: TicketProps) {
+export function Ticket({ ticket, projectName, columnName, taskCounts, onClick }: TicketProps) {
   const {
     attributes,
     listeners,
@@ -152,6 +153,32 @@ export function Ticket({ ticket, projectName, columnName, onClick }: TicketProps
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {taskCounts && (taskCounts.pending + taskCounts.inProgress + taskCounts.completed + taskCounts.failed) > 0 && (() => {
+            const total = taskCounts.pending + taskCounts.inProgress + taskCounts.completed + taskCounts.failed;
+            const done = taskCounts.completed;
+            const allDone = done === total;
+            return (
+              <span className={cn(
+                'flex items-center gap-1 font-medium',
+                allDone ? 'text-emerald-400' : 'text-board-text-muted'
+              )} title={`${done} of ${total} tasks completed`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                  {allDone ? (
+                    <>
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M12 2a10 10 0 1 0 10 10" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </>
+                  )}
+                </svg>
+                {done}/{total}
+              </span>
+            );
+          })()}
           {ticket.lockedByRunId && (
             <span className="text-status-warning font-medium flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-status-warning animate-pulse" />
