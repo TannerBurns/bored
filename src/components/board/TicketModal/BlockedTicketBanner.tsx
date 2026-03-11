@@ -40,15 +40,16 @@ export function BlockedTicketBanner({
     return null;
   }
 
-  // Find the most recent clarification comment. A newer error or diagnostic
-  // comment from a different blocking reason will suppress the banner.
+  // Find the most recent clarification comment. A newer diagnostic comment
+  // (from a different blocking reason like a worktree error) will suppress
+  // the banner. Error comments do NOT suppress because clarification stops
+  // are routed separately and a newer error represents an unrelated failure.
   const nonUserComments = comments
     .filter((c) => c.ticketId === ticket.id && c.authorType !== 'user')
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const SUPPRESSING_TYPES = ['diagnostic', 'error'];
-  const latestSuppressing = nonUserComments.find(
-    (c) => SUPPRESSING_TYPES.includes(c.metadata?.type)
+  const latestDiagnostic = nonUserComments.find(
+    (c) => c.metadata?.type === 'diagnostic'
   );
   const latestClarification = nonUserComments.find(
     (c) => c.metadata?.type === 'clarification'
@@ -58,11 +59,11 @@ export function BlockedTicketBanner({
     return null;
   }
 
-  // If a diagnostic or error comment is newer than the clarification, a
-  // different blocking reason has superseded it — don't show the banner.
+  // If a diagnostic comment is newer than the clarification, a different
+  // blocking reason has superseded it — don't show the clarification banner.
   if (
-    latestSuppressing &&
-    new Date(latestSuppressing.createdAt).getTime() >
+    latestDiagnostic &&
+    new Date(latestDiagnostic.createdAt).getTime() >
       new Date(latestClarification.createdAt).getTime()
   ) {
     return null;
