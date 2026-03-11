@@ -218,7 +218,7 @@ function App() {
         }}
       />
 
-      <main className="flex-1 p-6 overflow-hidden flex flex-col">
+      <main className="flex-1 p-4 overflow-hidden flex flex-col">
         {isTicketModalOpen && selectedTicket ? (
           <TicketDetailView
             ticket={selectedTicket}

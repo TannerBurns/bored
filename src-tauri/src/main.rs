@@ -196,6 +196,7 @@ fn main() {
             let _main_window = WebviewWindowBuilder::new(app, "main", window_url)
                 .title("Bored")
                 .inner_size(1200.0, 800.0)
+                .min_inner_size(900.0, 600.0)
                 .resizable(true)
                 .on_navigation(|url| {
                     let allowed = is_allowed_url(url);
@@ -430,6 +431,7 @@ fn main() {
             commands::tasks::add_command_task,
             commands::tasks::delete_task,
             commands::tasks::get_task_counts,
+            commands::tasks::get_board_task_counts,
             commands::tasks::update_task,
             commands::tasks::reset_task,
             // Spec / Planner commands

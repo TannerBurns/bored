@@ -120,7 +120,8 @@ describe('useBoardStore', () => {
     it('loads columns and tickets from backend', async () => {
       vi.mocked(invoke)
         .mockResolvedValueOnce([mockColumn])
-        .mockResolvedValueOnce([mockTicket]);
+        .mockResolvedValueOnce([mockTicket])
+        .mockResolvedValueOnce({});
       
       await useBoardStore.getState().loadBoardData('board-1');
       
@@ -144,7 +145,8 @@ describe('useBoardStore', () => {
       vi.mocked(invoke)
         .mockResolvedValueOnce(newBoard) // create_board
         .mockResolvedValueOnce([mockColumn]) // get_columns
-        .mockResolvedValueOnce([]); // get_tickets
+        .mockResolvedValueOnce([]) // get_tickets
+        .mockResolvedValueOnce({}); // get_board_task_counts
       
       const board = await useBoardStore.getState().createBoard('New Board');
       
@@ -195,7 +197,8 @@ describe('useBoardStore', () => {
       vi.mocked(invoke)
         .mockResolvedValueOnce(undefined) // delete_board
         .mockResolvedValueOnce([]) // get_columns
-        .mockResolvedValueOnce([]); // get_tickets
+        .mockResolvedValueOnce([]) // get_tickets
+        .mockResolvedValueOnce({}); // get_board_task_counts
       useBoardStore.setState({ boards: [mockBoard, board2], currentBoard: mockBoard });
       
       await useBoardStore.getState().deleteBoard('board-1');
@@ -232,7 +235,8 @@ describe('useBoardStore', () => {
     it('sets currentBoard and loads data when board exists', async () => {
       vi.mocked(invoke)
         .mockResolvedValueOnce([mockColumn])
-        .mockResolvedValueOnce([mockTicket]);
+        .mockResolvedValueOnce([mockTicket])
+        .mockResolvedValueOnce({});
       useBoardStore.getState().setBoards([mockBoard]);
       
       await useBoardStore.getState().selectBoard('board-1');

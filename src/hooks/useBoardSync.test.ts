@@ -12,6 +12,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 vi.mock('../lib/tauri', () => ({
   getColumns: vi.fn(() => Promise.resolve([])),
   getTickets: vi.fn(() => Promise.resolve([])),
+  getBoardTaskCounts: vi.fn(() => Promise.resolve({})),
 }));
 
 // Mock Tauri event listener

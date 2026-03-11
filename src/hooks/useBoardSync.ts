@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useBoardStore } from '../stores/boardStore';
-import { getColumns, getTickets } from '../lib/tauri';
+import { getColumns, getTickets, getBoardTaskCounts } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Board, Column, Ticket } from '../types';
 
@@ -83,12 +83,14 @@ export function useBoardSync(): BoardSyncState {
       Promise.all([
         getColumns(storeCurrentBoard.id),
         getTickets(storeCurrentBoard.id),
+        getBoardTaskCounts(storeCurrentBoard.id),
       ])
-        .then(([columnsData, ticketsData]) => {
+        .then(([columnsData, ticketsData, taskCountsData]) => {
           // Only apply results if this is still the current request
           if (currentRequestRef.current === requestId) {
             setColumns(columnsData);
             setTickets(ticketsData);
+            useBoardStore.getState().setTaskCountsMap(taskCountsData);
           }
         })
         .catch((error) => {
@@ -140,10 +142,14 @@ export function useBoardSync(): BoardSyncState {
 
     const pollTickets = async () => {
       try {
-        const ticketsData = await getTickets(currentBoard.id);
+        const [ticketsData, taskCountsData] = await Promise.all([
+          getTickets(currentBoard.id),
+          getBoardTaskCounts(currentBoard.id),
+        ]);
         // Only update if this is still the current board
         if (currentRequestRef.current === currentBoard.id) {
           setTickets(ticketsData);
+          useBoardStore.getState().setTaskCountsMap(taskCountsData);
           
           // Also update the selectedTicket if it's in this board and has changed
           // This ensures the TicketModal sees updated lockedByRunId, column, pausedAt, etc.
@@ -199,14 +205,16 @@ export function useBoardSync(): BoardSyncState {
     setCurrentBoard(board);
 
     try {
-      const [columnsData, ticketsData] = await Promise.all([
+      const [columnsData, ticketsData, taskCountsData] = await Promise.all([
         getColumns(board.id),
         getTickets(board.id),
+        getBoardTaskCounts(board.id),
       ]);
       // Only apply results if this is still the current request
       if (currentRequestRef.current === boardId) {
         setColumns(columnsData);
         setTickets(ticketsData);
+        useBoardStore.getState().setTaskCountsMap(taskCountsData);
       }
     } catch (error) {
       // Only log error if this is still the current request

@@ -2,9 +2,6 @@
 
 use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
-use crate::agents::plan_validation::{
-    generate_clarification_message, validate_plan_for_clarification, PlanValidationConfig,
-};
 use crate::agents::prompt::{
     generate_command_prompt, generate_implement_prompt, generate_plan_prompt,
     generate_task_implement_prompt, generate_task_plan_prompt, generate_task_prompt,
@@ -26,6 +23,10 @@ impl WorkflowOrchestrator {
 
     /// Execute the static multi-stage workflow pipeline.
     async fn execute_multi_stage(&self) -> Result<(), String> {
+        if self.resume_from_stage.is_some() {
+            self.restore_workflow_session_id();
+        }
+
         let mut plan = String::new();
 
         for stage_key in &self.stage_order {
@@ -66,6 +67,10 @@ impl WorkflowOrchestrator {
 
     /// Execute the auto-pilot workflow where the agent decides which commands to run.
     async fn execute_auto_pilot(&self) -> Result<(), String> {
+        if self.resume_from_stage.is_some() {
+            self.restore_workflow_session_id();
+        }
+
         self.handle_branch_creation().await?;
 
         let plan = self.run_plan_stage().await?;
@@ -119,7 +124,7 @@ impl WorkflowOrchestrator {
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {
-        let has_pending = self.task.is_some()
+        let has_pending = self.get_task().is_some()
             && self
                 .db
                 .has_pending_tasks(&self.ticket.id)
@@ -190,47 +195,34 @@ impl WorkflowOrchestrator {
                 String::new()
             })
         } else {
-            if self.is_cancelled() {
-                return Err("Workflow cancelled".to_string());
-            }
+            let mut plan = self.generate_plan_text().await?;
 
-            let plan_prompt = if let Some(ref task) = self.task {
-                if matches!(task.task_type, TaskType::Command(_)) {
-                    tracing::info!(
-                        "Skipping plan stage for command task type: {:?}",
-                        task.task_type
+            const MAX_PLAN_REGENERATIONS: usize = 1;
+            for attempt in 0..=MAX_PLAN_REGENERATIONS {
+                let needs_regeneration = self.validate_and_process_plan(&plan).await?;
+                if !needs_regeneration {
+                    break;
+                }
+                if attempt == MAX_PLAN_REGENERATIONS {
+                    tracing::warn!(
+                        "Reached max plan regeneration attempts ({}), proceeding with current plan",
+                        MAX_PLAN_REGENERATIONS,
                     );
-                    String::new()
-                } else {
-                    generate_task_plan_prompt(task, &self.ticket)
+                    break;
                 }
-            } else {
-                generate_plan_prompt(&self.ticket)
-            };
-
-            if plan_prompt.is_empty() {
-                return Ok(String::new());
+                tracing::info!(
+                    "Regenerating plan after auto-clarification updated task content (attempt {})",
+                    attempt + 1,
+                );
+                plan = self.generate_plan_text().await?;
             }
 
-            let plan_result = self.run_stage("plan", &plan_prompt).await?;
-            let raw_output = plan_result.captured_stdout.unwrap_or_default();
-            let extracted = self.extract_text(&raw_output);
+            if !plan.is_empty() {
+                self.add_plan_comment(&plan);
+            }
 
-            tracing::info!(
-                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
-                raw_output.len(),
-                extracted.len(),
-                if raw_output.is_empty() {
-                    0
-                } else {
-                    100 - (extracted.len() * 100 / raw_output.len())
-                }
-            );
-
-            extracted
+            plan
         };
-
-        self.validate_and_process_plan(&plan).await?;
 
         if !plan.is_empty() && !self.should_skip_stage("plan-decompose") {
             if self.is_cancelled() {
@@ -238,81 +230,53 @@ impl WorkflowOrchestrator {
             }
             self.decompose_plan_into_todos(&plan).await;
         } else if self.should_skip_stage("plan-decompose") {
-            // When skipping decompose (resuming from implement), load todos from run metadata
             self.load_todos_from_metadata();
         }
 
         Ok(plan)
     }
 
-    /// Validate the plan and handle clarification if needed.
-    async fn validate_and_process_plan(&self, plan: &str) -> Result<(), String> {
-        if plan.is_empty() || self.should_skip_stage("plan") {
-            return Ok(());
+    /// Generate a plan by running the plan stage against the current task/ticket.
+    async fn generate_plan_text(&self) -> Result<String, String> {
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
         }
 
-        self.add_plan_comment(plan);
-
-        tracing::info!(
-            "Running plan clarification validation for ticket {}",
-            self.ticket.id
-        );
-
-        let validation_config = PlanValidationConfig {
-            db: self.db.clone(),
-            parent_run_id: self.parent_run_id.clone(),
-            ticket_id: self.ticket.id.clone(),
-            repo_path: self.repo_path.clone(),
-            model: Some(self.get_stage_model("plan")),
-            agent_id: self.agent_id.clone(),
-            provider: self.provider.clone(),
-            agent_config: self.agent_config.clone(),
-            timeout_secs: self.stage_timeout_secs,
+        let current_task = self.get_task();
+        let plan_prompt = if let Some(ref task) = current_task {
+            if matches!(task.task_type, TaskType::Command(_)) {
+                tracing::info!(
+                    "Skipping plan stage for command task type: {:?}",
+                    task.task_type
+                );
+                String::new()
+            } else {
+                generate_task_plan_prompt(task, &self.ticket)
+            }
+        } else {
+            generate_plan_prompt(&self.ticket)
         };
 
-        let validation_result = validate_plan_for_clarification(&validation_config, plan).await;
-
-        match validation_result {
-            Ok(result) if result.needs_clarification => {
-                tracing::info!(
-                    "Plan requires clarification for ticket {}: {}",
-                    self.ticket.id,
-                    result.reason
-                );
-
-                let clarification_message =
-                    generate_clarification_message(&validation_config, plan)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!("Failed to generate clarification message: {}", e);
-                            format!("Clarification needed: {}", result.reason)
-                        });
-
-                self.add_clarification_comment(&clarification_message);
-                self.move_ticket_to_column("Blocked");
-
-                return Err(format!(
-                    "Plan requires user clarification: {}",
-                    result.reason
-                ));
-            }
-            Ok(result) => {
-                tracing::info!(
-                    "Plan validation passed for ticket {}: {}",
-                    self.ticket.id,
-                    result.reason
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Plan validation failed for ticket {}, proceeding anyway: {}",
-                    self.ticket.id,
-                    e
-                );
-            }
+        if plan_prompt.is_empty() {
+            return Ok(String::new());
         }
 
-        Ok(())
+        let plan_result = self.run_stage("plan", &plan_prompt).await?;
+        let raw_output = plan_result.captured_stdout.unwrap_or_default();
+        let extracted = self.extract_text(&raw_output);
+
+        tracing::info!(
+            "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+            raw_output.len(),
+            extracted.len(),
+            if raw_output.is_empty() {
+                0
+            } else {
+                100 - (extracted.len() * 100 / raw_output.len())
+            }
+        );
+
+        Ok(extracted)
     }
 
     /// Run the implement stage.
@@ -340,7 +304,8 @@ impl WorkflowOrchestrator {
         let todos = self.get_implementation_todos();
 
         if todos.is_empty() {
-            let implement_prompt = if let Some(ref task) = self.task {
+            let current_task = self.get_task();
+            let implement_prompt = if let Some(ref task) = current_task {
                 if matches!(task.task_type, TaskType::Command(_)) {
                     let custom_dir = self.custom_commands_dir();
                     generate_task_prompt(task, &self.ticket, custom_dir.as_deref())
@@ -379,16 +344,6 @@ impl WorkflowOrchestrator {
                 .unwrap_or_default()
         } else {
             String::new()
-        };
-
-        let mut implementation_session_id: Option<String> = if completed_count > 0 {
-            let sid = self.load_session_id_from_metadata();
-            if let Some(ref s) = sid {
-                tracing::info!("Restored implementation session id from metadata: {}", s);
-            }
-            sid
-        } else {
-            None
         };
 
         // Emit initial progress so the frontend shows todos immediately,
@@ -452,21 +407,9 @@ impl WorkflowOrchestrator {
                 total,
             );
 
-            match self.run_stage_with_session("implement", &prompt, implementation_session_id.as_deref()).await {
+            match self.run_stage("implement", &prompt).await {
                 Ok(result) => {
                     let raw_output = result.captured_stdout.unwrap_or_default();
-
-                    if implementation_session_id.is_none() {
-                        implementation_session_id = self.provider.extract_session_id(&raw_output);
-                        if let Some(ref sid) = implementation_session_id {
-                            tracing::info!(
-                                "Captured agent session id for todo continuation: {}",
-                                sid
-                            );
-                            self.save_session_id(sid);
-                        }
-                    }
-
                     let text = self.extract_text(&raw_output);
                     if !combined_output.is_empty() {
                         combined_output.push_str("\n\n");

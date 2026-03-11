@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { cn } from '../../lib/utils';
 import { Board } from '../board/Board';
 import { ListView } from '../board/ListView';
+import { useBoardStore } from '../../stores/boardStore';
 import type { Column, Ticket } from '../../types';
 
 type ViewMode = 'board' | 'list';
@@ -60,6 +61,7 @@ export function BoardsView({
   onTicketClick,
   onCreateBoardClick,
 }: BoardsViewProps) {
+  const taskCountsMap = useBoardStore((s) => s.taskCountsMap);
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>(loadPersistedModes);
   const [hideDoneState, setHideDoneState] = useState<Record<string, boolean>>(loadHideDone);
 
@@ -239,6 +241,7 @@ export function BoardsView({
             columns={filteredColumns}
             tickets={filteredTickets}
             projectMap={projectMap}
+            taskCountsMap={taskCountsMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}
           />
@@ -247,6 +250,7 @@ export function BoardsView({
             columns={filteredColumns}
             tickets={filteredTickets}
             projectMap={projectMap}
+            taskCountsMap={taskCountsMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}
           />

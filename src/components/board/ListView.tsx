@@ -2,12 +2,13 @@ import { useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { PRIORITY_BORDER_COLORS, PRIORITY_LABELS } from '../../lib/constants';
 import { ColumnSelect } from './ColumnSelect';
-import type { Column, Ticket } from '../../types';
+import type { Column, Ticket, TaskCounts } from '../../types';
 
 interface ListViewProps {
   columns: Column[];
   tickets: Ticket[];
   projectMap?: Record<string, string>;
+  taskCountsMap?: Record<string, TaskCounts>;
   onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: Ticket) => void;
 }
@@ -27,7 +28,7 @@ function formatDate(date: Date | string | undefined): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function ListView({ columns, tickets, projectMap, onTicketMove, onTicketClick }: ListViewProps) {
+export function ListView({ columns, tickets, projectMap, taskCountsMap, onTicketMove, onTicketClick }: ListViewProps) {
   const columnPositionMap = useMemo(() => {
     const map = new Map<string, number>();
     columns.forEach((c) => map.set(c.id, c.position));
@@ -70,6 +71,7 @@ export function ListView({ columns, tickets, projectMap, onTicketMove, onTicketC
             <th className="text-left py-3 px-3 font-medium w-24">Priority</th>
             <th className="text-left py-3 px-3 font-medium w-44">Status</th>
             <th className="text-left py-3 px-3 font-medium w-40">Labels</th>
+            <th className="text-left py-3 px-3 font-medium w-20">Tasks</th>
             <th className="text-left py-3 px-3 font-medium w-36">Project</th>
             <th className="text-left py-3 px-3 font-medium w-24">Updated</th>
           </tr>
@@ -151,6 +153,39 @@ export function ListView({ columns, tickets, projectMap, onTicketMove, onTicketC
                       <span className="text-[10px] text-board-text-muted">+{ticket.labels.length - 2}</span>
                     )}
                   </div>
+                </td>
+
+                {/* Tasks */}
+                <td className="py-2.5 px-3">
+                  {(() => {
+                    const tc = taskCountsMap?.[ticket.id];
+                    if (!tc) return null;
+                    const total = tc.pending + tc.inProgress + tc.completed + tc.failed;
+                    if (total === 0) return null;
+                    const done = tc.completed;
+                    const allDone = done === total;
+                    return (
+                      <span className={cn(
+                        'flex items-center gap-1 text-xs font-medium',
+                        allDone ? 'text-emerald-400' : 'text-board-text-muted'
+                      )} title={`${done} of ${total} tasks completed`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          {allDone ? (
+                            <>
+                              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                              <polyline points="22 4 12 14.01 9 11.01" />
+                            </>
+                          ) : (
+                            <>
+                              <path d="M12 2a10 10 0 1 0 10 10" />
+                              <polyline points="22 4 12 14.01 9 11.01" />
+                            </>
+                          )}
+                        </svg>
+                        {done}/{total}
+                      </span>
+                    );
+                  })()}
                 </td>
 
                 {/* Project */}

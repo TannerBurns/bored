@@ -480,6 +480,41 @@ impl Database {
         })
     }
 
+    /// Get task counts for all tickets on a board in a single query
+    pub fn get_board_task_counts(
+        &self,
+        board_id: &str,
+    ) -> Result<std::collections::HashMap<String, TaskCounts>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT t.ticket_id, t.status, COUNT(*)
+                   FROM tasks t
+                   JOIN tickets tk ON t.ticket_id = tk.id
+                   WHERE tk.board_id = ?
+                   GROUP BY t.ticket_id, t.status"#,
+            )?;
+
+            let mut map = std::collections::HashMap::<String, TaskCounts>::new();
+            let mut rows = stmt.query([board_id])?;
+
+            while let Some(row) = rows.next()? {
+                let ticket_id: String = row.get(0)?;
+                let status: String = row.get(1)?;
+                let count: i32 = row.get(2)?;
+                let counts = map.entry(ticket_id).or_default();
+                match status.as_str() {
+                    "pending" => counts.pending = count,
+                    "in_progress" => counts.in_progress = count,
+                    "completed" => counts.completed = count,
+                    "failed" => counts.failed = count,
+                    _ => {}
+                }
+            }
+
+            Ok(map)
+        })
+    }
+
     fn map_task_row(row: &rusqlite::Row) -> rusqlite::Result<Task> {
         let task_type_str: String = row.get(3)?;
         let task_type = TaskType::parse(&task_type_str).unwrap_or_default();

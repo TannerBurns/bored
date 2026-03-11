@@ -3,6 +3,7 @@ import type {
   Board,
   Column,
   Ticket,
+  TaskCounts,
   AgentRun,
   AgentRunWithContext,
   AgentInfo,
@@ -95,6 +96,10 @@ export async function createBoard(name: string): Promise<Board> {
 
 export async function getTickets(boardId: string): Promise<Ticket[]> {
   return invoke('get_tickets', { boardId });
+}
+
+export async function getBoardTaskCounts(boardId: string): Promise<Record<string, TaskCounts>> {
+  return invoke('get_board_task_counts', { boardId });
 }
 
 export async function getTicket(ticketId: string): Promise<Ticket> {

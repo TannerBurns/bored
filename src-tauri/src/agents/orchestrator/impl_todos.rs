@@ -243,21 +243,21 @@ impl WorkflowOrchestrator {
         serde_json::from_value::<Vec<TodoStatus>>(raw.clone()).ok()
     }
 
-    /// Persist the implementation session ID so it survives pause/resume.
-    pub(super) fn save_session_id(&self, session_id: &str) {
+    /// Persist the workflow session ID so it survives pause/resume.
+    pub(super) fn save_workflow_session_id(&self, session_id: &str) {
         if let Err(e) = self.db.merge_run_metadata(
             &self.parent_run_id,
-            &serde_json::json!({ "implementation_session_id": session_id }),
+            &serde_json::json!({ "workflow_session_id": session_id }),
         ) {
-            tracing::warn!("Failed to persist implementation session id: {}", e);
+            tracing::warn!("Failed to persist workflow session id: {}", e);
         }
     }
 
-    /// Load the implementation session ID from run metadata (for resume scenarios).
-    pub(super) fn load_session_id_from_metadata(&self) -> Option<String> {
+    /// Load the workflow session ID from run metadata (for resume scenarios).
+    pub(super) fn load_workflow_session_id(&self) -> Option<String> {
         let run = self.db.get_run(&self.parent_run_id).ok()?;
         let meta = run.metadata?;
-        meta.get("implementation_session_id")
+        meta.get("workflow_session_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
     }

@@ -11,6 +11,7 @@ interface BoardState {
   selectedTicket: Ticket | null;
   comments: Comment[];
   tasks: Task[];
+  taskCountsMap: Record<string, TaskCounts>;
   isLoading: boolean;
   error: string | null;
   isTicketModalOpen: boolean;
@@ -19,6 +20,7 @@ interface BoardState {
   loadBoards: () => Promise<void>;
   selectBoard: (boardId: string) => Promise<void>;
   loadBoardData: (boardId: string) => Promise<void>;
+  loadBoardTaskCounts: (boardId: string) => Promise<void>;
   createBoard: (name: string) => Promise<Board>;
   updateBoard: (boardId: string, name: string) => Promise<Board>;
   deleteBoard: (boardId: string) => Promise<void>;
@@ -37,6 +39,7 @@ interface BoardState {
   setCurrentBoard: (board: Board | null) => void;
   setColumns: (columns: Column[]) => void;
   setTickets: (tickets: Ticket[]) => void;
+  setTaskCountsMap: (taskCountsMap: Record<string, TaskCounts>) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   
@@ -58,6 +61,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   selectedTicket: null,
   comments: [],
   tasks: [],
+  taskCountsMap: {},
   isLoading: false,
   error: null,
   isTicketModalOpen: false,
@@ -85,13 +89,23 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   loadBoardData: async (boardId: string) => {
     set({ isLoading: true, error: null });
     try {
-      const [columns, tickets] = await Promise.all([
+      const [columns, tickets, taskCountsMap] = await Promise.all([
         invoke<Column[]>('get_columns', { boardId }),
         invoke<Ticket[]>('get_tickets', { boardId }),
+        invoke<Record<string, TaskCounts>>('get_board_task_counts', { boardId }),
       ]);
-      set({ columns, tickets, isLoading: false });
+      set({ columns, tickets, taskCountsMap, isLoading: false });
     } catch (error) {
       set({ error: String(error), isLoading: false });
+    }
+  },
+
+  loadBoardTaskCounts: async (boardId: string) => {
+    try {
+      const taskCountsMap = await invoke<Record<string, TaskCounts>>('get_board_task_counts', { boardId });
+      set({ taskCountsMap });
+    } catch (error) {
+      logger.error('Failed to load board task counts:', error);
     }
   },
 
@@ -260,6 +274,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   setCurrentBoard: (board) => set({ currentBoard: board }),
   setColumns: (columns) => set({ columns }),
   setTickets: (tickets) => set({ tickets }),
+  setTaskCountsMap: (taskCountsMap) => set({ taskCountsMap }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
 

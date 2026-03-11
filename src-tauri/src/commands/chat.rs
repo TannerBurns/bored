@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tauri::State;
+use tauri::{Manager, State};
 use tokio::sync::broadcast;
 
 use crate::agents::chat::{ChatAgent, ChatAgentConfig, ChatAgentError, TicketBuilderOutput};
@@ -132,11 +132,10 @@ pub async fn get_chat_cost(
 
 #[tauri::command]
 pub async fn send_chat_message(
+    app: tauri::AppHandle,
     db: State<'_, Arc<Database>>,
     event_tx: State<'_, broadcast::Sender<LiveEvent>>,
     registry: State<'_, Arc<AgentRegistry>>,
-    agent_settings: State<'_, AgentSettingsManager>,
-    workflow_settings: State<'_, WorkflowSettingsState>,
     app_process_manager: State<'_, AppProcessManager>,
     running_chats: State<'_, RunningChatAgents>,
     chat_id: String,
@@ -160,9 +159,9 @@ pub async fn send_chat_message(
 
     let messages = db.get_chat_messages(&chat_id).map_err(|e| e.to_string())?;
 
-    let agent_config = agent_settings.agent_config_for(&chat.agent_type);
+    let agent_config = app.state::<AgentSettingsManager>().agent_config_for(&chat.agent_type);
 
-    let ws = workflow_settings.get_for_agent(&chat.agent_type);
+    let ws = app.state::<WorkflowSettingsState>().get_for_agent(&chat.agent_type);
     let model = resolve_chat_model(chat.model.as_deref(), &chat.mode, &ws);
 
     let config = ChatAgentConfig {

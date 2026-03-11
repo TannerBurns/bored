@@ -77,6 +77,56 @@ pub fn build_spec_rewrite_prompt(
     )
 }
 
+/// Build the prompt for the auto-clarification agent.
+pub fn build_auto_clarification_prompt(
+    plan: &str,
+    clarification_reason: &str,
+    ticket_description: &str,
+    task_content: &str,
+    completed_task_summaries: &str,
+) -> String {
+    format!(
+        r#"You are an autonomous agent resolving a plan clarification. A previous validation step determined that this plan needs user clarification, but you must resolve it yourself.
+
+## Ticket Description
+{ticket_description}
+
+## Current Task Content
+{task_content}
+
+## Plan That Triggered Clarification
+{plan}
+
+## Why Clarification Was Requested
+{clarification_reason}
+
+## Previously Completed Tasks
+{completed_task_summaries}
+
+## Your Job
+Analyze the situation and decide how to proceed. You have three options:
+
+1. **update_task** — If the clarification can be resolved by making reasonable decisions or the answers are evident from context, rewrite the task content to remove the ambiguity. Incorporate clear, specific decisions so the implementation can proceed without further questions.
+
+2. **delete_task** — If the task is no longer needed (e.g., a previous task already accomplished what this task describes, or the task duplicates existing work), delete it.
+
+3. **cannot_resolve** — If the clarification genuinely requires human judgment and you cannot make a reasonable decision, indicate that you cannot resolve it.
+
+## Response Format
+Respond with ONLY a JSON object in one of these forms:
+
+For updating the task:
+{{"action": "update_task", "updated_content": "the full rewritten task content", "reason": "brief explanation of what you decided"}}
+
+For deleting the task:
+{{"action": "delete_task", "reason": "brief explanation of why the task is no longer needed"}}
+
+If you cannot resolve it:
+{{"action": "cannot_resolve", "reason": "brief explanation of why human input is required"}}
+"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +193,57 @@ mod tests {
         assert!(prompt.contains("self-contained task specification"));
         assert!(prompt.contains("Preserve ALL original intent"));
         assert!(prompt.contains("no preamble or explanation"));
+    }
+
+    #[test]
+    fn build_auto_clarification_prompt_contains_all_sections() {
+        let prompt = build_auto_clarification_prompt(
+            "1. Set up database\n2. Add auth",
+            "Unclear which database to use",
+            "Build a REST API",
+            "Implement the database layer",
+            "- [setup project] Created project structure",
+        );
+
+        assert!(prompt.contains("1. Set up database\n2. Add auth"));
+        assert!(prompt.contains("Unclear which database to use"));
+        assert!(prompt.contains("Build a REST API"));
+        assert!(prompt.contains("Implement the database layer"));
+        assert!(prompt.contains("Created project structure"));
+        assert!(prompt.contains("Ticket Description"));
+        assert!(prompt.contains("Current Task Content"));
+        assert!(prompt.contains("Plan That Triggered Clarification"));
+        assert!(prompt.contains("Why Clarification Was Requested"));
+        assert!(prompt.contains("Previously Completed Tasks"));
+    }
+
+    #[test]
+    fn build_auto_clarification_prompt_handles_empty_inputs() {
+        let prompt = build_auto_clarification_prompt("", "", "", "", "");
+        assert!(prompt.contains("Ticket Description"));
+        assert!(prompt.contains("update_task"));
+        assert!(prompt.contains("delete_task"));
+        assert!(prompt.contains("cannot_resolve"));
+    }
+
+    #[test]
+    fn build_auto_clarification_prompt_includes_response_format() {
+        let prompt =
+            build_auto_clarification_prompt("plan", "reason", "desc", "task", "completed");
+        assert!(prompt.contains("update_task"));
+        assert!(prompt.contains("delete_task"));
+        assert!(prompt.contains("cannot_resolve"));
+        assert!(prompt.contains("updated_content"));
+        assert!(prompt.contains("Response Format"));
+    }
+
+    #[test]
+    fn build_auto_clarification_prompt_preserves_multiline_content() {
+        let plan = "Step 1: Do A\nStep 2: Do B\nStep 3: Do C";
+        let completed = "- [task1] Done\n- [task2] Also done";
+        let prompt =
+            build_auto_clarification_prompt(plan, "ambiguous", "desc", "task content", completed);
+        assert!(prompt.contains("Step 1: Do A\nStep 2: Do B\nStep 3: Do C"));
+        assert!(prompt.contains("- [task1] Done\n- [task2] Also done"));
     }
 }

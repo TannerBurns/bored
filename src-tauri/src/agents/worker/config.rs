@@ -115,6 +115,7 @@ mod tests {
         fn config_dir_name(&self) -> &str { ".stub" }
         fn command_instructions_subdir(&self) -> &str { "commands" }
         fn format_command_reference(&self, c: &str) -> String { format!("/{c}") }
+        fn extract_session_id(&self, _output: &str) -> Option<String> { None }
     }
 
     fn make_worker_config(agent_id: &str, shared: Option<Arc<Mutex<HashMap<String, WorkflowSettings>>>>) -> WorkerConfig {

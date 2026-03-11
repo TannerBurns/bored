@@ -345,6 +345,7 @@ impl AgentProvider for StubProvider {
     fn config_dir_name(&self) -> &str { ".stub" }
     fn command_instructions_subdir(&self) -> &str { "commands" }
     fn format_command_reference(&self, cmd: &str) -> String { format!("/{}", cmd) }
+    fn extract_session_id(&self, _output: &str) -> Option<String> { None }
 }
 
 #[test]

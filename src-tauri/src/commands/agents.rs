@@ -122,6 +122,9 @@ mod tests {
         fn format_command_reference(&self, cmd: &str) -> String {
             format!("/{}", cmd)
         }
+        fn extract_session_id(&self, _output: &str) -> Option<String> {
+            None
+        }
     }
 
     fn registry_with_stubs() -> AgentRegistry {

@@ -13,23 +13,15 @@ use crate::agents::{LogCallback, LogLine, LogStream, RunOutcome};
 use crate::db::{AgentEventPayload, CreateRun, EventType, NormalizedEvent, RunStatus};
 
 impl WorkflowOrchestrator {
-    /// Run a single stage of the workflow with retry support
+    /// Run a single stage of the workflow with retry support.
     pub(super) async fn run_stage(
         &self,
         stage: &str,
         prompt: &str,
     ) -> Result<AgentRunResult, String> {
-        self.run_stage_inner(stage, prompt, None, None).await
-    }
-
-    /// Run a single stage, resuming an existing agent session.
-    pub(super) async fn run_stage_with_session(
-        &self,
-        stage: &str,
-        prompt: &str,
-        session_id: Option<&str>,
-    ) -> Result<AgentRunResult, String> {
-        self.run_stage_inner(stage, prompt, None, session_id).await
+        let sid = self.get_workflow_session_id();
+        self.run_stage_inner(stage, prompt, None, sid.as_deref())
+            .await
     }
 
     /// Run a single stage with an explicit model override (used by auto-pilot).
@@ -39,7 +31,33 @@ impl WorkflowOrchestrator {
         prompt: &str,
         model: &str,
     ) -> Result<AgentRunResult, String> {
-        self.run_stage_inner(stage, prompt, Some(model), None).await
+        let sid = self.get_workflow_session_id();
+        self.run_stage_inner(stage, prompt, Some(model), sid.as_deref())
+            .await
+    }
+
+    fn get_workflow_session_id(&self) -> Option<String> {
+        self.workflow_session_id
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    fn set_workflow_session_id(&self, session_id: &str) {
+        if let Ok(mut guard) = self.workflow_session_id.write() {
+            *guard = Some(session_id.to_string());
+        }
+        self.save_workflow_session_id(session_id);
+    }
+
+    /// Restore workflow session ID from run metadata into the in-memory field.
+    pub(super) fn restore_workflow_session_id(&self) {
+        if let Some(sid) = self.load_workflow_session_id() {
+            tracing::info!("Restored workflow session id from metadata: {}", sid);
+            if let Ok(mut guard) = self.workflow_session_id.write() {
+                *guard = Some(sid);
+            }
+        }
     }
 
     async fn run_stage_inner(
@@ -322,6 +340,24 @@ impl WorkflowOrchestrator {
                 "Stage '{}' failed with status {:?}",
                 stage, result.status
             ));
+        }
+
+        if let Some(ref stdout) = result.captured_stdout {
+            if let Some(sid) = self.provider.extract_session_id(stdout) {
+                let is_new = self
+                    .get_workflow_session_id()
+                    .as_ref()
+                    .map(|old| *old != sid)
+                    .unwrap_or(true);
+                if is_new {
+                    tracing::info!(
+                        "Captured workflow session id from '{}' stage: {}",
+                        stage,
+                        sid,
+                    );
+                    self.set_workflow_session_id(&sid);
+                }
+            }
         }
 
         tracing::info!("Stage '{}' completed in {:.1}s", stage, duration_secs);

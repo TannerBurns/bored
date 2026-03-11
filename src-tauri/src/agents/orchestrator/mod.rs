@@ -29,6 +29,7 @@ use crate::db::{Database, Ticket};
 // Submodules
 mod auto_pilot;
 mod branch;
+mod clarification;
 mod code_review;
 mod comments;
 mod config;
@@ -84,7 +85,9 @@ pub struct WorkflowOrchestrator {
     parent_run_id: String,
     ticket: Ticket,
     /// The task being executed. If None, falls back to legacy ticket-based workflow.
-    task: Option<Task>,
+    /// Wrapped in `RwLock` so auto-clarification can refresh the content after
+    /// an `UpdateTask` resolution without requiring `&mut self`.
+    task: RwLock<Option<Task>>,
     repo_path: PathBuf,
     /// Agent ID string (e.g. "cursor", "claude").
     agent_id: String,
@@ -126,9 +129,12 @@ pub struct WorkflowOrchestrator {
     workflow_mode: config::WorkflowMode,
     auto_pilot_model: String,
     auto_complete_tickets: bool,
+    auto_clarification: bool,
     stage_runner: Arc<dyn StageRunner>,
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
+    /// Session ID threaded across all workflow stages for conversational continuity.
+    workflow_session_id: RwLock<Option<String>>,
 }
 
 impl WorkflowOrchestrator {
@@ -190,7 +196,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets, auto_clarification) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -204,6 +210,7 @@ impl WorkflowOrchestrator {
                     ws.auto_pilot_enabled,
                     ws.auto_pilot_model.clone(),
                     ws.auto_complete_tickets,
+                    ws.auto_clarification,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -215,6 +222,7 @@ impl WorkflowOrchestrator {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                     false,
                     crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+                    false,
                     false,
                 )
             };
@@ -264,7 +272,7 @@ impl WorkflowOrchestrator {
             app_handle: config.app_handle,
             parent_run_id: config.parent_run_id,
             ticket: config.ticket,
-            task: config.task,
+            task: RwLock::new(config.task),
             repo_path: config.repo_path,
             agent_id: config.agent_id,
             provider: config.provider,
@@ -286,8 +294,10 @@ impl WorkflowOrchestrator {
             workflow_mode,
             auto_pilot_model,
             auto_complete_tickets,
+            auto_clarification,
             stage_runner: Arc::new(DefaultStageRunner),
             implementation_todos: RwLock::new(Vec::new()),
+            workflow_session_id: RwLock::new(None),
         }
     }
 
@@ -431,6 +441,33 @@ impl WorkflowOrchestrator {
                 .map(|d| d.join("custom-commands"))
                 .filter(|d| d.exists())
         })
+    }
+
+    /// Return a clone of the current in-memory task.
+    pub(super) fn get_task(&self) -> Option<Task> {
+        self.task.read().ok().and_then(|guard| guard.clone())
+    }
+
+    /// Reload the task from the database, refreshing the in-memory copy.
+    pub(super) fn refresh_task_from_db(&self) {
+        let task_id = self
+            .task
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|t| t.id.clone()));
+
+        if let Some(id) = task_id {
+            match self.db.get_task(&id) {
+                Ok(fresh) => {
+                    if let Ok(mut guard) = self.task.write() {
+                        *guard = Some(fresh);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to reload task {} from DB: {}", id, e);
+                }
+            }
+        }
     }
 
     /// Extract text from agent output using the provider.
