@@ -195,48 +195,30 @@ impl WorkflowOrchestrator {
                 String::new()
             })
         } else {
-            if self.is_cancelled() {
-                return Err("Workflow cancelled".to_string());
-            }
+            let mut plan = self.generate_plan_text().await?;
 
-            let current_task = self.get_task();
-            let plan_prompt = if let Some(ref task) = current_task {
-                if matches!(task.task_type, TaskType::Command(_)) {
-                    tracing::info!(
-                        "Skipping plan stage for command task type: {:?}",
-                        task.task_type
+            const MAX_PLAN_REGENERATIONS: usize = 1;
+            for attempt in 0..=MAX_PLAN_REGENERATIONS {
+                let needs_regeneration = self.validate_and_process_plan(&plan).await?;
+                if !needs_regeneration {
+                    break;
+                }
+                if attempt == MAX_PLAN_REGENERATIONS {
+                    tracing::warn!(
+                        "Reached max plan regeneration attempts ({}), proceeding with current plan",
+                        MAX_PLAN_REGENERATIONS,
                     );
-                    String::new()
-                } else {
-                    generate_task_plan_prompt(task, &self.ticket)
+                    break;
                 }
-            } else {
-                generate_plan_prompt(&self.ticket)
-            };
-
-            if plan_prompt.is_empty() {
-                return Ok(String::new());
+                tracing::info!(
+                    "Regenerating plan after auto-clarification updated task content (attempt {})",
+                    attempt + 1,
+                );
+                plan = self.generate_plan_text().await?;
             }
 
-            let plan_result = self.run_stage("plan", &plan_prompt).await?;
-            let raw_output = plan_result.captured_stdout.unwrap_or_default();
-            let extracted = self.extract_text(&raw_output);
-
-            tracing::info!(
-                "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
-                raw_output.len(),
-                extracted.len(),
-                if raw_output.is_empty() {
-                    0
-                } else {
-                    100 - (extracted.len() * 100 / raw_output.len())
-                }
-            );
-
-            extracted
+            plan
         };
-
-        self.validate_and_process_plan(&plan).await?;
 
         if !plan.is_empty() && !self.should_skip_stage("plan-decompose") {
             if self.is_cancelled() {
@@ -244,11 +226,53 @@ impl WorkflowOrchestrator {
             }
             self.decompose_plan_into_todos(&plan).await;
         } else if self.should_skip_stage("plan-decompose") {
-            // When skipping decompose (resuming from implement), load todos from run metadata
             self.load_todos_from_metadata();
         }
 
         Ok(plan)
+    }
+
+    /// Generate a plan by running the plan stage against the current task/ticket.
+    async fn generate_plan_text(&self) -> Result<String, String> {
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+
+        let current_task = self.get_task();
+        let plan_prompt = if let Some(ref task) = current_task {
+            if matches!(task.task_type, TaskType::Command(_)) {
+                tracing::info!(
+                    "Skipping plan stage for command task type: {:?}",
+                    task.task_type
+                );
+                String::new()
+            } else {
+                generate_task_plan_prompt(task, &self.ticket)
+            }
+        } else {
+            generate_plan_prompt(&self.ticket)
+        };
+
+        if plan_prompt.is_empty() {
+            return Ok(String::new());
+        }
+
+        let plan_result = self.run_stage("plan", &plan_prompt).await?;
+        let raw_output = plan_result.captured_stdout.unwrap_or_default();
+        let extracted = self.extract_text(&raw_output);
+
+        tracing::info!(
+            "Plan extraction: raw={} chars, extracted={} chars ({}% reduction)",
+            raw_output.len(),
+            extracted.len(),
+            if raw_output.is_empty() {
+                0
+            } else {
+                100 - (extracted.len() * 100 / raw_output.len())
+            }
+        );
+
+        Ok(extracted)
     }
 
     /// Run the implement stage.

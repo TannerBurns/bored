@@ -9,9 +9,13 @@ use crate::db::{TaskStatus, UpdateTask};
 
 impl WorkflowOrchestrator {
     /// Validate the plan and handle clarification if needed.
-    pub(super) async fn validate_and_process_plan(&self, plan: &str) -> Result<(), String> {
+    ///
+    /// Returns `Ok(true)` when the plan must be regenerated (e.g. after
+    /// auto-clarification updated the task content), `Ok(false)` to proceed
+    /// with the current plan.
+    pub(super) async fn validate_and_process_plan(&self, plan: &str) -> Result<bool, String> {
         if plan.is_empty() || self.should_skip_stage("plan") {
-            return Ok(());
+            return Ok(false);
         }
 
         self.add_plan_comment(plan);
@@ -84,12 +88,12 @@ impl WorkflowOrchestrator {
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 
     /// Attempt to auto-resolve a clarification without user input.
     ///
-    /// Returns `Some(Ok(()))` if the task was updated (workflow continues),
+    /// Returns `Some(Ok(true))` if the task was updated (plan must be regenerated),
     /// `Some(Err(...))` if the task was deleted (workflow stops for this task),
     /// or `None` if the agent could not resolve (caller falls through to blocking).
     async fn try_auto_resolve_clarification(
@@ -97,7 +101,7 @@ impl WorkflowOrchestrator {
         validation_config: &PlanValidationConfig,
         plan: &str,
         reason: &str,
-    ) -> Option<Result<(), String>> {
+    ) -> Option<Result<bool, String>> {
         tracing::info!(
             "Auto-clarification enabled, attempting autonomous resolution for ticket {}",
             self.ticket.id,
@@ -152,10 +156,10 @@ impl WorkflowOrchestrator {
                     self.refresh_task_from_db();
                     self.add_auto_clarification_comment("Task updated", &resolution.reason);
                     tracing::info!(
-                        "Auto-clarification resolved (update_task) for ticket {}",
+                        "Auto-clarification resolved (update_task) for ticket {}, plan will be regenerated",
                         self.ticket.id,
                     );
-                    Some(Ok(()))
+                    Some(Ok(true))
                 }
                 AutoClarificationAction::DeleteTask => {
                     let current_task = self.get_task();
