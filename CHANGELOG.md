@@ -2,6 +2,55 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.49] - 2026-03-11
+
+Auto-clarification for workflow agents, task progress counts on ticket cards, and workflow session threading across all stages. Agents can now autonomously resolve plan clarification questions instead of blocking for user input when enabled. Ticket cards display done/total task progress badges on both board and list views. The agent session is threaded across the entire workflow (plan, decompose, implement, commit, code-review) so each stage has full context of prior stages.
+
+### New Features
+
+- Auto-clarification setting — new per-agent `autoClarification` toggle that lets the agent autonomously resolve plan clarification questions using the plan-phase model; the agent can update a task (rewrite to resolve ambiguity), delete a task (if already completed or no longer needed), or fall back to blocking if it cannot resolve
+- Task progress on ticket cards — done/total task progress badge displayed on ticket cards in both board and list views; backed by a new `get_board_task_counts` command that fetches counts for all tickets on a board in a single SQL query
+- Workflow session threading — agent session ID is now threaded across the entire workflow (plan, plan-decompose, implement, commit, code-review, custom commands) so each stage has full context of prior stages; session ID is captured after each successful stage and restored on resume
+
+### Improvements
+
+- Extracted clarification logic from execute.rs into dedicated clarification.rs submodule (execute.rs reduced from 706 to 480 lines)
+- Auto-clarification prompt includes full context: plan, clarification reason, ticket description, task content, and completed task summaries
+- Plan regeneration loop — when auto-clarification updates a task, the plan is regenerated from the refreshed task content before proceeding to decomposition
+- Auto-clarification posts an informational comment on the ticket explaining the agent's decision
+- Reduced main content padding, set 14px root font size, added 900x600 minimum window size
+
+### Bug Fixes
+
+- Fixed chat input field not resetting when switching between chats — added key-based remount on ChatPanel so MessageInput local state does not leak across chats
+- Fixed resolve_clarification rewriting ticket description instead of the specific task content that triggered the clarification
+- Fixed auto-clarification silently proceeding when DB write fails or task is missing — now falls back to user-blocking clarification path
+- Fixed plan not posted before clarification comment — users now see the plan alongside the clarification questions for context
+- Fixed stale plan used after auto-clarification updates task content — validation loop regenerates plan from refreshed task
+- Fixed resolve_clarification failing for taskless tickets (legacy workflow) — restores fallback path that reads from ticket description
+- Fixed duplicate plan comments when auto-clarification triggered a plan regeneration
+- Fixed auto-clarification delete routed to user clarification handler — now has a dedicated handler with correct summary and no spurious fail_task call
+- Fixed only diagnostic comments suppress the clarification banner (error comments no longer incorrectly suppress it)
+- Fixed clippy too-many-arguments in send_chat_message by consolidating State params into AppHandle
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.48, here is a summary of the major features introduced in recent releases:
+
+**beta.48 — Chat Message Editing, Stop Generation & Cross-Project Isolation**
+Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats.
+
+**beta.47 — Pause/Resume Reliability & Chat Timeout Notifications**
+Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout.
+
+**beta.46 — Idle-Based Agent Timeout & Git Identity Attribution**
+Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits.
+
+**beta.45 — User-Driven Review Mode & Session Resumption**
+User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response.
+
+---
+
 ## [0.1.0-beta.48] - 2026-03-10
 
 Chat message editing with inline regeneration and mid-generation cancellation, cross-project context isolation, and server-side model resolution. Users can now edit any past message to regenerate from that point and stop an in-progress generation with a cancel button. Chat agents are now prevented from seeing tickets and context from unrelated projects, and model resolution is handled server-side with a clear priority chain so settings changes take effect on existing chats.

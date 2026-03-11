@@ -1,5 +1,61 @@
 [
   {
+    "version": "0.1.0-beta.49",
+    "published_at": "2026-03-11",
+    "summary": "Auto-clarification for workflow agents that autonomously resolves plan clarification questions, task progress counts on ticket cards in board and list views, and workflow session threading across all stages so each stage has full context of prior stages.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Auto-clarification setting — per-agent autoClarification toggle lets the agent autonomously resolve plan clarification questions using the plan-phase model; can update a task, delete a task, or fall back to blocking",
+          "Task progress on ticket cards — done/total task progress badge on ticket cards in board and list views backed by a single-query get_board_task_counts command",
+          "Workflow session threading — agent session ID threaded across entire workflow (plan, decompose, implement, commit, code-review, custom commands) so each stage has full context of prior stages"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Extracted clarification logic into dedicated clarification.rs submodule reducing execute.rs from 706 to 480 lines",
+          "Plan regeneration loop — when auto-clarification updates a task, plan is regenerated from refreshed task content before proceeding",
+          "Auto-clarification posts informational comment on ticket explaining the agent's decision",
+          "Reduced main content padding, set 14px root font size, added 900x600 minimum window size"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed chat input field not resetting when switching between chats via key-based remount on ChatPanel",
+          "Fixed resolve_clarification rewriting ticket description instead of the specific task content",
+          "Fixed auto-clarification silently proceeding when DB write fails or task is missing",
+          "Fixed plan not posted before clarification comment so users now see plan alongside questions",
+          "Fixed stale plan used after auto-clarification updates task content via plan regeneration loop",
+          "Fixed resolve_clarification failing for taskless tickets in legacy workflow",
+          "Fixed duplicate plan comments during auto-clarification plan regeneration",
+          "Fixed auto-clarification delete routed to wrong handler with incorrect summary",
+          "Fixed clippy too-many-arguments in send_chat_message by consolidating State params into AppHandle"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.48",
+        "highlight": "Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats."
+      },
+      {
+        "version": "0.1.0-beta.47",
+        "highlight": "Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout."
+      },
+      {
+        "version": "0.1.0-beta.46",
+        "highlight": "Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits."
+      },
+      {
+        "version": "0.1.0-beta.45",
+        "highlight": "User-driven review mode presenting tools as available capabilities instead of prescribing a rigid testing workflow. Session resumption extended to all chat modes so follow-up turns use lightweight prompts. Multi-task parsing collects all fix tasks from a single agent response."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.48",
     "published_at": "2026-03-10",
     "summary": "Chat message editing with inline regeneration and mid-generation cancellation, cross-project context isolation preventing agents from seeing unrelated project data, and server-side model resolution so settings changes take effect on existing chats.",
