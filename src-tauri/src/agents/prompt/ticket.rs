@@ -204,7 +204,7 @@ Do NOT implement any code. Just create the plan.
 /// Generate a prompt to decompose a plan into focused implementation todos.
 pub fn generate_plan_decomposition_prompt(plan: &str) -> String {
     format!(
-        r#"You are a technical project decomposer. Break the following implementation plan into 3-10 small, focused implementation steps (todos).
+        r#"You are a technical project decomposer. Break the following implementation plan into small, focused implementation steps (todos).
 
 ## Implementation Plan
 
@@ -212,11 +212,21 @@ pub fn generate_plan_decomposition_prompt(plan: &str) -> String {
 
 ## Instructions
 
-Decompose this plan into individual implementation todos. Each todo should be:
+Decompose this plan into individual implementation todos. You MUST produce at least 2 todos for any non-trivial task. The only exception is a genuinely trivial change — for example, a single-line fix, a typo correction, or renaming one symbol in one file. If in doubt, produce more todos rather than fewer.
+
+Each todo should be:
 - **Independently implementable**: Can be done without depending on later todos
 - **Small-scoped**: Focused on a single logical change (e.g. one file, one feature, one component)
 - **Ordered**: Listed in the order they should be implemented
 - **Specific**: Include file paths, function names, and concrete approach
+
+Guidelines for splitting:
+- Separate type/interface changes from logic changes
+- Separate backend changes from frontend changes
+- Separate new code from refactoring existing code
+- Separate test additions from implementation
+
+Produce between 2 and 10 todos. Only return a single todo if the entire task is a one-line change.
 
 Output a JSON array of objects with "title" and "description" fields:
 

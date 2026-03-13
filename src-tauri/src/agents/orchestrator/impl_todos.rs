@@ -21,8 +21,9 @@ impl WorkflowOrchestrator {
 
                 if todos.len() <= 1 {
                     tracing::info!(
-                        "Plan decomposition returned {} todo(s), skipping todo-based implementation",
-                        todos.len()
+                        "Plan decomposition returned {} todo(s), skipping todo-based implementation. Raw output length: {}",
+                        todos.len(),
+                        text.len(),
                     );
                     return;
                 }
