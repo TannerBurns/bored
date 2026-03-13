@@ -13,7 +13,7 @@ interface RunsHistoryData {
 }
 
 interface AgentTabProps {
-  ticket: { id: string; lockedByRunId?: string };
+  ticket: { id: string; lockedByRunId?: string | null };
   agentEvents: UseAgentEventsReturn;
   runsHistory: RunsHistoryData;
 }

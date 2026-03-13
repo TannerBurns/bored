@@ -113,11 +113,25 @@ export function useBoardSync(): BoardSyncState {
         unlisten = await listen<TicketMovedEvent>('ticket-moved', (event) => {
           const { ticketId, columnId } = event.payload;
           logger.debug('ticket-moved event received', event.payload);
+          const updatedAt = new Date().toISOString();
           
           // Update the ticket's columnId in local state
           setTickets((prev) =>
             prev.map((t) =>
-              t.id === ticketId ? { ...t, columnId, updatedAt: new Date().toISOString() } : t
+              t.id === ticketId ? { ...t, columnId, updatedAt } : t
+            )
+          );
+
+          // Also update the store's selectedTicket and tickets so
+          // TicketDetailView sees the column change immediately instead
+          // of waiting for the next 3s poll cycle.
+          const store = useBoardStore.getState();
+          if (store.selectedTicket?.id === ticketId) {
+            selectTicket({ ...store.selectedTicket, columnId, updatedAt });
+          }
+          store.setTickets(
+            store.tickets.map((t) =>
+              t.id === ticketId ? { ...t, columnId, updatedAt } : t
             )
           );
         });

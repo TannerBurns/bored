@@ -84,7 +84,7 @@ function getParentRunDisplayCost(run: AgentRun, subRuns: AgentRun[]): RunCostDat
 
 export interface RunsHistoryProps {
   agentRuns: AgentRun[];
-  lockedByRunId?: string;
+  lockedByRunId?: string | null;
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
@@ -135,7 +135,7 @@ export function RunsHistory({
 
 interface CurrentRunSectionProps {
   agentRuns: AgentRun[];
-  lockedByRunId: string;
+  lockedByRunId: string | null;
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;
@@ -220,7 +220,7 @@ function CurrentRunSection({
 
 interface PreviousRunsSectionProps {
   agentRuns: AgentRun[];
-  lockedByRunId?: string;
+  lockedByRunId?: string | null;
   expandedRunId: string | null;
   runEvents: RunEvent[];
   loadingEvents: boolean;

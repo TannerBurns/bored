@@ -134,10 +134,10 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     if (selectedTicket) {
       const updatedAt = new Date().toISOString();
       setTickets((prev) =>
-        prev.map((t) => (t.id === selectedTicket.id ? { ...t, lockedByRunId: undefined, updatedAt } : t))
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, lockedByRunId: null, updatedAt } : t))
       );
       try {
-        await storeUpdateTicket(selectedTicket.id, { lockedByRunId: undefined, updatedAt } as Partial<Ticket>);
+        await storeUpdateTicket(selectedTicket.id, { lockedByRunId: null, updatedAt } as Partial<Ticket>);
       } catch (error) {
         logger.error('Failed to update ticket after agent complete:', error);
       }
