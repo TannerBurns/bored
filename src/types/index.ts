@@ -56,7 +56,7 @@ export interface Ticket {
   labels: string[];
   createdAt: Date | string;
   updatedAt: Date | string;
-  lockedByRunId?: string;
+  lockedByRunId?: string | null;
   lockExpiresAt?: Date | string;
   projectId?: string;
   workflowType?: WorkflowType;

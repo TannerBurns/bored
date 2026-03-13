@@ -1,5 +1,5 @@
 export interface AgentStatusPanelProps {
-  lockedByRunId?: string;
+  lockedByRunId?: string | null;
   agentError: string | null;
   setAgentError: (error: string | null) => void;
   isCancelling: boolean;

@@ -8,7 +8,7 @@ const POLL_INTERVAL_MS = 1500;
 
 interface UseRunsHistoryOptions {
   ticketId: string;
-  lockedByRunId?: string;
+  lockedByRunId?: string | null;
 }
 
 interface UseRunsHistoryReturn {
@@ -25,7 +25,7 @@ export function useRunsHistory({ ticketId, lockedByRunId }: UseRunsHistoryOption
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const prevLockedRef = useRef<string | undefined>(undefined);
+  const prevLockedRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     const loadRuns = async () => {
