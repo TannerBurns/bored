@@ -1,5 +1,44 @@
 [
   {
+    "version": "0.1.0-beta.50",
+    "published_at": "2026-03-12",
+    "summary": "Review transition crash fix and improved plan decomposition. Fixes an app crash when tickets move to Review while the Overview tab is open, and makes plan decomposition more opinionated about splitting work into multiple todos.",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines (types vs logic, backend vs frontend, new code vs refactoring, tests vs implementation)",
+          "Enhanced tracing in decompose_plan_into_todos to log raw output length when the single-todo guard triggers"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed crash when ticket moves to Review while on Overview tab — ticket-moved event now syncs selectedTicket and store tickets immediately instead of waiting for the 3-second poll cycle; lockedByRunId normalized to null to prevent false-change detection",
+          "Fixed plan-decompose consolidating work into a single todo after session threading — session continuation caused the LLM to collapse multi-step work into one todo, triggering the monolithic implementation fallback"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.49",
+        "highlight": "Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages."
+      },
+      {
+        "version": "0.1.0-beta.48",
+        "highlight": "Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats."
+      },
+      {
+        "version": "0.1.0-beta.47",
+        "highlight": "Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout."
+      },
+      {
+        "version": "0.1.0-beta.46",
+        "highlight": "Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.49",
     "published_at": "2026-03-11",
     "summary": "Auto-clarification for workflow agents that autonomously resolves plan clarification questions, task progress counts on ticket cards in board and list views, and workflow session threading across all stages so each stage has full context of prior stages.",

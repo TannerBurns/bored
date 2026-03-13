@@ -2,6 +2,38 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.50] - 2026-03-12
+
+Review transition crash fix and improved plan decomposition. Fixes an app crash when tickets move to Review while the Overview tab is open, caused by stale Zustand store state triggering cascading re-renders. Plan decomposition is now more opinionated about splitting work into multiple todos, preventing session-threaded agents from consolidating tasks into monolithic implementations.
+
+### Improvements
+
+- Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines (types vs logic, backend vs frontend, new code vs refactoring, tests vs implementation)
+- Enhanced tracing in decompose_plan_into_todos to log raw output length when the single-todo guard triggers
+
+### Bug Fixes
+
+- Fixed crash when ticket moves to Review while on Overview tab — ticket-moved backend event now syncs selectedTicket and store tickets immediately instead of waiting for the 3-second poll cycle; lockedByRunId normalized to null (matching DB) instead of undefined to prevent false-change detection in polling comparison
+- Fixed plan-decompose consolidating work into a single todo after session threading — session continuation with full plan context caused the LLM to collapse multi-step work into one todo, frequently triggering the monolithic implementation fallback
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.49, here is a summary of the major features introduced in recent releases:
+
+**beta.49 — Auto-Clarification, Task Progress & Session Threading**
+Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages.
+
+**beta.48 — Chat Message Editing, Stop Generation & Cross-Project Isolation**
+Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats.
+
+**beta.47 — Pause/Resume Reliability & Chat Timeout Notifications**
+Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout.
+
+**beta.46 — Idle-Based Agent Timeout & Git Identity Attribution**
+Idle-based agent timeout replacing absolute wall-clock deadline so active agents are not killed while producing output. User git identity attribution with Bored co-author trailer on all agent commits.
+
+---
+
 ## [0.1.0-beta.49] - 2026-03-11
 
 Auto-clarification for workflow agents, task progress counts on ticket cards, and workflow session threading across all stages. Agents can now autonomously resolve plan clarification questions instead of blocking for user input when enabled. Ticket cards display done/total task progress badges on both board and list views. The agent session is threaded across the entire workflow (plan, decompose, implement, commit, code-review) so each stage has full context of prior stages.
