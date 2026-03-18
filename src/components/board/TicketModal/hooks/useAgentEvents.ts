@@ -90,20 +90,26 @@ export function useAgentEvents({
   const onAgentCompleteRef = useLatestRef(onAgentComplete);
   const setAgentRunsRef = useLatestRef(setAgentRuns);
 
+  // Shared guard: both the event listener and polling effects can detect
+  // run completion. Without a guard, handleAgentComplete fires twice,
+  // doubling state updates and amplifying re-render cascades.
+  const completionHandledForRunRef = useRef<string | null>(null);
+
+  const prevLockedByRunIdRef = useRef(ticket.lockedByRunId);
   useEffect(() => {
-    const wasRunning = isAgentRunning;
+    const prevRunId = prevLockedByRunIdRef.current;
     const nowRunning = !!ticket.lockedByRunId;
-    logger.debug('Syncing agent running state', { wasRunning, nowRunning, lockedByRunId: ticket.lockedByRunId });
-    if (wasRunning !== nowRunning) {
-      setIsAgentRunning(nowRunning);
-      // If a new run just started, clear previous logs
-      if (nowRunning && !wasRunning) {
-        logger.debug('New run started, clearing logs');
-        setAgentLogs([]);
-        setAgentError(null);
-      }
+    logger.debug('Syncing agent running state', { nowRunning, lockedByRunId: ticket.lockedByRunId });
+    setIsAgentRunning(nowRunning);
+    // Clear previous logs only when a genuinely new run starts (not a bounce)
+    if (nowRunning && ticket.lockedByRunId !== prevRunId) {
+      logger.debug('New run started, clearing logs');
+      setAgentLogs([]);
+      setAgentError(null);
+      completionHandledForRunRef.current = null;
     }
-  }, [ticket.lockedByRunId, isAgentRunning]);
+    prevLockedByRunIdRef.current = ticket.lockedByRunId;
+  }, [ticket.lockedByRunId]);
 
   useEffect(() => {
     setIsTicketPaused(!!ticket.pausedAt);
@@ -143,10 +149,10 @@ export function useAgentEvents({
       const unlistenComplete = await listen<AgentCompleteEvent>('agent-complete', (event) => {
         if (isCancelled) return;
         logger.info('agent-complete received', event.payload);
-        if (event.payload.runId === runId) {
+        if (event.payload.runId === runId && completionHandledForRunRef.current !== runId) {
+          completionHandledForRunRef.current = runId;
           setIsAgentRunning(false);
           onAgentCompleteRef.current?.(event.payload.runId, event.payload.status);
-          // Reload runs
           invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
             (runs) => setAgentRunsRef.current(runs)
           );
@@ -248,9 +254,10 @@ export function useAgentEvents({
         const currentRun = runs.find(r => r.id === runId);
         setAgentRunsRef.current(runs);
 
-        if (currentRun && currentRun.status !== 'running' && !completionHandled) {
+        if (currentRun && currentRun.status !== 'running' && !completionHandled && completionHandledForRunRef.current !== runId) {
           completionHandled = true;
-          logger.debug('Run completed', { status: currentRun.status });
+          completionHandledForRunRef.current = runId;
+          logger.debug('Run completed (poll)', { status: currentRun.status });
           setIsAgentRunning(false);
           if (currentRun.status === 'finished' || currentRun.status === 'error' || currentRun.status === 'aborted' || currentRun.status === 'paused') {
             onAgentCompleteRef.current?.(runId, currentRun.status);

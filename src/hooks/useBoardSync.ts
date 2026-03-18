@@ -59,6 +59,11 @@ export function useBoardSync(): BoardSyncState {
     selectTicket,
   } = useBoardStore();
 
+  // Ref for selectedTicket so the polling effect can read the latest value
+  // without restarting its interval on every selectedTicket change.
+  const selectedTicketRef = useRef(selectedTicket);
+  selectedTicketRef.current = selectedTicket;
+
   // Sync boards from store to local state
   useEffect(() => {
     setLocalBoards(storeBoards);
@@ -150,7 +155,9 @@ export function useBoardSync(): BoardSyncState {
   }, []);
 
   // Poll for ticket updates periodically to catch worker-initiated changes
-  // Workers run headless and don't emit frontend events, so we need to poll
+  // Workers run headless and don't emit frontend events, so we need to poll.
+  // Uses selectedTicketRef (not selectedTicket) so the interval is NOT
+  // restarted every time selectedTicket changes, avoiding cascading re-renders.
   useEffect(() => {
     if (!currentBoard) return;
 
@@ -165,19 +172,17 @@ export function useBoardSync(): BoardSyncState {
           setTickets(ticketsData);
           useBoardStore.getState().setTaskCountsMap(taskCountsData);
           
-          // Also update the selectedTicket if it's in this board and has changed
-          // This ensures the TicketModal sees updated lockedByRunId, column, pausedAt, etc.
-          if (selectedTicket) {
-            const updatedSelectedTicket = ticketsData.find(t => t.id === selectedTicket.id);
+          // Read the latest selectedTicket from the ref (not closure)
+          const currentSelectedTicket = selectedTicketRef.current;
+          if (currentSelectedTicket) {
+            const updatedSelectedTicket = ticketsData.find(t => t.id === currentSelectedTicket.id);
             if (updatedSelectedTicket) {
-              // Check if any relevant fields have changed
               const hasChanged = 
-                updatedSelectedTicket.lockedByRunId !== selectedTicket.lockedByRunId ||
-                updatedSelectedTicket.columnId !== selectedTicket.columnId ||
-                updatedSelectedTicket.lockExpiresAt !== selectedTicket.lockExpiresAt ||
-                // Check pause-related fields for resume button visibility
-                String(updatedSelectedTicket.pausedAt) !== String(selectedTicket.pausedAt) ||
-                updatedSelectedTicket.pausedAtStage !== selectedTicket.pausedAtStage;
+                updatedSelectedTicket.lockedByRunId !== currentSelectedTicket.lockedByRunId ||
+                updatedSelectedTicket.columnId !== currentSelectedTicket.columnId ||
+                updatedSelectedTicket.lockExpiresAt !== currentSelectedTicket.lockExpiresAt ||
+                String(updatedSelectedTicket.pausedAt) !== String(currentSelectedTicket.pausedAt) ||
+                updatedSelectedTicket.pausedAtStage !== currentSelectedTicket.pausedAtStage;
               
               if (hasChanged) {
                 logger.debug('Updating selectedTicket with polled data', {
@@ -189,7 +194,6 @@ export function useBoardSync(): BoardSyncState {
                 });
                 selectTicket(updatedSelectedTicket);
 
-                // Reload tasks when ticket state changes
                 const { isTicketModalOpen, loadTasks } = useBoardStore.getState();
                 if (isTicketModalOpen) {
                   loadTasks(updatedSelectedTicket.id);
@@ -203,10 +207,9 @@ export function useBoardSync(): BoardSyncState {
       }
     };
 
-    // Poll every 3 seconds to catch worker updates
     const interval = setInterval(pollTickets, 3000);
     return () => clearInterval(interval);
-  }, [currentBoard, selectedTicket, selectTicket]);
+  }, [currentBoard, selectTicket]);
 
   const handleBoardSelect = async (boardId: string) => {
     const board = localBoards.find((b) => b.id === boardId);

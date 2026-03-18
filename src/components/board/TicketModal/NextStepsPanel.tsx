@@ -60,6 +60,25 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
     return () => { cancelled = true; };
   }, [ticket.id, shouldShow]);
 
+  const handleReviewWithAgent = useCallback(async (agentType: string) => {
+    try {
+      setActionLoading('review');
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId || '',
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      onNavigateToChat?.();
+    } catch (e) {
+      console.error('Failed to create review chat:', e);
+    } finally {
+      setActionLoading(null);
+    }
+  }, [ticket, createChat, selectChat, onNavigateToChat]);
+
   if (!shouldShow) return null;
 
   const handlePush = async () => {
@@ -87,25 +106,6 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
       setActionLoading(null);
     }
   };
-
-  const handleReviewWithAgent = useCallback(async (agentType: string) => {
-    try {
-      setActionLoading('review');
-      const chat = await createChat({
-        agentType,
-        projectId: ticket.projectId || '',
-        mode: 'review' as const,
-        boardId: ticket.boardId,
-        ticketId: ticket.id,
-      });
-      await selectChat(chat.id);
-      onNavigateToChat?.();
-    } catch (e) {
-      console.error('Failed to create review chat:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [ticket, createChat, selectChat, onNavigateToChat]);
 
   const handleViewDiff = () => {
     setDiffVisible((v) => !v);

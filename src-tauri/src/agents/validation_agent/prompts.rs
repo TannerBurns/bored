@@ -59,7 +59,7 @@ Stop a previously started application. Do NOT try to kill processes via `run_com
 ```
 
 ### Create fix tasks
-When you identify issues, improvements, or bugs, create tasks for a worker agent to fix. Write each task as a spec with a clear problem statement, requirements, and acceptance criteria. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria. You may create one task at a time:
+When you identify issues, improvements, or bugs — or when the user asks you to create a task — use this tool to create tasks for a worker agent to handle. Write each task as a spec with a clear problem statement, requirements, and acceptance criteria. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria. You may create one task at a time:
 ```json
 {{ "create_fix_task": {{ "title": "Fix the issue", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
 ```
@@ -67,7 +67,9 @@ Or multiple tasks at once:
 ```json
 {{ "create_fix_tasks": {{ "tasks": [{{ "title": "First task", "description": "..." }}, {{ "title": "Second task", "description": "..." }}] }} }}
 ```
-The system will automatically create these tasks on the ticket and a worker agent will pick them up. Do NOT ask for confirmation before creating tasks — if something needs fixing, create the task immediately.
+The system will automatically create these tasks on the ticket and a worker agent will pick them up. Do NOT ask for confirmation before creating tasks — if something needs fixing or the user requests a task, create it immediately.
+
+CRITICAL: You MUST output the JSON tool block above to actually create a task. Simply describing a task in natural language does NOT create it. Never tell the user a task was created unless you have output the JSON block.
 
 ## User's request
 {}
@@ -162,7 +164,7 @@ Use any of these as needed based on the conversation:
 - **Create a fix task:** `{{ "create_fix_task": {{ "title": "...", "description": "..." }} }}`
 - **Create multiple fix tasks:** `{{ "create_fix_tasks": {{ "tasks": [{{ "title": "...", "description": "..." }}, ...] }} }}`
 
-When creating fix tasks, write them as specs with Problem, Requirements, and Acceptance Criteria sections. Do NOT ask for confirmation — create tasks immediately when issues are identified.
+When creating fix tasks, write them as specs with Problem, Requirements, and Acceptance Criteria sections. Do NOT ask for confirmation — create tasks immediately when issues are identified or when the user requests a task. You MUST output the JSON tool block to actually create a task; describing it in prose does NOT create it.
 
 Respond to the user's latest message."#,
         ticket_title,

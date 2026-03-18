@@ -215,4 +215,56 @@ describe('parseReviewBlocks', () => {
     expect(result.tasks).toHaveLength(0);
     expect(result.commands).toHaveLength(0);
   });
+
+  // ── <json> tag support ─────────────────────────────────────────
+
+  it('extracts create_fix_task from <json> tags', () => {
+    const content = [
+      'Creating task:',
+      '<json>',
+      '{ "create_fix_task": { "title": "Fix query", "description": "SQL is wrong" } }',
+      '</json>',
+      'Done.',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix query');
+    expect(result.tasks[0].description).toBe('SQL is wrong');
+    expect(result.cleanedContent).toContain('Creating task:');
+    expect(result.cleanedContent).toContain('Done.');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts create_fix_tasks from <json> tag with ``` close', () => {
+    const content = [
+      'Creating tasks:',
+      '<json>',
+      '{ "create_fix_tasks": { "tasks": [',
+      '  { "title": "Task A", "description": "Do A" },',
+      '  { "title": "Task B", "description": "Do B" }',
+      '] } }',
+      '```',
+      'Two tasks created.',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(2);
+    expect(result.tasks[0].title).toBe('Task A');
+    expect(result.tasks[1].title).toBe('Task B');
+    expect(result.cleanedContent).toContain('Two tasks created.');
+  });
+
+  it('extracts run_command from <json> tag', () => {
+    const content = [
+      '<json>',
+      '{ "run_command": { "command": "npm test" } }',
+      '</json>',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('run_command');
+    expect(result.commands[0].command).toBe('npm test');
+  });
 });
