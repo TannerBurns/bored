@@ -133,24 +133,139 @@ fn find_balanced_and_parse<T: DeserializeOwned>(
 /// Extract the content of *all* markdown code fences from the text.
 ///
 /// Like `extract_json_code_block` but returns every fenced block instead of
-/// just the first. Handles both ` ```json ` and plain ` ``` ` fences.
+/// just the first. Handles ` ```json `, plain ` ``` ` fences, and `<json>` tags.
+///
+/// Uses balanced brace-matching for JSON content so that triple-backtick
+/// sequences *inside* JSON string values (e.g. code examples in task
+/// descriptions) do not break extraction.
 fn extract_all_json_code_blocks(text: &str) -> Vec<String> {
-    let segments: Vec<&str> = text.split("```").collect();
     let mut results = Vec::new();
-    for (i, segment) in segments.iter().enumerate() {
-        if i % 2 == 0 {
-            continue;
+    let mut pos = 0;
+
+    while pos < text.len() {
+        let remaining = &text[pos..];
+
+        let backtick_pos = remaining.find("```");
+        let json_tag_pos = remaining.find("<json>");
+
+        // Pick whichever fence-like opening comes first.
+        enum FenceKind {
+            Backtick,
+            JsonTag,
         }
-        let content = segment.trim_start();
-        let json_str = content
-            .strip_prefix("json")
-            .map(|s| s.trim())
-            .unwrap_or(content.trim());
-        if !json_str.is_empty() {
-            results.push(json_str.to_string());
+        let (kind, offset) = match (backtick_pos, json_tag_pos) {
+            (Some(bp), Some(jp)) if bp <= jp => (FenceKind::Backtick, bp),
+            (Some(_), Some(jp)) => (FenceKind::JsonTag, jp),
+            (Some(bp), None) => (FenceKind::Backtick, bp),
+            (None, Some(jp)) => (FenceKind::JsonTag, jp),
+            (None, None) => break,
+        };
+
+        let abs_pos = pos + offset;
+
+        match kind {
+            FenceKind::Backtick => {
+                let after_backticks = abs_pos + 3;
+                if after_backticks > text.len() {
+                    break;
+                }
+                let content_after = &text[after_backticks..];
+
+                // Determine where the body content begins (after the fence tag + newline).
+                let content_start = if content_after.starts_with("json") {
+                    skip_newline(text, after_backticks + 4)
+                } else if content_after.starts_with('\n') {
+                    after_backticks + 1
+                } else if content_after.starts_with("\r\n") {
+                    after_backticks + 2
+                } else {
+                    // Not a recognized fence opening (e.g. ```sql); skip past.
+                    pos = after_backticks;
+                    continue;
+                };
+
+                if let Some(extracted) = try_extract_json_body(text, content_start) {
+                    pos = extracted.resume_from;
+                    results.push(extracted.json);
+                    continue;
+                }
+
+                pos = content_start;
+            }
+            FenceKind::JsonTag => {
+                let content_start = skip_newline(text, abs_pos + 6);
+
+                if let Some(extracted) = try_extract_json_body(text, content_start) {
+                    pos = extracted.resume_from;
+                    results.push(extracted.json);
+                    continue;
+                }
+
+                pos = content_start;
+            }
         }
     }
+
     results
+}
+
+struct ExtractedJson {
+    json: String,
+    resume_from: usize,
+}
+
+/// Try to extract a JSON body starting at `content_start` in `text`.
+///
+/// Uses balanced brace/bracket matching when the content opens with `{` or `[`.
+/// Falls back to a closing-fence search for other content.
+fn try_extract_json_body(text: &str, content_start: usize) -> Option<ExtractedJson> {
+    let body = &text[content_start..];
+    let trimmed = body.trim_start();
+
+    if trimmed.starts_with('{') {
+        if let Some(m) = find_balanced_from(text, content_start, '{', '}') {
+            return Some(ExtractedJson {
+                json: m.matched,
+                resume_from: skip_closing_fence(text, m.end_byte),
+            });
+        }
+    } else if trimmed.starts_with('[') {
+        if let Some(m) = find_balanced_from(text, content_start, '[', ']') {
+            return Some(ExtractedJson {
+                json: m.matched,
+                resume_from: skip_closing_fence(text, m.end_byte),
+            });
+        }
+    }
+
+    // Fallback: closing-fence search for non-JSON fenced content.
+    if let Some(end_off) = body.find("```") {
+        let block = body[..end_off].trim();
+        if !block.is_empty() {
+            return Some(ExtractedJson {
+                json: block.to_string(),
+                resume_from: content_start + end_off + 3,
+            });
+        }
+    }
+
+    None
+}
+
+/// After extracting JSON via brace-matching, skip past a trailing closing
+/// fence (` ``` ` or `</json>`) so it isn't misinterpreted as a new opening.
+fn skip_closing_fence(text: &str, pos: usize) -> usize {
+    let remaining = &text[pos..];
+    let trimmed = remaining.trim_start();
+    if trimmed.starts_with("```") {
+        let whitespace_len = remaining.len() - trimmed.len();
+        pos + whitespace_len + 3
+    } else if trimmed.starts_with("</json>") {
+        let whitespace_len = remaining.len() - trimmed.len();
+        pos + whitespace_len + 7
+    } else {
+        pos
+    }
 }
 
 /// Parse all JSON blocks from agent text, returning parsed `serde_json::Value`s.
@@ -168,14 +283,17 @@ pub fn parse_all_json_blocks(text: &str) -> Vec<serde_json::Value> {
     }
 
     if results.is_empty() {
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let mut search_pos = 0;
+        while search_pos < text.len() {
+            if let Some(m) = find_balanced_from(text, search_pos, '{', '}') {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&m.matched) {
                     if v.is_object() {
                         results.push(v);
                     }
                 }
+                search_pos = m.end_byte;
+            } else {
+                break;
             }
         }
     }
@@ -833,5 +951,149 @@ That should work."#;
         let result: Option<Cmd> = find_balanced_and_parse(text, '{', '}');
         let cmd = result.expect("should find valid object after 2 invalid");
         assert_eq!(cmd.command, "review");
+    }
+
+    // ── nested backticks in JSON strings (primary bug fix) ────────
+
+    #[test]
+    fn all_blocks_nested_backticks_in_description() {
+        // Reproduces the exact production bug: task descriptions contain
+        // markdown code fences (```sql, ```go) inside JSON string values.
+        // The old split("```") approach broke on these; brace-matching must
+        // extract the full object.
+        let text = concat!(
+            "```json\n",
+            "{\n",
+            "  \"create_fix_tasks\": {\n",
+            "    \"tasks\": [\n",
+            "      {\n",
+            "        \"title\": \"Fix SQL query\",\n",
+            "        \"description\": \"The query is:\\n```sql\\nSELECT * FROM t\\n```\\nFix it.\"\n",
+            "      }\n",
+            "    ]\n",
+            "  }\n",
+            "}\n",
+            "```",
+        );
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1, "must extract exactly one block");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&blocks[0]).expect("extracted block must be valid JSON");
+        let tasks = parsed["create_fix_tasks"]["tasks"]
+            .as_array()
+            .expect("must have tasks array");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["title"].as_str().unwrap(), "Fix SQL query");
+    }
+
+    #[test]
+    fn all_blocks_multiple_nested_backtick_languages() {
+        // Multiple code examples with different language tags inside one JSON block.
+        let text = concat!(
+            "```json\n",
+            "{\n",
+            "  \"create_fix_tasks\": {\n",
+            "    \"tasks\": [\n",
+            "      {\n",
+            "        \"title\": \"Fix A\",\n",
+            "        \"description\": \"See:\\n```sql\\nSELECT 1\\n```\\nAnd:\\n```go\\npackage main\\n```\"\n",
+            "      },\n",
+            "      {\n",
+            "        \"title\": \"Fix B\",\n",
+            "        \"description\": \"Run:\\n```bash\\necho hello\\n```\"\n",
+            "      }\n",
+            "    ]\n",
+            "  }\n",
+            "}\n",
+            "```",
+        );
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        let tasks = parsed["create_fix_tasks"]["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0]["title"].as_str().unwrap(), "Fix A");
+        assert_eq!(tasks[1]["title"].as_str().unwrap(), "Fix B");
+    }
+
+    #[test]
+    fn parse_all_blocks_with_nested_backticks() {
+        // End-to-end: parse_all_json_blocks must succeed despite nested fences.
+        let text = concat!(
+            "Creating task:\n",
+            "```json\n",
+            "{ \"create_fix_task\": { \"title\": \"Fix it\", \"description\": \"See:\\n```go\\nfmt.Println()\\n```\" } }\n",
+            "```\n",
+            "Done.",
+        );
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].get("create_fix_task").is_some());
+    }
+
+    // ── <json> tag support ────────────────────────────────────────
+
+    #[test]
+    fn all_blocks_json_tag() {
+        let text = "<json>\n{\"a\":1}\n</json>";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], "{\"a\":1}");
+    }
+
+    #[test]
+    fn all_blocks_json_tag_with_backtick_close() {
+        // LLM mixed <json> opening with ``` closing (observed in production).
+        let text = "<json>\n{\"a\":1}\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0], "{\"a\":1}");
+    }
+
+    #[test]
+    fn all_blocks_json_tag_inline() {
+        let text = "Result: <json>{\"ok\":true}</json> done.";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        assert_eq!(parsed["ok"].as_bool().unwrap(), true);
+    }
+
+    #[test]
+    fn parse_all_blocks_json_tag_create_fix_tasks() {
+        let text = concat!(
+            "Creating tasks:\n\n",
+            "<json>\n",
+            "{ \"create_fix_tasks\": { \"tasks\": [\n",
+            "  { \"title\": \"Task A\", \"description\": \"Do A\" },\n",
+            "  { \"title\": \"Task B\", \"description\": \"Do B\" }\n",
+            "] } }\n",
+            "```\n",
+            "\nTwo tasks created.",
+        );
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let tasks = blocks[0]["create_fix_tasks"]["tasks"].as_array().unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0]["title"].as_str().unwrap(), "Task A");
+    }
+
+    // ── multi-line bare JSON fallback ─────────────────────────────
+
+    #[test]
+    fn all_json_blocks_bare_multiline() {
+        let text = "Here is the result:\n{\n  \"x\": 42\n}\nDone.";
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["x"].as_i64().unwrap(), 42);
+    }
+
+    #[test]
+    fn all_json_blocks_bare_multiple_objects() {
+        let text = "First: {\"a\":1} and second: {\"b\":2}";
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].get("a").is_some());
+        assert!(blocks[1].get("b").is_some());
     }
 }
