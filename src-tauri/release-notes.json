@@ -1,5 +1,53 @@
 [
   {
+    "version": "0.1.0-beta.51",
+    "published_at": "2026-03-17",
+    "summary": "Robust JSON parsing for nested backticks and agent completion stability. Rewrites the JSON code block extractor to handle LLM responses containing nested markdown fences inside JSON string values, which previously caused tasks to be silently dropped. Adds string-aware brace matching, deduplicates agent-completion event handling to prevent cascading re-renders, and adds a guardrail ensuring the review agent actually invokes the create_fix_task tool.",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Rewrote extract_all_json_code_blocks to scan for fence openings with balanced brace-matching so nested backtick sequences inside JSON string values are correctly ignored",
+          "Added <json> XML-style tag support in both backend and frontend parsers as an alternative JSON extraction format",
+          "String-aware find_balanced_from() — brace/bracket matching now tracks in_string/escape_next state so JSON values containing braces parse correctly",
+          "Non-JSON fenced blocks are now skipped entirely including their closing fence, preventing misinterpretation as new opening fences",
+          "Expanded create_fix_task tool description to cover user-requested tasks and added a CRITICAL guardrail requiring the model to output the JSON tool block",
+          "Improved bare JSON fallback to handle multi-line objects via find_balanced"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed extract_all_json_code_blocks breaking on nested backtick fences in JSON strings — LLM task descriptions with embedded code examples caused garbage segments, silently dropping tasks",
+          "Fixed find_balanced_from() returning truncated matches when JSON strings contained braces/brackets",
+          "Fixed agent completion re-render cascade — both Tauri event and poll could fire handleAgentComplete, doubling state updates and freezing the UI; added completionHandledForRunRef deduplication",
+          "Fixed useBoardSync poll interval resetting on every selectedTicket update by replacing closure capture with a ref read",
+          "Fixed atomic ticket state update — tickets and selectedTicket now updated in a single setState call so isAgentRunning doesn't bounce back to true",
+          "Fixed React hooks violation in NextStepsPanel — moved useCallback above the early return null guard",
+          "Fixed review agent claiming task creation without using tool — agent responded with 'Task created...' without emitting the required create_fix_task JSON block"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.50",
+        "highlight": "Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines."
+      },
+      {
+        "version": "0.1.0-beta.49",
+        "highlight": "Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages."
+      },
+      {
+        "version": "0.1.0-beta.48",
+        "highlight": "Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats."
+      },
+      {
+        "version": "0.1.0-beta.47",
+        "highlight": "Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.50",
     "published_at": "2026-03-12",
     "summary": "Review transition crash fix and improved plan decomposition. Fixes an app crash when tickets move to Review while the Overview tab is open, and makes plan decomposition more opinionated about splitting work into multiple todos.",

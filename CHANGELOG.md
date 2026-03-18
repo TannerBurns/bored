@@ -2,6 +2,52 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.51] - 2026-03-17
+
+Robust JSON parsing for nested backticks and agent completion stability. Rewrites the JSON code block extractor to handle LLM responses containing nested markdown fences inside JSON string values (e.g. task descriptions with embedded code examples), which previously caused tasks to be silently dropped. Adds string-aware brace matching, deduplicates agent-completion event handling to prevent cascading re-renders, and adds a guardrail ensuring the review agent actually invokes the create_fix_task tool instead of only claiming to create tasks in natural language.
+
+### Improvements
+
+- Rewrote `extract_all_json_code_blocks` to scan for fence openings with balanced brace-matching so nested backtick sequences inside JSON string values are correctly ignored instead of splitting the input into garbage segments
+- Added `<json>` XML-style tag support in both backend (Rust) and frontend (TypeScript) parsers as an alternative JSON extraction format
+- String-aware `find_balanced_from()` — brace/bracket matching now tracks `in_string`/`escape_next` state so JSON values containing braces (e.g. `{"msg": "missing }"}`) parse correctly
+- Non-JSON fenced blocks (e.g. ` ```sql `) are now skipped entirely including their closing fence, preventing the closing backticks from being misinterpreted as a new opening fence
+- Expanded `create_fix_task` tool description to cover user-requested tasks (not just agent-identified issues) and added a CRITICAL guardrail requiring the model to output the JSON tool block to actually create a task
+- Improved bare JSON fallback to handle multi-line objects via `find_balanced`
+
+### Bug Fixes
+
+- Fixed `extract_all_json_code_blocks` breaking on nested backtick fences in JSON strings — LLM task descriptions containing markdown code examples inside a JSON string value caused the naive `text.split("```")` to produce garbage segments, silently dropping tasks that the review agent claimed to create
+- Fixed `find_balanced_from()` returning truncated matches when JSON strings contained braces/brackets, breaking downstream parsing (e.g. task extraction)
+- Fixed agent completion re-render cascade — after an agent run finished, both the Tauri event listener and the poll could fire `handleAgentComplete`, doubling state updates and triggering cascading re-renders that froze the UI; added `completionHandledForRunRef` keyed on `runId` so only the first arrival runs side-effects
+- Fixed `useBoardSync` poll interval resetting on every `selectedTicket` update — replaced the closure capture with a ref read, removing it from the `useEffect` dependency array
+- Fixed atomic ticket state update — `tickets` and `selectedTicket` are now updated in a single synchronous `setState` call so downstream effects see `lockedByRunId=null` immediately, preventing `isAgentRunning` from bouncing back to true
+- Fixed React hooks violation in `NextStepsPanel` — moved `useCallback` above the early `return null` guard to comply with rules of hooks
+- Fixed review agent claiming task creation without using tool — the agent would respond with "Task created..." in natural language without emitting the required `create_fix_task` JSON block, resulting in no task being created despite the user being told one was
+
+### Testing
+
+- 87 passing tests for `json_extraction` module covering nested fences, string-aware brace matching, XML-style tags, and bare JSON fallback
+- Frontend `parseReviewBlocks` test coverage for XML-style `<json>` tag extraction
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.50, here is a summary of the major features introduced in recent releases:
+
+**beta.50 — Review Transition Crash Fix & Plan Decomposition**
+Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines.
+
+**beta.49 — Auto-Clarification, Task Progress & Session Threading**
+Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages.
+
+**beta.48 — Chat Message Editing, Stop Generation & Cross-Project Isolation**
+Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats.
+
+**beta.47 — Pause/Resume Reliability & Chat Timeout Notifications**
+Pause/resume reliability for todo-based implementation preserving agent session context across pause/resume. Chat agent timeouts now surface a red error bubble with the full event timeline showing what the agent accomplished before the timeout.
+
+---
+
 ## [0.1.0-beta.50] - 2026-03-12
 
 Review transition crash fix and improved plan decomposition. Fixes an app crash when tickets move to Review while the Overview tab is open, caused by stale Zustand store state triggering cascading re-renders. Plan decomposition is now more opinionated about splitting work into multiple todos, preventing session-threaded agents from consolidating tasks into monolithic implementations.
