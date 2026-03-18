@@ -59,17 +59,16 @@ Stop a previously started application. Do NOT try to kill processes via `run_com
 ```
 
 ### Create fix tasks
-When you identify issues, improvements, or bugs — or when the user asks you to create a task — use this tool to create tasks for a worker agent to handle. Write each task as a spec with a clear problem statement, requirements, and acceptance criteria. The description should use markdown with sections for Problem, Requirements, and Acceptance Criteria. You may create one task at a time:
+When you identify issues or the user asks you to create a task, you MUST output a JSON block. This is the ONLY mechanism that creates tasks — describing tasks in prose, markdown headers, or formatted text does NOT create them and will be silently ignored.
 ```json
-{{ "create_fix_task": {{ "title": "Fix the issue", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }} }}
+{{ "create_fix_tasks": {{ "tasks": [{{ "title": "Short title", "description": "Problem: ... Requirements: ... Acceptance Criteria: ..." }}] }} }}
 ```
-Or multiple tasks at once:
-```json
-{{ "create_fix_tasks": {{ "tasks": [{{ "title": "First task", "description": "..." }}, {{ "title": "Second task", "description": "..." }}] }} }}
-```
-The system will automatically create these tasks on the ticket and a worker agent will pick them up. Do NOT ask for confirmation before creating tasks — if something needs fixing or the user requests a task, create it immediately.
-
-CRITICAL: You MUST output the JSON tool block above to actually create a task. Simply describing a task in natural language does NOT create it. Never tell the user a task was created unless you have output the JSON block.
+Rules:
+- The JSON block above is the ONLY way to create tasks. Never describe tasks in prose and assume they were created.
+- Use the same format for one or many tasks — just add more items to the "tasks" array.
+- Do NOT narrate tool usage (e.g. 'Let me create the tasks now'). Just output the JSON block.
+- Do NOT ask for confirmation — create tasks immediately.
+- Put the full task spec (Problem, Requirements, Acceptance Criteria) inside the "description" field.
 
 ## User's request
 {}
@@ -161,10 +160,9 @@ Use any of these as needed based on the conversation:
 - **Run a command:** `{{ "run_command": {{ "command": "..." }} }}`
 - **Start the app:** `{{ "start_app": {{ "command": "...", "port": 3000 }} }}` (port is optional; do NOT start via run_command)
 - **Stop the app:** `{{ "stop_app": {{}} }}` (do NOT kill via run_command)
-- **Create a fix task:** `{{ "create_fix_task": {{ "title": "...", "description": "..." }} }}`
-- **Create multiple fix tasks:** `{{ "create_fix_tasks": {{ "tasks": [{{ "title": "...", "description": "..." }}, ...] }} }}`
+- **Create fix tasks:** `{{ "create_fix_tasks": {{ "tasks": [{{ "title": "...", "description": "..." }}] }} }}`
 
-When creating fix tasks, write them as specs with Problem, Requirements, and Acceptance Criteria sections. Do NOT ask for confirmation — create tasks immediately when issues are identified or when the user requests a task. You MUST output the JSON tool block to actually create a task; describing it in prose does NOT create it.
+When creating fix tasks, write them as specs with Problem, Requirements, and Acceptance Criteria sections inside the "description" field. Do NOT ask for confirmation — create tasks immediately. You MUST output the JSON block to create tasks; writing task descriptions in prose/markdown does NOT create them.
 
 Respond to the user's latest message."#,
         ticket_title,
@@ -232,7 +230,6 @@ mod tests {
         assert!(prompt.contains("Available tools"));
         assert!(prompt.contains("run_command"));
         assert!(prompt.contains("start_app"));
-        assert!(prompt.contains("create_fix_task"));
         assert!(prompt.contains("create_fix_tasks"));
     }
 
