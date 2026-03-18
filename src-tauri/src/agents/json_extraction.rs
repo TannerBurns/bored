@@ -179,8 +179,16 @@ fn extract_all_json_code_blocks(text: &str) -> Vec<String> {
                 } else if content_after.starts_with("\r\n") {
                     after_backticks + 2
                 } else {
-                    // Not a recognized fence opening (e.g. ```sql); skip past.
-                    pos = after_backticks;
+                    // Not a recognized fence opening (e.g. ```sql); skip past
+                    // the entire fenced block including its closing fence so
+                    // the closing ``` isn't misinterpreted as a new opening.
+                    let rest = &text[after_backticks..];
+                    let body_start = rest.find('\n').map(|n| n + 1).unwrap_or(rest.len());
+                    if let Some(close) = text[after_backticks + body_start..].find("```") {
+                        pos = after_backticks + body_start + close + 3;
+                    } else {
+                        pos = text.len();
+                    }
                     continue;
                 };
 
@@ -1179,6 +1187,68 @@ That should work."#;
         let blocks = extract_all_json_code_blocks(text);
         assert_eq!(blocks.len(), 1);
         serde_json::from_str::<serde_json::Value>(&blocks[0]).expect("must be valid JSON");
+    }
+
+    // ── non-JSON fence skipping ─────────────────────────────────
+
+    #[test]
+    fn second_json_block_not_lost_after_non_json_fence() {
+        // A ```sql fence between two ```json blocks must be skipped entirely.
+        // Regression: the else branch only advanced past the opening ```,
+        // causing the closing ``` to be misread as a new plain-fence opening.
+        let text = concat!(
+            "```json\n",
+            "{\"first\": true}\n",
+            "```\n",
+            "Some explanation.\n",
+            "```sql\n",
+            "SELECT * FROM users\n",
+            "```\n",
+            "Here's what to do:\n",
+            "```json\n",
+            "{\"second\": true}\n",
+            "```",
+        );
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 2, "must extract both JSON blocks");
+        let v0: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        let v1: serde_json::Value = serde_json::from_str(&blocks[1]).unwrap();
+        assert_eq!(v0["first"].as_bool().unwrap(), true);
+        assert_eq!(v1["second"].as_bool().unwrap(), true);
+    }
+
+    #[test]
+    fn multiple_non_json_fences_before_json() {
+        let text = concat!(
+            "```sql\n",
+            "SELECT 1\n",
+            "```\n",
+            "```go\n",
+            "package main\n",
+            "```\n",
+            "```json\n",
+            "{\"result\": true}\n",
+            "```",
+        );
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        assert_eq!(v["result"].as_bool().unwrap(), true);
+    }
+
+    #[test]
+    fn non_json_fence_without_closing_skips_to_end() {
+        let text = concat!(
+            "```json\n",
+            "{\"ok\": true}\n",
+            "```\n",
+            "```sql\n",
+            "SELECT * FROM users\n",
+        );
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
+        assert_eq!(v["ok"].as_bool().unwrap(), true);
     }
 
     // ── multi-line bare JSON fallback ─────────────────────────────
