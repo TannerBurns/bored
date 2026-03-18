@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { useBoardStore } from '../stores/boardStore';
 import { useSettingsStore, ensureAgentConfigsSynced } from '../stores/settingsStore';
 import { deleteTicket, startAgentRun } from '../lib/tauri';
@@ -133,13 +134,34 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     logger.info('Agent run completed', { runId, status });
     if (selectedTicket) {
       const updatedAt = new Date().toISOString();
+      const updates = { lockedByRunId: null as string | null, updatedAt };
+
+      // Update local tickets (useBoardSync state)
       setTickets((prev) =>
-        prev.map((t) => (t.id === selectedTicket.id ? { ...t, lockedByRunId: null, updatedAt } : t))
+        prev.map((t) => (t.id === selectedTicket.id ? { ...t, ...updates } : t))
       );
+
+      // Update store tickets + selectedTicket in a SINGLE synchronous set
+      // so useAgentEvents sees lockedByRunId=null immediately and doesn't
+      // bounce isAgentRunning back to true.
+      useBoardStore.setState((state) => ({
+        tickets: state.tickets.map((t) =>
+          t.id === selectedTicket.id ? { ...t, ...updates } : t
+        ),
+        selectedTicket:
+          state.selectedTicket?.id === selectedTicket.id
+            ? { ...state.selectedTicket, ...updates }
+            : state.selectedTicket,
+      }));
+
+      // Persist to backend (fire-and-forget; store already up-to-date)
       try {
-        await storeUpdateTicket(selectedTicket.id, { lockedByRunId: null, updatedAt } as Partial<Ticket>);
+        await invoke('update_ticket', {
+          ticketId: selectedTicket.id,
+          updates: { lockedByRunId: null, updatedAt },
+        });
       } catch (error) {
-        logger.error('Failed to update ticket after agent complete:', error);
+        logger.error('Failed to persist ticket update after agent complete:', error);
       }
     }
   };

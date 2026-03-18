@@ -308,6 +308,10 @@ struct BalancedMatch {
 }
 
 /// Find a balanced pair of open/close characters starting at or after `from_byte`.
+///
+/// Skips over characters inside JSON string literals (`"..."`) so that
+/// braces/brackets embedded in string values (e.g. `{"msg": "missing }"}`)
+/// do not cause a premature depth-zero match.
 fn find_balanced_from(
     text: &str,
     from_byte: usize,
@@ -318,7 +322,25 @@ fn find_balanced_from(
     let start = slice.find(open)?;
     let abs_start = from_byte + start;
     let mut depth = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
     for (i, c) in text[abs_start..].char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        if in_string {
+            if c == '\\' {
+                escape_next = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            continue;
+        }
         if c == open {
             depth += 1;
         } else if c == close {
@@ -1076,6 +1098,87 @@ That should work."#;
         let tasks = blocks[0]["create_fix_tasks"]["tasks"].as_array().unwrap();
         assert_eq!(tasks.len(), 2);
         assert_eq!(tasks[0]["title"].as_str().unwrap(), "Task A");
+    }
+
+    // ── string-aware brace matching ──────────────────────────────
+
+    #[test]
+    fn find_balanced_skips_close_brace_in_json_string() {
+        let text = r#"{"msg": "missing }"}"#;
+        let m = find_balanced(text, '{', '}').expect("must find full object");
+        assert_eq!(m, text);
+        serde_json::from_str::<serde_json::Value>(&m).expect("must be valid JSON");
+    }
+
+    #[test]
+    fn find_balanced_skips_open_brace_in_json_string() {
+        let text = r#"{"msg": "extra { here"}"#;
+        let m = find_balanced(text, '{', '}').expect("must find full object");
+        assert_eq!(m, text);
+        serde_json::from_str::<serde_json::Value>(&m).expect("must be valid JSON");
+    }
+
+    #[test]
+    fn find_balanced_handles_escaped_quote_before_brace() {
+        // The \" inside the string is an escaped quote — not the end of string.
+        // The } after it is still inside the string.
+        let text = r#"{"msg": "say \"}\""}"#;
+        let m = find_balanced(text, '{', '}').expect("must find full object");
+        assert_eq!(m, text);
+        serde_json::from_str::<serde_json::Value>(&m).expect("must be valid JSON");
+    }
+
+    #[test]
+    fn find_balanced_handles_escaped_backslash_before_quote() {
+        // \\\\ in raw string = two literal backslashes in the string.
+        // In JSON: \\\\ decodes to \\. The " after it ends the string properly.
+        let text = r#"{"path": "C:\\"}"#;
+        let m = find_balanced(text, '{', '}').expect("must find full object");
+        assert_eq!(m, text);
+        serde_json::from_str::<serde_json::Value>(&m).expect("must be valid JSON");
+    }
+
+    #[test]
+    fn find_balanced_multiple_braces_in_string() {
+        let text = r#"{"tpl": "{{.Name}}"}"#;
+        let m = find_balanced(text, '{', '}').expect("must find full object");
+        assert_eq!(m, text);
+        serde_json::from_str::<serde_json::Value>(&m).expect("must be valid JSON");
+    }
+
+    #[test]
+    fn parse_response_with_close_brace_in_string() {
+        #[derive(serde::Deserialize)]
+        struct S {
+            msg: String,
+        }
+        let text = r#"Result: {"msg": "missing }"} done"#;
+        let result: Option<S> = parse_json_response(text);
+        assert_eq!(result.unwrap().msg, "missing }");
+    }
+
+    #[test]
+    fn parse_all_blocks_bare_with_brace_in_string() {
+        let text = r#"Here: {"msg": "a } b"} done"#;
+        let blocks = parse_all_json_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["msg"].as_str().unwrap(), "a } b");
+    }
+
+    #[test]
+    fn code_block_fence_with_brace_in_string_value() {
+        let text = "```json\n{\"msg\": \"missing }\"}\n```";
+        let result = extract_json_code_block(text).expect("should extract");
+        serde_json::from_str::<serde_json::Value>(&result).expect("must be valid JSON");
+        assert!(result.contains("missing }"));
+    }
+
+    #[test]
+    fn all_blocks_fence_with_brace_in_string_value() {
+        let text = "```json\n{\"desc\": \"fix } here\"}\n```";
+        let blocks = extract_all_json_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        serde_json::from_str::<serde_json::Value>(&blocks[0]).expect("must be valid JSON");
     }
 
     // ── multi-line bare JSON fallback ─────────────────────────────
