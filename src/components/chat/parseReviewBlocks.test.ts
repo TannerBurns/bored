@@ -10,11 +10,11 @@ describe('parseReviewBlocks', () => {
     expect(result.commands).toHaveLength(0);
   });
 
-  it('extracts a single create_fix_task', () => {
+  it('extracts a single task from create_fix_tasks', () => {
     const content = [
       'Found a bug.',
       '```json',
-      '{ "create_fix_task": { "title": "Fix login", "description": "Login is broken" } }',
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix login", "description": "Login is broken" }] } }',
       '```',
       'Please fix it.',
     ].join('\n');
@@ -25,7 +25,7 @@ describe('parseReviewBlocks', () => {
     expect(result.tasks[0].description).toBe('Login is broken');
     expect(result.cleanedContent).toContain('Found a bug.');
     expect(result.cleanedContent).toContain('Please fix it.');
-    expect(result.cleanedContent).not.toContain('create_fix_task');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
   });
 
   it('extracts create_fix_tasks with multiple tasks', () => {
@@ -48,7 +48,7 @@ describe('parseReviewBlocks', () => {
   it('extracts acceptance_criteria (snake_case)', () => {
     const content = [
       '```json',
-      '{ "create_fix_task": { "title": "Fix form", "acceptance_criteria": ["Works on mobile", "Validates email"] } }',
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix form", "acceptance_criteria": ["Works on mobile", "Validates email"] }] } }',
       '```',
     ].join('\n');
 
@@ -59,7 +59,7 @@ describe('parseReviewBlocks', () => {
   it('extracts acceptanceCriteria (camelCase)', () => {
     const content = [
       '```json',
-      '{ "create_fix_task": { "title": "Fix form", "acceptanceCriteria": ["Passes tests"] } }',
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix form", "acceptanceCriteria": ["Passes tests"] }] } }',
       '```',
     ].join('\n');
 
@@ -70,7 +70,7 @@ describe('parseReviewBlocks', () => {
   it('defaults title to "Fix task" when missing', () => {
     const content = [
       '```json',
-      '{ "create_fix_task": { "description": "Something wrong" } }',
+      '{ "create_fix_tasks": { "tasks": [{ "description": "Something wrong" }] } }',
       '```',
     ].join('\n');
 
@@ -143,7 +143,7 @@ describe('parseReviewBlocks', () => {
       '```',
       'Found an issue:',
       '```json',
-      '{ "create_fix_task": { "title": "Fix button", "description": "Button does not work" } }',
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix button", "description": "Button does not work" }] } }',
       '```',
       'Done reviewing.',
     ].join('\n');
@@ -218,11 +218,11 @@ describe('parseReviewBlocks', () => {
 
   // ── <json> tag support ─────────────────────────────────────────
 
-  it('extracts create_fix_task from <json> tags', () => {
+  it('extracts create_fix_tasks from <json> tags', () => {
     const content = [
       'Creating task:',
       '<json>',
-      '{ "create_fix_task": { "title": "Fix query", "description": "SQL is wrong" } }',
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix query", "description": "SQL is wrong" }] } }',
       '</json>',
       'Done.',
     ].join('\n');
@@ -233,7 +233,7 @@ describe('parseReviewBlocks', () => {
     expect(result.tasks[0].description).toBe('SQL is wrong');
     expect(result.cleanedContent).toContain('Creating task:');
     expect(result.cleanedContent).toContain('Done.');
-    expect(result.cleanedContent).not.toContain('create_fix_task');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
   });
 
   it('extracts create_fix_tasks from <json> tag with ``` close', () => {

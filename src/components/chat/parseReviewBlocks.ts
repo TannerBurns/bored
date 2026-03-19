@@ -22,15 +22,7 @@ function processJsonMatch(
   tasks: ParsedFixTask[],
   commands: ParsedCommand[],
 ): boolean {
-  if (parsed.create_fix_task) {
-    const t = parsed.create_fix_task as Record<string, unknown>;
-    tasks.push({
-      title: (t.title as string) || 'Fix task',
-      description: t.description as string | undefined,
-      acceptanceCriteria: (t.acceptance_criteria || t.acceptanceCriteria) as string[] | undefined,
-    });
-    return true;
-  } else if ((parsed.create_fix_tasks as Record<string, unknown>)?.tasks) {
+  if ((parsed.create_fix_tasks as Record<string, unknown>)?.tasks) {
     const cft = parsed.create_fix_tasks as Record<string, unknown>;
     for (const t of cft.tasks as Record<string, unknown>[]) {
       tasks.push({

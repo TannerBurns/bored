@@ -79,9 +79,6 @@ pub(crate) fn parse_create_fix_tasks_from_response(
     let mut all_tasks: Vec<FixTask> = Vec::new();
 
     for v in parse_all_json_blocks(response_text) {
-        if let Some(task_obj) = v.get("create_fix_task").and_then(|s| s.as_object()) {
-            all_tasks.push(parse_fix_task_from_json_obj(task_obj));
-        }
         if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
             if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
                 for tv in tasks_arr {
@@ -202,16 +199,6 @@ mod tests {
     }
 
     #[test]
-    fn fix_tasks_singular_form() {
-        let text = r#"```json
-{ "create_fix_task": { "title": "Fix bug", "description": "It crashes" } }
-```"#;
-        let block = parse_create_fix_tasks_from_response(text).unwrap();
-        assert_eq!(block.tasks.len(), 1);
-        assert_eq!(block.tasks[0].title, "Fix bug");
-    }
-
-    #[test]
     fn fix_tasks_plural_form() {
         let text = r#"```json
 { "create_fix_tasks": { "tasks": [
@@ -239,54 +226,6 @@ mod tests {
     }
 
     #[test]
-    fn fix_tasks_from_bare_json() {
-        let text = r#"I found a bug.
-{ "create_fix_task": { "title": "Bare fix", "description": "Found inline" } }
-Please fix it."#;
-        let block = parse_create_fix_tasks_from_response(text).unwrap();
-        assert_eq!(block.tasks.len(), 1);
-        assert_eq!(block.tasks[0].title, "Bare fix");
-    }
-
-    #[test]
-    fn fix_tasks_multiple_singular_blocks() {
-        let text = r#"I found two issues.
-
-```json
-{ "create_fix_task": { "title": "Fix A", "description": "First issue" } }
-```
-
-And another one:
-
-```json
-{ "create_fix_task": { "title": "Fix B", "description": "Second issue" } }
-```"#;
-        let block = parse_create_fix_tasks_from_response(text).unwrap();
-        assert_eq!(block.tasks.len(), 2);
-        assert_eq!(block.tasks[0].title, "Fix A");
-        assert_eq!(block.tasks[1].title, "Fix B");
-    }
-
-    #[test]
-    fn fix_tasks_mixed_singular_and_plural() {
-        let text = r#"```json
-{ "create_fix_task": { "title": "Solo fix", "description": "standalone" } }
-```
-
-```json
-{ "create_fix_tasks": { "tasks": [
-    { "title": "Batch A", "description": "first" },
-    { "title": "Batch B", "description": "second" }
-] } }
-```"#;
-        let block = parse_create_fix_tasks_from_response(text).unwrap();
-        assert_eq!(block.tasks.len(), 3);
-        assert_eq!(block.tasks[0].title, "Solo fix");
-        assert_eq!(block.tasks[1].title, "Batch A");
-        assert_eq!(block.tasks[2].title, "Batch B");
-    }
-
-    #[test]
     fn fix_tasks_ignores_unrelated_json_blocks() {
         let text = r#"Let me run a command first.
 
@@ -297,7 +236,7 @@ And another one:
 I found an issue:
 
 ```json
-{ "create_fix_task": { "title": "Fix test failure", "description": "Tests are failing" } }
+{ "create_fix_tasks": { "tasks": [{ "title": "Fix test failure", "description": "Tests are failing" }] } }
 ```"#;
         let block = parse_create_fix_tasks_from_response(text).unwrap();
         assert_eq!(block.tasks.len(), 1);
@@ -326,13 +265,12 @@ I found an issue:
     }
 
     #[test]
-    fn fix_tasks_multiple_bare_json_blocks() {
-        let text = r#"Two bugs found.
-{ "create_fix_task": { "title": "Bare A", "description": "first" } }
-{ "create_fix_task": { "title": "Bare B", "description": "second" } }"#;
+    fn fix_tasks_single_item_array() {
+        let text = r#"```json
+{ "create_fix_tasks": { "tasks": [{ "title": "Solo fix", "description": "Just one" }] } }
+```"#;
         let block = parse_create_fix_tasks_from_response(text).unwrap();
-        assert_eq!(block.tasks.len(), 2);
-        assert_eq!(block.tasks[0].title, "Bare A");
-        assert_eq!(block.tasks[1].title, "Bare B");
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Solo fix");
     }
 }
