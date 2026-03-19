@@ -2,6 +2,41 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.52] - 2026-03-19
+
+Consolidate review task creation to a single JSON format and strengthen prompt guardrails. Removes the deprecated singular `create_fix_task` format from both the Rust backend and TypeScript frontend, standardizing on the plural `create_fix_tasks` array format as the only mechanism for creating tasks. The review agent prompt is rewritten to explicitly state that prose descriptions are silently ignored and only the JSON tool block creates tasks.
+
+### Improvements
+
+- Consolidated review task creation to a single `create_fix_tasks` JSON format with a `tasks` array, removing the deprecated singular `create_fix_task` variant that added unnecessary parsing ambiguity
+- Rewrote the review agent `create_fix_task` prompt section to lead with the canonical JSON format and explicitly state it is the ONLY mechanism that creates tasks — prose, markdown headers, or formatted text descriptions are silently ignored
+- Simplified review agent prompt tool listing to show a single `create_fix_tasks` format instead of separate singular and plural examples
+- Removed the singular `create_fix_task` parsing path from `processJsonMatch` in the frontend, reducing the function to a single code path
+
+### Testing
+
+- Updated all review parsing tests (Rust and TypeScript) to use the canonical `create_fix_tasks` format exclusively
+- Removed tests for the deprecated singular `create_fix_task`, bare JSON, mixed singular/plural, and multiple bare JSON block scenarios
+- Added `fix_tasks_single_item_array` test to verify single-task creation through the array format
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.51, here is a summary of the major features introduced in recent releases:
+
+**beta.51 — Robust JSON Parsing & Agent Completion Stability**
+Rewrote JSON code block extractor to handle nested markdown fences inside JSON strings. String-aware brace matching for correct parsing of braces inside string values. Deduplicated agent-completion event handling to prevent cascading re-renders.
+
+**beta.50 — Review Transition Crash Fix & Plan Decomposition**
+Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines.
+
+**beta.49 — Auto-Clarification, Task Progress & Session Threading**
+Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages.
+
+**beta.48 — Chat Message Editing, Stop Generation & Cross-Project Isolation**
+Chat message editing with inline regeneration and mid-generation cancellation. Cross-project context isolation preventing agents from seeing unrelated project data. Server-side model resolution so settings changes take effect on existing chats.
+
+---
+
 ## [0.1.0-beta.51] - 2026-03-17
 
 Robust JSON parsing for nested backticks and agent completion stability. Rewrites the JSON code block extractor to handle LLM responses containing nested markdown fences inside JSON string values (e.g. task descriptions with embedded code examples), which previously caused tasks to be silently dropped. Adds string-aware brace matching, deduplicates agent-completion event handling to prevent cascading re-renders, and adds a guardrail ensuring the review agent actually invokes the create_fix_task tool instead of only claiming to create tasks in natural language.
