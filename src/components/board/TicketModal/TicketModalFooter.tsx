@@ -10,7 +10,7 @@ export interface TicketModalFooterProps {
   isSaving: boolean;
   showDeleteConfirm: boolean;
   setShowDeleteConfirm: (show: boolean) => void;
-  onRunWithAgent?: (ticketId: string, agentType: string) => void;
+  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onSave: () => Promise<void>;
   onCancelEdit: () => void;

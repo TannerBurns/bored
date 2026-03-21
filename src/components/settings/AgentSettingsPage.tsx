@@ -525,6 +525,86 @@ function AgentSection({ title, description, agentId, config, models, modelColWid
   );
 }
 
+function CodeReviewAgentSection({ agentId, config, models, modelColWidth }: {
+  agentId: string;
+  config: AgentConfig;
+  models: { value: AIModel; label: string }[];
+  modelColWidth: number;
+}) {
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+  const isUnlimited = config.codeReviewAgentMaxIterations === 0;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-semibold text-board-text">Code Review Agent</h3>
+        <p className="text-xs text-board-text-muted mt-0.5">
+          Settings for the "Review with" code-review-only workflow that iteratively reviews and fixes code on a branch.
+        </p>
+      </div>
+      <div className="glass rounded-lg p-3 space-y-3">
+        <div className="glass-subtle rounded-lg px-3 py-2">
+          <label className="block text-sm font-medium text-board-text mb-1">Model</label>
+          <select
+            value={config.codeReviewAgentModel}
+            onChange={(e) => updateConfig(agentId, { codeReviewAgentModel: e.target.value as AIModel })}
+            style={{ maxWidth: modelColWidth }}
+            className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+          >
+            {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">Timeout (min)</label>
+            <input
+              type="number"
+              min={1}
+              max={480}
+              value={config.codeReviewAgentTimeoutMinutes}
+              onChange={(e) => updateConfig(agentId, { codeReviewAgentTimeoutMinutes: Math.max(1, Math.min(480, parseInt(e.target.value) || 60)) })}
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            />
+          </div>
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">Max Retries</label>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={config.codeReviewAgentMaxRetries}
+              onChange={(e) => updateConfig(agentId, { codeReviewAgentMaxRetries: Math.max(0, Math.min(5, parseInt(e.target.value) || 0)) })}
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            />
+          </div>
+        </div>
+        <ToggleRow
+          label="Run until clean"
+          description="Keep iterating until no issues are found, or you manually stop it"
+          enabled={isUnlimited}
+          onChange={(v) => updateConfig(agentId, { codeReviewAgentMaxIterations: v ? 0 : 10 })}
+        />
+        {!isUnlimited && (
+          <div className="glass-subtle rounded-lg px-3 py-2">
+            <label className="block text-sm font-medium text-board-text mb-1">Max Iterations</label>
+            <p className="text-xs text-board-text-muted mb-1.5">
+              Stop after this many review-fix cycles even if issues remain
+            </p>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={config.codeReviewAgentMaxIterations}
+              onChange={(e) => updateConfig(agentId, { codeReviewAgentMaxIterations: Math.max(1, Math.min(100, parseInt(e.target.value) || 10)) })}
+              className="w-16 px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface AgentSettingsPageProps {
   agentId: string;
 }
@@ -593,6 +673,8 @@ export function AgentSettingsPage({ agentId }: AgentSettingsPageProps) {
       <AgentSection title="Ticket Builder Agent" description="Settings for ticket builder chat conversations."
         agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}
         modelKey="ticketBuilderModel" timeoutKey="ticketBuilderTimeoutMinutes" retriesKey="ticketBuilderMaxRetries" />
+      <hr className="border-board-border/30" />
+      <CodeReviewAgentSection agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
       <hr className="border-board-border/30" />
       <AgentSection title="Review Agent" description="Settings for ticket review chat."
         agentId={agentId} config={config} models={models} modelColWidth={modelColWidth}

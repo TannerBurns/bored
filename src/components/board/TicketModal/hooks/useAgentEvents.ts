@@ -14,6 +14,7 @@ import type {
   AgentLog,
   ImplementationTodoStatus,
 } from '../types';
+import type { CodeReviewIterationEvent } from '../../../../types';
 
 /** Extract log stream type from event type (e.g., {custom: "log_stdout"} -> "stdout") */
 function getLogStream(eventType: unknown): string | null {
@@ -200,6 +201,22 @@ export function useAgentEvents({
         return;
       }
       unlisteners.push(unlistenStage);
+
+      // Listen for code-review iteration updates
+      const unlistenCr = await listen<CodeReviewIterationEvent>('agent-code-review-update', (event) => {
+        if (isCancelled) return;
+        logger.debug('agent-code-review-update received', event.payload);
+        if (event.payload.parentRunId === runId) {
+          invoke<AgentRun[]>('get_agent_runs', { ticketId: ticket.id }).then(
+            (runs) => setAgentRunsRef.current(runs)
+          );
+        }
+      });
+      if (isCancelled) {
+        unlistenCr();
+        return;
+      }
+      unlisteners.push(unlistenCr);
       
       logger.debug('Event listeners set up for run', { runId });
     };

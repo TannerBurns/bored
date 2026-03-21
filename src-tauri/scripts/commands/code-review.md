@@ -37,7 +37,12 @@ For each issue found, document:
 - Why it's an issue (what could go wrong)
 
 ## Output format
-Use this exact format for your response:
+
+First, write your analysis and document each issue in markdown. Then, at the very end
+of your response, emit a single fenced JSON block with the structured results.
+The JSON block **must** be the last thing in your output.
+
+### Markdown section (for human readers)
 
 ```markdown
 ## Issues Found
@@ -53,9 +58,34 @@ Use this exact format for your response:
 - **Lines:** 123
 - **Severity:** medium
 - **Description:** Explanation of the issue.
+```
 
-## Summary
-ISSUES_FOUND: [number]
+### Structured results (for machine parsing) — REQUIRED
+
+Always emit this JSON block as the very last thing in your response:
+
+```json
+{
+  "issues_found": <number>,
+  "issues": [
+    {
+      "title": "Brief description",
+      "file": "path/to/file.rs",
+      "lines": "42-48",
+      "severity": "high",
+      "description": "Detailed explanation"
+    }
+  ]
+}
+```
+
+When no issues are found, emit:
+
+```json
+{
+  "issues_found": 0,
+  "issues": []
+}
 ```
 
 ## Important
@@ -63,4 +93,4 @@ ISSUES_FOUND: [number]
 - Do NOT fix any issues — that's for the next phase
 - Be thorough but avoid false positives
 - Focus on real bugs and issues, not style preferences
-- If no issues are found, report `ISSUES_FOUND: 0`
+- The JSON block at the end is mandatory — the system parses it to track progress

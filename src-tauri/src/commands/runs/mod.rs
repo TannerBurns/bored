@@ -60,6 +60,8 @@ pub struct StartRunInput {
     pub stage_timeout_hours: Option<u32>,
     pub stage_max_retries: Option<u32>,
     pub stage_configs: Option<HashMap<String, StageConfig>>,
+    /// Override workflow mode for this run (e.g. "code_review_only").
+    pub workflow_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +107,7 @@ pub async fn start_agent_run(
         stage_timeout_hours,
         stage_max_retries,
         stage_configs,
+        workflow_mode,
     } = input;
 
     tracing::info!("=== START_AGENT_RUN CALLED ===");
@@ -289,6 +292,7 @@ pub async fn start_agent_run(
         code_review_max_iterations: code_review_max_iterations.unwrap_or(3),
         stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
         stage_max_retries: stage_max_retries.unwrap_or(2),
+        workflow_mode_override: workflow_mode,
     };
 
     tauri::async_runtime::spawn(orchestrate::execute_workflow_task(ctx));

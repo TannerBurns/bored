@@ -13,7 +13,7 @@ interface TicketDetailSidebarProps {
   editState: UseTicketEditReturn;
   parentEpic: Ticket | null;
   onMoveTicket: (newColumnId: string) => void;
-  onRunWithAgent?: (ticketId: string, agentType: string) => void;
+  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onBack: () => void;
 }
@@ -236,31 +236,68 @@ export function TicketDetailSidebar({
         </SidebarSection>
       )}
 
+      {/* Agent Actions */}
+      {!ticket.lockedByRunId && onRunWithAgent && (
+        <>
+          <div className="border-t border-board-border" />
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-board-text-muted uppercase tracking-wider">
+              Agent Actions
+            </p>
+            <div className="inline-grid gap-2">
+              <BuildWithDropdown
+                className="w-full"
+                onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
+                disabled={!ticket.projectId || isBacklog}
+                disabledReason={
+                  isBacklog
+                    ? 'Move to Ready first'
+                    : !ticket.projectId
+                      ? 'Assign a project first'
+                      : undefined
+                }
+              />
+              {ticket.branchName && (
+                <BuildWithDropdown
+                  className="w-full"
+                  onSelect={(agent) => onRunWithAgent(ticket.id, agent, 'code_review_only')}
+                  disabled={!ticket.projectId}
+                  disabledReason={!ticket.projectId ? 'Assign a project first' : undefined}
+                  label="Review with"
+                  title="Run code review loop on the existing branch"
+                  icon={
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-board-accent"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      <path d="m8 11 2 2 4-4" />
+                    </svg>
+                  }
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Divider */}
       <div className="border-t border-board-border" />
 
-      {/* Actions */}
+      {/* Ticket Actions */}
       <div className="space-y-2">
         <p className="text-xs font-medium text-board-text-muted uppercase tracking-wider">
-          Actions
+          Ticket Actions
         </p>
-
-        {/* Build with agent */}
-        {!ticket.lockedByRunId && onRunWithAgent && (
-          <div>
-            <BuildWithDropdown
-              onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
-              disabled={!ticket.projectId || isBacklog}
-              disabledReason={
-                isBacklog
-                  ? 'Move to Ready first'
-                  : !ticket.projectId
-                    ? 'Assign a project first'
-                    : undefined
-              }
-            />
-          </div>
-        )}
 
         {/* Edit / Save / Cancel */}
         {editState.isEditing ? (

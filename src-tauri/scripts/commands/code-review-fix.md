@@ -52,7 +52,12 @@ After making changes:
 - Issue is outside the scope of current changes
 
 ## Output format
-Use this exact format for your response:
+
+First, write your analysis and document each decision in markdown. Then, at the very end
+of your response, emit a single fenced JSON block with the structured results.
+The JSON block **must** be the last thing in your output.
+
+### Markdown section (for human readers)
 
 ```markdown
 ## Fix Results
@@ -65,10 +70,24 @@ Use this exact format for your response:
 ### Issue 2: [Description from review]
 - **Decision:** FIXED | SKIPPED
 - **Reason:** [Explanation]
+```
 
-## Summary
-ISSUES_FIXED: [number]
-ISSUES_SKIPPED: [number]
+### Structured results (for machine parsing) — REQUIRED
+
+Always emit this JSON block as the very last thing in your response:
+
+```json
+{
+  "issues_fixed": <number>,
+  "issues_skipped": <number>,
+  "results": [
+    {
+      "title": "Description from review",
+      "decision": "fixed",
+      "reason": "Explanation of why it was fixed or skipped"
+    }
+  ]
+}
 ```
 
 ## Important
@@ -76,3 +95,4 @@ ISSUES_SKIPPED: [number]
 - Document your reasoning for each decision
 - If unsure, lean toward SKIP with a clear explanation
 - Focus on the issues provided, don't go looking for new ones
+- The JSON block at the end is mandatory — the system parses it to track progress

@@ -1,78 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../../lib/utils';
-import type { AgentRun, RunCostData, ModelCostData } from '../../../types';
+import type { AgentRun, RunCostData, CodeReviewIterationData, CodeReviewIssue } from '../../../types';
 import type { RunEvent, ImplementationTodoStatus } from './types';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../../common/AgentIcons';
-import { CostBadge, getRunCost, getTotalCost } from '../../common/CostBadge';
+import { CostBadge, getRunCost, getTotalCost, aggregateRunCosts } from '../../common/CostBadge';
 import { SafetyCommitNotice } from '../../common/SafetyCommitNotice';
 import { LogTimelineView } from './LogTimeline/LogTimelineView';
 import { ImplementationChecklist } from './ImplementationChecklist';
+import { CodeReviewChecklist, type CodeReviewIteration } from './CodeReviewChecklist';
 
 function getWorkflowLabel(run: AgentRun): string {
   const mode = (run.metadata as Record<string, unknown> | undefined)?.workflow_mode;
-  return mode === 'auto_pilot' ? 'Auto-Pilot' : 'Multi-Stage';
-}
-
-/** Aggregate cost data from multiple runs, deriving totalCostUsd from
- *  the per-model sums so the two can never diverge. */
-function aggregateRunCosts(runs: AgentRun[]): RunCostData | null {
-  let total = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheRead = 0;
-  let cacheWrite = 0;
-  let anyEstimated = false;
-  let found = false;
-  const mergedModels: Record<string, ModelCostData> = {};
-
-  for (const sr of runs) {
-    const c = getRunCost(sr);
-    if (!c) continue;
-    found = true;
-    total += c.totalCostUsd;
-    inputTokens += c.inputTokens;
-    outputTokens += c.outputTokens;
-    cacheRead += c.cacheReadTokens;
-    cacheWrite += c.cacheCreationTokens;
-    if (c.isEstimated) anyEstimated = true;
-
-    const models = c.modelUsage ?? {};
-    if (Object.keys(models).length === 0) {
-      if (c.totalCostUsd > 0 || c.inputTokens > 0 || c.outputTokens > 0
-          || c.cacheReadTokens > 0 || c.cacheCreationTokens > 0) {
-        const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-        entry.inputTokens += c.inputTokens;
-        entry.outputTokens += c.outputTokens;
-        entry.cacheReadTokens += c.cacheReadTokens;
-        entry.cacheCreationTokens += c.cacheCreationTokens;
-        entry.costUsd += c.totalCostUsd;
-      }
-    } else {
-      for (const [model, data] of Object.entries(models)) {
-        const entry = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-        entry.inputTokens += data.inputTokens;
-        entry.outputTokens += data.outputTokens;
-        entry.cacheReadTokens += data.cacheReadTokens;
-        entry.cacheCreationTokens += data.cacheCreationTokens;
-        entry.costUsd += data.costUsd;
-      }
-    }
-  }
-
-  if (!found) return null;
-
-  const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
-
-  return {
-    totalCostUsd: modelSum > 0 ? modelSum : total,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens: cacheRead,
-    cacheCreationTokens: cacheWrite,
-    modelUsage: mergedModels,
-    isEstimated: anyEstimated,
-  };
+  if (mode === 'auto_pilot') return 'Auto-Pilot';
+  if (mode === 'code_review_only') return 'Code Review';
+  return 'Multi-Stage';
 }
 
 /** For multi-stage parent runs, sum sub-run costs so the badge matches
@@ -332,8 +274,71 @@ interface SubRunsListProps {
   implementationTodos?: ImplementationTodoStatus[];
 }
 
+/** Build code-review iteration objects from sub-runs by pairing code-review + code-review-fix runs.
+ *  Only successful review attempts (those with `code_review_iteration` metadata) are included.
+ *  Fix sub-runs are paired by time window: each review's fix is the last finished (or running)
+ *  fix sub-run that started between this review and the next review. */
+function buildCodeReviewIterations(
+  reviewSubRuns: AgentRun[],
+  fixSubRuns: AgentRun[],
+): CodeReviewIteration[] {
+  const sortedFixes = [...fixSubRuns].sort(
+    (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime(),
+  );
+
+  const successfulReviews = [...reviewSubRuns]
+    .filter(r => {
+      const meta = r.metadata as Record<string, unknown> | undefined;
+      return r.status === 'running' || (meta?.code_review_iteration != null);
+    })
+    .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+
+  return successfulReviews.map((review, i) => {
+    const meta = review.metadata as Record<string, unknown> | undefined;
+    const iterData = meta as CodeReviewIterationData | undefined;
+    const iteration = iterData?.code_review_iteration ?? i + 1;
+    const issuesFound = iterData?.code_review_issues_found ?? null;
+    const issuesSection = iterData?.code_review_issues_section ?? '';
+    const issues: CodeReviewIssue[] = (iterData?.code_review_issues as CodeReviewIssue[] | undefined) ?? [];
+
+    const reviewStart = new Date(review.startedAt).getTime();
+    const nextReviewStart = i + 1 < successfulReviews.length
+      ? new Date(successfulReviews[i + 1].startedAt).getTime()
+      : Infinity;
+
+    const windowFixes = sortedFixes.filter(f => {
+      const fixStart = new Date(f.startedAt).getTime();
+      return fixStart >= reviewStart && fixStart < nextReviewStart;
+    });
+    let fixSubRun: AgentRun | undefined;
+    for (let j = windowFixes.length - 1; j >= 0; j--) {
+      if (windowFixes[j].status === 'finished' || windowFixes[j].status === 'running') {
+        fixSubRun = windowFixes[j];
+        break;
+      }
+    }
+    if (!fixSubRun) fixSubRun = windowFixes[windowFixes.length - 1];
+
+    const status: CodeReviewIteration['status'] =
+      review.status === 'running' ? 'running' :
+      review.status === 'error' ? 'error' :
+      review.status === 'finished' ? 'finished' : 'pending';
+
+    return {
+      iteration,
+      issuesFound,
+      issuesSection,
+      issues,
+      status,
+      reviewSubRun: review,
+      fixSubRun,
+    };
+  });
+}
+
 function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
   const [implExpanded, setImplExpanded] = useState(false);
+  const [crExpanded, setCrExpanded] = useState(false);
   const sorted = [...subRuns].sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
 
   const hasTodos = implementationTodos && implementationTodos.length > 0;
@@ -341,31 +346,54 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
   const completedImpl = hasTodos ? implementationTodos.filter(t => t.status === 'completed').length : 0;
   const totalImpl = hasTodos ? implementationTodos.length : 0;
 
-  type DisplayRow = { type: 'single'; run: AgentRun; idx: number } | { type: 'grouped'; runs: AgentRun[] };
+  const crReviewSubRuns = sorted.filter(r => r.stage === 'code-review');
+  const crFixSubRuns = sorted.filter(r => r.stage === 'code-review-fix');
+  const hasCrGroup = crReviewSubRuns.length > 0;
+
+  const crIterations = useMemo(
+    () => hasCrGroup ? buildCodeReviewIterations(crReviewSubRuns, crFixSubRuns) : [],
+    [hasCrGroup, crReviewSubRuns, crFixSubRuns],
+  );
+
+  type DisplayRow =
+    | { type: 'single'; run: AgentRun; idx: number }
+    | { type: 'implement-group'; runs: AgentRun[] }
+    | { type: 'code-review-group'; reviewRuns: AgentRun[]; fixRuns: AgentRun[] };
   const rows: DisplayRow[] = [];
   let implGroupInserted = false;
+  let crGroupInserted = false;
 
   sorted.forEach((subRun, idx) => {
     if (hasTodos && subRun.stage === 'implement') {
       if (!implGroupInserted) {
-        rows.push({ type: 'grouped', runs: implementSubRuns });
+        rows.push({ type: 'implement-group', runs: implementSubRuns });
         implGroupInserted = true;
+      }
+    } else if (hasCrGroup && (subRun.stage === 'code-review' || subRun.stage === 'code-review-fix')) {
+      if (!crGroupInserted) {
+        rows.push({ type: 'code-review-group', reviewRuns: crReviewSubRuns, fixRuns: crFixSubRuns });
+        crGroupInserted = true;
       }
     } else {
       rows.push({ type: 'single', run: subRun, idx });
     }
   });
 
-  const displayCount = hasTodos
-    ? sorted.filter(r => r.stage !== 'implement').length + (implementSubRuns.length > 0 ? 1 : 0)
-    : sorted.length;
+  const groupedStageCount = sorted.filter(r => {
+    if (hasTodos && r.stage === 'implement') return false;
+    if (hasCrGroup && (r.stage === 'code-review' || r.stage === 'code-review-fix')) return false;
+    return true;
+  }).length;
+  const displayCount = groupedStageCount
+    + (hasTodos && implementSubRuns.length > 0 ? 1 : 0)
+    + (hasCrGroup ? 1 : 0);
 
   return (
     <div className="mt-3">
       <p className="text-xs font-medium text-board-text-muted mb-2">Stages ({displayCount}):</p>
       <div className="space-y-1 text-xs">
         {rows.map((row) => {
-          if (row.type === 'grouped') {
+          if (row.type === 'implement-group') {
             const anyRunning = row.runs.some(r => r.status === 'running');
             const anyError = row.runs.some(r => r.status === 'error');
             const allFinished = row.runs.every(r => r.status === 'finished');
@@ -436,6 +464,81 @@ function SubRunsList({ subRuns, implementationTodos }: SubRunsListProps) {
                       todos={implementationTodos!}
                       implementSubRuns={implementSubRuns}
                     />
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (row.type === 'code-review-group') {
+            const allCrRuns = [...row.reviewRuns, ...row.fixRuns];
+            const anyRunning = allCrRuns.some(r => r.status === 'running');
+            const anyError = allCrRuns.some(r => r.status === 'error');
+            const allFinished = allCrRuns.every(r => r.status === 'finished');
+            const groupStatus = anyRunning ? 'running' : anyError ? 'error' : allFinished ? 'finished' : 'pending';
+
+            const iterationCount = row.reviewRuns.length;
+            const lastIteration = crIterations[crIterations.length - 1];
+            const lastClean = lastIteration?.issuesFound === 0;
+
+            const groupCost = aggregateRunCosts(allCrRuns);
+            const totalDuration = allCrRuns.reduce((sum, r) => {
+              if (r.endedAt) {
+                return sum + (new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) / 1000;
+              }
+              return sum;
+            }, 0);
+
+            return (
+              <div key="code-review-group" className="rounded overflow-hidden">
+                <button
+                  onClick={() => setCrExpanded(!crExpanded)}
+                  className="w-full flex items-center gap-1.5 py-1 px-2 bg-board-surface-raised hover:bg-board-card-hover transition-colors text-left"
+                >
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                      groupStatus === 'finished' && lastClean ? 'bg-status-success' :
+                      groupStatus === 'finished' ? 'bg-amber-400' :
+                      groupStatus === 'running' ? 'bg-status-warning animate-pulse' :
+                      groupStatus === 'error' ? 'bg-status-error' :
+                      'bg-board-text-muted'
+                    )}
+                  />
+                  <span className="text-board-text-secondary font-medium w-28 shrink-0 truncate">
+                    code-review ({iterationCount})
+                  </span>
+                  <span className={cn(
+                    'text-xs w-14 shrink-0',
+                    groupStatus === 'finished' && lastClean ? 'text-status-success' :
+                    groupStatus === 'finished' ? 'text-amber-400' :
+                    groupStatus === 'running' ? 'text-status-warning' :
+                    groupStatus === 'error' ? 'text-status-error' :
+                    'text-board-text-muted'
+                  )}>
+                    {groupStatus === 'finished' && lastClean ? 'clean' : groupStatus}
+                  </span>
+                  <span className="flex-1" />
+                  <CostBadge cost={groupCost} />
+                  {totalDuration > 0 && (
+                    <span className="text-board-text-muted w-10 text-right shrink-0">
+                      {Math.round(totalDuration)}s
+                    </span>
+                  )}
+                  <svg
+                    className={cn(
+                      'w-3 h-3 text-board-text-muted transition-transform flex-shrink-0',
+                      crExpanded && 'rotate-90',
+                    )}
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {crExpanded && (
+                  <div className="px-2 pb-2 pt-1">
+                    <CodeReviewChecklist iterations={crIterations} />
                   </div>
                 )}
               </div>

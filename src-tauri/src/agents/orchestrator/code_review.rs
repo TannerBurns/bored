@@ -3,20 +3,133 @@
 //! These functions operate on already-extracted plain text. The caller is
 //! responsible for using the agent provider's `extract_text` to convert raw
 //! agent output before passing it here.
+//!
+//! The code-review command is instructed to emit a fenced JSON block at the end
+//! of its output. We try to parse that first; if it's missing or malformed we
+//! fall back to the legacy `ISSUES_FOUND:` line-based parser.
+
+/// A single issue from the structured JSON output.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CodeReviewIssue {
+    pub title: String,
+    #[serde(default)]
+    pub file: String,
+    #[serde(default)]
+    pub lines: String,
+    #[serde(default)]
+    pub severity: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// Structured output from the code-review command.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CodeReviewOutput {
+    pub issues_found: usize,
+    #[serde(default)]
+    pub issues: Vec<CodeReviewIssue>,
+}
+
+/// Try to parse structured JSON output from a code-review response.
+///
+/// Looks for the last fenced ` ```json ... ``` ` block in the text and
+/// attempts to deserialize it as `CodeReviewOutput`.
+pub fn parse_structured_review(text: &str) -> Option<CodeReviewOutput> {
+    let mut last_json_block: Option<&str> = None;
+
+    let mut search_from = 0;
+    while let Some(start) = text[search_from..].find("```json") {
+        let abs_start = search_from + start + "```json".len();
+        if let Some(end) = text[abs_start..].find("```") {
+            let block = text[abs_start..abs_start + end].trim();
+            last_json_block = Some(block);
+            search_from = abs_start + end + 3;
+        } else {
+            break;
+        }
+    }
+
+    let block = last_json_block?;
+    serde_json::from_str::<CodeReviewOutput>(block).ok()
+}
 
 /// Parse code review output for issue count.
 ///
-/// Looks for a line like `ISSUES_FOUND: 3` in the extracted text and returns the number.
+/// Prefers structured JSON output; falls back to the legacy `ISSUES_FOUND:` line.
+/// Handles markdown formatting (e.g. `**ISSUES_FOUND: 0**`).
 pub fn parse_code_review_issues(text: &str) -> Option<usize> {
-    text.lines()
-        .find(|l| l.trim().starts_with("ISSUES_FOUND:"))
-        .and_then(|l| l.split(':').nth(1)?.trim().parse().ok())
+    if let Some(output) = parse_structured_review(text) {
+        return Some(output.issues_found);
+    }
+
+    parse_issues_found_line(text)
+}
+
+/// Legacy parser: looks for `ISSUES_FOUND: N` anywhere in a line.
+fn parse_issues_found_line(text: &str) -> Option<usize> {
+    for line in text.lines() {
+        let stripped = line.trim().trim_start_matches('*').trim_end_matches('*');
+        if let Some(rest) = stripped.trim().strip_prefix("ISSUES_FOUND:") {
+            if let Ok(n) = rest.trim().parse::<usize>() {
+                return Some(n);
+            }
+        }
+    }
+    None
 }
 
 /// Extract the issues section from code review output.
 ///
-/// Extracts content between "## Issues Found" and "## Summary" for passing to the fix phase.
+/// Prefers the structured JSON issues list (formatted as markdown for the fix prompt);
+/// falls back to extracting content between "## Issues Found" and "## Summary".
 pub fn extract_issues_section(text: &str) -> String {
+    if let Some(output) = parse_structured_review(text) {
+        return extract_issues_from_structured_or_legacy(&output, text);
+    }
+    extract_issues_section_legacy(text)
+}
+
+/// Same as `extract_issues_section` but accepts an already-parsed output
+/// to avoid re-parsing the JSON block.
+pub fn extract_issues_with_parsed(parsed: Option<&CodeReviewOutput>, text: &str) -> String {
+    if let Some(output) = parsed {
+        return extract_issues_from_structured_or_legacy(output, text);
+    }
+    extract_issues_section_legacy(text)
+}
+
+fn extract_issues_from_structured_or_legacy(output: &CodeReviewOutput, text: &str) -> String {
+    if !output.issues.is_empty() {
+        return format_issues_as_markdown(&output.issues);
+    }
+    extract_issues_section_legacy(text)
+}
+
+fn format_issues_as_markdown(issues: &[CodeReviewIssue]) -> String {
+    let mut md = String::new();
+    for (i, issue) in issues.iter().enumerate() {
+        if i > 0 {
+            md.push('\n');
+        }
+        md.push_str(&format!("### Issue {}: {}\n", i + 1, issue.title));
+        if !issue.file.is_empty() {
+            md.push_str(&format!("- **File:** `{}`\n", issue.file));
+        }
+        if !issue.lines.is_empty() {
+            md.push_str(&format!("- **Lines:** {}\n", issue.lines));
+        }
+        if !issue.severity.is_empty() {
+            md.push_str(&format!("- **Severity:** {}\n", issue.severity));
+        }
+        if !issue.description.is_empty() {
+            md.push_str(&format!("- **Description:** {}\n", issue.description));
+        }
+    }
+    md
+}
+
+/// Legacy extractor: content between "## Issues Found" and "## Summary".
+fn extract_issues_section_legacy(text: &str) -> String {
     let start_marker = "## Issues Found";
     let end_marker = "## Summary";
 
@@ -37,16 +150,77 @@ pub fn extract_issues_section(text: &str) -> String {
 mod tests {
     use super::*;
 
-    // ── parse_code_review_issues ──────────────────────────────────
+    // ── parse_structured_review ───────────────────────────────────
+
+    #[test]
+    fn structured_review_parses_json_block() {
+        let text = r#"Some markdown analysis.
+
+```json
+{
+  "issues_found": 2,
+  "issues": [
+    {"title": "Bug A", "file": "src/a.rs", "lines": "10", "severity": "high", "description": "Oops"},
+    {"title": "Bug B", "file": "src/b.rs", "lines": "20-25", "severity": "low", "description": "Minor"}
+  ]
+}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 2);
+        assert_eq!(result.issues.len(), 2);
+        assert_eq!(result.issues[0].title, "Bug A");
+        assert_eq!(result.issues[1].severity, "low");
+    }
+
+    #[test]
+    fn structured_review_parses_clean() {
+        let text = "All good.\n\n```json\n{\"issues_found\": 0, \"issues\": []}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn structured_review_takes_last_json_block() {
+        let text = "```json\n{\"issues_found\": 99, \"issues\": []}\n```\n\nMore text.\n\n```json\n{\"issues_found\": 1, \"issues\": []}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 1);
+    }
+
+    #[test]
+    fn structured_review_returns_none_for_no_json() {
+        assert!(parse_structured_review("Just plain text").is_none());
+    }
+
+    #[test]
+    fn structured_review_returns_none_for_malformed_json() {
+        let text = "```json\n{not valid json}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn structured_review_tolerates_missing_optional_fields() {
+        let text = "```json\n{\"issues_found\": 1, \"issues\": [{\"title\": \"X\"}]}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues[0].file, "");
+    }
+
+    // ── parse_code_review_issues (prefers structured, falls back to legacy) ──
+
+    #[test]
+    fn parse_issues_prefers_structured_json() {
+        let text = "ISSUES_FOUND: 5\n\n```json\n{\"issues_found\": 2, \"issues\": []}\n```";
+        assert_eq!(parse_code_review_issues(text), Some(2));
+    }
+
+    #[test]
+    fn parse_issues_falls_back_to_legacy() {
+        assert_eq!(parse_code_review_issues("ISSUES_FOUND: 3"), Some(3));
+    }
 
     #[test]
     fn parse_issues_found_zero() {
         assert_eq!(parse_code_review_issues("ISSUES_FOUND: 0"), Some(0));
-    }
-
-    #[test]
-    fn parse_issues_found_positive() {
-        assert_eq!(parse_code_review_issues("ISSUES_FOUND: 3"), Some(3));
     }
 
     #[test]
@@ -70,10 +244,42 @@ mod tests {
         assert_eq!(parse_code_review_issues(""), None);
     }
 
+    #[test]
+    fn parse_issues_markdown_bold() {
+        assert_eq!(parse_code_review_issues("**ISSUES_FOUND: 0**"), Some(0));
+    }
+
+    #[test]
+    fn parse_issues_markdown_bold_with_surrounding_text() {
+        let text = "Summary of review.\n\n**ISSUES_FOUND: 3**\n\nDone.";
+        assert_eq!(parse_code_review_issues(text), Some(3));
+    }
+
+    #[test]
+    fn parse_issues_partial_bold() {
+        assert_eq!(parse_code_review_issues("**ISSUES_FOUND: 7"), Some(7));
+    }
+
     // ── extract_issues_section ────────────────────────────────────
 
     #[test]
-    fn extract_section_between_markers() {
+    fn extract_issues_from_structured_json() {
+        let text = r#"Some text.
+
+```json
+{
+  "issues_found": 1,
+  "issues": [{"title": "NPE risk", "file": "app.ts", "lines": "42", "severity": "high", "description": "Could be null"}]
+}
+```"#;
+        let result = extract_issues_section(text);
+        assert!(result.contains("### Issue 1: NPE risk"));
+        assert!(result.contains("`app.ts`"));
+        assert!(result.contains("high"));
+    }
+
+    #[test]
+    fn extract_issues_falls_back_to_legacy_markers() {
         let text = "Preamble\n## Issues Found\n- bug A\n- bug B\n## Summary\nDone.";
         assert_eq!(extract_issues_section(text), "- bug A\n- bug B");
     }
@@ -94,5 +300,56 @@ mod tests {
     fn extract_section_empty_between_markers() {
         let text = "## Issues Found\n## Summary\nDone.";
         assert_eq!(extract_issues_section(text), "");
+    }
+
+    #[test]
+    fn extract_issues_structured_clean_returns_full_text() {
+        let text = "All clean.\n\n```json\n{\"issues_found\": 0, \"issues\": []}\n```";
+        let result = extract_issues_section(text);
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn extract_issues_structured_multiple_issues() {
+        let text = r#"Analysis.
+
+```json
+{
+  "issues_found": 2,
+  "issues": [
+    {"title": "NPE", "file": "a.rs", "lines": "1", "severity": "high", "description": "Null ref"},
+    {"title": "Leak", "file": "b.rs", "lines": "2-5", "severity": "medium", "description": "Unclosed handle"}
+  ]
+}
+```"#;
+        let result = extract_issues_section(text);
+        assert!(result.contains("### Issue 1: NPE"));
+        assert!(result.contains("### Issue 2: Leak"));
+        assert!(result.contains("`a.rs`"));
+        assert!(result.contains("`b.rs`"));
+        assert!(result.contains("high"));
+        assert!(result.contains("medium"));
+    }
+
+    #[test]
+    fn extract_issues_structured_partial_fields() {
+        let text = "```json\n{\"issues_found\": 1, \"issues\": [{\"title\": \"Missing check\"}]}\n```";
+        let result = extract_issues_section(text);
+        assert!(result.contains("### Issue 1: Missing check"));
+        assert!(!result.contains("**File:**"));
+        assert!(!result.contains("**Lines:**"));
+    }
+
+    #[test]
+    fn parse_structured_review_unclosed_fence_returns_none() {
+        let text = "```json\n{\"issues_found\": 1, \"issues\": []}";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn parse_structured_review_non_json_fence_ignored() {
+        let text = "```python\nprint('hi')\n```\nISSUES_FOUND: 4";
+        assert!(parse_structured_review(text).is_none());
+        assert_eq!(parse_code_review_issues(text), Some(4));
     }
 }

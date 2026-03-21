@@ -70,6 +70,18 @@ pub struct WorkflowSettings {
     /// Model for review chat mode.
     #[serde(default = "default_validation_model")]
     pub validation_model: String,
+    /// Model for the code-review-only agent workflow.
+    #[serde(default = "default_code_review_agent_model")]
+    pub code_review_agent_model: String,
+    /// Timeout in minutes for each code-review-only stage.
+    #[serde(default = "default_code_review_agent_timeout")]
+    pub code_review_agent_timeout_minutes: u32,
+    /// Max retries per code-review-only stage.
+    #[serde(default = "default_code_review_agent_retries")]
+    pub code_review_agent_max_retries: u32,
+    /// Max iterations for the code-review-only loop (0 = unlimited).
+    #[serde(default)]
+    pub code_review_agent_max_iterations: usize,
     /// Full stage ordering (frontend stage keys, e.g. "code-review", "cleanup").
     /// Contains all stage keys including required stages.
     #[serde(default)]
@@ -106,6 +118,18 @@ fn default_validation_model() -> String {
     crate::agents::models::DEFAULT_VALIDATION_CHAT_MODEL.to_string()
 }
 
+fn default_code_review_agent_model() -> String {
+    crate::agents::models::DEFAULT_STAGE_MODEL.to_string()
+}
+
+fn default_code_review_agent_timeout() -> u32 {
+    60
+}
+
+fn default_code_review_agent_retries() -> u32 {
+    2
+}
+
 impl Default for WorkflowSettings {
     fn default() -> Self {
         Self {
@@ -123,6 +147,10 @@ impl Default for WorkflowSettings {
             planner_model: default_planner_model(),
             ticket_builder_model: default_ticket_builder_model(),
             validation_model: default_validation_model(),
+            code_review_agent_model: default_code_review_agent_model(),
+            code_review_agent_timeout_minutes: default_code_review_agent_timeout(),
+            code_review_agent_max_retries: default_code_review_agent_retries(),
+            code_review_agent_max_iterations: 0,
             stage_order: None,
             synced: false,
         }
@@ -894,5 +922,81 @@ mod tests {
     fn workflow_settings_default_has_empty_required_commands() {
         let settings = WorkflowSettings::default();
         assert!(settings.auto_pilot_required_commands.is_empty());
+    }
+
+    // ── code_review_agent_* fields ───────────────────────────────
+
+    #[test]
+    fn code_review_agent_fields_default_values() {
+        let settings = WorkflowSettings::default();
+        assert_eq!(settings.code_review_agent_model, crate::agents::models::DEFAULT_STAGE_MODEL);
+        assert_eq!(settings.code_review_agent_timeout_minutes, 60);
+        assert_eq!(settings.code_review_agent_max_retries, 2);
+        assert_eq!(settings.code_review_agent_max_iterations, 0);
+    }
+
+    #[test]
+    fn code_review_agent_fields_default_when_absent_from_json() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.code_review_agent_model, crate::agents::models::DEFAULT_STAGE_MODEL);
+        assert_eq!(settings.code_review_agent_timeout_minutes, 60);
+        assert_eq!(settings.code_review_agent_max_retries, 2);
+        assert_eq!(settings.code_review_agent_max_iterations, 0);
+    }
+
+    #[test]
+    fn code_review_agent_fields_deserialize_custom_values() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2,
+            "codeReviewAgentModel":"claude-opus-4-5",
+            "codeReviewAgentTimeoutMinutes":120,
+            "codeReviewAgentMaxRetries":5,
+            "codeReviewAgentMaxIterations":10
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.code_review_agent_model, "claude-opus-4-5");
+        assert_eq!(settings.code_review_agent_timeout_minutes, 120);
+        assert_eq!(settings.code_review_agent_max_retries, 5);
+        assert_eq!(settings.code_review_agent_max_iterations, 10);
+    }
+
+    #[test]
+    fn code_review_agent_fields_round_trip() {
+        let original = WorkflowSettings {
+            code_review_agent_model: "claude-opus-4-6".to_string(),
+            code_review_agent_timeout_minutes: 45,
+            code_review_agent_max_retries: 3,
+            code_review_agent_max_iterations: 15,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.code_review_agent_model, "claude-opus-4-6");
+        assert_eq!(restored.code_review_agent_timeout_minutes, 45);
+        assert_eq!(restored.code_review_agent_max_retries, 3);
+        assert_eq!(restored.code_review_agent_max_iterations, 15);
+    }
+
+    #[test]
+    fn code_review_agent_fields_serialize_camel_case() {
+        let settings = WorkflowSettings {
+            code_review_agent_model: "test-model".to_string(),
+            code_review_agent_timeout_minutes: 99,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("codeReviewAgentModel"));
+        assert!(json.contains("codeReviewAgentTimeoutMinutes"));
+        assert!(json.contains("codeReviewAgentMaxRetries"));
+        assert!(json.contains("codeReviewAgentMaxIterations"));
     }
 }

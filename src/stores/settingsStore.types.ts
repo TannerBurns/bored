@@ -147,6 +147,11 @@ export interface AgentConfig {
   diagnosticTimeoutMinutes: number;
   diagnosticMaxRetries: number;
 
+  codeReviewAgentModel: AIModel;
+  codeReviewAgentTimeoutMinutes: number;
+  codeReviewAgentMaxRetries: number;
+  codeReviewAgentMaxIterations: number;
+
   settings: Record<string, unknown>;
 }
 
@@ -221,6 +226,10 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   diagnosticModel: 'claude-sonnet-4-6',
   diagnosticTimeoutMinutes: 10,
   diagnosticMaxRetries: 2,
+  codeReviewAgentModel: 'claude-opus-4-6',
+  codeReviewAgentTimeoutMinutes: 60,
+  codeReviewAgentMaxRetries: 2,
+  codeReviewAgentMaxIterations: 0,
   settings: {
     authToken: '',
     apiKey: '',
@@ -259,6 +268,10 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   diagnosticModel: 'claude-sonnet-4-6',
   diagnosticTimeoutMinutes: 10,
   diagnosticMaxRetries: 2,
+  codeReviewAgentModel: 'claude-opus-4-6',
+  codeReviewAgentTimeoutMinutes: 60,
+  codeReviewAgentMaxRetries: 2,
+  codeReviewAgentMaxIterations: 0,
   settings: {},
 };
 
@@ -289,6 +302,10 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   diagnosticModel: 'gpt-5.2-codex',
   diagnosticTimeoutMinutes: 10,
   diagnosticMaxRetries: 2,
+  codeReviewAgentModel: 'gpt-5.4',
+  codeReviewAgentTimeoutMinutes: 60,
+  codeReviewAgentMaxRetries: 2,
+  codeReviewAgentMaxIterations: 0,
   settings: {
     ossEnabled: false,
     localProvider: 'ollama',
