@@ -99,6 +99,7 @@ function removeCommandFromAllAgents(
       ...config,
       workflowStages: rest,
       stageOrder: config.stageOrder.filter((k) => k !== commandId),
+      autoPilotRequiredCommands: (config.autoPilotRequiredCommands ?? []).filter((r) => r.command !== commandId),
     };
   }
   return updated;
