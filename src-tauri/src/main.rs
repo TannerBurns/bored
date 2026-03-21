@@ -216,8 +216,11 @@ fn main() {
             // Build the agent registry with all known providers
             let mut agent_registry = AgentRegistry::new();
             agent_registry.register(Arc::new(ClaudeProvider::new()));
-            let mut cursor_provider = CursorProvider::new();
-            cursor_provider.discover_models();
+            let cursor_provider = tokio::task::block_in_place(|| {
+                let mut p = CursorProvider::new();
+                p.discover_models();
+                p
+            });
             agent_registry.register(Arc::new(cursor_provider));
             agent_registry.register(Arc::new(CodexProvider::new()));
 

@@ -138,9 +138,7 @@ function SortableStageRow({
 
   const gridStyle = {
     ...style,
-    gridTemplateColumns: autoPilotMode && !isRequired
-      ? `40px 1fr ${modelColWidth}px`
-      : `20px 40px 1fr ${modelColWidth}px`,
+    gridTemplateColumns: `20px 40px 1fr ${modelColWidth}px`,
   };
 
   return (
@@ -167,9 +165,9 @@ function SortableStageRow({
         >
           <GripIcon />
         </button>
-      ) : !autoPilotMode || isRequired ? (
+      ) : (
         <div />
-      ) : null}
+      )}
       <button
         onClick={handleToggle}
         disabled={isRequired}
