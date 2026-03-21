@@ -109,9 +109,15 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
   { id: 'doc-sync', name: 'Documentation Sync', description: 'Update or create documentation from branch changes', enabled: false, source: 'builtin', filename: 'doc-sync.md' },
 ];
 
+export interface AutoPilotRequiredCommand {
+  command: string;
+  phase: 'before' | 'after';
+}
+
 export interface AgentConfig {
   autoPilotEnabled: boolean;
   autoPilotModel: AIModel;
+  autoPilotRequiredCommands: AutoPilotRequiredCommand[];
   autoCompleteTickets: boolean;
   autoClarification: boolean;
   workflowStages: WorkflowStages;
@@ -191,6 +197,7 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
@@ -228,6 +235,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
 const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
   workflowStages: { ...DEFAULT_CLAUDE_WORKFLOW_STAGES },
@@ -257,6 +265,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'gpt-5.4',
+  autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
   workflowStages: { ...DEFAULT_CODEX_WORKFLOW_STAGES },

@@ -53,14 +53,22 @@ fn discover_available_commands(
 }
 
 impl WorkflowOrchestrator {
-    /// Run the command-selection stage: ask the agent which commands to run.
-    pub(super) async fn run_command_selection_stage(
+    /// Run the command-selection stage, excluding forced commands from the available list.
+    pub(super) async fn run_command_selection_stage_excluding(
         &self,
         plan: &str,
         impl_summary: &str,
+        exclude_commands: &[&str],
     ) -> Result<Vec<CommandSelection>, String> {
         let custom_dir = self.custom_commands_dir();
-        let available = discover_available_commands(custom_dir.as_deref());
+        let all_available = discover_available_commands(custom_dir.as_deref());
+
+        let exclude_set: std::collections::HashSet<&str> =
+            exclude_commands.iter().copied().collect();
+        let available: Vec<String> = all_available
+            .into_iter()
+            .filter(|c| !exclude_set.contains(c.as_str()))
+            .collect();
 
         let current_task = self.get_task();
         let (effective_title, effective_description, ticket_context) = match &current_task {
@@ -102,6 +110,7 @@ impl WorkflowOrchestrator {
             impl_summary,
             &available,
             &provider_models,
+            exclude_commands,
         );
 
         let result = self
@@ -146,6 +155,7 @@ fn generate_command_selection_prompt(
     impl_summary: &str,
     available_commands: &[String],
     available_models: &[(&str, &str)],
+    forced_commands: &[&str],
 ) -> String {
     let mut commands_list = String::new();
     for id in available_commands {
@@ -271,6 +281,20 @@ fn generate_command_selection_prompt(
             )
         };
 
+    let forced_section = if forced_commands.is_empty() {
+        String::new()
+    } else {
+        let list = forced_commands
+            .iter()
+            .map(|c| format!("`{}`", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "- The following commands are already configured to always run and have been removed from the list above. Do NOT include them: {}\n",
+            list
+        )
+    };
+
     format!(
         r#"You are a workflow orchestrator deciding which quality assurance commands should run after an implementation is complete. Your job is to read the ticket, plan, and implementation, then build a tailored QA workflow.
 
@@ -307,7 +331,7 @@ Based on the ticket, plan, and implementation, select which commands to run and 
 
 - Do NOT include `add-and-commit` — it always runs automatically at the end.
 - Only select commands that are relevant to the changes.
-{model_constraint}- Order matters: put fix/review commands before final polish and documentation.
+{model_constraint}{forced_section}- Order matters: put fix/review commands before final polish and documentation.
 - You may return an empty array `[]` if no QA commands are needed.
 
 IMPORTANT: Your response must contain ONLY a valid JSON array of objects with "command" and "model" keys — no prose, no markdown, no explanation. Example format:
@@ -374,6 +398,36 @@ fn filter_valid_selections(
             true
         })
         .collect()
+}
+
+/// Split required commands into pre-commands (phase=before) and post-commands (phase=after).
+pub fn split_required_commands(
+    required: &[crate::commands::workflow_settings::AutoPilotRequiredCommand],
+    stage_configs: &std::collections::HashMap<String, crate::commands::runs::StageConfig>,
+    fallback_model: &str,
+) -> (Vec<CommandSelection>, Vec<CommandSelection>) {
+    let mut pre = Vec::new();
+    let mut post = Vec::new();
+
+    for req in required {
+        let model = stage_configs
+            .get(req.command.as_str())
+            .map(|sc| sc.model.clone())
+            .unwrap_or_else(|| fallback_model.to_string());
+
+        let selection = CommandSelection {
+            command: req.command.clone(),
+            model,
+        };
+
+        if req.phase == "before" {
+            pre.push(selection);
+        } else {
+            post.push(selection);
+        }
+    }
+
+    (pre, post)
 }
 
 fn truncate(s: &str, max_chars: usize) -> &str {
@@ -565,7 +619,7 @@ These will ensure quality."#;
     fn prompt_includes_ticket_info() {
         let cmds = test_commands();
         let prompt =
-            generate_command_selection_prompt("Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models());
+            generate_command_selection_prompt("Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("Fix the bug"));
         assert!(prompt.contains("There is a null pointer"));
     }
@@ -573,7 +627,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_available_commands() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `code-review`"));
         assert!(prompt.contains("- `deslop`"));
@@ -583,7 +637,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_custom_commands() {
         let cmds = vec!["cleanup".to_string(), "my-custom-deploy".to_string()];
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("- `cleanup`"));
         assert!(prompt.contains("- `my-custom-deploy`"));
     }
@@ -591,7 +645,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_example_workflows() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("Quick bug fix"));
         assert!(prompt.contains("Standard feature"));
         assert!(prompt.contains("Comprehensive / production-ready"));
@@ -601,7 +655,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_user_intent_guidance() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("Pay close attention to the user's intent"));
         assert!(prompt.contains("comprehensive"));
         assert!(prompt.contains("quick"));
@@ -611,7 +665,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_includes_provider_models() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("`claude-opus-4-6` (Claude Opus 4.6)"));
         assert!(prompt.contains("`claude-sonnet-4-5` (Claude Sonnet 4.5)"));
     }
@@ -619,7 +673,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_uses_codex_models_when_provided() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models(), &[]);
         assert!(prompt.contains("`gpt-5.4` (GPT-5.4)"));
         assert!(prompt.contains("`gpt-5.3-codex` (GPT-5.3 Codex)"));
         assert!(prompt.contains("`gpt-5.2-codex` (GPT-5.2 Codex)"));
@@ -632,11 +686,11 @@ These will ensure quality."#;
     fn prompt_examples_use_provider_model_names() {
         let cmds = test_commands();
 
-        let claude_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let claude_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(claude_prompt.contains(r#""model": "claude-opus-4-6""#), "Claude examples should use claude-opus-4-6");
         assert!(claude_prompt.contains(r#""model": "claude-sonnet-4-5""#), "Claude examples should use claude-sonnet-4-5");
 
-        let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models());
+        let codex_prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &codex_models(), &[]);
         assert!(codex_prompt.contains(r#""model": "gpt-5.4""#), "Codex examples should use gpt-5.4");
         assert!(codex_prompt.contains(r#""model": "gpt-5.2-codex""#), "Codex examples should use gpt-5.2-codex");
     }
@@ -644,7 +698,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_omits_empty_plan_and_impl() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(!prompt.contains("## Plan"));
         assert!(!prompt.contains("## Implementation Summary"));
     }
@@ -653,7 +707,7 @@ These will ensure quality."#;
     fn prompt_includes_plan_and_impl_when_provided() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "T", "D", None, "Step 1: do X", "Changed file Y", &cmds, &claude_models(),
+            "T", "D", None, "Step 1: do X", "Changed file Y", &cmds, &claude_models(), &[],
         );
         assert!(prompt.contains("## Plan"));
         assert!(prompt.contains("Step 1: do X"));
@@ -672,6 +726,7 @@ These will ensure quality."#;
             "",
             &cmds,
             &claude_models(),
+            &[],
         );
         assert!(prompt.contains("Add integration tests"));
         assert!(prompt.contains("Write integration tests for the OAuth2 flow"));
@@ -683,7 +738,7 @@ These will ensure quality."#;
     fn prompt_omits_ticket_context_when_none() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models(),
+            "Fix the bug", "There is a null pointer", None, "", "", &cmds, &claude_models(), &[],
         );
         assert!(!prompt.contains("## Original Ticket Context"));
     }
@@ -692,7 +747,7 @@ These will ensure quality."#;
     fn prompt_omits_ticket_context_when_empty() {
         let cmds = test_commands();
         let prompt = generate_command_selection_prompt(
-            "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds, &claude_models(),
+            "Fix the bug", "There is a null pointer", Some(""), "", "", &cmds, &claude_models(), &[],
         );
         assert!(!prompt.contains("## Original Ticket Context"));
     }
@@ -700,7 +755,7 @@ These will ensure quality."#;
     #[test]
     fn prompt_uses_important_instruction_not_empty_code_fence() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(
             prompt.contains("IMPORTANT"),
             "prompt must contain the IMPORTANT instruction"
@@ -720,14 +775,14 @@ These will ensure quality."#;
     #[test]
     fn prompt_only_model_constraint() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models());
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &claude_models(), &[]);
         assert!(prompt.contains("ONLY use model names from the Available Models list"));
     }
 
     #[test]
     fn prompt_with_empty_models_uses_auto_not_default() {
         let cmds = test_commands();
-        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &[]);
+        let prompt = generate_command_selection_prompt("T", "D", None, "", "", &cmds, &[], &[]);
         assert!(
             !prompt.contains("\"default\""),
             "prompt must not contain 'default' as a model name"
@@ -933,6 +988,145 @@ These will ensure quality."#;
             !commands.contains(&"code-review-fix".to_string()),
             "code-review-fix should be excluded"
         );
+    }
+
+    // ── split_required_commands ──────────────────────────────────
+
+    use crate::commands::workflow_settings::AutoPilotRequiredCommand;
+
+    fn make_stage_configs(entries: &[(&str, &str)]) -> std::collections::HashMap<String, crate::commands::runs::StageConfig> {
+        entries
+            .iter()
+            .map(|(k, m)| {
+                (
+                    k.to_string(),
+                    crate::commands::runs::StageConfig {
+                        enabled: true,
+                        model: m.to_string(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn req(command: &str, phase: &str) -> AutoPilotRequiredCommand {
+        AutoPilotRequiredCommand {
+            command: command.to_string(),
+            phase: phase.to_string(),
+        }
+    }
+
+    #[test]
+    fn split_separates_before_and_after() {
+        let required = vec![
+            req("code-review", "before"),
+            req("cleanup", "after"),
+            req("unit-tests", "before"),
+            req("deslop", "after"),
+        ];
+        let configs = make_stage_configs(&[
+            ("code-review", "opus-4.6"),
+            ("cleanup", "sonnet-4.5"),
+            ("unit-tests", "opus-4.5"),
+            ("deslop", "sonnet-4.6"),
+        ]);
+
+        let (pre, post) = split_required_commands(&required, &configs, "fallback");
+
+        assert_eq!(pre.len(), 2);
+        assert_eq!(pre[0].command, "code-review");
+        assert_eq!(pre[0].model, "opus-4.6");
+        assert_eq!(pre[1].command, "unit-tests");
+        assert_eq!(pre[1].model, "opus-4.5");
+
+        assert_eq!(post.len(), 2);
+        assert_eq!(post[0].command, "cleanup");
+        assert_eq!(post[0].model, "sonnet-4.5");
+        assert_eq!(post[1].command, "deslop");
+        assert_eq!(post[1].model, "sonnet-4.6");
+    }
+
+    #[test]
+    fn split_all_after_by_default() {
+        let required = vec![
+            req("code-review", "after"),
+            req("cleanup", "after"),
+        ];
+        let configs = make_stage_configs(&[("code-review", "opus-4.6")]);
+
+        let (pre, post) = split_required_commands(&required, &configs, "fallback");
+
+        assert!(pre.is_empty());
+        assert_eq!(post.len(), 2);
+        assert_eq!(post[1].model, "fallback");
+    }
+
+    #[test]
+    fn split_uses_stage_config_model() {
+        let required = vec![req("code-review", "before")];
+        let configs = make_stage_configs(&[("code-review", "opus-4.6")]);
+
+        let (pre, _) = split_required_commands(&required, &configs, "fallback");
+
+        assert_eq!(pre[0].model, "opus-4.6");
+    }
+
+    #[test]
+    fn split_uses_fallback_when_no_stage_config() {
+        let required = vec![req("unknown-cmd", "after")];
+        let configs = std::collections::HashMap::new();
+
+        let (_, post) = split_required_commands(&required, &configs, "my-fallback");
+
+        assert_eq!(post[0].model, "my-fallback");
+    }
+
+    #[test]
+    fn split_uses_stage_config_model_even_when_disabled() {
+        let required = vec![req("code-review", "before")];
+        let mut configs = std::collections::HashMap::new();
+        configs.insert("code-review".to_string(), crate::commands::runs::StageConfig {
+            enabled: false,
+            model: "opus-4.6".to_string(),
+        });
+
+        let (pre, _) = split_required_commands(&required, &configs, "fallback");
+
+        assert_eq!(pre[0].model, "opus-4.6", "should use stage model regardless of enabled flag");
+    }
+
+    #[test]
+    fn split_empty_required_returns_empty() {
+        let required: Vec<AutoPilotRequiredCommand> = vec![];
+        let configs = std::collections::HashMap::new();
+
+        let (pre, post) = split_required_commands(&required, &configs, "fallback");
+
+        assert!(pre.is_empty());
+        assert!(post.is_empty());
+    }
+
+    // ── prompt forced_commands section ──────────────────────────
+
+    #[test]
+    fn prompt_includes_forced_commands_note() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt(
+            "T", "D", None, "", "", &cmds, &claude_models(),
+            &["code-review", "unit-tests"],
+        );
+        assert!(prompt.contains("code-review"));
+        assert!(prompt.contains("unit-tests"));
+        assert!(prompt.contains("already configured to always run"));
+    }
+
+    #[test]
+    fn prompt_omits_forced_note_when_empty() {
+        let cmds = test_commands();
+        let prompt = generate_command_selection_prompt(
+            "T", "D", None, "", "", &cmds, &claude_models(), &[],
+        );
+        assert!(!prompt.contains("already configured to always run"));
     }
 
 }

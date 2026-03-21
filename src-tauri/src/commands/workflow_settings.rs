@@ -17,6 +17,15 @@ use tauri::State;
 
 use crate::commands::runs::StageConfig;
 
+/// A command that always runs in auto-pilot mode, with a phase (before or after agent selections).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPilotRequiredCommand {
+    pub command: String,
+    /// `"before"` = runs before LLM command selection; `"after"` = runs after.
+    pub phase: String,
+}
+
 /// Workflow settings synced from the frontend settings store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +37,9 @@ pub struct WorkflowSettings {
     /// Model used for the auto-pilot command-selection call.
     #[serde(default = "default_auto_pilot_model")]
     pub auto_pilot_model: String,
+    /// Commands that always run in auto-pilot mode, regardless of the agent's selection.
+    #[serde(default)]
+    pub auto_pilot_required_commands: Vec<AutoPilotRequiredCommand>,
     /// Whether to move tickets directly to Done instead of Review when the agent finishes.
     #[serde(default)]
     pub auto_complete_tickets: bool,
@@ -99,6 +111,7 @@ impl Default for WorkflowSettings {
         Self {
             auto_pilot_enabled: false,
             auto_pilot_model: default_auto_pilot_model(),
+            auto_pilot_required_commands: Vec::new(),
             auto_complete_tickets: false,
             auto_clarification: false,
             stage_configs: HashMap::new(),
@@ -810,5 +823,76 @@ mod tests {
         assert_eq!(settings.planner_model, "claude-opus-4-5");
         assert_eq!(settings.ticket_builder_model, "claude-opus-4-5");
         assert_eq!(settings.validation_model, "claude-sonnet-4-6");
+    }
+
+    // ── AutoPilotRequiredCommand tests ──────────────────────────
+
+    #[test]
+    fn auto_pilot_required_command_round_trips() {
+        let cmd = AutoPilotRequiredCommand {
+            command: "code-review".to_string(),
+            phase: "before".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("\"command\""));
+        assert!(json.contains("\"phase\""));
+        let restored: AutoPilotRequiredCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.command, "code-review");
+        assert_eq!(restored.phase, "before");
+    }
+
+    #[test]
+    fn auto_pilot_required_commands_defaults_to_empty_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_pilot_required_commands.is_empty());
+    }
+
+    #[test]
+    fn auto_pilot_required_commands_deserializes() {
+        let json = r#"{
+            "autoPilotRequiredCommands":[
+                {"command":"code-review","phase":"before"},
+                {"command":"unit-tests","phase":"after"}
+            ],
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.auto_pilot_required_commands.len(), 2);
+        assert_eq!(settings.auto_pilot_required_commands[0].command, "code-review");
+        assert_eq!(settings.auto_pilot_required_commands[0].phase, "before");
+        assert_eq!(settings.auto_pilot_required_commands[1].command, "unit-tests");
+        assert_eq!(settings.auto_pilot_required_commands[1].phase, "after");
+    }
+
+    #[test]
+    fn auto_pilot_required_commands_serializes_camel_case() {
+        let settings = WorkflowSettings {
+            auto_pilot_required_commands: vec![
+                AutoPilotRequiredCommand {
+                    command: "cleanup".to_string(),
+                    phase: "after".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("autoPilotRequiredCommands"));
+        assert!(json.contains("\"command\":\"cleanup\""));
+        assert!(json.contains("\"phase\":\"after\""));
+    }
+
+    #[test]
+    fn workflow_settings_default_has_empty_required_commands() {
+        let settings = WorkflowSettings::default();
+        assert!(settings.auto_pilot_required_commands.is_empty());
     }
 }

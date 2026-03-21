@@ -216,7 +216,9 @@ fn main() {
             // Build the agent registry with all known providers
             let mut agent_registry = AgentRegistry::new();
             agent_registry.register(Arc::new(ClaudeProvider::new()));
-            agent_registry.register(Arc::new(CursorProvider::new()));
+            let mut cursor_provider = CursorProvider::new();
+            cursor_provider.discover_models();
+            agent_registry.register(Arc::new(cursor_provider));
             agent_registry.register(Arc::new(CodexProvider::new()));
 
             // One-time migration: copy data from the old "com.agent-kanban.app" directory

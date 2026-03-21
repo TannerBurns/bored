@@ -10,12 +10,13 @@ import {
   getDefaultConfigForAgent,
   type AgentConfig,
   type AIModel,
+  type AutoPilotRequiredCommand,
   type CatalogCommand,
   type WorkflowStageConfig,
   type WorkflowStages,
 } from './settingsStore.types';
 
-export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, CatalogCommand };
+export type { AIModel, WorkflowStageConfig, WorkflowStages, AgentConfig, CatalogCommand, AutoPilotRequiredCommand };
 export type { WorkflowStageKey } from './settingsStore.types';
 export {
   CLAUDE_MODEL_OPTIONS,
@@ -306,7 +307,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 20,
+      version: 22,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -398,6 +399,7 @@ export const useSettingsStore = create<SettingsState>()(
             return {
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
+              autoPilotRequiredCommands: [],
               autoCompleteTickets: false,
               autoClarification: false,
               workflowStages: (!isCodex && stages) ? { ...stages } : base.workflowStages,
@@ -579,6 +581,32 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
 
+        if (version < 21) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (cfg.autoPilotRequiredCommands === undefined) cfg.autoPilotRequiredCommands = [];
+            }
+          }
+        }
+
+        if (version < 22) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              const old = cfg.autoPilotRequiredCommands as unknown;
+              if (Array.isArray(old)) {
+                cfg.autoPilotRequiredCommands = old.map((item: unknown) => {
+                  if (typeof item === 'string') return { command: item, phase: 'after' };
+                  return item;
+                });
+              } else {
+                cfg.autoPilotRequiredCommands = [];
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -589,6 +617,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
     autoPilotEnabled: boolean;
     autoPilotModel: string;
+    autoPilotRequiredCommands: { command: string; phase: string }[];
     autoCompleteTickets: boolean;
     autoClarification: boolean;
     stageConfigs: Record<string, { enabled: boolean; model: string }>;
@@ -606,6 +635,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
       autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6'),
+      autoPilotRequiredCommands: config.autoPilotRequiredCommands ?? [],
       autoCompleteTickets: config.autoCompleteTickets ?? false,
       autoClarification: config.autoClarification ?? false,
       stageConfigs: config.workflowStages,

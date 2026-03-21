@@ -120,20 +120,28 @@ fn format_command_reference_returns_slash_command() {
 }
 
 #[test]
-fn available_models_includes_claude_and_codex_models() {
-    let p = CursorProvider::new();
+fn available_models_returns_injected_models() {
+    let p = CursorProvider::with_models(vec![
+        ("opus-4.6".into(), "Claude 4.6 Opus".into()),
+        ("sonnet-4.5".into(), "Claude 4.5 Sonnet".into()),
+        ("gpt-5.4".into(), "GPT-5.4".into()),
+    ]);
     let models = p.available_models();
-    assert!(models.len() >= 4);
+    assert_eq!(models.len(), 3);
     let ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
-    assert!(ids.contains(&"opus-4.6"), "should include Claude models");
-    assert!(ids.contains(&"sonnet-4.6"), "should include Claude models");
-    assert!(ids.contains(&"gpt-5.4"), "should include Codex models");
-    assert!(ids.contains(&"gpt-5.3-codex"), "should include Codex models");
-    assert!(ids.contains(&"gpt-5.2-codex"), "should include Codex models");
+    assert!(ids.contains(&"opus-4.6"));
+    assert!(ids.contains(&"sonnet-4.5"));
+    assert!(ids.contains(&"gpt-5.4"));
     for (id, label) in &models {
         assert!(!id.is_empty());
         assert!(!label.is_empty());
     }
+}
+
+#[test]
+fn available_models_empty_when_no_models_injected() {
+    let p = CursorProvider::with_models(vec![]);
+    assert!(p.available_models().is_empty());
 }
 
 // ── session continuation tests ────────────────────────────────

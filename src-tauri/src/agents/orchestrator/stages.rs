@@ -452,8 +452,17 @@ impl WorkflowOrchestrator {
         }
     }
 
-    /// Run the iterative code review loop (find issues, then fix, repeat until clean).
+    /// Run the iterative code review loop using the model from stage_configs.
     pub(super) async fn run_code_review_loop(&self) -> Result<(), String> {
+        let model = self.get_stage_model("code-review");
+        self.run_code_review_loop_with_model(&model).await
+    }
+
+    /// Run the iterative code review loop with an explicit model override.
+    pub(super) async fn run_code_review_loop_with_model(
+        &self,
+        model: &str,
+    ) -> Result<(), String> {
         let max_iterations = self.code_review_max_iterations;
 
         if max_iterations == 0 {
@@ -462,9 +471,10 @@ impl WorkflowOrchestrator {
         }
 
         tracing::info!(
-            "Starting code review loop for ticket {} (max {} iterations)",
+            "Starting code review loop for ticket {} (max {} iterations, model={})",
             self.ticket.id,
-            max_iterations
+            max_iterations,
+            model,
         );
 
         let custom_dir = self.custom_commands_dir();
@@ -477,7 +487,9 @@ impl WorkflowOrchestrator {
             tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
 
             let review_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
-            let review_result = self.run_stage("code-review", &review_prompt).await?;
+            let review_result = self
+                .run_stage_with_model("code-review", &review_prompt, model)
+                .await?;
             let raw_output = review_result.captured_stdout.unwrap_or_default();
             let text = self.extract_text(&raw_output);
             let issue_count = parse_code_review_issues(&text);
@@ -498,12 +510,14 @@ impl WorkflowOrchestrator {
                     );
 
                     let issues_context = extract_issues_section(&text);
-                    let base_fix_prompt = generate_command_prompt("code-review-fix", custom_dir.as_deref());
+                    let base_fix_prompt =
+                        generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, issues_context
                     );
-                    self.run_stage("code-review-fix", &fix_prompt).await?;
+                    self.run_stage_with_model("code-review-fix", &fix_prompt, model)
+                        .await?;
                 }
                 None => {
                     tracing::warn!(
@@ -512,12 +526,14 @@ impl WorkflowOrchestrator {
                         iteration
                     );
 
-                    let base_fix_prompt = generate_command_prompt("code-review-fix", custom_dir.as_deref());
+                    let base_fix_prompt =
+                        generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, text
                     );
-                    self.run_stage("code-review-fix", &fix_prompt).await?;
+                    self.run_stage_with_model("code-review-fix", &fix_prompt, model)
+                        .await?;
                 }
             }
         }
