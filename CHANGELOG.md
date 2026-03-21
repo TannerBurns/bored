@@ -2,6 +2,35 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.54] - 2026-03-21
+
+Strengthen agent test commands to require actual test execution and verification. The integration-test command is expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, a mandatory run-and-verify loop with up to 3 retries, and service cleanup. The unit-tests command gains a mandatory execution step with structured failure diagnosis, assertion quality review, and regression checks. Both commands now require test output snippets and fix iteration descriptions in their final reports.
+
+### Improvements
+
+- Rewrote integration-test command from 5 steps to 8 steps, adding service dependency discovery (Step 3), service startup and health checks (Step 4), mandatory run-and-verify with 3-retry loop (Step 6), and service cleanup (Step 7)
+- Strengthened unit-tests command Step 5 with mandatory test execution, structured failure diagnosis with 3-retry loop, assertion quality review for coincidental passes, and regression suite run
+- Updated both commands' final output sections to require test run output snippets and fix iteration descriptions
+- Updated integration-test catalog description to reflect the new end-to-end verification scope
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.53, here is a summary of the major features introduced in recent releases:
+
+**beta.53 — Dynamic Model Discovery, Auto-Pilot Commands & Performance**
+Dynamic Cursor model discovery via CLI instead of a hardcoded list. Auto-pilot required commands with before/after phasing and iterative code-review loop support. Major performance optimization replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, and eliminating N+1 database queries across 25+ components.
+
+**beta.52 — Consolidated Review Task Creation**
+Standardized on a single `create_fix_tasks` JSON format, removing the deprecated singular `create_fix_task` variant. Review agent prompt rewritten to explicitly state that only the JSON tool block creates tasks.
+
+**beta.51 — Robust JSON Parsing & Agent Completion Stability**
+Rewrote JSON code block extractor to handle nested markdown fences inside JSON strings. String-aware brace matching for correct parsing of braces inside string values. Deduplicated agent-completion event handling to prevent cascading re-renders.
+
+**beta.50 — Review Transition Crash Fix & Plan Decomposition**
+Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines.
+
+---
+
 ## [0.1.0-beta.53] - 2026-03-21
 
 Dynamic Cursor model discovery, auto-pilot required commands with phasing, and major performance optimization. Cursor models are now discovered dynamically via CLI instead of a hardcoded list. Auto-pilot mode gains per-agent required commands with before/after phasing and iterative code-review loop support. App responsiveness is dramatically improved by replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, eliminating N+1 database queries, and adding targeted state updates across 25+ components.
