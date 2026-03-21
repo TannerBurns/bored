@@ -89,14 +89,20 @@ Guidelines:
 
 ---
 
-## Step 5 — Run tests and relevant checks
-Run the canonical commands from the repo (prefer Makefile/Justfile or package scripts).
-At minimum:
-- Unit tests for the touched area
-- Lint/typecheck if tests are typed (TS/Go/Rust)
+## Step 5 — Run tests and verify they work
+This step is mandatory. Do not skip it.
 
-If any tests fail:
-- Fix tests first; only change production code if there's a real bug revealed by the tests.
+1. Run the specific new/updated unit test(s) using the repo's canonical test runner (prefer Makefile/Justfile or package scripts). Capture the full stdout/stderr output.
+2. If tests **fail**:
+   - Read the error output carefully and diagnose the root cause (wrong assertion value, missing mock, setup issue, or a real bug in production code).
+   - Fix the test first. Only change production code if the test reveals a genuine bug.
+   - Re-run the failing test(s).
+   - Repeat up to 3 fix-and-retry cycles. If still failing after 3 attempts, stop and report the failure with full diagnostics.
+3. If tests **pass**:
+   - Review each assertion to confirm it is testing the correct expected value, not just coincidentally passing (e.g., asserting `!= null` when the real contract is a specific shape, or asserting `true` on a function that always returns `true`).
+   - Tighten any weak assertions: prefer exact value checks, specific error types/messages, and structural matches over loose truthiness checks.
+4. After new tests pass, run the broader test suite for the touched area to check for regressions.
+5. Run lint/typecheck if tests are typed (TS/Go/Rust).
 
 ---
 
@@ -114,7 +120,8 @@ For each changed file/symbol:
 - Brief note of what each file covers
 
 ### Commands run
-- Each command + pass/fail
+- Each command + pass/fail with relevant output snippets
+- If any test required fixes during Step 5, describe what was wrong and how it was resolved
 
 ### Gaps / follow-ups
 - Any remaining patch areas not covered (must be explicit)
