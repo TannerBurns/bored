@@ -3,7 +3,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
 };
 use futures::stream::Stream;
-use std::{convert::Infallible, time::Duration};
+use std::{collections::HashSet, convert::Infallible, time::Duration};
 use tokio_stream::StreamExt;
 
 use super::state::{AppState, LiveEvent};
@@ -51,7 +51,7 @@ pub async fn sse_filtered(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
 
-    let type_filter: Option<Vec<String>> = filter
+    let type_filter: Option<HashSet<String>> = filter
         .types
         .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
 
@@ -82,7 +82,7 @@ pub async fn sse_filtered(
 
 fn event_matches_filter(
     event: &LiveEvent,
-    type_filter: &Option<Vec<String>>,
+    type_filter: &Option<HashSet<String>>,
     ticket_filter: &Option<String>,
     run_filter: &Option<String>,
 ) -> bool {
@@ -121,7 +121,7 @@ fn event_matches_filter(
             LiveEvent::ChatAppLog { .. } => "chat_app_log",
         };
 
-        if !types.iter().any(|t| t == event_type) {
+        if !types.contains(event_type) {
             return false;
         }
     }
@@ -161,4 +161,129 @@ fn event_matches_filter(
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_chat_created(chat_id: &str) -> LiveEvent {
+        LiveEvent::ChatCreated {
+            chat_id: chat_id.to_string(),
+        }
+    }
+
+    fn make_ticket_created(ticket_id: &str) -> LiveEvent {
+        LiveEvent::TicketCreated {
+            ticket_id: ticket_id.to_string(),
+            board_id: "board-1".to_string(),
+        }
+    }
+
+    fn make_run_started(ticket_id: &str, run_id: &str) -> LiveEvent {
+        LiveEvent::RunStarted {
+            ticket_id: ticket_id.to_string(),
+            run_id: run_id.to_string(),
+            agent_type: "claude".to_string(),
+        }
+    }
+
+    #[test]
+    fn no_filters_matches_everything() {
+        let event = make_chat_created("c1");
+        assert!(event_matches_filter(&event, &None, &None, &None));
+    }
+
+    #[test]
+    fn type_filter_hashset_matches() {
+        let filter: HashSet<String> =
+            ["chat_created", "chat_updated"].iter().map(|s| s.to_string()).collect();
+
+        let matching = make_chat_created("c1");
+        assert!(event_matches_filter(&matching, &Some(filter.clone()), &None, &None));
+
+        let non_matching = make_ticket_created("t1");
+        assert!(!event_matches_filter(&non_matching, &Some(filter), &None, &None));
+    }
+
+    #[test]
+    fn type_filter_single_entry() {
+        let filter: HashSet<String> = ["ticket_created"].iter().map(|s| s.to_string()).collect();
+        let event = make_ticket_created("t1");
+        assert!(event_matches_filter(&event, &Some(filter), &None, &None));
+    }
+
+    #[test]
+    fn ticket_filter_matches() {
+        let event = make_ticket_created("t1");
+        assert!(event_matches_filter(
+            &event,
+            &None,
+            &Some("t1".to_string()),
+            &None,
+        ));
+    }
+
+    #[test]
+    fn ticket_filter_rejects_mismatch() {
+        let event = make_ticket_created("t1");
+        assert!(!event_matches_filter(
+            &event,
+            &None,
+            &Some("t-other".to_string()),
+            &None,
+        ));
+    }
+
+    #[test]
+    fn run_filter_matches() {
+        let event = make_run_started("t1", "r1");
+        assert!(event_matches_filter(
+            &event,
+            &None,
+            &None,
+            &Some("r1".to_string()),
+        ));
+    }
+
+    #[test]
+    fn run_filter_rejects_mismatch() {
+        let event = make_run_started("t1", "r1");
+        assert!(!event_matches_filter(
+            &event,
+            &None,
+            &None,
+            &Some("r-other".to_string()),
+        ));
+    }
+
+    #[test]
+    fn combined_type_and_ticket_filter() {
+        let type_filter: HashSet<String> =
+            ["ticket_created"].iter().map(|s| s.to_string()).collect();
+        let event = make_ticket_created("t1");
+        assert!(event_matches_filter(
+            &event,
+            &Some(type_filter.clone()),
+            &Some("t1".to_string()),
+            &None,
+        ));
+        assert!(!event_matches_filter(
+            &event,
+            &Some(type_filter),
+            &Some("t-other".to_string()),
+            &None,
+        ));
+    }
+
+    #[test]
+    fn event_without_ticket_field_skips_ticket_filter() {
+        let event = make_chat_created("c1");
+        assert!(!event_matches_filter(
+            &event,
+            &None,
+            &Some("t1".to_string()),
+            &None,
+        ));
+    }
 }

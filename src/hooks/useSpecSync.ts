@@ -44,18 +44,16 @@ export function useSpecSync(
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
 
-  const {
-    getSpec,
-    loadAllSpecs,
-    setSpecs,
-    setCurrentSpec,
-    setExploring,
-    setPlanning,
-    loadSpecTickets,
-    loadVersions,
-    addLogEntry,
-    clearLogs,
-  } = useSpecStore();
+  const getSpec = useSpecStore((s) => s.getSpec);
+  const loadAllSpecs = useSpecStore((s) => s.loadAllSpecs);
+  const setSpecs = useSpecStore((s) => s.setSpecs);
+  const setCurrentSpec = useSpecStore((s) => s.setCurrentSpec);
+  const setExploring = useSpecStore((s) => s.setExploring);
+  const setPlanning = useSpecStore((s) => s.setPlanning);
+  const loadSpecTickets = useSpecStore((s) => s.loadSpecTickets);
+  const loadVersions = useSpecStore((s) => s.loadVersions);
+  const addLogEntry = useSpecStore((s) => s.addLogEntry);
+  const clearLogs = useSpecStore((s) => s.clearLogs);
 
   const handleEvent = useCallback(
     async (event: SpecLiveEvent) => {

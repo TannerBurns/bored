@@ -171,8 +171,8 @@ export function useChatSync(
               ) {
                 updateChatCost();
               }
+              refreshChat(data.chat_id);
             }
-            loadChats();
             break;
 
           case 'chat_app_log':

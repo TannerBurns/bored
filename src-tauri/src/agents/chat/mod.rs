@@ -573,9 +573,7 @@ mod tests {
 
     #[test]
     fn build_chat_resumption_prompt_formats_messages() {
-        let messages = vec![
-            make_chat_msg("1", ChatMessageRole::User, "what about X?"),
-        ];
+        let messages = [make_chat_msg("1", ChatMessageRole::User, "what about X?")];
         let refs: Vec<&ChatMessage> = messages.iter().collect();
         let prompt = build_chat_resumption_prompt(&refs);
         assert!(prompt.contains("User: what about X?"));

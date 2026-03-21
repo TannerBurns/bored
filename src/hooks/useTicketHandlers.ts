@@ -12,16 +12,14 @@ interface UseTicketHandlersParams {
 }
 
 export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHandlersParams) {
-  const {
-    selectedTicket,
-    openTicketModal,
-    closeTicketModal,
-    addComment,
-    updateComment,
-    createTicket: storeCreateTicket,
-    updateTicket: storeUpdateTicket,
-    moveTicket: storeMoveTicket,
-  } = useBoardStore();
+  const selectedTicket = useBoardStore((s) => s.selectedTicket);
+  const openTicketModal = useBoardStore((s) => s.openTicketModal);
+  const closeTicketModal = useBoardStore((s) => s.closeTicketModal);
+  const addComment = useBoardStore((s) => s.addComment);
+  const updateComment = useBoardStore((s) => s.updateComment);
+  const storeCreateTicket = useBoardStore((s) => s.createTicket);
+  const storeUpdateTicket = useBoardStore((s) => s.updateTicket);
+  const storeMoveTicket = useBoardStore((s) => s.moveTicket);
 
   const handleTicketMove = async (ticketId: string, newColumnId: string) => {
     const updatedAt = new Date().toISOString();

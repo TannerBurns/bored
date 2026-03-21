@@ -13,8 +13,6 @@ export function CreateBoardModal({ open, onOpenChange }: CreateBoardModalProps) 
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  const { createBoard } = useBoardStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +27,7 @@ export function CreateBoardModal({ open, onOpenChange }: CreateBoardModalProps) 
     setError(null);
 
     try {
-      await createBoard(trimmedName);
+      await useBoardStore.getState().createBoard(trimmedName);
       setName('');
       onOpenChange(false);
     } catch (err) {

@@ -1160,6 +1160,14 @@ impl Database {
                 tracing::info!("Migration to version 19 complete: agent_session_id added");
             }
 
+            if current_version < 20 {
+                tracing::info!("Running migration to version 20: add idx_runs_started index");
+                conn.execute_batch(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_started ON agent_runs(started_at);",
+                )?;
+                tracing::info!("Migration to version 20 complete: idx_runs_started added");
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -1711,5 +1719,25 @@ mod tests {
             let acquired = db.acquire_repo_lock(&project_id, "run-2", expires).unwrap();
             assert!(!acquired);
         }
+    }
+
+    #[test]
+    fn schema_version_is_20() {
+        use crate::db::schema::SCHEMA_VERSION;
+        assert_eq!(SCHEMA_VERSION, 20);
+    }
+
+    #[test]
+    fn idx_runs_started_exists_after_creation() {
+        let db = create_test_db();
+        let has_index = db.with_conn(|conn| {
+            let count: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_runs_started'",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        }).unwrap();
+        assert!(has_index, "idx_runs_started index should exist in freshly created database");
     }
 }

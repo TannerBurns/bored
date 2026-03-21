@@ -33,7 +33,7 @@ export function BlockedTicketBanner({
   const [isRewriting, setIsRewriting] = useState(false);
   const [userResponse, setUserResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const { resetTask, loadBoardData, loadTasks, loadComments } = useBoardStore();
+  const { resetTask, loadBoardData, loadTasks, loadComments } = useBoardStore.getState();
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   if (currentColumn?.name.toLowerCase() !== 'blocked') {

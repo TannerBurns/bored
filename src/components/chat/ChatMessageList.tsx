@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ChatMessage, ChatEvent, ChatMode, RunCostData } from '../../types';
 import type { ChatLogEntry } from '../../stores/chatStore';
 import { MarkdownViewer } from '../common/MarkdownViewer';
@@ -23,7 +23,7 @@ interface ChatMessageListProps {
   renderAssistantMessage?: (message: ChatMessage) => ReactNode;
 }
 
-function CopyMarkdownButton({ content }: { content: string }) {
+const CopyMarkdownButton = memo(function CopyMarkdownButton({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -60,9 +60,9 @@ function CopyMarkdownButton({ content }: { content: string }) {
       )}
     </button>
   );
-}
+});
 
-function EditableUserMessage({
+const EditableUserMessage = memo(function EditableUserMessage({
   message,
   onEditMessage,
   isAgentThinking,
@@ -166,7 +166,7 @@ function EditableUserMessage({
       </div>
     </div>
   );
-}
+});
 
 function ChatErrorBubble({ content }: { content: string }) {
   return (
@@ -235,6 +235,40 @@ export function ChatMessageList({
   const isTicketBuilder = chatMode === 'ticket_builder';
   const isReview = chatMode === 'review';
 
+  const eventsByMessageId = useMemo(() => {
+    const map = new Map<string, ChatEvent[]>();
+    for (const e of chatEvents) {
+      if (!e.messageId) continue;
+      const arr = map.get(e.messageId) ?? [];
+      arr.push(e);
+      map.set(e.messageId, arr);
+    }
+    return map;
+  }, [chatEvents]);
+
+  const ticketCreatedAfter = useMemo(() => {
+    const set = new Set<string>();
+    const creationTimestamps: number[] = [];
+    for (const m of messages) {
+      if (
+        m.role === 'system' &&
+        (m.metadata?.type as string) === 'tickets_created'
+      ) {
+        creationTimestamps.push(new Date(m.createdAt).getTime());
+      }
+    }
+    if (creationTimestamps.length === 0) return set;
+    for (const m of messages) {
+      if (m.role === 'assistant') {
+        const msgTime = new Date(m.createdAt).getTime();
+        if (creationTimestamps.some((ct) => ct > msgTime)) {
+          set.add(m.id);
+        }
+      }
+    }
+    return set;
+  }, [messages]);
+
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -260,9 +294,7 @@ export function ChatMessageList({
               msg.role === 'system' &&
               (msg.metadata?.type as string) === 'chat_error'
             ) {
-              const errorEvents = chatEvents.filter(
-                (e) => e.messageId === msg.id,
-              );
+              const errorEvents = eventsByMessageId.get(msg.id) ?? [];
               return (
                 <div key={msg.id} className="space-y-1">
                   {errorEvents.length > 0 && (
@@ -298,7 +330,7 @@ export function ChatMessageList({
               );
             }
 
-            const messageEvents = chatEvents.filter((e) => e.messageId === msg.id);
+            const messageEvents = eventsByMessageId.get(msg.id) ?? [];
 
             return (
               <div key={msg.id} className="space-y-1">
@@ -312,12 +344,7 @@ export function ChatMessageList({
                       <TicketBuilderMessage
                         content={msg.content}
                         chatId={chatId}
-                        alreadyCreated={messages.some(
-                          (m) =>
-                            m.role === 'system' &&
-                            (m.metadata?.type as string) === 'tickets_created' &&
-                            new Date(m.createdAt) > new Date(msg.createdAt)
-                        )}
+                        alreadyCreated={ticketCreatedAfter.has(msg.id)}
                       />
                     </div>
                   ) : isSpecBuilder && (msg.metadata?.plan_response || looksLikePlanResponse(msg.content)) ? (

@@ -26,6 +26,7 @@ import { CommentsSection } from './CommentsSection';
 import { TicketModalFooter } from './TicketModalFooter';
 import { NextStepsPanel } from './NextStepsPanel';
 import { useBoardStore } from '../../../stores/boardStore';
+import { useShallow } from 'zustand/shallow';
 
 export function TicketModal({
   ticket,
@@ -51,7 +52,7 @@ export function TicketModal({
 
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const moveTicket = useBoardStore((s) => s.moveTicket);
-  const tasks = useBoardStore((s) => s.tasks).filter((t) => t.ticketId === ticket.id);
+  const tasks = useBoardStore(useShallow((s) => s.tasks.filter((t) => t.ticketId === ticket.id)));
 
   const editState = useTicketEdit({ ticket, onUpdate });
   

@@ -69,12 +69,12 @@ export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMov
     setTimeout(() => setErrorMessage(null), 4000);
   }, []);
 
-  const handleDragStart = (event: DragStartEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     const ticket = tickets.find((t) => t.id === event.active.id);
     setActiveTicket(ticket || null);
-  };
+  }, [tickets]);
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setActiveTicket(null);
 
@@ -108,12 +108,26 @@ export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMov
         });
       }
     }
-  };
+  }, [tickets, columns, onTicketMove, showError]);
 
-  const handleDragCancel = () => setActiveTicket(null);
+  const handleDragCancel = useCallback(() => setActiveTicket(null), []);
 
-  const getTicketsForColumn = (columnId: string) =>
-    tickets.filter((t) => t.columnId === columnId);
+  const sortedColumns = useMemo(
+    () => [...columns].sort((a, b) => a.position - b.position),
+    [columns],
+  );
+
+  const ticketsByColumn = useMemo(() => {
+    const map = new Map<string, TicketType[]>();
+    for (const col of columns) {
+      map.set(col.id, []);
+    }
+    for (const t of tickets) {
+      const arr = map.get(t.columnId);
+      if (arr) arr.push(t);
+    }
+    return map;
+  }, [tickets, columns]);
 
   return (
     <>
@@ -126,13 +140,11 @@ export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMov
         onDragCancel={handleDragCancel}
       >
         <div className="flex gap-4 h-full overflow-x-auto pb-4">
-          {columns
-            .sort((a, b) => a.position - b.position)
-            .map((column) => (
+          {sortedColumns.map((column) => (
               <Column
                 key={column.id}
                 column={column}
-                tickets={getTicketsForColumn(column.id)}
+                tickets={ticketsByColumn.get(column.id) ?? []}
                 projectMap={projectMap}
                 taskCountsMap={taskCountsMap}
                 onTicketClick={onTicketClick}

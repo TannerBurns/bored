@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { MarkdownViewer } from '../common/MarkdownViewer';
 import { useSettingsStore, REQUIRED_STAGE_KEYS, RESERVED_INTERNAL_STAGE_IDS, type CatalogCommand } from '../../stores/settingsStore';
 import {
@@ -219,8 +219,8 @@ export function CommandsCatalog() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [enabledToast, setEnabledToast] = useState<string | null>(null);
 
-  const builtinCommands = catalog.filter((c) => c.source === 'builtin');
-  const customCommands = catalog.filter((c) => c.source === 'custom');
+  const builtinCommands = useMemo(() => catalog.filter((c) => c.source === 'builtin'), [catalog]);
+  const customCommands = useMemo(() => catalog.filter((c) => c.source === 'custom'), [catalog]);
 
   const handleToggle = useCallback((id: string) => {
     const cmd = catalog.find((c) => c.id === id);

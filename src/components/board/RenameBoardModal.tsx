@@ -16,8 +16,6 @@ export function RenameBoardModal({ open, onOpenChange, board }: RenameBoardModal
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const { updateBoard } = useBoardStore();
-
   // Reset form when board changes or modal opens
   useEffect(() => {
     if (board && open) {
@@ -47,7 +45,7 @@ export function RenameBoardModal({ open, onOpenChange, board }: RenameBoardModal
     setError(null);
 
     try {
-      await updateBoard(board.id, trimmedName);
+      await useBoardStore.getState().updateBoard(board.id, trimmedName);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to rename board');

@@ -100,9 +100,10 @@ function ProgressIndicator({ status }: { status: SpecVersionStatus }) {
 }
 
 export function SpecDetail({ spec, onClose, onOpenChat }: SpecDetailProps) {
-  const { 
-    deleteSpec, getSpec, setCurrentSpec, setStatus,
-  } = useSpecStore();
+  const deleteSpec = useSpecStore((s) => s.deleteSpec);
+  const getSpec = useSpecStore((s) => s.getSpec);
+  const setCurrentSpec = useSpecStore((s) => s.setCurrentSpec);
+  const setStatus = useSpecStore((s) => s.setStatus);
   const agentConfig = useSettingsStore((s) => s.agentConfigs['claude'] ?? s.getAgentConfig('claude'));
   
   const version = spec.latestVersion;

@@ -3,11 +3,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BlockedTicketBanner } from './BlockedTicketBanner';
 import type { Ticket, Column, Comment, Task } from '../../../types';
 
-const mockResetTask = vi.fn();
-const mockLoadBoardData = vi.fn().mockResolvedValue(undefined);
-vi.mock('../../../stores/boardStore', () => ({
-  useBoardStore: () => ({ resetTask: mockResetTask, loadBoardData: mockLoadBoardData }),
-}));
+const { mockResetTask, mockLoadBoardData } = vi.hoisted(() => {
+  const mockResetTask = vi.fn();
+  const mockLoadBoardData = vi.fn().mockResolvedValue(undefined);
+  return { mockResetTask, mockLoadBoardData };
+});
+vi.mock('../../../stores/boardStore', () => {
+  const state = { resetTask: mockResetTask, loadBoardData: mockLoadBoardData, loadTasks: vi.fn(), loadComments: vi.fn() };
+  const store = Object.assign(() => state, { getState: () => state });
+  return { useBoardStore: store };
+});
 
 vi.mock('../../common/MarkdownViewer', () => ({
   MarkdownViewer: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,

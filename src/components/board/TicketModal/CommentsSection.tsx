@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../../../lib/utils';
 import { MarkdownViewer } from '../../common/MarkdownViewer';
@@ -25,10 +25,10 @@ export function CommentsSection({
   clearInputTrigger,
   defaultExpanded,
 }: CommentsSectionProps) {
-  const ticketComments = comments.filter((c) => c.ticketId === ticketId);
-  const hasClarification = ticketComments.some(
+  const ticketComments = useMemo(() => comments.filter((c) => c.ticketId === ticketId), [comments, ticketId]);
+  const hasClarification = useMemo(() => ticketComments.some(
     (c) => c.metadata?.type === 'clarification'
-  );
+  ), [ticketComments]);
 
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

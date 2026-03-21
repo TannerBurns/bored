@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { getColumnColors } from '../../lib/constants';
 import type { Column } from '../../types';
@@ -16,7 +16,7 @@ export function ColumnSelect({ columns, currentColumnId, onMove, size = 'sm' }: 
 
   const current = columns.find((c) => c.id === currentColumnId);
   const currentColors = getColumnColors(current?.name ?? '');
-  const sorted = [...columns].sort((a, b) => a.position - b.position);
+  const sorted = useMemo(() => [...columns].sort((a, b) => a.position - b.position), [columns]);
 
   useEffect(() => {
     if (!open) return;

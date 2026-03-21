@@ -111,7 +111,10 @@ export function GeneralSettings({ onShowReleaseNotes }: GeneralSettingsProps) {
     getVersion().then(setAppVersion).catch(() => setAppVersion('unknown'));
   }, []);
 
-  const { theme, setTheme, notificationsEnabled, setNotificationsEnabled } = useSettingsStore();
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled);
+  const setNotificationsEnabled = useSettingsStore((s) => s.setNotificationsEnabled);
 
   return (
     <div className="space-y-4">

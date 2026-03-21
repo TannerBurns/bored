@@ -19,8 +19,6 @@ export function CreateBoardStep({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { createBoard } = useBoardStore();
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -34,7 +32,7 @@ export function CreateBoardStep({
     setError(null);
 
     try {
-      await createBoard(trimmedName);
+      await useBoardStore.getState().createBoard(trimmedName);
       onNext();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create board');

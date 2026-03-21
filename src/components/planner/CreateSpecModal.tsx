@@ -23,7 +23,7 @@ export function CreateSpecModal({
   onOpenChange,
   onChatCreated,
 }: CreateSpecModalProps) {
-  const { createChat, selectChat } = useChatStore();
+  const { createChat, selectChat } = useChatStore.getState();
 
   const [selectedProjectId, setSelectedProjectId] = useState(defaultProjectId || '');
   const [projects, setProjects] = useState<Project[]>([]);

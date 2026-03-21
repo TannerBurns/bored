@@ -614,7 +614,7 @@ mod tests {
         let prompt = generate_plan_decomposition_prompt(plan);
         assert!(prompt.contains(plan));
         assert!(prompt.contains("## Implementation Plan"));
-        assert!(prompt.contains("3-10"));
+        assert!(prompt.contains("2 and 10"));
         assert!(prompt.contains("\"title\""));
         assert!(prompt.contains("\"description\""));
     }
