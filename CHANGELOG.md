@@ -2,6 +2,69 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.53] - 2026-03-21
+
+Dynamic Cursor model discovery, auto-pilot required commands with phasing, and major performance optimization. Cursor models are now discovered dynamically via CLI instead of a hardcoded list. Auto-pilot mode gains per-agent required commands with before/after phasing and iterative code-review loop support. App responsiveness is dramatically improved by replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, eliminating N+1 database queries, and adding targeted state updates across 25+ components.
+
+### New Features
+
+- Dynamic Cursor model discovery — CursorProvider discovers available models via `cursor agent --list-models` at startup instead of returning a hardcoded list, adapting to user subscription and model availability changes
+- Auto-pilot required commands — per-agent `autoPilotRequiredCommands` with before/after phasing so commands like code-review always run regardless of LLM selection, with control over execution order
+- Auto-pilot code-review loop — code-review composite loop (review + fix iterations) now works in auto-pilot mode via `run_code_review_loop_with_model`, matching the iterative behavior of multi-stage mode
+- Auto-pilot settings UI — interactive command toggles with segmented before/after control and emerald visual treatment when auto-pilot is enabled
+
+### Improvements
+
+- Replaced broad Zustand store subscriptions with individual selectors across 25+ components and hooks to prevent cascading re-renders when navigating between views
+- Switched action-only store consumers to `getState()` pattern (CreateBoardModal, RenameBoardModal, BlockedTicketBanner, etc.)
+- Wrapped Column, Ticket, Sidebar, ChatListItem, MarkdownViewer, EditableUserMessage, CopyMarkdownButton in `React.memo`
+- Hoisted MarkdownViewer's `remarkPlugins` and `components` to module scope to prevent ReactMarkdown re-initialization on every render
+- Stabilized App.tsx sidebar callbacks with `useCallback` and added `useMemo` to Board, ChatMessageList, ColumnSelect, CommentsSection, CommandsCatalog, VersionsList
+- Paused `useBoardSync` polling when board view is not active to eliminate background state churn
+- Replaced `loadChats()` on `chat_cost_updated` with targeted `refreshChat()` to prevent SSE refetch storms
+- Added per-chat state pruning to limit memory growth to 5 recent chats
+- Replaced N+1 spec queries with single JOIN queries in Rust backend, reducing O(N) DB round-trips to O(1)
+- Wrapped batch deletes in SQLite transactions for atomic operation
+- Added `idx_runs_started` index on `agent_runs(started_at)` (migration v20)
+- Changed SSE event type filter from `Vec` to `HashSet` for O(1) lookups
+- Auto-pilot command-selection prompt excludes forced commands from the available list with explicit exclusion note
+- Model discovery runs off the main thread via `tokio::task::block_in_place()` to prevent UI blocking
+- Orphaned `autoPilotRequiredCommands` entries are now cleaned up when a command is removed
+
+### Bug Fixes
+
+- Fixed app unresponsiveness when swapping pages due to every board store change re-rendering the entire component tree from App.tsx
+- Fixed O(n^2) chat event filtering and unmemoized column/ticket computations causing slowness on tickets with many tasks
+- Fixed SSE refetch storms and unbounded per-chat state growth causing chat usage slowness
+- Fixed dashboard time-range queries performing full table scans without index
+- Fixed auto-pilot settings grid column header misalignment between header row and command rows
+- Fixed pre-existing test failures in AgentSettingsPage and ticket prompt tests
+- Fixed clippy warnings (bool_assert_comparison, useless_vec)
+
+### Testing
+
+- 908 vitest tests passing across 44 files
+- 1796 Rust lib tests passing
+- Clean cargo clippy and TypeScript compilation
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.52, here is a summary of the major features introduced in recent releases:
+
+**beta.52 — Consolidated Review Task Creation**
+Standardized on a single `create_fix_tasks` JSON format, removing the deprecated singular `create_fix_task` variant. Review agent prompt rewritten to explicitly state that only the JSON tool block creates tasks.
+
+**beta.51 — Robust JSON Parsing & Agent Completion Stability**
+Rewrote JSON code block extractor to handle nested markdown fences inside JSON strings. String-aware brace matching for correct parsing of braces inside string values. Deduplicated agent-completion event handling to prevent cascading re-renders.
+
+**beta.50 — Review Transition Crash Fix & Plan Decomposition**
+Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines.
+
+**beta.49 — Auto-Clarification, Task Progress & Session Threading**
+Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages.
+
+---
+
 ## [0.1.0-beta.52] - 2026-03-19
 
 Consolidate review task creation to a single JSON format and strengthen prompt guardrails. Removes the deprecated singular `create_fix_task` format from both the Rust backend and TypeScript frontend, standardizing on the plural `create_fix_tasks` array format as the only mechanism for creating tasks. The review agent prompt is rewritten to explicitly state that prose descriptions are silently ignored and only the JSON tool block creates tasks.
