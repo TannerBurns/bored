@@ -1086,7 +1086,7 @@ That should work."#;
         let blocks = extract_all_json_code_blocks(text);
         assert_eq!(blocks.len(), 1);
         let parsed: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
-        assert_eq!(parsed["ok"].as_bool().unwrap(), true);
+        assert!(parsed["ok"].as_bool().unwrap());
     }
 
     #[test]
@@ -1213,8 +1213,8 @@ That should work."#;
         assert_eq!(blocks.len(), 2, "must extract both JSON blocks");
         let v0: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
         let v1: serde_json::Value = serde_json::from_str(&blocks[1]).unwrap();
-        assert_eq!(v0["first"].as_bool().unwrap(), true);
-        assert_eq!(v1["second"].as_bool().unwrap(), true);
+        assert!(v0["first"].as_bool().unwrap());
+        assert!(v1["second"].as_bool().unwrap());
     }
 
     #[test]
@@ -1233,7 +1233,7 @@ That should work."#;
         let blocks = extract_all_json_code_blocks(text);
         assert_eq!(blocks.len(), 1);
         let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
-        assert_eq!(v["result"].as_bool().unwrap(), true);
+        assert!(v["result"].as_bool().unwrap());
     }
 
     #[test]
@@ -1248,7 +1248,7 @@ That should work."#;
         let blocks = extract_all_json_code_blocks(text);
         assert_eq!(blocks.len(), 1);
         let v: serde_json::Value = serde_json::from_str(&blocks[0]).unwrap();
-        assert_eq!(v["ok"].as_bool().unwrap(), true);
+        assert!(v["ok"].as_bool().unwrap());
     }
 
     // ── multi-line bare JSON fallback ─────────────────────────────

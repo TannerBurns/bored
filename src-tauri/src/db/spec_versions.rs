@@ -634,32 +634,35 @@ impl Database {
     }
 
     fn map_spec_version_row(row: &rusqlite::Row) -> rusqlite::Result<SpecVersion> {
-        // Column order: 0-id, 1-spec_id, 2-version_number, 3-status, 4-exploration_log,
-        //               5-plan_markdown, 6-plan_json, 7-work_started_at, 8-created_at, 9-updated_at
-        let status_str: String = row.get(3)?;
+        Self::map_spec_version_row_offset(row, 0)
+    }
+
+    /// Map a spec version row starting at a given column offset (for JOIN queries).
+    pub(crate) fn map_spec_version_row_offset(row: &rusqlite::Row, off: usize) -> rusqlite::Result<SpecVersion> {
+        let status_str: String = row.get(off + 3)?;
         let status = SpecVersionStatus::parse(&status_str).unwrap_or_default();
 
-        let exploration_log_str: Option<String> = row.get(4)?;
+        let exploration_log_str: Option<String> = row.get(off + 4)?;
         let exploration_log: Vec<Exploration> = exploration_log_str
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
 
-        let plan_json_str: Option<String> = row.get(6)?;
+        let plan_json_str: Option<String> = row.get(off + 6)?;
         let plan_json = plan_json_str.and_then(|s| serde_json::from_str(&s).ok());
 
-        let work_started_at: Option<String> = row.get(7)?;
+        let work_started_at: Option<String> = row.get(off + 7)?;
 
         Ok(SpecVersion {
-            id: row.get(0)?,
-            spec_id: row.get(1)?,
-            version_number: row.get(2)?,
+            id: row.get(off)?,
+            spec_id: row.get(off + 1)?,
+            version_number: row.get(off + 2)?,
             status,
             exploration_log,
-            plan_markdown: row.get(5)?,
+            plan_markdown: row.get(off + 5)?,
             plan_json,
             work_started_at: work_started_at.map(parse_datetime),
-            created_at: parse_datetime(row.get(8)?),
-            updated_at: parse_datetime(row.get(9)?),
+            created_at: parse_datetime(row.get(off + 8)?),
+            updated_at: parse_datetime(row.get(off + 9)?),
         })
     }
 

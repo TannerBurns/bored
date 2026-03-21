@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { cn } from '../../lib/utils';
@@ -12,7 +13,7 @@ interface ColumnProps {
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Column({ column, tickets, projectMap, taskCountsMap, onTicketClick }: ColumnProps) {
+export const Column = memo(function Column({ column, tickets, projectMap, taskCountsMap, onTicketClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
   });
@@ -61,7 +62,7 @@ export function Column({ column, tickets, projectMap, taskCountsMap, onTicketCli
               projectName={ticket.projectId ? projectMap?.[ticket.projectId] : undefined}
               columnName={column.name}
               taskCounts={taskCountsMap?.[ticket.id]}
-              onClick={() => onTicketClick?.(ticket)}
+              onTicketClick={onTicketClick}
             />
           ))}
         </SortableContext>
@@ -74,4 +75,4 @@ export function Column({ column, tickets, projectMap, taskCountsMap, onTicketCli
       </div>
     </div>
   );
-}
+});

@@ -24,7 +24,8 @@ export function useAppData(
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
 
-  const { setBoards: storeSetBoards, setCurrentBoard: storeSetCurrentBoard } = useBoardStore();
+  const storeSetBoards = useBoardStore((s) => s.setBoards);
+  const storeSetCurrentBoard = useBoardStore((s) => s.setCurrentBoard);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -134,7 +135,9 @@ export function useAgentsData(
 }
 
 export function useSpecsData(activeNav: string) {
-  const { loadAllSpecs, selectSpec, currentSpec } = useSpecStore();
+  const loadAllSpecs = useSpecStore((s) => s.loadAllSpecs);
+  const selectSpec = useSpecStore((s) => s.selectSpec);
+  const currentSpec = useSpecStore((s) => s.currentSpec);
 
   useEffect(() => {
     if (activeNav !== 'specs') return;

@@ -236,7 +236,7 @@ describe('AgentSettingsPage', () => {
     it('stage config section is dimmed when auto-pilot is enabled', () => {
       storeState.agentConfigs.claude = makeConfig({ autoPilotEnabled: true });
       render(<AgentSettingsPage agentId="claude" />);
-      const desc = screen.getByText('Choose models for core stages. Commands are selected by auto-pilot.');
+      const desc = screen.getByText('Choose models for core stages. Toggle commands on to always run them.');
       expect(desc).toBeInTheDocument();
     });
   });

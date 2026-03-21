@@ -40,7 +40,9 @@ export function SpecsView({ currentBoard, onCreateSpecClick, onOpenChat }: Specs
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedSpec, setSelectedSpec] = useState<SpecWithVersion | null>(null);
   
-  const { selectSpec, selectSpecForProgress, currentSpec } = useSpecStore();
+  const selectSpec = useSpecStore((s) => s.selectSpec);
+  const selectSpecForProgress = useSpecStore((s) => s.selectSpecForProgress);
+  const currentSpec = useSpecStore((s) => s.currentSpec);
 
   useEffect(() => {
     setSelectedSpec(currentSpec);

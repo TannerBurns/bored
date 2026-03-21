@@ -43,8 +43,11 @@ const progressStatuses = new Set([
 ]);
 
 export function SpecList({ onSelect, onViewProgress }: SpecListProps) {
-  const { specs, currentSpec, isLoading, deleteSpec } = useSpecStore();
-  const { boards } = useBoardStore();
+  const specs = useSpecStore((s) => s.specs);
+  const currentSpec = useSpecStore((s) => s.currentSpec);
+  const isLoading = useSpecStore((s) => s.isLoading);
+  const deleteSpec = useSpecStore((s) => s.deleteSpec);
+  const boards = useBoardStore((s) => s.boards);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [specToDelete, setSpecToDelete] = useState<SpecWithVersion | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);

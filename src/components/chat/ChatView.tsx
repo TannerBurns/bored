@@ -92,7 +92,9 @@ function SidebarToggle({ collapsed, onClick }: { collapsed: boolean; onClick: ()
 }
 
 export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {}) {
-  const { chatsLoaded, loadChats, currentChat } = useChatStore();
+  const chatsLoaded = useChatStore((s) => s.chatsLoaded);
+  const loadChats = useChatStore((s) => s.loadChats);
+  const currentChat = useChatStore((s) => s.currentChat);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [initialMode, setInitialMode] = useState<ChatMode | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { Chat } from '../../types';
 import { formatRelativeTime } from '../../lib/utils';
 import { MODE_BADGE_COLORS, MODE_LABELS } from './index';
@@ -10,7 +11,7 @@ interface ChatListItemProps {
   onDelete: () => void;
 }
 
-export function ChatListItem({ chat, isActive, projectName, onClick, onDelete }: ChatListItemProps) {
+export const ChatListItem = memo(function ChatListItem({ chat, isActive, projectName, onClick, onDelete }: ChatListItemProps) {
   return (
     <div
       role="button"
@@ -52,4 +53,4 @@ export function ChatListItem({ chat, isActive, projectName, onClick, onDelete }:
       </div>
     </div>
   );
-}
+});

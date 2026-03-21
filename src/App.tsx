@@ -34,6 +34,8 @@ function App() {
   const [isCreateSpecModalOpen, setIsCreateSpecModalOpen] = useState(false);
   const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null); // null = not yet determined
   const { theme } = useSettingsStore();
+  const isTicketModalOpen = useBoardStore((s) => s.isTicketModalOpen);
+  const isBoardActive = activeNav === 'boards';
   const {
     boards,
     currentBoard,
@@ -46,7 +48,7 @@ function App() {
     confirmDeleteBoard,
     cancelDeleteBoard,
     deleteConfirmation,
-  } = useBoardSync();
+  } = useBoardSync(isBoardActive || isTicketModalOpen);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -98,16 +100,13 @@ function App() {
   useAgentsData(activeNav, setProjects, setRecentRuns);
   useSpecsData(activeNav);
 
-  const {
-    isTicketModalOpen,
-    isCreateModalOpen,
-    selectedTicket,
-    comments,
-    openCreateModal,
-    openTicketModal,
-    closeTicketModal,
-    closeCreateModal,
-  } = useBoardStore();
+  const isCreateModalOpen = useBoardStore((s) => s.isCreateModalOpen);
+  const selectedTicket = useBoardStore((s) => s.selectedTicket);
+  const comments = useBoardStore((s) => s.comments);
+  const openCreateModal = useBoardStore((s) => s.openCreateModal);
+  const openTicketModal = useBoardStore((s) => s.openTicketModal);
+  const closeTicketModal = useBoardStore((s) => s.closeTicketModal);
+  const closeCreateModal = useBoardStore((s) => s.closeCreateModal);
 
   const {
     handleTicketMove,
@@ -128,10 +127,27 @@ function App() {
     showReleaseNotes,
   } = useReleaseNotes();
   
-  const handleRenameBoard = (board: BoardType) => {
+  const handleRenameBoard = useCallback((board: BoardType) => {
     setBoardToRename(board);
     setRenameBoardModalOpen(true);
-  };
+  }, []);
+
+  const handleNavItemClick = useCallback((id: string) => {
+    if (useBoardStore.getState().isTicketModalOpen) closeTicketModal();
+    setActiveNav(id);
+  }, [closeTicketModal]);
+
+  const handleSidebarBoardSelect = useCallback((boardId: string) => {
+    if (useBoardStore.getState().isTicketModalOpen) closeTicketModal();
+    handleBoardSelect(boardId);
+  }, [closeTicketModal, handleBoardSelect]);
+
+  const handleOpenCreateBoard = useCallback(() => setIsCreateBoardModalOpen(true), []);
+
+  const handleSettingsClick = useCallback(() => {
+    if (useBoardStore.getState().isTicketModalOpen) closeTicketModal();
+    setActiveNav('settings');
+  }, [closeTicketModal]);
 
   const handleNavigateToSpec = useCallback(async (specId: string) => {
     try {
@@ -199,23 +215,14 @@ function App() {
       <Sidebar
         navItems={NAV_ITEMS}
         activeItem={activeNav}
-        onItemClick={(id) => {
-          if (isTicketModalOpen) closeTicketModal();
-          setActiveNav(id);
-        }}
+        onItemClick={handleNavItemClick}
         boards={boards}
         currentBoard={currentBoard}
-        onBoardSelect={(boardId) => {
-          if (isTicketModalOpen) closeTicketModal();
-          handleBoardSelect(boardId);
-        }}
-        onCreateBoard={() => setIsCreateBoardModalOpen(true)}
+        onBoardSelect={handleSidebarBoardSelect}
+        onCreateBoard={handleOpenCreateBoard}
         onRenameBoard={handleRenameBoard}
         onDeleteBoard={requestDeleteBoard}
-        onSettingsClick={() => {
-          if (isTicketModalOpen) closeTicketModal();
-          setActiveNav('settings');
-        }}
+        onSettingsClick={handleSettingsClick}
       />
 
       <main className="flex-1 p-4 overflow-hidden flex flex-col">

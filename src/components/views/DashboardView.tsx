@@ -108,6 +108,12 @@ export function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+const dateLabelFormatter = ((label: string | number) => formatDateLabel(String(label))) as RenderLabel;
+const costFormatter = ((value: number) => [formatCost(Number(value)), 'Cost']) as RenderFormatter;
+const tokenFormatter = ((value: number) => [formatNumber(Number(value)), 'Tokens']) as RenderFormatter;
+const dollarTickFormatter = (v: number) => `$${v}`;
+const numberTickFormatter = (v: number) => formatNumber(v);
+
 export function DashboardView() {
   const {
     summary,
@@ -269,7 +275,7 @@ export function DashboardView() {
                     />
                     <Tooltip
                       contentStyle={TOOLTIP_CONTENT_STYLE} itemStyle={TOOLTIP_TEXT_STYLE} labelStyle={TOOLTIP_LABEL_STYLE}
-                      labelFormatter={((label) => formatDateLabel(String(label))) as RenderLabel}
+                      labelFormatter={dateLabelFormatter}
                     />
                     <Area
                       type="monotone"
@@ -313,12 +319,12 @@ export function DashboardView() {
                       axisLine={false}
                       tickLine={false}
                       width={40}
-                      tickFormatter={(v) => `$${v}`}
+                      tickFormatter={dollarTickFormatter}
                     />
                     <Tooltip
                       contentStyle={TOOLTIP_CONTENT_STYLE} itemStyle={TOOLTIP_TEXT_STYLE} labelStyle={TOOLTIP_LABEL_STYLE}
-                      labelFormatter={((label) => formatDateLabel(String(label))) as RenderLabel}
-                      formatter={((value) => [formatCost(Number(value)), 'Cost']) as RenderFormatter}
+                      labelFormatter={dateLabelFormatter}
+                      formatter={costFormatter}
                     />
                     <Area
                       type="monotone"
@@ -354,12 +360,12 @@ export function DashboardView() {
                       axisLine={false}
                       tickLine={false}
                       width={40}
-                      tickFormatter={(v) => formatNumber(v)}
+                      tickFormatter={numberTickFormatter}
                     />
                     <Tooltip
                       contentStyle={TOOLTIP_CONTENT_STYLE} itemStyle={TOOLTIP_TEXT_STYLE} labelStyle={TOOLTIP_LABEL_STYLE}
-                      labelFormatter={((label) => formatDateLabel(String(label))) as RenderLabel}
-                      formatter={((value) => [formatNumber(Number(value)), 'Tokens']) as RenderFormatter}
+                      labelFormatter={dateLabelFormatter}
+                      formatter={tokenFormatter}
                     />
                     <Area
                       type="monotone"

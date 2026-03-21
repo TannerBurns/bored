@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { cn } from '../../lib/utils';
 import { BoredLogo } from '../common/BoredLogo';
@@ -23,7 +23,7 @@ interface SidebarProps {
   onSettingsClick?: () => void;
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   navItems,
   activeItem,
   onItemClick,
@@ -300,4 +300,4 @@ export function Sidebar({
       </div>
     </aside>
   );
-}
+});

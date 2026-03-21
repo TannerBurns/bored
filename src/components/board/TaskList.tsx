@@ -27,7 +27,13 @@ interface TaskListProps {
 }
 
 export function TaskList({ ticketId }: TaskListProps) {
-  const { tasks, loadTasks, createTask, addCommandTask, deleteTask, updateTask, resetTask } = useBoardStore();
+  const tasks = useBoardStore((s) => s.tasks);
+  const loadTasks = useBoardStore((s) => s.loadTasks);
+  const createTask = useBoardStore((s) => s.createTask);
+  const addCommandTask = useBoardStore((s) => s.addCommandTask);
+  const deleteTask = useBoardStore((s) => s.deleteTask);
+  const updateTask = useBoardStore((s) => s.updateTask);
+  const resetTask = useBoardStore((s) => s.resetTask);
   const commandsCatalog = useSettingsStore((s) => s.commandsCatalog);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');

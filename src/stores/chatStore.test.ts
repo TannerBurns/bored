@@ -580,6 +580,69 @@ describe('useChatStore', () => {
     });
   });
 
+  describe('per-chat state pruning on selectChat', () => {
+    it('prunes per-chat state to most recent 5 chats', async () => {
+      const makeChat = (id: string): Chat => ({
+        ...mockChat,
+        id,
+        title: `Chat ${id}`,
+      });
+
+      const agentLogsByChat: Record<string, { stream: string; message: string; timestamp: string }[]> = {};
+      const appLogsByChat: Record<string, { stream: string; message: string; timestamp: string }[]> = {};
+      const thinkingChatIds: Record<string, boolean> = {};
+
+      for (let i = 1; i <= 7; i++) {
+        const id = `chat-${i}`;
+        agentLogsByChat[id] = [{ stream: 'stdout', message: `agent-${i}`, timestamp: '' }];
+        appLogsByChat[id] = [{ stream: 'stdout', message: `app-${i}`, timestamp: '' }];
+        thinkingChatIds[id] = false;
+      }
+
+      useChatStore.setState({
+        agentLogsByChat,
+        appLogsByChat,
+        thinkingChatIds,
+      });
+
+      for (let i = 1; i <= 6; i++) {
+        vi.mocked(invoke)
+          .mockResolvedValueOnce(makeChat(`chat-${i}`))
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce(null);
+        await useChatStore.getState().selectChat(`chat-${i}`);
+      }
+
+      const state = useChatStore.getState();
+      expect(Object.keys(state.agentLogsByChat).length).toBeLessThanOrEqual(5);
+      expect(state.agentLogsByChat['chat-6']).toBeDefined();
+      expect(state.agentLogsByChat['chat-5']).toBeDefined();
+      expect(state.agentLogsByChat['chat-1']).toBeUndefined();
+    });
+
+    it('preserves per-chat state when accessing same chat repeatedly', async () => {
+      useChatStore.setState({
+        agentLogsByChat: {
+          'chat-x': [{ stream: 'stdout', message: 'x-log', timestamp: '' }],
+        },
+        appLogsByChat: {},
+        thinkingChatIds: {},
+      });
+
+      vi.mocked(invoke)
+        .mockResolvedValueOnce({ ...mockChat, id: 'chat-x' })
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(null);
+      await useChatStore.getState().selectChat('chat-x');
+
+      const state = useChatStore.getState();
+      expect(state.agentLogsByChat['chat-x']).toBeDefined();
+      expect(state.agentLogsByChat['chat-x'][0].message).toBe('x-log');
+    });
+  });
+
   describe('default state', () => {
     it('starts with empty collections and false flags', () => {
       resetStore();

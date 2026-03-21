@@ -113,20 +113,32 @@ impl Database {
 
     /// Get specs for a board with their latest versions
     pub fn get_specs_with_versions(&self, board_id: &str) -> Result<Vec<SpecWithVersion>, DbError> {
-        let specs = self.get_specs(board_id)?;
-        let mut result = Vec::with_capacity(specs.len());
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT s.id, s.board_id, s.target_board_id, s.project_id, s.name, s.user_input,
+                          s.model, s.settings_json, s.created_at, s.updated_at,
+                          sv.id, sv.spec_id, sv.version_number, sv.status, sv.exploration_log,
+                          sv.plan_markdown, sv.plan_json, sv.work_started_at, sv.created_at, sv.updated_at,
+                          (SELECT COUNT(*) FROM spec_versions WHERE spec_id = s.id) as version_count
+                   FROM specs s
+                   LEFT JOIN spec_versions sv ON sv.spec_id = s.id
+                     AND sv.version_number = (SELECT MAX(version_number) FROM spec_versions WHERE spec_id = s.id)
+                   WHERE s.board_id = ?
+                   ORDER BY s.created_at DESC"#,
+            )?;
 
-        for spec in specs {
-            let latest_version = self.get_latest_spec_version(&spec.id)?;
-            let version_count = self.get_spec_version_count(&spec.id)?;
-            result.push(SpecWithVersion {
-                spec,
-                latest_version,
-                version_count,
-            });
-        }
-
-        Ok(result)
+            let rows = stmt.query_map([board_id], |row| {
+                let spec = Self::map_spec_row(row)?;
+                let latest_version = if row.get::<_, Option<String>>(10)?.is_some() {
+                    Some(Self::map_spec_version_row_offset(row, 10)?)
+                } else {
+                    None
+                };
+                let version_count: i32 = row.get(20)?;
+                Ok(SpecWithVersion { spec, latest_version, version_count })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
     }
 
     /// Get all specs across all boards
@@ -146,20 +158,31 @@ impl Database {
 
     /// Get all specs with their latest versions
     pub fn get_all_specs_with_versions(&self) -> Result<Vec<SpecWithVersion>, DbError> {
-        let specs = self.get_all_specs()?;
-        let mut result = Vec::with_capacity(specs.len());
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT s.id, s.board_id, s.target_board_id, s.project_id, s.name, s.user_input,
+                          s.model, s.settings_json, s.created_at, s.updated_at,
+                          sv.id, sv.spec_id, sv.version_number, sv.status, sv.exploration_log,
+                          sv.plan_markdown, sv.plan_json, sv.work_started_at, sv.created_at, sv.updated_at,
+                          (SELECT COUNT(*) FROM spec_versions WHERE spec_id = s.id) as version_count
+                   FROM specs s
+                   LEFT JOIN spec_versions sv ON sv.spec_id = s.id
+                     AND sv.version_number = (SELECT MAX(version_number) FROM spec_versions WHERE spec_id = s.id)
+                   ORDER BY s.created_at DESC"#,
+            )?;
 
-        for spec in specs {
-            let latest_version = self.get_latest_spec_version(&spec.id)?;
-            let version_count = self.get_spec_version_count(&spec.id)?;
-            result.push(SpecWithVersion {
-                spec,
-                latest_version,
-                version_count,
-            });
-        }
-
-        Ok(result)
+            let rows = stmt.query_map([], |row| {
+                let spec = Self::map_spec_row(row)?;
+                let latest_version = if row.get::<_, Option<String>>(10)?.is_some() {
+                    Some(Self::map_spec_version_row_offset(row, 10)?)
+                } else {
+                    None
+                };
+                let version_count: i32 = row.get(20)?;
+                Ok(SpecWithVersion { spec, latest_version, version_count })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
     }
 
     /// Update a spec (non-versioned fields only)
@@ -223,44 +246,44 @@ impl Database {
     /// Delete a spec and all tickets created from any of its versions (cascade delete)
     /// Returns the number of tickets deleted
     pub fn delete_spec_with_tickets(&self, id: &str) -> Result<usize, DbError> {
-        self.with_conn(|conn| {
-            // First, get all version IDs for this spec
-            let mut version_stmt = conn.prepare("SELECT id FROM spec_versions WHERE spec_id = ?")?;
+        self.with_conn_mut(|conn| {
+            let tx = conn.transaction()?;
+
+            let mut version_stmt = tx.prepare("SELECT id FROM spec_versions WHERE spec_id = ?")?;
             let version_ids: Vec<String> = version_stmt
                 .query_map([id], |row| row.get(0))?
                 .collect::<Result<Vec<_>, _>>()?;
+            drop(version_stmt);
 
             let mut total_ticket_count = 0;
 
-            // For each version, get and delete tickets
             for version_id in &version_ids {
                 let mut stmt =
-                    conn.prepare("SELECT id FROM tickets WHERE spec_version_id = ?")?;
+                    tx.prepare("SELECT id FROM tickets WHERE spec_version_id = ?")?;
                 let ticket_ids: Vec<String> = stmt
                     .query_map([version_id], |row| row.get(0))?
                     .collect::<Result<Vec<_>, _>>()?;
+                drop(stmt);
 
                 total_ticket_count += ticket_ids.len();
 
-                // Delete all related data for these tickets
                 for ticket_id in &ticket_ids {
-                    conn.execute("DELETE FROM comments WHERE ticket_id = ?", [ticket_id])?;
-                    conn.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
-                    conn.execute("DELETE FROM agent_events WHERE ticket_id = ?", [ticket_id])?;
-                    conn.execute("DELETE FROM agent_runs WHERE ticket_id = ?", [ticket_id])?;
+                    tx.execute("DELETE FROM comments WHERE ticket_id = ?", [ticket_id])?;
+                    tx.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
+                    tx.execute("DELETE FROM agent_events WHERE ticket_id = ?", [ticket_id])?;
+                    tx.execute("DELETE FROM agent_runs WHERE ticket_id = ?", [ticket_id])?;
                 }
 
-                // Delete all tickets with this spec_version_id
-                conn.execute("DELETE FROM tickets WHERE spec_version_id = ?", [version_id])?;
+                tx.execute("DELETE FROM tickets WHERE spec_version_id = ?", [version_id])?;
             }
 
-            // Delete the spec itself (cascades to spec_versions and conversation_messages)
-            let affected = conn.execute("DELETE FROM specs WHERE id = ?", [id])?;
+            let affected = tx.execute("DELETE FROM specs WHERE id = ?", [id])?;
 
             if affected == 0 {
                 return Err(DbError::NotFound(format!("Spec {}", id)));
             }
 
+            tx.commit()?;
             Ok(total_ticket_count)
         })
     }
@@ -278,28 +301,29 @@ impl Database {
     /// Delete all tickets associated with a spec version
     /// Returns the number of tickets deleted
     pub fn delete_spec_version_tickets(&self, version_id: &str) -> Result<usize, DbError> {
-        let conn = self.conn.lock().unwrap();
+        self.with_conn_mut(|conn| {
+            let tx = conn.transaction()?;
 
-        // Get all ticket IDs for this version
-        let mut stmt = conn.prepare("SELECT id FROM tickets WHERE spec_version_id = ?")?;
-        let ticket_ids: Vec<String> = stmt
-            .query_map([version_id], |row| row.get(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut stmt = tx.prepare("SELECT id FROM tickets WHERE spec_version_id = ?")?;
+            let ticket_ids: Vec<String> = stmt
+                .query_map([version_id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            drop(stmt);
 
-        let count = ticket_ids.len();
+            let count = ticket_ids.len();
 
-        // Delete related data for each ticket
-        for ticket_id in &ticket_ids {
-            conn.execute("DELETE FROM comments WHERE ticket_id = ?", [ticket_id])?;
-            conn.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
-            conn.execute("DELETE FROM agent_events WHERE ticket_id = ?", [ticket_id])?;
-            conn.execute("DELETE FROM agent_runs WHERE ticket_id = ?", [ticket_id])?;
-        }
+            for ticket_id in &ticket_ids {
+                tx.execute("DELETE FROM comments WHERE ticket_id = ?", [ticket_id])?;
+                tx.execute("DELETE FROM tasks WHERE ticket_id = ?", [ticket_id])?;
+                tx.execute("DELETE FROM agent_events WHERE ticket_id = ?", [ticket_id])?;
+                tx.execute("DELETE FROM agent_runs WHERE ticket_id = ?", [ticket_id])?;
+            }
 
-        // Delete all tickets for this version
-        conn.execute("DELETE FROM tickets WHERE spec_version_id = ?", [version_id])?;
+            tx.execute("DELETE FROM tickets WHERE spec_version_id = ?", [version_id])?;
 
-        Ok(count)
+            tx.commit()?;
+            Ok(count)
+        })
     }
 
     fn map_spec_row(row: &rusqlite::Row) -> rusqlite::Result<Spec> {
@@ -541,5 +565,217 @@ mod tests {
             with_version.latest_version.unwrap().version_number,
             2
         );
+    }
+
+    #[test]
+    fn get_specs_with_versions_join_query() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+
+        let spec1 = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Spec 1".to_string(),
+                user_input: "Input 1".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let spec2 = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Spec 2".to_string(),
+                user_input: "Input 2".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        db.create_new_spec_version(&spec1.id).unwrap();
+
+        let results = db.get_specs_with_versions(&board.id).unwrap();
+        assert_eq!(results.len(), 2);
+
+        let s1 = results.iter().find(|r| r.spec.id == spec1.id).unwrap();
+        assert_eq!(s1.version_count, 2);
+        assert_eq!(s1.latest_version.as_ref().unwrap().version_number, 2);
+
+        let s2 = results.iter().find(|r| r.spec.id == spec2.id).unwrap();
+        assert_eq!(s2.version_count, 1);
+        assert_eq!(s2.latest_version.as_ref().unwrap().version_number, 1);
+    }
+
+    #[test]
+    fn get_all_specs_with_versions_join_query() {
+        let db = create_test_db();
+        let board1 = db.create_board("Board 1").unwrap();
+        let board2 = db.create_board("Board 2").unwrap();
+        let project = create_test_project(&db);
+
+        db.create_spec(&CreateSpec {
+            board_id: board1.id.clone(),
+            target_board_id: Some(board1.id.clone()),
+            project_id: project.id.clone(),
+            name: "Spec A".to_string(),
+            user_input: "Input A".to_string(),
+            model: None,
+            settings: serde_json::json!({}),
+        })
+        .unwrap();
+
+        db.create_spec(&CreateSpec {
+            board_id: board2.id.clone(),
+            target_board_id: Some(board2.id.clone()),
+            project_id: project.id.clone(),
+            name: "Spec B".to_string(),
+            user_input: "Input B".to_string(),
+            model: None,
+            settings: serde_json::json!({}),
+        })
+        .unwrap();
+
+        let results = db.get_all_specs_with_versions().unwrap();
+        assert_eq!(results.len(), 2);
+        for r in &results {
+            assert!(r.latest_version.is_some());
+            assert_eq!(r.version_count, 1);
+        }
+    }
+
+    #[test]
+    fn get_specs_with_versions_empty_board() {
+        let db = create_test_db();
+        let board = db.create_board("Empty Board").unwrap();
+
+        let results = db.get_specs_with_versions(&board.id).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn delete_spec_with_tickets_uses_transaction() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "To Delete".to_string(),
+                user_input: "Will be deleted".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let version = db.get_latest_spec_version(&spec.id).unwrap().unwrap();
+
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = columns[0].id.clone();
+
+        use crate::db::{CreateTicket, Priority, WorkflowType};
+        use crate::db::models::CreateTask;
+        let ticket = db
+            .create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: col_id.clone(),
+                title: "Ticket from spec".to_string(),
+                description_md: "desc".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: Some(version.id.clone()),
+            })
+            .unwrap();
+
+        db.create_task(&CreateTask {
+            ticket_id: ticket.id.clone(),
+            task_type: Default::default(),
+            title: Some("Test task".to_string()),
+            content: None,
+        }).unwrap();
+
+        let deleted_count = db.delete_spec_with_tickets(&spec.id).unwrap();
+        assert_eq!(deleted_count, 1);
+
+        assert!(matches!(db.get_spec(&spec.id), Err(DbError::NotFound(_))));
+        assert!(db.get_latest_spec_version(&spec.id).unwrap().is_none());
+
+        let tickets = db.get_tickets(&board.id, None).unwrap();
+        assert!(tickets.iter().all(|t| t.id != ticket.id));
+    }
+
+    #[test]
+    fn delete_spec_with_tickets_not_found() {
+        let db = create_test_db();
+        let result = db.delete_spec_with_tickets("nonexistent");
+        assert!(matches!(result, Err(DbError::NotFound(_))));
+    }
+
+    #[test]
+    fn delete_spec_version_tickets_uses_transaction() {
+        let db = create_test_db();
+        let board = db.create_board("Board").unwrap();
+        let project = create_test_project(&db);
+
+        let spec = db
+            .create_spec(&CreateSpec {
+                board_id: board.id.clone(),
+                target_board_id: Some(board.id.clone()),
+                project_id: project.id.clone(),
+                name: "Spec".to_string(),
+                user_input: "Input".to_string(),
+                model: None,
+                settings: serde_json::json!({}),
+            })
+            .unwrap();
+
+        let version = db.get_latest_spec_version(&spec.id).unwrap().unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        let col_id = columns[0].id.clone();
+
+        use crate::db::{CreateTicket, Priority, WorkflowType};
+        for i in 0..3 {
+            db.create_ticket(&CreateTicket {
+                board_id: board.id.clone(),
+                column_id: col_id.clone(),
+                title: format!("Ticket {}", i),
+                description_md: "desc".to_string(),
+                priority: Priority::Medium,
+                labels: vec![],
+                project_id: Some(project.id.clone()),
+                workflow_type: WorkflowType::default(),
+                model: None,
+                branch_name: None,
+                is_epic: false,
+                epic_id: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: Some(version.id.clone()),
+            })
+            .unwrap();
+        }
+
+        let deleted = db.delete_spec_version_tickets(&version.id).unwrap();
+        assert_eq!(deleted, 3);
+
+        let remaining = db.get_tickets(&board.id, None).unwrap();
+        assert!(remaining.is_empty());
+
+        assert!(db.get_spec(&spec.id).is_ok());
     }
 }

@@ -37,8 +37,9 @@ interface BoardSyncState {
 /**
  * Hook that syncs board state between the store and local component state.
  * Handles loading board data when switching boards.
+ * @param isActive When false, background polling is paused to avoid unnecessary work.
  */
-export function useBoardSync(): BoardSyncState {
+export function useBoardSync(isActive = true): BoardSyncState {
   const [localBoards, setLocalBoards] = useState<Board[]>([]);
   const [currentBoard, setCurrentBoardLocal] = useState<Board | null>(null);
   const [columns, setColumns] = useState<Column[]>([]);
@@ -50,14 +51,12 @@ export function useBoardSync(): BoardSyncState {
   // we only apply the results if the ref still matches the request's board ID
   const currentRequestRef = useRef<string | null>(null);
 
-  const {
-    boards: storeBoards,
-    currentBoard: storeCurrentBoard,
-    setCurrentBoard,
-    deleteBoard,
-    selectedTicket,
-    selectTicket,
-  } = useBoardStore();
+  const storeBoards = useBoardStore((s) => s.boards);
+  const storeCurrentBoard = useBoardStore((s) => s.currentBoard);
+  const setCurrentBoard = useBoardStore((s) => s.setCurrentBoard);
+  const deleteBoard = useBoardStore((s) => s.deleteBoard);
+  const selectedTicket = useBoardStore((s) => s.selectedTicket);
+  const selectTicket = useBoardStore((s) => s.selectTicket);
 
   // Ref for selectedTicket so the polling effect can read the latest value
   // without restarting its interval on every selectedTicket change.
@@ -154,12 +153,12 @@ export function useBoardSync(): BoardSyncState {
     };
   }, []);
 
-  // Poll for ticket updates periodically to catch worker-initiated changes
+  // Poll for ticket updates periodically to catch worker-initiated changes.
   // Workers run headless and don't emit frontend events, so we need to poll.
   // Uses selectedTicketRef (not selectedTicket) so the interval is NOT
   // restarted every time selectedTicket changes, avoiding cascading re-renders.
   useEffect(() => {
-    if (!currentBoard) return;
+    if (!currentBoard || !isActive) return;
 
     const pollTickets = async () => {
       try {
@@ -209,7 +208,7 @@ export function useBoardSync(): BoardSyncState {
 
     const interval = setInterval(pollTickets, 3000);
     return () => clearInterval(interval);
-  }, [currentBoard, selectTicket]);
+  }, [currentBoard, selectTicket, isActive]);
 
   const handleBoardSelect = async (boardId: string) => {
     const board = localBoards.find((b) => b.id === boardId);

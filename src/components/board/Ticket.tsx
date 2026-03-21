@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '../../lib/utils';
@@ -9,10 +10,10 @@ interface TicketProps {
   projectName?: string;
   columnName?: string;
   taskCounts?: TaskCounts;
-  onClick?: () => void;
+  onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Ticket({ ticket, projectName, columnName, taskCounts, onClick }: TicketProps) {
+export const Ticket = memo(function Ticket({ ticket, projectName, columnName, taskCounts, onTicketClick }: TicketProps) {
   const {
     attributes,
     listeners,
@@ -27,13 +28,11 @@ export function Ticket({ ticket, projectName, columnName, taskCounts, onClick }:
     transition,
   };
 
-  // Handle click only if not dragging to prevent opening modal during drag
-  const handleClick = () => {
-    // Don't trigger onClick if we're dragging
-    if (!isDragging && onClick) {
-      onClick();
+  const handleClick = useCallback(() => {
+    if (!isDragging && onTicketClick) {
+      onTicketClick(ticket);
     }
-  };
+  }, [isDragging, onTicketClick, ticket]);
 
   return (
     <div
@@ -210,4 +209,4 @@ export function Ticket({ ticket, projectName, columnName, taskCounts, onClick }:
       </div>
     </div>
   );
-}
+});

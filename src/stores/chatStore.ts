@@ -60,6 +60,38 @@ interface ChatState {
 }
 
 const MAX_APP_LOGS = 200;
+const MAX_RETAINED_CHAT_ENTRIES = 5;
+
+const recentChatOrder: string[] = [];
+
+function trackChatAccess(chatId: string) {
+  const idx = recentChatOrder.indexOf(chatId);
+  if (idx !== -1) recentChatOrder.splice(idx, 1);
+  recentChatOrder.unshift(chatId);
+}
+
+function prunePerChatState(state: {
+  agentLogsByChat: Record<string, ChatLogEntry[]>;
+  appLogsByChat: Record<string, ChatLogEntry[]>;
+  thinkingChatIds: Record<string, boolean>;
+}): Partial<typeof state> {
+  if (recentChatOrder.length <= MAX_RETAINED_CHAT_ENTRIES) return {};
+  const keep = new Set(recentChatOrder.slice(0, MAX_RETAINED_CHAT_ENTRIES));
+  const prunedAgentLogs: Record<string, ChatLogEntry[]> = {};
+  const prunedAppLogs: Record<string, ChatLogEntry[]> = {};
+  const prunedThinking: Record<string, boolean> = {};
+  for (const id of keep) {
+    if (state.agentLogsByChat[id]) prunedAgentLogs[id] = state.agentLogsByChat[id];
+    if (state.appLogsByChat[id]) prunedAppLogs[id] = state.appLogsByChat[id];
+    if (id in state.thinkingChatIds) prunedThinking[id] = state.thinkingChatIds[id];
+  }
+  recentChatOrder.length = MAX_RETAINED_CHAT_ENTRIES;
+  return {
+    agentLogsByChat: prunedAgentLogs,
+    appLogsByChat: prunedAppLogs,
+    thinkingChatIds: prunedThinking,
+  };
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   chats: [],
@@ -110,15 +142,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectChat: async (chatId: string) => {
     try {
       const chat = await invoke<Chat>('get_chat', { chatId });
-      const { agentLogsByChat, thinkingChatIds, appLogsByChat } = get();
+      trackChatAccess(chatId);
+      const state = get();
+      const pruned = prunePerChatState(state);
+      const agentLogs = state.agentLogsByChat[chatId] ?? [];
+      const appLogs = state.appLogsByChat[chatId] ?? [];
       set({
         currentChat: chat,
         messages: [],
         chatEvents: [],
         chatCost: null,
-        isAgentThinking: thinkingChatIds[chatId] ?? false,
-        agentLogs: agentLogsByChat[chatId] ?? [],
-        appLogs: appLogsByChat[chatId] ?? [],
+        isAgentThinking: state.thinkingChatIds[chatId] ?? false,
+        agentLogs,
+        appLogs,
+        ...pruned,
       });
       await Promise.all([
         get().loadMessages(chatId),

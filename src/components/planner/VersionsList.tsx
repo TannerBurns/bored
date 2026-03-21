@@ -91,16 +91,19 @@ function VersionCard({ version, isSelected, onSelect }: {
 }
 
 export function VersionsList({ specId, userInput, onRefresh }: VersionsListProps) {
-  const { 
-    currentVersions, 
-    selectedVersion, 
-    loadVersions, 
-    selectVersion,
-  } = useSpecStore();
+  const currentVersions = useSpecStore((s) => s.currentVersions);
+  const selectedVersion = useSpecStore((s) => s.selectedVersion);
+  const loadVersions = useSpecStore((s) => s.loadVersions);
+  const selectVersion = useSpecStore((s) => s.selectVersion);
 
   useEffect(() => {
     loadVersions(specId);
   }, [specId, loadVersions]);
+
+  const sortedVersions = useMemo(
+    () => [...currentVersions].sort((a, b) => b.versionNumber - a.versionNumber),
+    [currentVersions],
+  );
 
   if (currentVersions.length === 0) {
     return (
@@ -114,10 +117,7 @@ export function VersionsList({ specId, userInput, onRefresh }: VersionsListProps
     <div className="flex gap-4 h-full">
       {/* Version list sidebar */}
       <div className="w-64 flex-shrink-0 space-y-2 overflow-y-auto">
-        {currentVersions
-          .slice()
-          .sort((a, b) => b.versionNumber - a.versionNumber)
-          .map((version) => (
+        {sortedVersions.map((version) => (
             <VersionCard
               key={version.id}
               version={version}
@@ -152,7 +152,14 @@ function VersionDetail({ version, specId, userInput, onRefresh }: {
   userInput: string;
   onRefresh: () => Promise<void>;
 }) {
-  const { approvePlan, pauseWork, resumeWork, haltWork, loadVersions, selectVersionById, scrollToProgress, setScrollToProgress } = useSpecStore();
+  const approvePlan = useSpecStore((s) => s.approvePlan);
+  const pauseWork = useSpecStore((s) => s.pauseWork);
+  const resumeWork = useSpecStore((s) => s.resumeWork);
+  const haltWork = useSpecStore((s) => s.haltWork);
+  const loadVersions = useSpecStore((s) => s.loadVersions);
+  const selectVersionById = useSpecStore((s) => s.selectVersionById);
+  const scrollToProgress = useSpecStore((s) => s.scrollToProgress);
+  const setScrollToProgress = useSpecStore((s) => s.setScrollToProgress);
   
   const progressRef = useRef<HTMLDivElement>(null);
 

@@ -11,7 +11,7 @@ interface ChatListProps {
 
 export function ChatList({ projectMap, onNewChat }: ChatListProps) {
   const chats = useChatStore((s) => s.chats);
-  const currentChat = useChatStore((s) => s.currentChat);
+  const currentChatId = useChatStore((s) => s.currentChat?.id);
   const selectChat = useChatStore((s) => s.selectChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
   const loadOlderChats = useChatStore((s) => s.loadOlderChats);
@@ -48,7 +48,7 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
               <ChatListItem
                 key={chat.id}
                 chat={chat}
-                isActive={currentChat?.id === chat.id}
+                isActive={currentChatId === chat.id}
                 projectName={projectMap[chat.projectId]}
                 onClick={() => selectChat(chat.id)}
                 onDelete={() => setChatToDelete(chat)}

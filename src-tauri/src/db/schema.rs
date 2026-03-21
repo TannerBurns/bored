@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 19;
+pub const SCHEMA_VERSION: i32 = 20;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -165,6 +165,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_ticket ON agent_runs(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON agent_runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_parent ON agent_runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_runs_resumed_from ON agent_runs(resumed_from_run_id) WHERE resumed_from_run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_runs_started ON agent_runs(started_at);
 
 -- Agent events table (log events from agent runs)
 CREATE TABLE IF NOT EXISTS agent_events (
