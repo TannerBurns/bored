@@ -105,7 +105,7 @@ export const BUILTIN_CATALOG_COMMANDS: CatalogCommand[] = [
   { id: 'patch-security', name: 'Patch Security', description: 'Security review and fix pass scoped to branch diff', enabled: false, source: 'builtin', filename: 'patch-security.md' },
   { id: 'api-contract-check', name: 'API Contract Check', description: 'Verify and fix public contract consistency across call sites', enabled: false, source: 'builtin', filename: 'api-contract-check.md' },
   { id: 'observability-pass', name: 'Observability Pass', description: 'Align logs, metrics, and tracing with repo standards', enabled: false, source: 'builtin', filename: 'observability-pass.md' },
-  { id: 'integration-test', name: 'Integration Test', description: 'Add minimal integration tests for boundary-spanning changes', enabled: false, source: 'builtin', filename: 'integration-test.md' },
+  { id: 'integration-test', name: 'Integration Test', description: 'Add and run integration tests that verify boundary-spanning changes end-to-end', enabled: false, source: 'builtin', filename: 'integration-test.md' },
   { id: 'doc-sync', name: 'Documentation Sync', description: 'Update or create documentation from branch changes', enabled: false, source: 'builtin', filename: 'doc-sync.md' },
 ];
 
