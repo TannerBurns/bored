@@ -1,5 +1,62 @@
 [
   {
+    "version": "0.1.0-beta.53",
+    "published_at": "2026-03-21",
+    "summary": "Dynamic Cursor model discovery, auto-pilot required commands with phasing, and major performance optimization. Cursor models are now discovered dynamically via CLI instead of a hardcoded list. Auto-pilot mode gains per-agent required commands with before/after phasing and iterative code-review loop support. App responsiveness is dramatically improved by replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, and eliminating N+1 database queries across 25+ components.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Dynamic Cursor model discovery — CursorProvider discovers available models via cursor agent --list-models at startup instead of a hardcoded list, adapting to user subscription and model availability changes",
+          "Auto-pilot required commands — per-agent autoPilotRequiredCommands with before/after phasing so commands like code-review always run regardless of LLM selection, with control over execution order",
+          "Auto-pilot code-review loop — code-review composite loop (review + fix iterations) now works in auto-pilot mode, matching the iterative behavior of multi-stage mode",
+          "Auto-pilot settings UI — interactive command toggles with segmented before/after control and emerald visual treatment when auto-pilot is enabled"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Replaced broad Zustand store subscriptions with individual selectors across 25+ components to prevent cascading re-renders when navigating between views",
+          "Wrapped Column, Ticket, Sidebar, ChatListItem, MarkdownViewer, EditableUserMessage, CopyMarkdownButton in React.memo with stable callbacks",
+          "Added useMemo to Board, ChatMessageList, ColumnSelect, CommentsSection, CommandsCatalog, VersionsList for precomputed lookup maps",
+          "Paused useBoardSync polling when board view is not active to eliminate background state churn",
+          "Replaced N+1 spec queries with single JOIN queries in Rust backend, reducing O(N) DB round-trips to O(1)",
+          "Added idx_runs_started index on agent_runs(started_at) and changed SSE event type filter from Vec to HashSet for O(1) lookups",
+          "Model discovery runs off the main thread to prevent UI blocking at startup",
+          "Orphaned autoPilotRequiredCommands entries are cleaned up when a command is removed"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed app unresponsiveness when swapping pages due to every board store change re-rendering the entire component tree",
+          "Fixed O(n^2) chat event filtering and unmemoized column/ticket computations causing slowness on tickets with many tasks",
+          "Fixed SSE refetch storms and unbounded per-chat state growth causing chat usage slowness",
+          "Fixed dashboard time-range queries performing full table scans without index",
+          "Fixed auto-pilot settings grid column header misalignment between header row and command rows"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.52",
+        "highlight": "Standardized on a single create_fix_tasks JSON format, removing the deprecated singular create_fix_task variant. Review agent prompt rewritten to explicitly state that only the JSON tool block creates tasks."
+      },
+      {
+        "version": "0.1.0-beta.51",
+        "highlight": "Rewrote JSON code block extractor to handle nested markdown fences inside JSON strings. String-aware brace matching for correct parsing of braces inside string values. Deduplicated agent-completion event handling to prevent cascading re-renders."
+      },
+      {
+        "version": "0.1.0-beta.50",
+        "highlight": "Fixed app crash when tickets move to Review while the Overview tab is open. Strengthened plan decomposition prompt to require at least 2 todos for non-trivial tasks with concrete splitting guidelines."
+      },
+      {
+        "version": "0.1.0-beta.49",
+        "highlight": "Auto-clarification for workflow agents that autonomously resolves plan clarification questions. Task progress counts on ticket cards in board and list views. Workflow session threading across all stages so each stage has full context of prior stages."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.52",
     "published_at": "2026-03-19",
     "summary": "Consolidate review task creation to a single JSON format and strengthen prompt guardrails. Removes the deprecated singular create_fix_task format from both backend and frontend, standardizing on the plural create_fix_tasks array format as the only mechanism for creating tasks. The review agent prompt explicitly states that prose descriptions are silently ignored.",
