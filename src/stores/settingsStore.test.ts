@@ -531,10 +531,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 20', () => {
+    it('uses version 22', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(20);
+      expect(options.version).toBe(22);
     });
   });
 
@@ -1231,6 +1231,106 @@ describe('useSettingsStore', () => {
 
       const configs = migrated.agentConfigs as Record<string, { autoCompleteTickets?: boolean }>;
       expect(configs.claude.autoCompleteTickets).toBe(true);
+    });
+  });
+
+  describe('persist migration v21->v22 (autoPilotRequiredCommands string[] to struct[])', () => {
+    it('converts string[] entries to {command, phase: "after"} objects', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotRequiredCommands: ['code-review', 'unit-tests'],
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        21
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotRequiredCommands?: unknown[] }>;
+      expect(configs.claude.autoPilotRequiredCommands).toEqual([
+        { command: 'code-review', phase: 'after' },
+        { command: 'unit-tests', phase: 'after' },
+      ]);
+    });
+
+    it('preserves already-structured entries', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotRequiredCommands: [
+                { command: 'cleanup', phase: 'before' },
+              ],
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        21
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotRequiredCommands?: unknown[] }>;
+      expect(configs.claude.autoPilotRequiredCommands).toEqual([
+        { command: 'cleanup', phase: 'before' },
+      ]);
+    });
+
+    it('defaults to empty array when field is missing', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        20
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotRequiredCommands?: unknown[] }>;
+      expect(configs.claude.autoPilotRequiredCommands).toEqual([]);
+    });
+
+    it('handles mixed string and struct entries', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotRequiredCommands: [
+                'code-review',
+                { command: 'cleanup', phase: 'before' },
+                'deslop',
+              ],
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        21
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotRequiredCommands?: unknown[] }>;
+      expect(configs.claude.autoPilotRequiredCommands).toEqual([
+        { command: 'code-review', phase: 'after' },
+        { command: 'cleanup', phase: 'before' },
+        { command: 'deslop', phase: 'after' },
+      ]);
     });
   });
 });

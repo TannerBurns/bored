@@ -841,7 +841,7 @@ async fn command_selection_parses_json_array() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
 
-    let selections = orch.run_command_selection_stage("plan text", "impl text").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("plan text", "impl text", &[]).await.unwrap();
     assert_eq!(selections.len(), 2);
     assert_eq!(selections[0].command, "cleanup");
     assert_eq!(selections[1].command, "code-review");
@@ -858,7 +858,7 @@ async fn command_selection_parses_code_fenced_json() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].command, "deslop");
 }
@@ -874,7 +874,7 @@ async fn command_selection_handles_prose_with_brackets() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].command, "unit-tests");
 }
@@ -890,7 +890,7 @@ async fn command_selection_handles_result_text_appended() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].command, "cleanup");
 }
@@ -905,7 +905,7 @@ async fn command_selection_returns_empty_on_stage_failure() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::new(10, "")));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert!(selections.is_empty());
 }
 
@@ -920,7 +920,7 @@ async fn command_selection_filters_excluded_commands() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed(json)));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert_eq!(selections.len(), 1);
     assert_eq!(selections[0].command, "cleanup");
 }
@@ -935,7 +935,7 @@ async fn command_selection_empty_stdout_returns_empty() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("")));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert!(selections.is_empty());
 }
 
@@ -949,7 +949,7 @@ async fn command_selection_parses_empty_array() {
     let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
     orch.set_stage_runner(Arc::new(MockStageRunner::always_succeed("[]")));
 
-    let selections = orch.run_command_selection_stage("", "").await.unwrap();
+    let selections = orch.run_command_selection_stage_excluding("", "", &[]).await.unwrap();
     assert!(selections.is_empty());
 }
 
@@ -997,7 +997,7 @@ async fn command_selection_with_stream_json_multiple_deltas() {
 }
 
 // -- Prompt content integration tests --
-// These verify that run_command_selection_stage builds a prompt that is
+// These verify that run_command_selection_stage_excluding builds a prompt that is
 // truly dynamic: commands come from the bundled catalog, and models come
 // from the provider.
 
@@ -1117,7 +1117,7 @@ async fn command_selection_prompt_contains_provider_models_claude() {
     ));
     orch.set_stage_runner(runner.clone());
 
-    let _ = orch.run_command_selection_stage("the plan", "the impl").await;
+    let _ = orch.run_command_selection_stage_excluding("the plan", "the impl", &[]).await;
 
     let prompt = runner.prompt();
 
@@ -1177,7 +1177,7 @@ async fn command_selection_prompt_uses_codex_models_not_claude() {
     ));
     orch.set_stage_runner(runner.clone());
 
-    let _ = orch.run_command_selection_stage("", "").await;
+    let _ = orch.run_command_selection_stage_excluding("", "", &[]).await;
 
     let prompt = runner.prompt();
 
@@ -2237,4 +2237,49 @@ fn workflow_session_id_initialized_to_none() {
     let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
 
     assert!(orch.workflow_session_id.read().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn command_selection_excludes_forced_commands_from_prompt() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_for_agent("stub");
+
+    let runner = Arc::new(PromptCapturingRunner::new());
+    let mut orch = WorkflowOrchestrator::new(make_config_with_provider(
+        db, ticket, run_id, settings, Arc::new(StubProvider), "stub",
+    ));
+    orch.set_stage_runner(runner.clone());
+
+    let _ = orch
+        .run_command_selection_stage_excluding("plan", "impl", &["code-review", "unit-tests"])
+        .await;
+
+    let prompt = runner.prompt();
+
+    assert!(
+        !prompt.contains("- `code-review`"),
+        "Excluded command 'code-review' must not appear in available commands list"
+    );
+    assert!(
+        !prompt.contains("- `unit-tests`"),
+        "Excluded command 'unit-tests' must not appear in available commands list"
+    );
+    assert!(
+        prompt.contains("- `cleanup`"),
+        "Non-excluded commands should still be listed"
+    );
+    assert!(
+        prompt.contains("- `deslop`"),
+        "Non-excluded commands should still be listed"
+    );
+    assert!(
+        prompt.contains("already configured to always run"),
+        "Prompt should include the forced-commands exclusion note"
+    );
+    assert!(
+        prompt.contains("`code-review`") && prompt.contains("`unit-tests`"),
+        "Exclusion note should mention the forced command names"
+    );
 }

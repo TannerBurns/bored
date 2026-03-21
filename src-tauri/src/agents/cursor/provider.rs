@@ -5,13 +5,46 @@ use crate::agents::cost::{self, RunCostData};
 use crate::agents::provider::{AgentProvider, AgentRunConfig};
 
 use super::command;
+use super::models;
 
 #[derive(Debug)]
-pub struct CursorProvider;
+pub struct CursorProvider {
+    /// Dynamically discovered (id, label) pairs from `cursor agent --list-models`.
+    models: Vec<(String, String)>,
+}
 
 impl CursorProvider {
     pub fn new() -> Self {
-        Self
+        Self {
+            models: Vec::new(),
+        }
+    }
+
+    /// Create a provider pre-populated with discovered models.
+    pub fn with_models(models: Vec<(String, String)>) -> Self {
+        Self { models }
+    }
+
+    /// Discover available models by running `cursor agent --list-models`.
+    /// On failure (CLI not installed, timeout, etc.) logs a warning and
+    /// leaves the model list empty.
+    pub fn discover_models(&mut self) {
+        match models::list_models() {
+            Ok(list) => {
+                self.models = list
+                    .models
+                    .into_iter()
+                    .map(|m| (m.id, m.label))
+                    .collect();
+                tracing::info!(
+                    "Discovered {} Cursor models",
+                    self.models.len(),
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Could not discover Cursor models: {e}");
+            }
+        }
     }
 }
 
@@ -82,15 +115,10 @@ impl AgentProvider for CursorProvider {
     }
 
     fn available_models(&self) -> Vec<(&str, &str)> {
-        vec![
-            ("opus-4.6", "Opus 4.6"),
-            ("opus-4.5", "Opus 4.5"),
-            ("sonnet-4.6", "Sonnet 4.6"),
-            ("sonnet-4.5", "Sonnet 4.5"),
-            ("gpt-5.4", "GPT-5.4"),
-            ("gpt-5.3-codex", "GPT-5.3 Codex"),
-            ("gpt-5.2-codex", "GPT-5.2 Codex"),
-        ]
+        self.models
+            .iter()
+            .map(|(id, label)| (id.as_str(), label.as_str()))
+            .collect()
     }
 
 }

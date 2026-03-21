@@ -128,6 +128,7 @@ pub struct WorkflowOrchestrator {
     full_execution_order: Vec<String>,
     workflow_mode: config::WorkflowMode,
     auto_pilot_model: String,
+    auto_pilot_required_commands: Vec<crate::commands::workflow_settings::AutoPilotRequiredCommand>,
     auto_complete_tickets: bool,
     auto_clarification: bool,
     stage_runner: Arc<dyn StageRunner>,
@@ -196,7 +197,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_complete_tickets, auto_clarification) =
+        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_pilot_required_commands, auto_complete_tickets, auto_clarification) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -209,6 +210,7 @@ impl WorkflowOrchestrator {
                     order,
                     ws.auto_pilot_enabled,
                     ws.auto_pilot_model.clone(),
+                    ws.auto_pilot_required_commands.clone(),
                     ws.auto_complete_tickets,
                     ws.auto_clarification,
                 )
@@ -222,6 +224,7 @@ impl WorkflowOrchestrator {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect(),
                     false,
                     crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+                    Vec::new(),
                     false,
                     false,
                 )
@@ -293,6 +296,7 @@ impl WorkflowOrchestrator {
             full_execution_order,
             workflow_mode,
             auto_pilot_model,
+            auto_pilot_required_commands,
             auto_complete_tickets,
             auto_clarification,
             stage_runner: Arc::new(DefaultStageRunner),

@@ -16,6 +16,7 @@ import {
   validateStageOrder,
   type AIModel,
   type AgentConfig,
+  type AutoPilotRequiredCommand,
   type CatalogCommand,
 } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
@@ -67,7 +68,7 @@ function useModelColWidth(models: { value: string; label: string }[]): number {
 }
 
 function SortableStageRow({
-  stageKey, agentId, config, models, catalogInfo, modelColWidth,
+  stageKey, agentId, config, models, catalogInfo, modelColWidth, autoPilotMode,
 }: {
   stageKey: string;
   agentId: string;
@@ -75,14 +76,21 @@ function SortableStageRow({
   models: { value: AIModel; label: string }[];
   catalogInfo?: CatalogCommand;
   modelColWidth: number;
+  autoPilotMode?: boolean;
 }) {
   const setStage = useSettingsStore((s) => s.setAgentConfigStage);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
   const isRequired = REQUIRED_STAGE_KEYS.has(stageKey);
   const requiredInfo = REQUIRED_STAGE_INFO.get(stageKey);
 
   const label = requiredInfo?.label ?? catalogInfo?.name ?? stageKey;
   const description = requiredInfo?.description ?? catalogInfo?.description ?? '';
   const stageConfig = config.workflowStages[stageKey];
+
+  const requiredEntry: AutoPilotRequiredCommand | undefined = autoPilotMode && !isRequired
+    ? (config.autoPilotRequiredCommands ?? []).find((r) => r.command === stageKey)
+    : undefined;
+  const isAutoPilotRequired = !!requiredEntry;
 
   const {
     attributes,
@@ -91,7 +99,7 @@ function SortableStageRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: stageKey, disabled: isRequired });
+  } = useSortable({ id: stageKey, disabled: isRequired || !!autoPilotMode });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -99,6 +107,34 @@ function SortableStageRow({
   };
 
   if (!stageConfig) return null;
+
+  const toggleActive = autoPilotMode ? isAutoPilotRequired : stageConfig.enabled;
+
+  const handleToggle = () => {
+    if (isRequired) return;
+    if (autoPilotMode) {
+      const current = config.autoPilotRequiredCommands ?? [];
+      const next = isAutoPilotRequired
+        ? current.filter((r) => r.command !== stageKey)
+        : [...current, { command: stageKey, phase: 'after' as const }];
+      updateConfig(agentId, { autoPilotRequiredCommands: next });
+    } else {
+      setStage(agentId, stageKey, { enabled: !stageConfig.enabled });
+    }
+  };
+
+  const handlePhaseToggle = () => {
+    if (!requiredEntry) return;
+    const current = config.autoPilotRequiredCommands ?? [];
+    const next = current.map((r) =>
+      r.command === stageKey
+        ? { ...r, phase: (r.phase === 'before' ? 'after' : 'before') as 'before' | 'after' }
+        : r
+    );
+    updateConfig(agentId, { autoPilotRequiredCommands: next });
+  };
+
+  const modelDisabled = autoPilotMode ? !isAutoPilotRequired && !isRequired : !stageConfig.enabled;
 
   const gridStyle = {
     ...style,
@@ -111,11 +147,15 @@ function SortableStageRow({
       style={gridStyle}
       className={cn(
         'grid gap-2 items-center px-2 py-1.5 rounded-lg transition-all duration-150',
-        stageConfig.enabled ? 'glass-subtle' : 'opacity-50',
+        autoPilotMode && !isRequired
+          ? isAutoPilotRequired
+            ? 'glass-subtle ring-1 ring-emerald-500/20'
+            : 'opacity-60 hover:opacity-80'
+          : toggleActive ? 'glass-subtle' : 'opacity-50',
         isDragging && 'opacity-70 ring-1 ring-board-accent z-10',
       )}
     >
-      {!isRequired ? (
+      {!isRequired && !autoPilotMode ? (
         <button
           {...attributes}
           {...listeners}
@@ -129,40 +169,82 @@ function SortableStageRow({
         <div />
       )}
       <button
-        onClick={() => { if (!isRequired) setStage(agentId, stageKey, { enabled: !stageConfig.enabled }); }}
+        onClick={handleToggle}
         disabled={isRequired}
         className={cn(
           'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200',
           isRequired ? 'cursor-not-allowed' : 'cursor-pointer',
-          stageConfig.enabled ? 'bg-board-accent' : 'glass'
+          autoPilotMode && !isRequired
+            ? toggleActive ? 'bg-emerald-500' : 'glass'
+            : toggleActive ? 'bg-board-accent' : 'glass'
         )}
-        title={isRequired ? 'Required stage' : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${label}`}
+        title={isRequired ? 'Required stage' : autoPilotMode ? `${isAutoPilotRequired ? 'Remove from' : 'Add to'} always-run commands` : `${stageConfig.enabled ? 'Disable' : 'Enable'} ${label}`}
       >
         <span className={cn(
           'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
-          stageConfig.enabled ? 'translate-x-4' : 'translate-x-0.5'
+          toggleActive ? 'translate-x-4' : 'translate-x-0.5'
         )} style={{ marginTop: '2px' }} />
       </button>
       <div className="min-w-0">
-        <span className="text-sm font-medium text-board-text">{label}</span>
-        {isRequired && (
-          <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">required</span>
-        )}
-        {catalogInfo && stageKey === 'code-review' && (
-          <span className="ml-1.5 text-[9px] font-medium px-1 py-0 rounded-full bg-purple-500/15 text-purple-400 leading-relaxed">composite</span>
-        )}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-medium text-board-text">{label}</span>
+          {isRequired && (
+            <span className="text-[9px] font-medium px-1 py-0 rounded-full bg-board-accent/15 text-board-accent leading-relaxed">required</span>
+          )}
+          {catalogInfo && stageKey === 'code-review' && (
+            <span className="text-[9px] font-medium px-1 py-0 rounded-full bg-purple-500/15 text-purple-400 leading-relaxed">composite</span>
+          )}
+          {autoPilotMode && !isRequired && isAutoPilotRequired && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-medium leading-none">
+              <span className="inline-flex rounded-md overflow-hidden border border-board-border/30">
+                <button
+                  onClick={() => { if (requiredEntry?.phase !== 'before') handlePhaseToggle(); }}
+                  className={cn(
+                    'px-2 py-1 transition-colors',
+                    requiredEntry?.phase === 'before'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : 'text-board-text-muted/70 hover:text-board-text hover:bg-board-text/10',
+                  )}
+                  title="Run before auto-pilot selected commands"
+                >
+                  before
+                </button>
+                <button
+                  onClick={() => { if (requiredEntry?.phase === 'before') handlePhaseToggle(); }}
+                  className={cn(
+                    'px-2 py-1 transition-colors border-l border-board-border/30',
+                    requiredEntry?.phase !== 'before'
+                      ? 'bg-sky-500/20 text-sky-400'
+                      : 'text-board-text-muted/70 hover:text-board-text hover:bg-board-text/10',
+                  )}
+                  title="Run after auto-pilot selected commands"
+                >
+                  after
+                </button>
+              </span>
+              <span className="text-board-text-muted">auto-pilot commands</span>
+            </span>
+          )}
+          {autoPilotMode && !isRequired && !isAutoPilotRequired && (
+            <span className="text-[10px] text-board-text-muted/50 italic">auto-pilot decides</span>
+          )}
+        </div>
         <p className="text-[11px] text-board-text-muted truncate">{description}</p>
       </div>
-      <select
-        value={stageConfig.model}
-        onChange={(e) => setStage(agentId, stageKey, { model: e.target.value as AIModel })}
-        disabled={!stageConfig.enabled}
-        className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        {models.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
+      {autoPilotMode && !isRequired && !isAutoPilotRequired ? (
+        <div className="w-full px-2 py-1 text-xs text-board-text-muted/40 italic text-center">--</div>
+      ) : (
+        <select
+          value={stageConfig.model}
+          onChange={(e) => setStage(agentId, stageKey, { model: e.target.value as AIModel })}
+          disabled={modelDisabled}
+          className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {models.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
@@ -226,7 +308,8 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
         } else if (config.workflowStages[key]) {
           cmdElements.push(
             <SortableStageRow key={key} stageKey={key} agentId={agentId} config={config}
-              models={models} catalogInfo={catalogMap.get(key)} modelColWidth={modelColWidth} />
+              models={models} catalogInfo={catalogMap.get(key)} modelColWidth={modelColWidth}
+              autoPilotMode />
           );
         }
       }
@@ -234,8 +317,15 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
       return [
         ...coreElements,
         ...(cmdElements.length > 0 ? [
-          <ZoneSeparator key="auto-pilot-sep" label="commands (selected by auto-pilot)" />,
-          <div key="auto-pilot-cmds" className="opacity-50 pointer-events-none space-y-1">
+          <div key="auto-pilot-sep" className="px-2 py-2 mt-1">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 border-t border-dashed border-emerald-500/30" />
+              <span className="text-[10px] font-semibold text-emerald-400/80 uppercase tracking-wider">Commands</span>
+              <div className="flex-1 border-t border-dashed border-emerald-500/30" />
+            </div>
+            <p className="text-[11px] text-board-text-muted text-center mt-1">Toggle on to always run a command. Auto-pilot selects the rest.</p>
+          </div>,
+          <div key="auto-pilot-cmds" className="space-y-1">
             {cmdElements}
           </div>,
         ] : []),
@@ -333,14 +423,14 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           <h4 className="text-sm font-medium text-board-text">Stage Configuration</h4>
           <p className="text-xs text-board-text-muted mt-0.5">
             {config.autoPilotEnabled
-              ? 'Choose models for core stages. Commands are selected by auto-pilot.'
+              ? 'Choose models for core stages. Toggle commands on to always run them.'
               : 'Toggle stages and choose models. Drag command stages to reorder.'}
           </p>
         </div>
         <div className="space-y-1">
           <div className="grid gap-2 px-2 py-1" style={{ gridTemplateColumns: `20px 40px 1fr ${modelColWidth}px` }}>
             <span />
-            <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">On</span>
+            <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">{config.autoPilotEnabled ? 'Always' : 'On'}</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Stage</span>
             <span className="text-[11px] font-medium text-board-text-muted uppercase tracking-wider">Model</span>
           </div>

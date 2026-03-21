@@ -1,5 +1,6 @@
 //! Main workflow execution logic for the orchestrator.
 
+use super::auto_pilot;
 use super::config::{TodoItemStatus, WorkflowMode};
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::{
@@ -66,6 +67,14 @@ impl WorkflowOrchestrator {
     }
 
     /// Execute the auto-pilot workflow where the agent decides which commands to run.
+    ///
+    /// Execution order:
+    /// 1. Branch creation, plan, implement
+    /// 2. Pre-commands (required commands with phase=before)
+    /// 3. LLM command selection (forced commands excluded from available list)
+    /// 4. Agent-selected commands
+    /// 5. Post-commands (required commands with phase=after)
+    /// 6. Commit
     async fn execute_auto_pilot(&self) -> Result<(), String> {
         if self.resume_from_stage.is_some() {
             self.restore_workflow_session_id();
@@ -81,17 +90,59 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
 
-        let selections = self.run_command_selection_stage(&plan, &impl_result).await?;
+        let (pre_commands, post_commands) = auto_pilot::split_required_commands(
+            &self.auto_pilot_required_commands,
+            &self.stage_configs,
+            &self.auto_pilot_model,
+        );
+
+        let forced_ids: Vec<&str> = self
+            .auto_pilot_required_commands
+            .iter()
+            .map(|r| r.command.as_str())
+            .collect();
+
+        let custom_dir = self.custom_commands_dir();
+
+        if !pre_commands.is_empty() {
+            tracing::info!(
+                "Auto-pilot: running {} pre-commands: {:?}",
+                pre_commands.len(),
+                pre_commands.iter().map(|s| &s.command).collect::<Vec<_>>(),
+            );
+            for selection in &pre_commands {
+                if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                }
+                self.run_auto_pilot_command(selection, custom_dir.as_deref())
+                    .await?;
+            }
+        }
+
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+
+        let selections = self
+            .run_command_selection_stage_excluding(&plan, &impl_result, &forced_ids)
+            .await?;
+
+        let all_selections: Vec<auto_pilot::CommandSelection> = pre_commands
+            .iter()
+            .chain(selections.iter())
+            .chain(post_commands.iter())
+            .cloned()
+            .collect();
 
         if let Err(e) = self.db.merge_run_metadata(
             &self.parent_run_id,
-            &serde_json::json!({ "auto_pilot_selections": selections }),
+            &serde_json::json!({ "auto_pilot_selections": all_selections }),
         ) {
             tracing::warn!("Failed to persist auto-pilot selections: {}", e);
         }
 
         if selections.is_empty() {
-            tracing::info!("Auto-pilot: agent selected no commands, proceeding to commit");
+            tracing::info!("Auto-pilot: agent selected no commands");
         } else {
             tracing::info!(
                 "Auto-pilot: agent selected {} commands: {:?}",
@@ -100,20 +151,27 @@ impl WorkflowOrchestrator {
             );
         }
 
-        let custom_dir = self.custom_commands_dir();
         for selection in &selections {
             if self.is_cancelled() {
                 return Err("Workflow cancelled".to_string());
             }
-            self.run_stage_with_model(
-                &selection.command,
-                &generate_command_prompt(
-                    &selection.command,
-                    custom_dir.as_deref(),
-                ),
-                &selection.model,
-            )
-            .await?;
+            self.run_auto_pilot_command(selection, custom_dir.as_deref())
+                .await?;
+        }
+
+        if !post_commands.is_empty() {
+            tracing::info!(
+                "Auto-pilot: running {} post-commands: {:?}",
+                post_commands.len(),
+                post_commands.iter().map(|s| &s.command).collect::<Vec<_>>(),
+            );
+            for selection in &post_commands {
+                if self.is_cancelled() {
+                    return Err("Workflow cancelled".to_string());
+                }
+                self.run_auto_pilot_command(selection, custom_dir.as_deref())
+                    .await?;
+            }
         }
 
         self.run_commit_stage().await?;
@@ -121,6 +179,27 @@ impl WorkflowOrchestrator {
         self.run_detour_sync_if_needed().await?;
         self.finish_workflow("Auto-pilot");
         Ok(())
+    }
+
+    /// Run a single auto-pilot command, dispatching composite commands
+    /// (like code-review) to their iterative loop.
+    async fn run_auto_pilot_command(
+        &self,
+        selection: &auto_pilot::CommandSelection,
+        custom_dir: Option<&std::path::Path>,
+    ) -> Result<(), String> {
+        if selection.command == "code-review" {
+            self.run_code_review_loop_with_model(&selection.model)
+                .await
+        } else {
+            self.run_stage_with_model(
+                &selection.command,
+                &generate_command_prompt(&selection.command, custom_dir),
+                &selection.model,
+            )
+            .await
+            .map(|_| ())
+        }
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {
