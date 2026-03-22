@@ -267,4 +267,52 @@ describe('parseReviewBlocks', () => {
     expect(result.commands[0].type).toBe('run_command');
     expect(result.commands[0].command).toBe('npm test');
   });
+
+  // ── bare inline JSON support ─────────────────────────────────────
+
+  it('extracts create_fix_tasks from bare inline JSON', () => {
+    const content =
+      'The driver does not validate addresses at open time.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix empty address validation","description":"Add an early check in NewCHClient"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix empty address validation');
+    expect(result.cleanedContent).toContain('The driver does not validate');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare inline JSON with multiline description containing newlines', () => {
+    const content =
+      'Found an issue.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix test","description":"Problem: test fails\\n\\nRequirements:\\n- Add validation","acceptance_criteria":["Tests pass"]}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix test');
+    expect(result.tasks[0].acceptanceCriteria).toEqual(['Tests pass']);
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('does not double-parse when code fence is already matched', () => {
+    const content = [
+      '```json',
+      '{"create_fix_tasks":{"tasks":[{"title":"Task A"}]}}',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Task A');
+  });
+
+  it('extracts bare inline run_command', () => {
+    const content = 'Running tests now.\n\n{"run_command":{"command":"make test"}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('run_command');
+    expect(result.commands[0].command).toBe('make test');
+    expect(result.cleanedContent).not.toContain('run_command');
+  });
 });

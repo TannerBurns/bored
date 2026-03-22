@@ -80,9 +80,48 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
     }
   }
 
+  // Match bare inline JSON objects with known action keys (no wrappers).
+  // Only attempt if we haven't already found blocks via the wrapped patterns.
+  if (blocksToRemove.length === 0) {
+    const bareJsonRegex = /\{[\s\S]*?"(?:create_fix_tasks|run_command|start_app|stop_app)"[\s\S]*\}/g;
+    while ((match = bareJsonRegex.exec(content)) !== null) {
+      const candidate = match[0];
+      try {
+        const parsed = JSON.parse(candidate);
+        if (processJsonMatch(parsed, tasks, commands)) {
+          blocksToRemove.push(candidate);
+        }
+      } catch {
+        // May have grabbed too much -- try to find the balanced closing brace
+        const balanced = extractBalancedJson(candidate);
+        if (balanced) {
+          try {
+            const parsed = JSON.parse(balanced);
+            if (processJsonMatch(parsed, tasks, commands)) {
+              blocksToRemove.push(balanced);
+            }
+          } catch {
+            // Not valid JSON, skip
+          }
+        }
+      }
+    }
+  }
+
   for (const block of blocksToRemove) {
     cleanedContent = cleanedContent.replace(block, '');
   }
 
   return { cleanedContent: cleanedContent.trim(), tasks, commands };
+}
+
+/** Walk from the opening brace and find the matching closing brace. */
+function extractBalancedJson(text: string): string | null {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') depth--;
+    if (depth === 0) return text.slice(0, i + 1);
+  }
+  return null;
 }
