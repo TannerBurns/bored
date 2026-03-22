@@ -1,4 +1,4 @@
-export interface ParsedFixTask {
+interface ParsedFixTask {
   title: string;
   description?: string;
   acceptanceCriteria?: string[];
