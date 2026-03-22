@@ -24,6 +24,51 @@ vi.mock('../../common/CostBadge', () => ({
     return cost;
   },
   getTotalCost: (cost: { totalCostUsd: number }) => cost.totalCostUsd,
+  aggregateRunCosts: (runs: AgentRun[]) => {
+    let total = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheRead = 0;
+    let cacheWrite = 0;
+    let anyEstimated = false;
+    let found = false;
+    const mergedModels: Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }> = {};
+    for (const run of runs) {
+      const meta = run.metadata as Record<string, unknown> | undefined;
+      const c = meta?.cost as Record<string, unknown> | undefined;
+      if (!c) continue;
+      found = true;
+      total += (c.totalCostUsd as number) || 0;
+      inputTokens += (c.inputTokens as number) || 0;
+      outputTokens += (c.outputTokens as number) || 0;
+      cacheRead += (c.cacheReadTokens as number) || 0;
+      cacheWrite += (c.cacheCreationTokens as number) || 0;
+      if (c.isEstimated) anyEstimated = true;
+      const models = (c.modelUsage ?? {}) as Record<string, { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number }>;
+      if (Object.keys(models).length === 0) {
+        if ((c.totalCostUsd as number) > 0 || (c.inputTokens as number) > 0 || (c.outputTokens as number) > 0) {
+          const e = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          e.inputTokens += (c.inputTokens as number) || 0;
+          e.outputTokens += (c.outputTokens as number) || 0;
+          e.cacheReadTokens += (c.cacheReadTokens as number) || 0;
+          e.cacheCreationTokens += (c.cacheCreationTokens as number) || 0;
+          e.costUsd += (c.totalCostUsd as number) || 0;
+        }
+      } else {
+        for (const [model, data] of Object.entries(models)) {
+          const e = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+          e.inputTokens += data.inputTokens;
+          e.outputTokens += data.outputTokens;
+          e.cacheReadTokens += data.cacheReadTokens;
+          e.cacheCreationTokens += data.cacheCreationTokens;
+          e.costUsd += data.costUsd;
+        }
+      }
+    }
+    if (!found) return null;
+    const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
+    return { totalCostUsd: modelSum > 0 ? modelSum : total, inputTokens, outputTokens, cacheReadTokens: cacheRead, cacheCreationTokens: cacheWrite, modelUsage: mergedModels, isEstimated: anyEstimated };
+  },
 }));
 
 const now = new Date('2025-06-15T12:00:00Z');
@@ -423,7 +468,7 @@ describe('RunsHistory', () => {
         implementationTodos: todos,
       });
       expect(screen.getByText('plan')).toBeInTheDocument();
-      expect(screen.getByText('code-review')).toBeInTheDocument();
+      expect(screen.getByText(/code-review \(\d+\)/)).toBeInTheDocument();
     });
   });
 

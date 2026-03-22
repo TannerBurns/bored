@@ -531,10 +531,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 22', () => {
+    it('uses version 23', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(22);
+      expect(options.version).toBe(23);
     });
   });
 

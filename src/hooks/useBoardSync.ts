@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useBoardStore } from '../stores/boardStore';
 import { getColumns, getTickets, getBoardTaskCounts } from '../lib/tauri';
@@ -58,10 +58,19 @@ export function useBoardSync(isActive = true): BoardSyncState {
   const selectedTicket = useBoardStore((s) => s.selectedTicket);
   const selectTicket = useBoardStore((s) => s.selectTicket);
 
-  // Ref for selectedTicket so the polling effect can read the latest value
-  // without restarting its interval on every selectedTicket change.
+  // Refs so useCallback handlers can read the latest values without
+  // restarting effects or recreating callback identity on every render.
   const selectedTicketRef = useRef(selectedTicket);
   selectedTicketRef.current = selectedTicket;
+
+  const localBoardsRef = useRef(localBoards);
+  localBoardsRef.current = localBoards;
+
+  const currentBoardRef = useRef(currentBoard);
+  currentBoardRef.current = currentBoard;
+
+  const ticketsRef = useRef(tickets);
+  ticketsRef.current = tickets;
 
   // Sync boards from store to local state
   useEffect(() => {
@@ -210,11 +219,10 @@ export function useBoardSync(isActive = true): BoardSyncState {
     return () => clearInterval(interval);
   }, [currentBoard, selectTicket, isActive]);
 
-  const handleBoardSelect = async (boardId: string) => {
-    const board = localBoards.find((b) => b.id === boardId);
+  const handleBoardSelect = useCallback(async (boardId: string) => {
+    const board = localBoardsRef.current.find((b) => b.id === boardId);
     if (!board) return;
 
-    // Track this request to handle race conditions
     currentRequestRef.current = boardId;
     
     setCurrentBoardLocal(board);
@@ -226,27 +234,23 @@ export function useBoardSync(isActive = true): BoardSyncState {
         getTickets(board.id),
         getBoardTaskCounts(board.id),
       ]);
-      // Only apply results if this is still the current request
       if (currentRequestRef.current === boardId) {
         setColumns(columnsData);
         setTickets(ticketsData);
         useBoardStore.getState().setTaskCountsMap(taskCountsData);
       }
     } catch (error) {
-      // Only log error if this is still the current request
       if (currentRequestRef.current === boardId) {
         logger.error('Failed to load board data:', error);
       }
     }
-  };
+  }, [setCurrentBoard]);
 
-  const requestDeleteBoard = async (board: Board) => {
+  const requestDeleteBoard = useCallback(async (board: Board) => {
     let ticketCount: number;
 
-    // If deleting the current board, we already have the tickets in local state
-    // Otherwise, fetch the ticket count from the backend
-    if (board.id === currentBoard?.id) {
-      ticketCount = tickets.length;
+    if (board.id === currentBoardRef.current?.id) {
+      ticketCount = ticketsRef.current.length;
     } else {
       try {
         const boardTickets = await getTickets(board.id);
@@ -258,7 +262,7 @@ export function useBoardSync(isActive = true): BoardSyncState {
     }
 
     setDeleteConfirmation({ board, ticketCount });
-  };
+  }, []);
 
   const confirmDeleteBoard = async () => {
     if (!deleteConfirmation) return;
