@@ -411,7 +411,7 @@ export function ChatMessageList({
 }
 
 import { parseReviewBlocks } from './parseReviewBlocks';
-import type { ParsedFixTask, ParsedCommand } from './parseReviewBlocks';
+import type { ParsedCommand } from './parseReviewBlocks';
 
 function CommandCard({ command }: { command: ParsedCommand }) {
   if (command.type === 'run_command') {
@@ -451,43 +451,6 @@ function CommandCard({ command }: { command: ParsedCommand }) {
   );
 }
 
-function FixTaskCard({ task }: { task: ParsedFixTask }) {
-  const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-500/20 text-yellow-400',
-    running: 'bg-blue-500/20 text-blue-400',
-    completed: 'bg-emerald-500/20 text-emerald-400',
-    failed: 'bg-red-500/20 text-red-400',
-  };
-  const statusColor = statusColors[task.status || 'pending'] || statusColors.pending;
-
-  return (
-    <div className="border border-board-border rounded-lg p-3 bg-board-card/30">
-      <div className="flex items-center gap-2">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
-          {task.status || 'pending'}
-        </span>
-        <span className="font-medium text-sm">{task.title}</span>
-      </div>
-      {task.description && (
-        <p className="text-xs text-board-text-muted mt-1.5">{task.description}</p>
-      )}
-      {task.acceptanceCriteria && task.acceptanceCriteria.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-board-border/50">
-          <span className="text-[10px] font-medium text-board-text-muted uppercase tracking-wide">Acceptance Criteria</span>
-          <ul className="mt-1 space-y-0.5">
-            {task.acceptanceCriteria.map((criterion, i) => (
-              <li key={i} className="text-xs text-board-text-muted flex items-start gap-1.5">
-                <span className="text-board-text-muted/50 mt-0.5">•</span>
-                <span>{criterion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ReviewMessage({ content }: { content: string }) {
   const { cleanedContent, tasks, commands } = parseReviewBlocks(content);
   const hasBlocks = tasks.length > 0 || commands.length > 0;
@@ -503,20 +466,6 @@ function ReviewMessage({ content }: { content: string }) {
         <div className="space-y-2">
           {commands.map((cmd, i) => (
             <CommandCard key={i} command={cmd} />
-          ))}
-        </div>
-      )}
-      {tasks.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-medium text-board-text-muted">Fix Tasks Created</span>
-          </div>
-          {tasks.map((task, i) => (
-            <FixTaskCard key={i} task={task} />
           ))}
         </div>
       )}
