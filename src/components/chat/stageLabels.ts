@@ -48,7 +48,7 @@ export function deriveStageGroups(
     if (!run.stage) continue;
     const label = getStageGroupLabel(run.stage);
     const existing = seen.get(label);
-    const incoming = run.status as StageGroupStatus;
+    const incoming = mapRunStatus(run.status);
 
     if (!existing) {
       seen.set(label, incoming);
@@ -81,4 +81,16 @@ function mergeStatus(a: StageGroupStatus, b: StageGroupStatus): StageGroupStatus
   if (a === 'running' || b === 'running') return 'running';
   if (a === 'finished' && b === 'finished') return 'finished';
   return b;
+}
+
+export function mapRunStatus(status: string): StageGroupStatus {
+  switch (status) {
+    case 'running': return 'running';
+    case 'finished': return 'finished';
+    case 'error':
+    case 'aborted': return 'error';
+    case 'queued':
+    case 'paused':
+    default: return 'pending';
+  }
 }

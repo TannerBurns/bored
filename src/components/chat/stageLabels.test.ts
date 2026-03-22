@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getStageGroupLabel,
   deriveStageGroups,
+  mapRunStatus,
   STAGE_GROUP_ORDER,
 } from './stageLabels';
 
@@ -152,5 +153,50 @@ describe('deriveStageGroups', () => {
       { stage: 'implement', status: 'finished' },
     ]);
     expect(result).toEqual([{ label: 'Implement', status: 'finished' }]);
+  });
+
+  it('maps aborted sub-run status to error', () => {
+    const result = deriveStageGroups([
+      { stage: 'plan', status: 'finished' },
+      { stage: 'implement', status: 'aborted' },
+    ]);
+    expect(result[1]).toEqual({ label: 'Implement', status: 'error' });
+  });
+
+  it('maps paused sub-run status to pending', () => {
+    const result = deriveStageGroups([
+      { stage: 'implement', status: 'paused' },
+    ]);
+    expect(result[0]).toEqual({ label: 'Implement', status: 'pending' });
+  });
+});
+
+describe('mapRunStatus', () => {
+  it('maps running to running', () => {
+    expect(mapRunStatus('running')).toBe('running');
+  });
+
+  it('maps finished to finished', () => {
+    expect(mapRunStatus('finished')).toBe('finished');
+  });
+
+  it('maps error to error', () => {
+    expect(mapRunStatus('error')).toBe('error');
+  });
+
+  it('maps aborted to error', () => {
+    expect(mapRunStatus('aborted')).toBe('error');
+  });
+
+  it('maps queued to pending', () => {
+    expect(mapRunStatus('queued')).toBe('pending');
+  });
+
+  it('maps paused to pending', () => {
+    expect(mapRunStatus('paused')).toBe('pending');
+  });
+
+  it('maps unknown values to pending', () => {
+    expect(mapRunStatus('something_else')).toBe('pending');
   });
 });

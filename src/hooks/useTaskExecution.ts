@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Task, AgentRun } from '../types';
-import { deriveStageGroups, type StageGroup, type StageGroupStatus } from '../components/chat/stageLabels';
-import type { RunStatus } from '../types';
+import { deriveStageGroups, mapRunStatus, type StageGroup } from '../components/chat/stageLabels';
 
 export interface TaskWithStages {
   task: Task;
@@ -93,8 +92,8 @@ export function useTaskExecution(
         );
 
       if (subRuns.length === 0 && parentRun) {
-        const status = mapRunStatus(parentRun.status as RunStatus);
-        const label = runStatusLabel(parentRun.status as RunStatus);
+        const status = mapRunStatus(parentRun.status);
+        const label = runStatusLabel(parentRun.status);
         return {
           task,
           stages: [{ label, status }],
@@ -113,19 +112,7 @@ export function useTaskExecution(
   return { tasks: tasksWithStages, isAllComplete, isLoading };
 }
 
-function mapRunStatus(status: RunStatus): StageGroupStatus {
-  switch (status) {
-    case 'running': return 'running';
-    case 'finished': return 'finished';
-    case 'error':
-    case 'aborted': return 'error';
-    case 'queued':
-    case 'paused':
-    default: return 'pending';
-  }
-}
-
-function runStatusLabel(status: RunStatus): string {
+function runStatusLabel(status: string): string {
   switch (status) {
     case 'running': return 'Starting';
     case 'finished': return 'Finished';
