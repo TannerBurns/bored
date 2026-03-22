@@ -54,8 +54,7 @@ export function useTaskExecution(
         setTasks(fetched);
         setIsLoading(false);
 
-        const hasRunning = fetched.some((t) => t.status === 'in_progress');
-        if (hasRunning && ticketId) {
+        if (ticketId && fetched.some((t) => t.runId)) {
           const runs = await invoke<AgentRun[]>('get_agent_runs', {
             ticketId,
           });
