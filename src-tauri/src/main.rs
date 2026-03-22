@@ -193,11 +193,21 @@ fn main() {
                 WebviewUrl::App("index.html".into())
             };
 
-            let _main_window = WebviewWindowBuilder::new(app, "main", window_url)
+            let builder = WebviewWindowBuilder::new(app, "main", window_url)
                 .title("Bored")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(900.0, 600.0)
-                .resizable(true)
+                .resizable(true);
+
+            #[cfg(target_os = "macos")]
+            let builder = builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
+
+            #[cfg(not(target_os = "macos"))]
+            let builder = builder.decorations(false);
+
+            let _main_window = builder
                 .on_navigation(|url| {
                     let allowed = is_allowed_url(url);
                     if !allowed {
