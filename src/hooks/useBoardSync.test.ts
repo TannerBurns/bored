@@ -277,4 +277,74 @@ describe('useBoardSync', () => {
       expect(result.current.tickets[0].title).toBe('Updated');
     });
   });
+
+  describe('callback stability', () => {
+    it('handleBoardSelect keeps the same reference across renders', async () => {
+      useBoardStore.setState({ boards: [mockBoard] });
+      const { result, rerender } = renderHook(() => useBoardSync());
+
+      await waitFor(() => {
+        expect(result.current.boards).toHaveLength(1);
+      });
+
+      const first = result.current.handleBoardSelect;
+      rerender();
+      const second = result.current.handleBoardSelect;
+
+      expect(first).toBe(second);
+    });
+
+    it('requestDeleteBoard keeps the same reference across renders', async () => {
+      useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      const { result, rerender } = renderHook(() => useBoardSync());
+
+      const first = result.current.requestDeleteBoard;
+      rerender();
+      const second = result.current.requestDeleteBoard;
+
+      expect(first).toBe(second);
+    });
+
+    it('handleBoardSelect reads latest boards via ref after state update', async () => {
+      useBoardStore.setState({ boards: [mockBoard] });
+      const { result } = renderHook(() => useBoardSync());
+
+      await waitFor(() => {
+        expect(result.current.boards).toHaveLength(1);
+      });
+
+      const savedHandler = result.current.handleBoardSelect;
+
+      act(() => {
+        useBoardStore.setState({ boards: [mockBoard, mockBoard2] });
+      });
+
+      await waitFor(() => {
+        expect(result.current.boards).toHaveLength(2);
+      });
+
+      await act(async () => {
+        await savedHandler('board-2');
+      });
+
+      expect(result.current.currentBoard?.id).toBe('board-2');
+    });
+
+    it('requestDeleteBoard reads latest tickets via ref', async () => {
+      useBoardStore.setState({ boards: [mockBoard], currentBoard: mockBoard });
+      const { result } = renderHook(() => useBoardSync());
+
+      const savedHandler = result.current.requestDeleteBoard;
+
+      act(() => {
+        result.current.setTickets([mockTicket, { ...mockTicket, id: 'ticket-2' }]);
+      });
+
+      await act(async () => {
+        await savedHandler(mockBoard);
+      });
+
+      expect(result.current.deleteConfirmation?.ticketCount).toBe(2);
+    });
+  });
 });

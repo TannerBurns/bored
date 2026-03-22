@@ -284,13 +284,13 @@ describe('AgentSettingsPage', () => {
     it('renders timeout inputs for all agent sections', () => {
       render(<AgentSettingsPage agentId="claude" />);
       const labels = screen.getAllByText('Timeout (min)');
-      expect(labels.length).toBe(5);
+      expect(labels.length).toBe(6);
     });
 
     it('renders max retries inputs for all agent sections', () => {
       render(<AgentSettingsPage agentId="claude" />);
       const labels = screen.getAllByText('Max Retries');
-      expect(labels.length).toBe(6);
+      expect(labels.length).toBe(7);
     });
   });
 

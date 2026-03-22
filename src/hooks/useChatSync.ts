@@ -37,18 +37,16 @@ export function useChatSync(
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
 
-  const {
-    loadChats,
-    refreshChat,
-    loadMessages,
-    loadChatEvents,
-    addAgentLog,
-    clearAgentLogs,
-    addAppLogs,
-    setAgentThinking,
-    updateChatCost,
-    updateChatTitle,
-  } = useChatStore();
+  const loadChats = useChatStore((s) => s.loadChats);
+  const refreshChat = useChatStore((s) => s.refreshChat);
+  const loadMessages = useChatStore((s) => s.loadMessages);
+  const loadChatEvents = useChatStore((s) => s.loadChatEvents);
+  const addAgentLog = useChatStore((s) => s.addAgentLog);
+  const clearAgentLogs = useChatStore((s) => s.clearAgentLogs);
+  const addAppLogs = useChatStore((s) => s.addAppLogs);
+  const setAgentThinking = useChatStore((s) => s.setAgentThinking);
+  const updateChatCost = useChatStore((s) => s.updateChatCost);
+  const updateChatTitle = useChatStore((s) => s.updateChatTitle);
 
   const appLogBufferRef = useRef<Map<string, ChatLogEntry[]>>(new Map());
   const flushTimerRef = useRef<number | null>(null);
