@@ -340,4 +340,54 @@ describe('parseReviewBlocks', () => {
     expect(result.cleanedContent).toContain('Two issues found:');
     expect(result.cleanedContent).not.toContain('create_fix_tasks');
   });
+
+  it('preserves trailing text after bare inline JSON', () => {
+    const content =
+      'Here is the issue.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix it"}]}}\n\n' +
+      'Let me know if you have questions.';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.cleanedContent).toContain('Here is the issue.');
+    expect(result.cleanedContent).toContain('Let me know if you have questions.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('handles bare JSON with deeply nested objects in description', () => {
+    const content =
+      '{"create_fix_tasks":{"tasks":[{"title":"Nested","description":"config: {\\\"key\\\": {\\\"nested\\\": true}}"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Nested');
+  });
+
+  it('ignores bare JSON-like text without valid structure', () => {
+    const content =
+      'Use {"create_fix_tasks" as the key but this is not valid JSON at all';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(0);
+    expect(result.cleanedContent).toBe(content);
+  });
+
+  it('handles bare stop_app JSON', () => {
+    const content = 'Stopping now.\n\n{"stop_app":{}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('stop_app');
+    expect(result.cleanedContent).not.toContain('stop_app');
+  });
+
+  it('handles bare start_app JSON with port', () => {
+    const content = 'Starting.\n\n{"start_app":{"command":"npm start","port":3000}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('start_app');
+    expect(result.commands[0].command).toBe('npm start');
+    expect(result.commands[0].port).toBe(3000);
+  });
 });
