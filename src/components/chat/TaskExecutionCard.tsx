@@ -17,25 +17,26 @@ export const TaskExecutionCard = memo(function TaskExecutionCard({
 }: TaskExecutionCardProps) {
   const { tasks, isAllComplete, isLoading } = useTaskExecution(taskIds, ticketId);
 
-  if (isLoading && tasks.length === 0) {
+  if (taskIds.length === 0 || (isLoading && tasks.length === 0)) {
+    if (!fallbackTitles || fallbackTitles.length === 0) return null;
     return (
       <div className="max-w-[85%]">
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
           <div className="flex items-center gap-2">
             <TasksIcon />
             <span className="text-xs font-medium text-amber-400">Fix Tasks</span>
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            {isLoading && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            )}
           </div>
-          {fallbackTitles && fallbackTitles.length > 0 && (
-            <div className="mt-2 space-y-1">
-              {fallbackTitles.map((title, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs text-board-text pl-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/60 flex-shrink-0" />
-                  <span>{title}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="mt-2 space-y-1">
+            {fallbackTitles.map((title, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-board-text pl-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/60 flex-shrink-0" />
+                <span>{title}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
