@@ -236,7 +236,7 @@ fn summary_includes_git_stats() {
 #[test]
 fn trends_returns_sorted_date_points() {
     let db = create_test_db();
-    let trends = db.get_dashboard_trends(7).unwrap();
+    let trends = db.get_dashboard_trends(7, 0).unwrap();
     assert_eq!(trends.len(), 8);
     for w in trends.windows(2) {
         assert!(w[0].date <= w[1].date, "dates should be sorted ascending");
@@ -252,7 +252,7 @@ fn trends_populates_run_counts() {
 
     create_finished_run(&db, &ticket.id, "cursor", None);
 
-    let trends = db.get_dashboard_trends(7).unwrap();
+    let trends = db.get_dashboard_trends(7, 0).unwrap();
     let today = trends.last().unwrap();
     assert!(today.runs >= 1);
 }
