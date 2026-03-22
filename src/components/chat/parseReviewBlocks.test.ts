@@ -315,4 +315,29 @@ describe('parseReviewBlocks', () => {
     expect(result.commands[0].command).toBe('make test');
     expect(result.cleanedContent).not.toContain('run_command');
   });
+
+  it('extracts bare JSON when explanation text contains curly braces like ${REPO}', () => {
+    const content =
+      'The PATCH call uses `repos/${REPO}/issues/${PR_NUM}/comments/${COMMENT_ID}` ' +
+      'but the correct endpoint is `repos/{owner}/{repo}/issues/comments/{comment_id}`.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix PR comment 404","description":"Change the PATCH endpoint from repos/${REPO}/issues/${PR_NUM}/comments/${COMMENT_ID} to repos/${REPO}/issues/comments/${COMMENT_ID}"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix PR comment 404');
+    expect(result.cleanedContent).toContain('The PATCH call uses');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare JSON whose description contains escaped quotes and backticks', () => {
+    const content =
+      'Two issues found:\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix CI","description":"Change:\\n   ```\\n   gh api \\"repos/${REPO}/issues/comments/${COMMENT_ID}\\"\\n   ```\\nDone."}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CI');
+    expect(result.cleanedContent).toContain('Two issues found:');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
 });
