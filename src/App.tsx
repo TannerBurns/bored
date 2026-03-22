@@ -233,97 +233,97 @@ function App() {
         />
 
         <main className="flex-1 p-4 overflow-hidden flex flex-col">
-        {isTicketModalOpen && selectedTicket ? (
-          <TicketDetailView
-            ticket={selectedTicket}
-            columns={columns}
-            comments={comments}
-            boardName={currentBoard?.name ?? 'Board'}
-            onClose={closeTicketModal}
-            onUpdate={handleUpdateTicket}
-            onMoveTicket={handleTicketMove}
-            onAddComment={handleAddComment}
-            onUpdateComment={handleUpdateComment}
-            onRunWithAgent={handleRunWithAgent}
-            onNavigateToChat={handleNavigateToChat}
-            onDelete={handleDeleteTicket}
-            onAgentComplete={handleAgentComplete}
-          />
-        ) : (
-          <>
-            <Header
-              title={
-                activeNav === 'dashboard'
-                  ? 'Dashboard'
-                  : activeNav === 'boards' && currentBoard 
-                    ? currentBoard.name 
-                    : activeNav === 'specs' 
-                      ? 'AI Specs' 
-                      : 'Bored'
-              }
-              subtitle={undefined}
-              action={
-                activeNav === 'boards' && boards.length > 0 ? (
-                  <button
-                    onClick={openCreateModal}
-                    className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    New
-                  </button>
-                ) : undefined
-              }
+          {isTicketModalOpen && selectedTicket ? (
+            <TicketDetailView
+              ticket={selectedTicket}
+              columns={columns}
+              comments={comments}
+              boardName={currentBoard?.name ?? 'Board'}
+              onClose={closeTicketModal}
+              onUpdate={handleUpdateTicket}
+              onMoveTicket={handleTicketMove}
+              onAddComment={handleAddComment}
+              onUpdateComment={handleUpdateComment}
+              onRunWithAgent={handleRunWithAgent}
+              onNavigateToChat={handleNavigateToChat}
+              onDelete={handleDeleteTicket}
+              onAgentComplete={handleAgentComplete}
             />
-
-            {activeNav === 'dashboard' && <DashboardView />}
-
-            {activeNav === 'boards' && (
-              <BoardsView
-                isDataLoaded={isDataLoaded}
-                hasBoards={boards.length > 0}
-                currentBoardId={currentBoard?.id}
-                columns={columns}
-                tickets={tickets}
-                projectMap={projectMap}
-                onTicketMove={handleTicketMove}
-                onTicketClick={handleTicketClick}
-                onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
+          ) : (
+            <>
+              <Header
+                title={
+                  activeNav === 'dashboard'
+                    ? 'Dashboard'
+                    : activeNav === 'boards' && currentBoard
+                      ? currentBoard.name
+                      : activeNav === 'specs'
+                        ? 'AI Specs'
+                        : 'Bored'
+                }
+                subtitle={undefined}
+                action={
+                  activeNav === 'boards' && boards.length > 0 ? (
+                    <button
+                      onClick={openCreateModal}
+                      className="px-3 py-1.5 bg-board-accent text-white text-sm rounded-lg hover:bg-board-accent-hover hover:shadow-md transition-all duration-200 flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                      New
+                    </button>
+                  ) : undefined
+                }
               />
-            )}
 
-            {activeNav === 'chat' && <ChatView onNavigateToSpec={handleNavigateToSpec} onOpenTicket={openTicketById} />}
+              {activeNav === 'dashboard' && <DashboardView />}
 
-            {activeNav === 'specs' && (
-              <SpecsView
-                currentBoard={currentBoard}
-                onCreateSpecClick={() => setIsCreateSpecModalOpen(true)}
-                onOpenChat={handleOpenChatForSpec}
-              />
-            )}
+              {activeNav === 'boards' && (
+                <BoardsView
+                  isDataLoaded={isDataLoaded}
+                  hasBoards={boards.length > 0}
+                  currentBoardId={currentBoard?.id}
+                  columns={columns}
+                  tickets={tickets}
+                  projectMap={projectMap}
+                  onTicketMove={handleTicketMove}
+                  onTicketClick={handleTicketClick}
+                  onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
+                />
+              )}
 
-            {activeNav === 'agents' && (
-              <AgentsView recentRuns={recentRuns} />
-            )}
+              {activeNav === 'chat' && <ChatView onNavigateToSpec={handleNavigateToSpec} onOpenTicket={openTicketById} />}
 
-            {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
+              {activeNav === 'specs' && (
+                <SpecsView
+                  currentBoard={currentBoard}
+                  onCreateSpecClick={() => setIsCreateSpecModalOpen(true)}
+                  onOpenChat={handleOpenChatForSpec}
+                />
+              )}
 
-            {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
-          </>
-        )}
-      </main>
+              {activeNav === 'agents' && (
+                <AgentsView recentRuns={recentRuns} />
+              )}
+
+              {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
+
+              {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
+            </>
+          )}
+        </main>
       </div>
 
       {isCreateModalOpen && currentBoard && (

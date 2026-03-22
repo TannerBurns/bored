@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
@@ -6,6 +6,7 @@ import { getAgentIcon, getAgentBrandColor, getAgentDisplayName } from '../common
 import type { WorkerStatus, AgentInfo } from '../../types';
 
 const IS_MAC = navigator.platform.startsWith('Mac');
+const appWindow = getCurrentWindow();
 
 interface TitleBarProps {
   activeNav: string;
@@ -22,6 +23,8 @@ export const TitleBar = memo(function TitleBar({
   const agents = useAgentRegistryStore((s) => s.agents);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const toggleDropdown = useCallback(() => setDropdownOpen((o) => !o), []);
+  const closeDropdown = useCallback(() => setDropdownOpen(false), []);
 
   useEffect(() => {
     loadAgents();
@@ -79,12 +82,12 @@ export const TitleBar = memo(function TitleBar({
           totalWorkers={totalWorkers}
           hasActive={hasActive}
           isOpen={dropdownOpen}
-          onToggle={() => setDropdownOpen((o) => !o)}
+          onToggle={toggleDropdown}
           agents={agents}
           workers={workers}
           onAdd={startWorker}
           onRemove={stopWorkerByType}
-          onClose={() => setDropdownOpen(false)}
+          onClose={closeDropdown}
         />
 
         <StatusPill color="purple" count={queueStatus.readyCount} label="queued" />
@@ -281,12 +284,10 @@ function AgentWorkerRow({
 }
 
 function WindowControls() {
-  const win = getCurrentWindow();
-
   return (
     <div className="flex items-center ml-2">
       <button
-        onClick={() => win.minimize()}
+        onClick={() => appWindow.minimize()}
         className="w-8 h-[38px] flex items-center justify-center text-board-text-muted hover:text-board-text hover:bg-white/5 transition-colors"
       >
         <svg width="10" height="1" viewBox="0 0 10 1">
@@ -294,7 +295,7 @@ function WindowControls() {
         </svg>
       </button>
       <button
-        onClick={() => win.toggleMaximize()}
+        onClick={() => appWindow.toggleMaximize()}
         className="w-8 h-[38px] flex items-center justify-center text-board-text-muted hover:text-board-text hover:bg-white/5 transition-colors"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -302,7 +303,7 @@ function WindowControls() {
         </svg>
       </button>
       <button
-        onClick={() => win.close()}
+        onClick={() => appWindow.close()}
         className="w-8 h-[38px] flex items-center justify-center text-board-text-muted hover:text-board-text hover:bg-red-500/80 hover:text-white transition-colors"
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
