@@ -1,47 +1,43 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useEffect } from 'react';
+import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { WorkerStatus, WorkerQueueStatus } from '../types';
 import { logger } from '../lib/logger';
 import { useSettingsStore, ensureAgentConfigsSynced } from '../stores/settingsStore';
 
 const POLL_INTERVAL_MS = 5000;
+const _pendingStops = new Set<string>();
 
-export interface UseWorkerStatusResult {
+interface WorkerStatusState {
   workers: WorkerStatus[];
   queueStatus: WorkerQueueStatus;
+  _refCount: number;
+  _intervalId: ReturnType<typeof setInterval> | null;
+  refresh: () => Promise<void>;
   startWorker: (agentType: string) => Promise<void>;
   stopWorkerByType: (agentType: string) => Promise<void>;
-  refresh: () => Promise<void>;
+  _mount: () => () => void;
 }
 
-export function useWorkerStatus(): UseWorkerStatusResult {
-  const [workers, setWorkers] = useState<WorkerStatus[]>([]);
-  const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
-    readyCount: 0,
-    inProgressCount: 0,
-    workerCount: 0,
-  });
+export const useWorkerStatusStore = create<WorkerStatusState>()((set, get) => ({
+  workers: [],
+  queueStatus: { readyCount: 0, inProgressCount: 0, workerCount: 0 },
+  _refCount: 0,
+  _intervalId: null,
 
-  const loadStatus = useCallback(async () => {
+  refresh: async () => {
     try {
       const [workerData, queueData] = await Promise.all([
         invoke<WorkerStatus[]>('get_workers'),
         invoke<WorkerQueueStatus>('get_worker_queue_status'),
       ]);
-      setWorkers(workerData);
-      setQueueStatus(queueData);
+      set({ workers: workerData, queueStatus: queueData });
     } catch (err) {
       logger.error('Failed to load worker status:', err);
     }
-  }, []);
+  },
 
-  useEffect(() => {
-    loadStatus();
-    const interval = setInterval(loadStatus, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [loadStatus]);
-
-  const startWorker = useCallback(async (agentType: string) => {
+  startWorker: async (agentType: string) => {
     try {
       await ensureAgentConfigsSynced();
       const configs = useSettingsStore.getState().agentConfigs;
@@ -55,29 +51,68 @@ export function useWorkerStatus(): UseWorkerStatusResult {
           stageMaxRetries: cfg.stageMaxRetries,
         },
       });
-      await loadStatus();
+      await get().refresh();
     } catch (err) {
       logger.error('Failed to start worker:', err);
     }
-  }, [loadStatus]);
+  },
 
-  const stopWorkerByType = useCallback(async (agentType: string) => {
-    const ofType = workers.filter((w) => w.agentType === agentType);
+  stopWorkerByType: async (agentType: string) => {
+    const ofType = get().workers.filter(
+      (w) => w.agentType === agentType && !_pendingStops.has(w.id),
+    );
     if (ofType.length === 0) return;
     const target = ofType.find((w) => w.status === 'idle') ?? ofType[ofType.length - 1];
+    _pendingStops.add(target.id);
     try {
       await invoke('stop_worker', { workerId: target.id });
-      await loadStatus();
+      await get().refresh();
     } catch (err) {
       logger.error('Failed to stop worker:', err);
+    } finally {
+      _pendingStops.delete(target.id);
     }
-  }, [workers, loadStatus]);
+  },
 
-  return useMemo(() => ({
-    workers,
-    queueStatus,
-    startWorker,
-    stopWorkerByType,
-    refresh: loadStatus,
-  }), [workers, queueStatus, startWorker, stopWorkerByType, loadStatus]);
+  _mount: () => {
+    const { _refCount } = get();
+    const newCount = _refCount + 1;
+    set({ _refCount: newCount });
+
+    if (newCount === 1) {
+      get().refresh();
+      const id = setInterval(() => get().refresh(), POLL_INTERVAL_MS);
+      set({ _intervalId: id });
+    }
+
+    return () => {
+      const curr = get()._refCount - 1;
+      set({ _refCount: curr });
+      if (curr === 0) {
+        const { _intervalId } = get();
+        if (_intervalId) clearInterval(_intervalId);
+        set({ _intervalId: null });
+      }
+    };
+  },
+}));
+
+export interface UseWorkerStatusResult {
+  workers: WorkerStatus[];
+  queueStatus: WorkerQueueStatus;
+  startWorker: (agentType: string) => Promise<void>;
+  stopWorkerByType: (agentType: string) => Promise<void>;
+  refresh: () => Promise<void>;
+}
+
+export function useWorkerStatus(): UseWorkerStatusResult {
+  useEffect(() => useWorkerStatusStore.getState()._mount(), []);
+
+  const workers = useWorkerStatusStore((s) => s.workers);
+  const queueStatus = useWorkerStatusStore((s) => s.queueStatus);
+  const startWorker = useWorkerStatusStore((s) => s.startWorker);
+  const stopWorkerByType = useWorkerStatusStore((s) => s.stopWorkerByType);
+  const refresh = useWorkerStatusStore((s) => s.refresh);
+
+  return { workers, queueStatus, startWorker, stopWorkerByType, refresh };
 }

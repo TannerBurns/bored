@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
 import { getAgentIcon, getAgentBrandColor, getAgentDisplayName } from '../common/AgentIcons';
-import type { WorkerStatus, WorkerQueueStatus, AgentInfo } from '../../types';
+import type { WorkerStatus, AgentInfo } from '../../types';
 
 const IS_MAC = navigator.platform.startsWith('Mac');
 
@@ -50,7 +50,7 @@ export const TitleBar = memo(function TitleBar({
   return (
     <div
       data-tauri-drag-region
-      className="titlebar h-[38px] flex items-center justify-between px-4 bg-board-bg-solid/80 border-b border-board-border/50 select-none flex-shrink-0"
+      className="titlebar h-[38px] flex items-center justify-between px-4 bg-board-bg-solid border-b border-board-border/50 select-none flex-shrink-0"
     >
       {/* Left: context breadcrumb */}
       <div
@@ -82,7 +82,6 @@ export const TitleBar = memo(function TitleBar({
           onToggle={() => setDropdownOpen((o) => !o)}
           agents={agents}
           workers={workers}
-          queueStatus={queueStatus}
           onAdd={startWorker}
           onRemove={stopWorkerByType}
           onClose={() => setDropdownOpen(false)}
@@ -114,12 +113,12 @@ function StatusPill({
 }) {
   const styles = {
     blue: {
-      bg: 'bg-blue-500/8 border-blue-500/15',
+      bg: 'bg-blue-500/15 border-blue-500/25',
       text: 'text-blue-400',
       dot: 'bg-blue-500',
     },
     amber: {
-      bg: 'bg-amber-500/8 border-amber-500/15',
+      bg: 'bg-amber-500/15 border-amber-500/25',
       text: 'text-amber-400',
       dot: 'bg-amber-500',
     },
@@ -141,7 +140,6 @@ function WorkersDropdownButton({
   onToggle,
   agents,
   workers,
-  queueStatus: _queueStatus,
   onAdd,
   onRemove,
   onClose,
@@ -152,7 +150,6 @@ function WorkersDropdownButton({
   onToggle: () => void;
   agents: AgentInfo[];
   workers: WorkerStatus[];
-  queueStatus: WorkerQueueStatus;
   onAdd: (agentType: string) => Promise<void>;
   onRemove: (agentType: string) => Promise<void>;
   onClose: () => void;
@@ -196,8 +193,8 @@ function WorkersDropdownButton({
         onClick={onToggle}
         className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
           hasActive
-            ? 'bg-emerald-500/8 border-emerald-500/15 text-emerald-400 hover:bg-emerald-500/15'
-            : 'bg-white/3 border-white/6 text-board-text-muted hover:bg-white/6'
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+            : 'bg-white/5 border-white/10 text-board-text-muted hover:bg-white/10'
         }`}
       >
         {hasActive && (
@@ -214,18 +211,7 @@ function WorkersDropdownButton({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-board-border bg-board-bg-solid shadow-xl overflow-hidden">
-          <div className="px-3 py-2 border-b border-board-border/50">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-board-text-muted uppercase tracking-wide">
-                Agent Workers
-              </span>
-              <span className="text-[10px] text-board-text-muted">
-                {totalWorkers} total
-              </span>
-            </div>
-          </div>
-
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-board-border bg-board-bg-solid shadow-2xl overflow-hidden">
           <div className="py-1">
             {sortedAgents.length === 0 ? (
               <div className="px-3 py-3 text-xs text-board-text-muted text-center">
