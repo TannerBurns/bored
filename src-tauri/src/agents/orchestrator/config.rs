@@ -11,13 +11,16 @@ use crate::commands::runs::StageConfig;
 use crate::commands::workflow_settings::PerAgentSettings;
 use crate::db::Database;
 
-/// Whether the orchestrator runs in static multi-stage mode or agent-driven auto-pilot mode.
+/// Whether the orchestrator runs in static multi-stage mode, agent-driven auto-pilot mode,
+/// or code-review-only mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowMode {
     /// Static pipeline: stages are configured by the user in settings.
     MultiStage,
     /// Agent-driven: the agent decides which commands to run after implementation.
     AutoPilot,
+    /// Code-review-only: iteratively runs code-review + code-review-fix until clean.
+    CodeReviewOnly,
 }
 
 /// Configuration for creating a WorkflowOrchestrator
@@ -53,6 +56,9 @@ pub struct OrchestratorConfig {
     /// The previous run ID (when resuming a paused ticket).
     /// Used to retrieve stage outputs from the run that was paused.
     pub previous_run_id: Option<String>,
+    /// Override the workflow mode for this run (e.g. "code_review_only").
+    /// When set, takes priority over the auto-pilot setting.
+    pub workflow_mode_override: Option<String>,
     /// Shared per-agent workflow settings (stage configs, timeouts, retries).
     pub workflow_settings: Arc<Mutex<PerAgentSettings>>,
     /// Fallback stage configs used when workflow_settings hasn't been synced yet.
@@ -191,4 +197,15 @@ pub struct ImplementationTodo {
 pub fn parse_implementation_todos(text: &str) -> Vec<ImplementationTodo> {
     crate::agents::json_extraction::parse_json_response::<Vec<ImplementationTodo>>(text)
         .unwrap_or_default()
+}
+
+/// Event payload for code-review iteration updates (emitted to frontend).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeReviewIterationEvent {
+    pub parent_run_id: String,
+    pub iteration: usize,
+    pub issues_found: Option<usize>,
+    pub sub_run_id: String,
+    pub status: String,
 }

@@ -19,6 +19,7 @@ impl WorkflowOrchestrator {
         match self.workflow_mode {
             WorkflowMode::AutoPilot => self.execute_auto_pilot().await,
             WorkflowMode::MultiStage => self.execute_multi_stage().await,
+            WorkflowMode::CodeReviewOnly => self.execute_code_review_only().await,
         }
     }
 
@@ -181,6 +182,28 @@ impl WorkflowOrchestrator {
         Ok(())
     }
 
+    /// Execute the code-review-only workflow: iteratively runs code-review + code-review-fix
+    /// on the existing branch until no issues are found or cancelled.
+    async fn execute_code_review_only(&self) -> Result<(), String> {
+        if self.resume_from_stage.is_some() {
+            self.restore_workflow_session_id();
+        }
+
+        self.handle_branch_creation().await?;
+
+        if self.is_cancelled() {
+            return Err("Workflow cancelled".to_string());
+        }
+
+        self.run_code_review_loop().await?;
+
+        self.run_commit_stage().await?;
+
+        self.run_detour_sync_if_needed().await?;
+        self.finish_workflow("Code-review-only");
+        Ok(())
+    }
+
     /// Run a single auto-pilot command, dispatching composite commands
     /// (like code-review) to their iterative loop.
     async fn run_auto_pilot_command(
@@ -238,6 +261,7 @@ impl WorkflowOrchestrator {
         let mode_label = match self.workflow_mode {
             WorkflowMode::AutoPilot => "auto-pilot",
             WorkflowMode::MultiStage => "multi-stage",
+            WorkflowMode::CodeReviewOnly => "code-review-only",
         };
         if let Some(ref resume_stage) = self.resume_from_stage {
             tracing::info!(

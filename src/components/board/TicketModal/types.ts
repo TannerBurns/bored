@@ -54,7 +54,7 @@ export interface TicketModalProps {
   onUpdate: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
-  onRunWithAgent?: (ticketId: string, agentType: string) => void;
+  onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
   onNavigateToChat?: () => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;

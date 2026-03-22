@@ -43,6 +43,7 @@ pub(super) struct WorkflowTaskContext {
     pub code_review_max_iterations: usize,
     pub stage_timeout_secs: u64,
     pub stage_max_retries: u32,
+    pub workflow_mode_override: Option<String>,
 }
 
 /// Execute the multi-stage workflow in the background.
@@ -68,6 +69,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         code_review_max_iterations,
         stage_timeout_secs,
         stage_max_retries,
+        workflow_mode_override,
     } = ctx;
 
     if let Err(e) = db.update_run_status(&run_id, RunStatus::Running, None, None) {
@@ -154,6 +156,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         code_review_max_iterations,
         stage_timeout_secs,
         stage_max_retries,
+        workflow_mode_override,
     });
 
     tracing::info!("Starting workflow for run {}", run_id);

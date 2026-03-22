@@ -1,5 +1,5 @@
 import { cn } from '../../lib/utils';
-import type { AgentRun, RunCostData, AggregatedCost } from '../../types';
+import type { AgentRun, RunCostData, AggregatedCost, ModelCostData } from '../../types';
 
 /** Extract cost data from a run's metadata, returning null if absent. */
 export function getRunCost(run: AgentRun): RunCostData | null {
@@ -8,6 +8,66 @@ export function getRunCost(run: AgentRun): RunCostData | null {
   const cost = meta.cost;
   if (!cost || typeof cost !== 'object') return null;
   return cost as RunCostData;
+}
+
+/** Aggregate cost data from multiple runs, merging per-model breakdowns. */
+export function aggregateRunCosts(runs: AgentRun[]): RunCostData | null {
+  let total = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  let anyEstimated = false;
+  let found = false;
+  const mergedModels: Record<string, ModelCostData> = {};
+
+  for (const sr of runs) {
+    const c = getRunCost(sr);
+    if (!c) continue;
+    found = true;
+    total += c.totalCostUsd;
+    inputTokens += c.inputTokens;
+    outputTokens += c.outputTokens;
+    cacheRead += c.cacheReadTokens;
+    cacheWrite += c.cacheCreationTokens;
+    if (c.isEstimated) anyEstimated = true;
+
+    const models = c.modelUsage ?? {};
+    if (Object.keys(models).length === 0) {
+      if (c.totalCostUsd > 0 || c.inputTokens > 0 || c.outputTokens > 0
+          || c.cacheReadTokens > 0 || c.cacheCreationTokens > 0) {
+        const entry = mergedModels['other'] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+        entry.inputTokens += c.inputTokens;
+        entry.outputTokens += c.outputTokens;
+        entry.cacheReadTokens += c.cacheReadTokens;
+        entry.cacheCreationTokens += c.cacheCreationTokens;
+        entry.costUsd += c.totalCostUsd;
+      }
+    } else {
+      for (const [model, data] of Object.entries(models)) {
+        const entry = mergedModels[model] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+        entry.inputTokens += data.inputTokens;
+        entry.outputTokens += data.outputTokens;
+        entry.cacheReadTokens += data.cacheReadTokens;
+        entry.cacheCreationTokens += data.cacheCreationTokens;
+        entry.costUsd += data.costUsd;
+      }
+    }
+  }
+
+  if (!found) return null;
+
+  const modelSum = Object.values(mergedModels).reduce((s, m) => s + m.costUsd, 0);
+
+  return {
+    totalCostUsd: modelSum > 0 ? modelSum : total,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: cacheWrite,
+    modelUsage: mergedModels,
+    isEstimated: anyEstimated,
+  };
 }
 
 interface CostBadgeProps {

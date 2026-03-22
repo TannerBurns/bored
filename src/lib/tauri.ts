@@ -132,17 +132,19 @@ export async function startAgentRun(
     stageTimeoutHours?: number;
     stageMaxRetries?: number;
     stageConfigs?: Record<string, { enabled: boolean; model: string }>;
+    workflowMode?: string;
   }
 ): Promise<string> {
-  return invoke('start_agent_run', { 
+  return invoke('start_agent_run', {
     input: {
-      ticketId, 
-      agentType, 
-      repoPath, 
+      ticketId,
+      agentType,
+      repoPath,
       codeReviewMaxIterations: options?.codeReviewMaxIterations,
       stageTimeoutHours: options?.stageTimeoutHours,
       stageMaxRetries: options?.stageMaxRetries,
       stageConfigs: options?.stageConfigs,
+      workflowMode: options?.workflowMode,
     },
   });
 }

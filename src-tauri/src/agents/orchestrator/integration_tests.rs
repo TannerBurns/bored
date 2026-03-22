@@ -219,6 +219,7 @@ fn make_config(
         code_review_max_iterations: 3,
         stage_timeout_secs: 3600,
         stage_max_retries: 2,
+        workflow_mode_override: None,
     }
 }
 
@@ -279,6 +280,145 @@ fn new_stores_multi_stage_mode_in_metadata() {
     let run = db.get_run(&run_id).unwrap();
     let meta = run.metadata.unwrap_or(serde_json::json!({}));
     assert_eq!(meta["workflow_mode"], "multi_stage");
+}
+
+// -- CodeReviewOnly mode tests --
+
+#[test]
+fn new_code_review_only_mode_from_override() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.workflow_mode, WorkflowMode::CodeReviewOnly);
+}
+
+#[test]
+fn code_review_only_overrides_auto_pilot() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(true, true);
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.workflow_mode, WorkflowMode::CodeReviewOnly);
+}
+
+#[test]
+fn code_review_only_stores_mode_in_metadata() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let mut cfg = make_config(db.clone(), ticket, run_id.clone(), settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let _orch = WorkflowOrchestrator::new(cfg);
+
+    let run = db.get_run(&run_id).unwrap();
+    let meta = run.metadata.unwrap_or(serde_json::json!({}));
+    assert_eq!(meta["workflow_mode"], "code_review_only");
+}
+
+#[test]
+fn code_review_only_sets_stage_order_to_review_and_commit() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.stage_order, vec!["code-review", "commit"]);
+}
+
+#[test]
+fn code_review_only_uses_unlimited_iterations_by_default() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.code_review_max_iterations, usize::MAX);
+}
+
+#[test]
+fn code_review_only_uses_agent_settings_when_configured() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let mut map = HashMap::new();
+    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
+    let diag = crate::agents::models::DEFAULT_DIAGNOSTIC_MODEL;
+    let default_stages: HashMap<String, StageConfig> = [
+        ("branchGen", stage), ("plan", stage), ("implement", stage),
+        ("code-review", stage), ("cleanup", diag), ("commit", diag),
+    ].into_iter().map(|(k, m)| (k.to_string(), StageConfig { enabled: true, model: m.to_string() })).collect();
+
+    map.insert("stub".to_string(), WorkflowSettings {
+        auto_pilot_enabled: false,
+        stage_configs: default_stages,
+        code_review_max_iterations: 3,
+        stage_timeout_hours: 1,
+        stage_max_retries: 2,
+        code_review_agent_max_iterations: 7,
+        code_review_agent_timeout_minutes: 30,
+        code_review_agent_max_retries: 4,
+        code_review_agent_model: "custom-review-model".to_string(),
+        stage_order: Some(crate::agents::orchestrator::config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
+        synced: true,
+        ..Default::default()
+    });
+    let settings = Arc::new(Mutex::new(map));
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+
+    assert_eq!(orch.code_review_max_iterations, 7);
+    assert_eq!(orch.stage_timeout_secs, 30 * 60);
+    assert_eq!(orch.stage_max_retries, 4);
+    let cr_stage = orch.stage_configs.get("code-review").expect("code-review stage config missing");
+    assert_eq!(cr_stage.model, "custom-review-model");
+}
+
+#[test]
+fn code_review_only_zero_max_iterations_means_unlimited() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let mut map = HashMap::new();
+    map.insert("stub".to_string(), WorkflowSettings {
+        code_review_agent_max_iterations: 0,
+        stage_order: Some(crate::agents::orchestrator::config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
+        synced: true,
+        ..Default::default()
+    });
+    let settings = Arc::new(Mutex::new(map));
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.code_review_max_iterations, usize::MAX);
+}
+
+#[test]
+fn unknown_workflow_mode_override_falls_through() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.workflow_mode_override = Some("unknown_mode".to_string());
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert_eq!(orch.workflow_mode, WorkflowMode::MultiStage);
 }
 
 // -- Stage order tests --
@@ -1069,6 +1209,7 @@ fn make_config_with_provider(
         code_review_max_iterations: 3,
         stage_timeout_secs: 3600,
         stage_max_retries: 2,
+        workflow_mode_override: None,
     }
 }
 

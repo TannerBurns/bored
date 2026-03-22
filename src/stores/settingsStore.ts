@@ -308,7 +308,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 22,
+      version: 23,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -424,6 +424,10 @@ export const useSettingsStore = create<SettingsState>()(
               diagnosticModel: keepOrDefault(state.diagnosticModel, base.diagnosticModel),
               diagnosticTimeoutMinutes: base.diagnosticTimeoutMinutes,
               diagnosticMaxRetries: base.diagnosticMaxRetries,
+              codeReviewAgentModel: base.codeReviewAgentModel,
+              codeReviewAgentTimeoutMinutes: base.codeReviewAgentTimeoutMinutes,
+              codeReviewAgentMaxRetries: base.codeReviewAgentMaxRetries,
+              codeReviewAgentMaxIterations: base.codeReviewAgentMaxIterations,
               settings: agentSettings[agentId] ?? base.settings,
             };
           };
@@ -608,6 +612,21 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
 
+        if (version < 23) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const [agentId, cfg] of Object.entries(configs)) {
+              const isCodex = agentId === 'codex';
+              if (cfg.codeReviewAgentModel === undefined) {
+                cfg.codeReviewAgentModel = isCodex ? 'gpt-5.4' : 'claude-opus-4-6';
+              }
+              if (cfg.codeReviewAgentTimeoutMinutes === undefined) cfg.codeReviewAgentTimeoutMinutes = 60;
+              if (cfg.codeReviewAgentMaxRetries === undefined) cfg.codeReviewAgentMaxRetries = 2;
+              if (cfg.codeReviewAgentMaxIterations === undefined) cfg.codeReviewAgentMaxIterations = 0;
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -630,6 +649,10 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     plannerModel: string;
     ticketBuilderModel: string;
     validationModel: string;
+    codeReviewAgentModel: string;
+    codeReviewAgentTimeoutMinutes: number;
+    codeReviewAgentMaxRetries: number;
+    codeReviewAgentMaxIterations: number;
     stageOrder: string[];
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
@@ -648,6 +671,10 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       plannerModel: config.plannerModel,
       ticketBuilderModel: config.ticketBuilderModel,
       validationModel: config.validationModel,
+      codeReviewAgentModel: config.codeReviewAgentModel,
+      codeReviewAgentTimeoutMinutes: config.codeReviewAgentTimeoutMinutes,
+      codeReviewAgentMaxRetries: config.codeReviewAgentMaxRetries,
+      codeReviewAgentMaxIterations: config.codeReviewAgentMaxIterations,
       stageOrder: config.stageOrder,
     };
   }

@@ -46,6 +46,32 @@ export interface Column {
 // Note: 'basic' workflow has been removed - all tickets now use multi_stage
 export type WorkflowType = 'multi_stage';
 
+/** A single issue from structured code-review output. */
+export interface CodeReviewIssue {
+  title: string;
+  file: string;
+  lines: string;
+  severity: string;
+  description: string;
+}
+
+/** Structured iteration data stored in code-review sub-run metadata. */
+export interface CodeReviewIterationData {
+  code_review_iteration: number;
+  code_review_issues_found: number | null;
+  code_review_issues_section: string;
+  code_review_issues?: CodeReviewIssue[];
+}
+
+/** Real-time event payload for code-review iteration progress. */
+export interface CodeReviewIterationEvent {
+  parentRunId: string;
+  iteration: number;
+  issuesFound: number | null;
+  subRunId: string;
+  status: 'running' | 'finished';
+}
+
 export interface Ticket {
   id: string;
   boardId: string;

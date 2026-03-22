@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+import { cn } from '../../lib/utils';
 import type { AgentType } from '../../types';
 
 interface BuildWithDropdownProps {
@@ -11,6 +12,10 @@ interface BuildWithDropdownProps {
   label?: string;
   /** Tooltip shown on hover (e.g. explains what the button does) */
   title?: string;
+  /** Custom icon element to replace the default lightning bolt */
+  icon?: React.ReactNode;
+  /** Additional CSS classes applied to the outer wrapper */
+  className?: string;
 }
 
 export function BuildWithDropdown({
@@ -19,6 +24,8 @@ export function BuildWithDropdown({
   disabledReason,
   label = 'Build with',
   title: titleProp,
+  icon,
+  className,
 }: BuildWithDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
@@ -107,14 +114,14 @@ export function BuildWithDropdown({
   }));
 
   return (
-    <div ref={dropdownRef} className="relative">
+    <div ref={dropdownRef} className={cn("relative", className)}>
       <button
         ref={buttonRef}
         onClick={handleToggle}
         disabled={disabled}
         title={titleProp ?? (disabled && disabledReason ? disabledReason : undefined)}
         className={`
-          glass rounded-xl px-4 py-2 text-sm font-medium
+          w-full glass rounded-xl px-4 py-2 text-sm font-medium
           flex items-center gap-2
           transition-all duration-200
           ${disabled
@@ -124,21 +131,23 @@ export function BuildWithDropdown({
           text-board-text
         `}
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-board-accent"
-        >
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-        </svg>
-        <span>{label}</span>
+        {icon ?? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-board-accent"
+          >
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+        )}
+        <span className="flex-1 text-left">{label}</span>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"

@@ -71,8 +71,8 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     await updateComment(commentId, body);
   };
 
-  const handleRunWithAgent = async (ticketId: string, agentType: string) => {
-    logger.debug('handleRunWithAgent called', { ticketId, agentType });
+  const handleRunWithAgent = async (ticketId: string, agentType: string, workflowMode?: string) => {
+    logger.debug('handleRunWithAgent called', { ticketId, agentType, workflowMode });
     
     const ticket = tickets.find(t => t.id === ticketId);
     if (!ticket) {
@@ -100,11 +100,13 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     
     try {
       logger.debug('Calling startAgentRun...');
+
       const runId = await startAgentRun(ticketId, agentType, project.path, {
         codeReviewMaxIterations: cfg.codeReviewMaxIterations,
         stageTimeoutHours: cfg.stageTimeoutHours,
         stageMaxRetries: cfg.stageMaxRetries,
         stageConfigs: cfg.workflowStages,
+        workflowMode,
       });
       logger.info('Agent run started', { runId });
       

@@ -43,10 +43,10 @@ mod integration_tests;
 mod ticket;
 
 // Public re-exports
-pub use code_review::{extract_issues_section, parse_code_review_issues};
+pub use code_review::{extract_issues_section, parse_code_review_issues, parse_structured_review};
 pub use config::{
-    ImplementationProgress, ImplementationTodo, OrchestratorConfig, StageEvent, TodoItemStatus,
-    TodoStatus, WorkflowMode,
+    CodeReviewIterationEvent, ImplementationProgress, ImplementationTodo, OrchestratorConfig,
+    StageEvent, TodoItemStatus, TodoStatus, WorkflowMode,
 };
 
 /// Type alias for the shared cancel handles map
@@ -197,7 +197,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (stage_configs, code_review_max_iterations, stage_timeout_secs, stage_max_retries, stage_order, auto_pilot_enabled, auto_pilot_model, auto_pilot_required_commands, auto_complete_tickets, auto_clarification) =
+        let (mut stage_configs, mut code_review_max_iterations, mut stage_timeout_secs, mut stage_max_retries, mut stage_order, auto_pilot_enabled, auto_pilot_model, auto_pilot_required_commands, auto_complete_tickets, auto_clarification) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -230,13 +230,38 @@ impl WorkflowOrchestrator {
                 )
             };
 
-        let workflow_mode = if auto_pilot_enabled {
-            config::WorkflowMode::AutoPilot
-        } else {
-            config::WorkflowMode::MultiStage
+        // Extract code review agent settings while per_agent guard is still alive
+        let cr_agent_settings = agent_ws.filter(|ws| ws.synced).map(|ws| {
+            (
+                ws.code_review_agent_max_iterations,
+                ws.code_review_agent_timeout_minutes,
+                ws.code_review_agent_max_retries,
+                ws.code_review_agent_model.clone(),
+            )
+        });
+
+        let workflow_mode = match config.workflow_mode_override.as_deref() {
+            Some("code_review_only") => config::WorkflowMode::CodeReviewOnly,
+            _ if auto_pilot_enabled => config::WorkflowMode::AutoPilot,
+            _ => config::WorkflowMode::MultiStage,
         };
 
         drop(per_agent);
+
+        if workflow_mode == config::WorkflowMode::CodeReviewOnly {
+            stage_order = vec!["code-review".to_string(), "commit".to_string()];
+            if let Some((cr_max, cr_timeout, cr_retries, cr_model)) = cr_agent_settings {
+                code_review_max_iterations = if cr_max == 0 { usize::MAX } else { cr_max };
+                stage_timeout_secs = cr_timeout as u64 * 60;
+                stage_max_retries = cr_retries;
+                stage_configs.insert("code-review".to_string(), StageConfig {
+                    enabled: true,
+                    model: cr_model,
+                });
+            } else {
+                code_review_max_iterations = usize::MAX;
+            }
+        }
 
         let full_execution_order = config::build_full_stage_order(&stage_order);
 
@@ -261,6 +286,7 @@ impl WorkflowOrchestrator {
         let mode_str = match workflow_mode {
             config::WorkflowMode::AutoPilot => "auto_pilot",
             config::WorkflowMode::MultiStage => "multi_stage",
+            config::WorkflowMode::CodeReviewOnly => "code_review_only",
         };
         if let Err(e) = config.db.set_run_metadata(
             &config.parent_run_id,

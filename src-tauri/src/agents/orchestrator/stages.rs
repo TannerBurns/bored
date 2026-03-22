@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::Emitter;
 
-use super::code_review::{extract_issues_section, parse_code_review_issues};
+use super::code_review::{extract_issues_with_parsed, parse_code_review_issues, parse_structured_review};
 use super::config::StageEvent;
 use super::WorkflowOrchestrator;
 use crate::agents::prompt::generate_command_prompt;
@@ -470,10 +470,16 @@ impl WorkflowOrchestrator {
             return Ok(());
         }
 
+        let display_max = if max_iterations == usize::MAX {
+            "unlimited".to_string()
+        } else {
+            max_iterations.to_string()
+        };
+
         tracing::info!(
             "Starting code review loop for ticket {} (max {} iterations, model={})",
             self.ticket.id,
-            max_iterations,
+            display_max,
             model,
         );
 
@@ -484,15 +490,41 @@ impl WorkflowOrchestrator {
                 return Err("Workflow cancelled".to_string());
             }
 
-            tracing::info!("Code review iteration {}/{}", iteration, max_iterations);
+            tracing::info!("Code review iteration {}/{}", iteration, display_max);
 
             let review_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
             let review_result = self
                 .run_stage_with_model("code-review", &review_prompt, model)
                 .await?;
+
+            let sub_run_id = review_result.run_id.clone();
             let raw_output = review_result.captured_stdout.unwrap_or_default();
             let text = self.extract_text(&raw_output);
-            let issue_count = parse_code_review_issues(&text);
+            let structured = parse_structured_review(&text);
+            let issue_count = structured.as_ref().map(|o| o.issues_found)
+                .or_else(|| parse_code_review_issues(&text));
+            let issues_section = extract_issues_with_parsed(structured.as_ref(), &text);
+
+            let mut iteration_meta = serde_json::json!({
+                "code_review_iteration": iteration,
+                "code_review_issues_found": issue_count,
+                "code_review_issues_section": &issues_section,
+            });
+            if let Some(ref output) = structured {
+                if let Ok(issues_json) = serde_json::to_value(&output.issues) {
+                    iteration_meta["code_review_issues"] = issues_json;
+                }
+            }
+            if let Err(e) = self.db.merge_run_metadata(&sub_run_id, &iteration_meta) {
+                tracing::warn!("Failed to store code review iteration metadata: {}", e);
+            }
+
+            self.emit_code_review_iteration(
+                iteration,
+                issue_count,
+                &sub_run_id,
+                if issue_count == Some(0) { "finished" } else { "running" },
+            );
 
             match issue_count {
                 Some(0) => {
@@ -509,12 +541,11 @@ impl WorkflowOrchestrator {
                         iteration
                     );
 
-                    let issues_context = extract_issues_section(&text);
                     let base_fix_prompt =
                         generate_command_prompt("code-review-fix", custom_dir.as_deref());
                     let fix_prompt = format!(
                         "{}\n\n## Issues to Address\n\n{}",
-                        base_fix_prompt, issues_context
+                        base_fix_prompt, issues_section
                     );
                     self.run_stage_with_model("code-review-fix", &fix_prompt, model)
                         .await?;
@@ -540,10 +571,30 @@ impl WorkflowOrchestrator {
 
         tracing::warn!(
             "Code review reached max iterations ({}) for ticket {} without resolving all issues",
-            max_iterations,
+            display_max,
             self.ticket.id
         );
 
         Ok(())
+    }
+
+    /// Emit a code-review iteration event to the frontend.
+    fn emit_code_review_iteration(
+        &self,
+        iteration: usize,
+        issues_found: Option<usize>,
+        sub_run_id: &str,
+        status: &str,
+    ) {
+        let event = super::config::CodeReviewIterationEvent {
+            parent_run_id: self.parent_run_id.clone(),
+            iteration,
+            issues_found,
+            sub_run_id: sub_run_id.to_string(),
+            status: status.to_string(),
+        };
+        if let Err(e) = self.emit_event("agent-code-review-update", &event) {
+            tracing::warn!("Failed to emit code review iteration event: {}", e);
+        }
     }
 }

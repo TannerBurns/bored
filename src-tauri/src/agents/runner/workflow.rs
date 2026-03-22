@@ -41,6 +41,7 @@ pub(super) async fn execute_multi_stage_workflow(config: &RunnerConfig) -> Resul
         code_review_max_iterations: config.code_review_max_iterations,
         stage_timeout_secs: config.stage_timeout_secs,
         stage_max_retries: config.stage_max_retries,
+        workflow_mode_override: None,
     });
 
     orchestrator.execute().await
