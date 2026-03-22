@@ -92,6 +92,13 @@ pub(crate) fn time_filter_clause(days: Option<i32>, column: &str) -> String {
     }
 }
 
+/// SQLite time modifier that shifts UTC timestamps to the user's local time
+/// for date bucketing. `offset_minutes` is positive east of UTC (e.g. +60 for
+/// CET, -480 for PST) -- the same convention as negated JS `getTimezoneOffset`.
+fn local_date_modifier(offset_minutes: i32) -> String {
+    format!("{:+} minutes", offset_minutes)
+}
+
 impl Database {
     /// Get summary stats for the dashboard, optionally filtered to the last N days.
     pub fn get_dashboard_summary(
@@ -264,19 +271,23 @@ impl Database {
         })
     }
 
-    /// Get time-series trend data bucketed by day.
+    /// Get time-series trend data bucketed by day in the user's local timezone.
+    /// `utc_offset_minutes` shifts UTC timestamps before extracting the date
+    /// (positive = east of UTC, e.g. -480 for PST, +60 for CET).
     pub fn get_dashboard_trends(
         &self,
         days: i32,
+        utc_offset_minutes: i32,
     ) -> Result<Vec<DashboardTrendPoint>, DbError> {
         self.with_conn(|conn| {
+            let tz_mod = local_date_modifier(utc_offset_minutes);
             let mut date_map: HashMap<String, DashboardTrendPoint> = HashMap::new();
 
             for i in 0..=days {
                 let date: String = conn
                     .query_row(
-                        "SELECT date('now', ? || ' days')",
-                        [format!("-{}", i)],
+                        "SELECT date('now', ?, ? || ' days')",
+                        [&tz_mod, &format!("-{}", i)],
                         |row| row.get(0),
                     )
                     .unwrap_or_default();
@@ -291,16 +302,17 @@ impl Database {
                 }
             }
 
-            // Tickets completed per day
+            // Tickets completed per day (local date)
             {
                 let mut stmt = conn.prepare(&format!(
-                    r#"SELECT date(t.updated_at) as d, COUNT(*)
+                    r#"SELECT date(t.updated_at, '{tz}') as d, COUNT(*)
                        FROM tickets t
                        JOIN columns c ON t.column_id = c.id
                        WHERE c.name = 'Done'
-                       AND t.updated_at >= datetime('now', '-{} days')
+                       AND t.updated_at >= datetime('now', '-{days} days')
                        GROUP BY d"#,
-                    days
+                    tz = tz_mod,
+                    days = days,
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -312,15 +324,16 @@ impl Database {
                 }
             }
 
-            // Tasks completed per day
+            // Tasks completed per day (local date)
             {
                 let mut stmt = conn.prepare(&format!(
-                    r#"SELECT date(completed_at) as d, COUNT(*)
+                    r#"SELECT date(completed_at, '{tz}') as d, COUNT(*)
                        FROM tasks
                        WHERE status = 'completed'
-                       AND completed_at >= datetime('now', '-{} days')
+                       AND completed_at >= datetime('now', '-{days} days')
                        GROUP BY d"#,
-                    days
+                    tz = tz_mod,
+                    days = days,
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -332,15 +345,17 @@ impl Database {
                 }
             }
 
-            // Runs per day
+            // Runs per day (local date)
             {
                 let mut stmt = conn.prepare(&format!(
-                    r#"SELECT date(r.started_at) as d, COUNT(*)
+                    r#"SELECT date(r.started_at, '{tz}') as d, COUNT(*)
                        FROM agent_runs r
-                       WHERE r.started_at >= datetime('now', '-{} days')
-                       {}
+                       WHERE r.started_at >= datetime('now', '-{days} days')
+                       {exclude}
                        GROUP BY d"#,
-                    days, EXCLUDE_PARENT_RUNS_FILTER
+                    tz = tz_mod,
+                    days = days,
+                    exclude = EXCLUDE_PARENT_RUNS_FILTER,
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -352,15 +367,17 @@ impl Database {
                 }
             }
 
-            // Cost and tokens per day (agent_runs)
+            // Cost and tokens per day (agent_runs, local date)
             {
                 let mut stmt = conn.prepare(&format!(
-                    r#"SELECT date(r.started_at) as d, r.metadata_json
+                    r#"SELECT date(r.started_at, '{tz}') as d, r.metadata_json
                        FROM agent_runs r
                        WHERE r.metadata_json IS NOT NULL
-                       AND r.started_at >= datetime('now', '-{} days')
-                       {}"#,
-                    days, EXCLUDE_PARENT_RUNS_FILTER
+                       AND r.started_at >= datetime('now', '-{days} days')
+                       {exclude}"#,
+                    tz = tz_mod,
+                    days = days,
+                    exclude = EXCLUDE_PARENT_RUNS_FILTER,
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -376,14 +393,15 @@ impl Database {
                 }
             }
 
-            // Cost and tokens per day (chat_runs)
+            // Cost and tokens per day (chat_runs, local date)
             {
                 let mut stmt = conn.prepare(&format!(
-                    r#"SELECT date(cr.created_at) as d, cr.metadata_json
+                    r#"SELECT date(cr.created_at, '{tz}') as d, cr.metadata_json
                        FROM chat_runs cr
                        WHERE cr.metadata_json IS NOT NULL
-                       AND cr.created_at >= datetime('now', '-{} days')"#,
-                    days
+                       AND cr.created_at >= datetime('now', '-{days} days')"#,
+                    tz = tz_mod,
+                    days = days,
                 ))?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

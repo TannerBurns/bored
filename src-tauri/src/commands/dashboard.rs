@@ -17,9 +17,11 @@ pub async fn get_dashboard_summary(
 #[tauri::command]
 pub async fn get_dashboard_trends(
     days: i32,
+    utc_offset_minutes: Option<i32>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<DashboardTrendPoint>, String> {
-    db.get_dashboard_trends(days).map_err(|e| e.to_string())
+    db.get_dashboard_trends(days, utc_offset_minutes.unwrap_or(0))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

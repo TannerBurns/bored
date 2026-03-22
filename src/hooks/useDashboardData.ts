@@ -46,9 +46,11 @@ export function useDashboardData(): UseDashboardDataResult {
       const days = timeRange;
       const trendDays = timeRange ?? 90;
 
+      const utcOffsetMinutes = -new Date().getTimezoneOffset();
+
       const [summaryData, trendsData, modelsData, agentsData] = await Promise.all([
         getDashboardSummary(days),
-        getDashboardTrends(trendDays),
+        getDashboardTrends(trendDays, utcOffsetMinutes),
         getModelBreakdown(days),
         getAgentBreakdown(days),
       ]);

@@ -296,8 +296,8 @@ export async function getDashboardSummary(days: number | null): Promise<Dashboar
   return invoke('get_dashboard_summary', { days });
 }
 
-export async function getDashboardTrends(days: number): Promise<DashboardTrendPoint[]> {
-  return invoke('get_dashboard_trends', { days });
+export async function getDashboardTrends(days: number, utcOffsetMinutes: number): Promise<DashboardTrendPoint[]> {
+  return invoke('get_dashboard_trends', { days, utcOffsetMinutes });
 }
 
 export async function getModelBreakdown(days: number | null): Promise<ModelBreakdownEntry[]> {

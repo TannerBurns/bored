@@ -154,7 +154,8 @@ describe('useDashboardData', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(mockGetDashboardTrends).toHaveBeenLastCalledWith(90);
+    const expectedOffset = -new Date().getTimezoneOffset();
+    expect(mockGetDashboardTrends).toHaveBeenLastCalledWith(90, expectedOffset);
   });
 
   it('awaits backfillGitStats before fetching dashboard data', async () => {
