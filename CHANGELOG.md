@@ -2,6 +2,60 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.55] - 2026-03-21
+
+Code-review-only agent workflow, updater restart resilience, and test stability. Adds a standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings give per-provider control over model, timeout, retries, and max iterations. A structured review timeline with severity badges and iteration tracking provides visibility into what the review agent finds and fixes. On the stability side, the API server now retries port binding with exponential backoff to survive the brief overlap during Tauri updater restarts, and residual broad store subscriptions in useChatSync and useBoardSync are replaced with targeted selectors and stable refs.
+
+### New Features
+
+- Code-review-only workflow mode — new `CodeReviewOnly` workflow variant that iteratively runs code-review and code-review-fix stages until no issues are found or the user cancels/pauses, without re-running plan/implement stages
+- "Review with" button in ticket sidebar (visible when a branch exists) with magnifying-glass icon, distinct from the "Build with" lightning bolt
+- Dedicated Code Review Agent settings section per agent provider with independent model, timeout, retries, and max iterations (toggle for "Run until clean" vs capped)
+- Expandable code-review stage group in the workflow timeline showing per-iteration details with structured issue cards (severity badges, file paths, descriptions)
+- Badge progression: reviewing → N issues → fixing → N issues fixed (amber hazard icon for iterations with issues, green checkmark for clean)
+- Structured JSON output format for code-review and code-review-fix commands with robust parser (prefers JSON, falls back to legacy `ISSUES_FOUND:` line with markdown-bold handling)
+- Real-time `agent-code-review-update` events for live iteration tracking
+- Shared `aggregateRunCosts` utility for correct per-iteration cost display
+
+### Improvements
+
+- API server port binding now retries up to 10 times with exponential backoff (150ms base, 2s cap, ~15s total window), covering the brief port overlap during Tauri updater restarts
+- Converted `useChatSync` from full `useChatStore()` subscription to individual selectors, matching the pattern established in beta.53 across other hooks
+- Wrapped `handleBoardSelect` and `requestDeleteBoard` in `useCallback` with refs in `useBoardSync`, stabilizing props for `React.memo`'d children
+- Sidebar reorganized into Agent Actions / Ticket Actions sections for clearer hierarchy
+
+### Bug Fixes
+
+- Fixed app unresponsiveness after Tauri updater restart — when `relaunch()` is called, the new process spawns before the old one fully exits, causing `TcpListener::bind` on port 7432 to fail silently; the API server never started and SSE connections failed, making the app appear frozen
+- Fixed `useChatSync` subscribing the root App component to every chatStore state change, causing unnecessary re-renders on every SSE event
+- Fixed `handleBoardSelect` and `requestDeleteBoard` being recreated on every render, defeating `React.memo` on Sidebar and other children
+- Fixed 23 pre-existing test failures: settingsStore persist version (22→23), AgentSettingsPage section counts (5→6, 6→7), RunsHistory `CostBadge` mock missing `aggregateRunCosts` export, and code-review grouping assertion
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --tests -- -D warnings: 0 warnings
+- cargo test --lib: 1828 passed, 0 failed
+- npx vitest run: 45 files, 915 passed, 0 failed
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.54, here is a summary of the major features introduced in recent releases:
+
+**beta.54 — Strengthened Agent Test Commands**
+Integration-test command expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, mandatory run-and-verify with 3-retry loop, and service cleanup. Unit-tests command gains mandatory execution with structured failure diagnosis, assertion quality review, and regression checks.
+
+**beta.53 — Dynamic Model Discovery, Auto-Pilot Commands & Performance**
+Dynamic Cursor model discovery via CLI instead of a hardcoded list. Auto-pilot required commands with before/after phasing and iterative code-review loop support. Major performance optimization replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, and eliminating N+1 database queries across 25+ components.
+
+**beta.52 — Consolidated Review Task Creation**
+Standardized on a single `create_fix_tasks` JSON format, removing the deprecated singular `create_fix_task` variant. Review agent prompt rewritten to explicitly state that only the JSON tool block creates tasks.
+
+**beta.51 — Robust JSON Parsing & Agent Completion Stability**
+Rewrote JSON code block extractor to handle nested markdown fences inside JSON strings. String-aware brace matching for correct parsing of braces inside string values. Deduplicated agent-completion event handling to prevent cascading re-renders.
+
+---
+
 ## [0.1.0-beta.54] - 2026-03-21
 
 Strengthen agent test commands to require actual test execution and verification. The integration-test command is expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, a mandatory run-and-verify loop with up to 3 retries, and service cleanup. The unit-tests command gains a mandatory execution step with structured failure diagnosis, assertion quality review, and regression checks. Both commands now require test output snippets and fix iteration descriptions in their final reports.
