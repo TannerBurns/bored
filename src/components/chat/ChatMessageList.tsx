@@ -272,22 +272,27 @@ export function ChatMessageList({
     return set;
   }, [messages]);
 
-  const activeFixTaskIds = useMemo(() => {
-    // Walk backwards to find a fix_tasks_created message, but only if
-    // no user message appears after it (which would mean a new turn).
+  const isWaitingForFixTasks = useMemo(() => {
+    // Check messages: a fix_tasks_created message in the current turn
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.role === 'user') return null;
+      if (m.role === 'user') break;
       if (
         m.role === 'system' &&
         (m.metadata?.type as string) === 'fix_tasks_created'
       ) {
         const ids = m.metadata?.task_ids as string[] | undefined;
-        if (ids && ids.length > 0) return ids;
+        if (ids && ids.length > 0) return true;
       }
     }
-    return null;
-  }, [messages]);
+    // Fallback: check agent logs for fix-task-waiting pattern (covers the
+    // timing gap before the system message is loaded into the messages array)
+    return agentLogs.some(
+      (log) =>
+        log.message.includes('Waiting for worker agent to complete fix tasks') ||
+        /^Fix tasks: \d+ completed/.test(log.message),
+    );
+  }, [messages, agentLogs]);
 
   useEffect(() => {
     if (bottomRef.current) {
@@ -395,15 +400,8 @@ export function ChatMessageList({
             );
           })}
 
-          {isAgentThinking && (
-            activeFixTaskIds ? (
-              <TaskExecutionCard
-                taskIds={activeFixTaskIds}
-                ticketId={ticketId}
-              />
-            ) : (
-              <ChatThinkingView agentLogs={agentLogs} agentType={agentType} />
-            )
+          {isAgentThinking && !isWaitingForFixTasks && (
+            <ChatThinkingView agentLogs={agentLogs} agentType={agentType} />
           )}
 
           <div ref={bottomRef} />
