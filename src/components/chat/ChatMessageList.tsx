@@ -273,8 +273,11 @@ export function ChatMessageList({
   }, [messages]);
 
   const activeFixTaskIds = useMemo(() => {
+    // Walk backwards to find a fix_tasks_created message, but only if
+    // no user message appears after it (which would mean a new turn).
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
+      if (m.role === 'user') return null;
       if (
         m.role === 'system' &&
         (m.metadata?.type as string) === 'fix_tasks_created'
