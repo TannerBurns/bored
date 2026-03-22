@@ -55,7 +55,6 @@ export const TitleBar = memo(function TitleBar({
       data-tauri-drag-region
       className="titlebar h-[38px] flex items-center justify-between px-4 bg-board-bg-solid border-b border-board-border/50 select-none flex-shrink-0"
     >
-      {/* Left: context breadcrumb */}
       <div
         data-tauri-drag-region
         className="flex items-center gap-1.5 text-xs min-w-0"
@@ -76,7 +75,6 @@ export const TitleBar = memo(function TitleBar({
         </span>
       </div>
 
-      {/* Right: workers dropdown + status pills + window controls */}
       <div className="flex items-center gap-1.5">
         <WorkersDropdownButton
           totalWorkers={totalWorkers}
