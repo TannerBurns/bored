@@ -87,8 +87,8 @@ export const TitleBar = memo(function TitleBar({
           onClose={() => setDropdownOpen(false)}
         />
 
-        <StatusPill color="blue" count={queueStatus.readyCount} label="queued" />
-        <StatusPill color="amber" count={queueStatus.inProgressCount} label="active" pulse={queueStatus.inProgressCount > 0} />
+        <StatusPill color="purple" count={queueStatus.readyCount} label="queued" />
+        <StatusPill color="blue" count={queueStatus.inProgressCount} label="active" pulse={queueStatus.inProgressCount > 0} />
 
         {!IS_MAC && <WindowControls />}
       </div>
@@ -102,21 +102,21 @@ function StatusPill({
   label,
   pulse,
 }: {
-  color: 'blue' | 'amber';
+  color: 'purple' | 'blue';
   count: number;
   label: string;
   pulse?: boolean;
 }) {
   const styles = {
+    purple: {
+      bg: 'bg-purple-500/15 border-purple-500/25',
+      text: 'text-purple-400',
+      dot: 'bg-purple-500',
+    },
     blue: {
       bg: 'bg-blue-500/15 border-blue-500/25',
       text: 'text-blue-400',
       dot: 'bg-blue-500',
-    },
-    amber: {
-      bg: 'bg-amber-500/15 border-amber-500/25',
-      text: 'text-amber-400',
-      dot: 'bg-amber-500',
     },
   } as const;
   const s = styles[color];
