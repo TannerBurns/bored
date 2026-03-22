@@ -87,12 +87,8 @@ export const TitleBar = memo(function TitleBar({
           onClose={() => setDropdownOpen(false)}
         />
 
-        {queueStatus.readyCount > 0 && (
-          <StatusPill color="blue" count={queueStatus.readyCount} label="queued" />
-        )}
-        {queueStatus.inProgressCount > 0 && (
-          <StatusPill color="amber" count={queueStatus.inProgressCount} label="active" pulse />
-        )}
+        <StatusPill color="blue" count={queueStatus.readyCount} label="queued" />
+        <StatusPill color="amber" count={queueStatus.inProgressCount} label="active" pulse={queueStatus.inProgressCount > 0} />
 
         {!IS_MAC && <WindowControls />}
       </div>
