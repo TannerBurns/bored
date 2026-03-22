@@ -275,7 +275,6 @@ export function ChatMessageList({
   }, [messages]);
 
   const isWaitingForFixTasks = useMemo(() => {
-    // Check messages: a fix_tasks_created message in the current turn
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.role === 'user') break;
@@ -287,8 +286,7 @@ export function ChatMessageList({
         if (ids && ids.length > 0) return true;
       }
     }
-    // Fallback: check agent logs for fix-task-waiting pattern (covers the
-    // timing gap before the system message is loaded into the messages array)
+    // Covers the timing gap before the system message loads into the array
     return agentLogs.some(
       (log) =>
         log.message.includes('Waiting for worker agent to complete fix tasks') ||

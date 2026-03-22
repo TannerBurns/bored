@@ -80,9 +80,8 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
     }
   }
 
-  // Match bare inline JSON objects with known action keys (no wrappers).
-  // Only attempt if we haven't already found blocks via the wrapped patterns.
-  // Anchors to `{"key"` so stray braces like ${REPO} don't confuse the match.
+  // Bare inline JSON — only if no wrapped blocks were found.
+  // Anchored to `{"key"` so stray braces like ${REPO} don't match.
   if (blocksToRemove.length === 0) {
     const bareStartRegex = /\{\s*"(?:create_fix_tasks|run_command|start_app|stop_app)"/g;
     while ((match = bareStartRegex.exec(content)) !== null) {
