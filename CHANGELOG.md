@@ -2,6 +2,62 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.56] - 2026-03-22
+
+Custom title bar with live worker controls, redesigned task execution UI with stage tracking, and timezone-aware dashboard charts. The native OS title bar is replaced with a custom title bar that shows live worker status, queue depth, and in-progress ticket counts, with a dropdown to start/stop workers from any view. Task execution in chat is redesigned with a structured TaskExecutionCard showing real-time task status (pending/running/done/failed) and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by the user's local date instead of UTC.
+
+### New Features
+
+- Custom title bar with live system status — replaces native OS title bar with a custom bar showing worker count, queue depth, and active ticket counts visible from every view
+- Workers dropdown — "Workers (N)" button with per-provider +/- controls to start/stop workers without navigating to the Workers panel
+- Queued and active status pills in the title bar (purple for queued, blue for active) with pulse animation when tasks are actively processing
+- Task execution stage tracking in chat — structured TaskExecutionCard replaces the old "Fix Tasks Created" box and streaming timeline with real-time task status and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit)
+- `get_tasks_by_ids` Tauri command for efficient batch task lookup by ID
+
+### Improvements
+
+- `useWorkerStatus` zustand store with ref-counted polling — first consumer to mount starts a 5s polling interval, last to unmount stops it, all consumers (TitleBar and WorkerPanel) share the same state
+- macOS uses TitleBarStyle::Overlay keeping native traffic lights; Windows/Linux uses custom window control buttons (minimize, maximize, close)
+- Bare inline JSON parser for review messages anchors regex to known action keys and uses string-aware brace matching, preventing false matches on `${REPO}` or `{owner}` in explanation text
+- TaskExecutionCard status-color logic extracted into a variant lookup table
+- Dashboard trend queries apply SQLite time modifier (`date(column, '{offset}')`) to shift UTC timestamps to local time before date extraction, with `utc_offset_minutes` parameter defaulting to 0 for backward compatibility
+
+### Bug Fixes
+
+- Fixed dashboard trend charts bucketing events by UTC date instead of local date — a ticket completed at 6pm PST appeared on the wrong day because the stored UTC timestamp crossed midnight
+- Fixed duplicate task rendering in assistant review messages — ReviewMessage rendered its own FixTaskCard alongside the new TaskExecutionCard
+- Fixed completed task card reappearing during new conversation turns — activeFixTaskIds found stale fix_tasks_created messages across turn boundaries
+- Fixed streaming thinking view rendering alongside TaskExecutionCard during fix task execution
+- Fixed TaskExecutionCard showing empty "0/0 done" card when taskIds is empty instead of falling back to parsed titles
+- Fixed stage stepper showing spinner on final stage after task completion because agentRuns were only fetched while tasks were in_progress
+- Fixed RunStatus values like 'aborted', 'queued', 'paused' silently falling through as unrecognized StageGroupStatus strings
+- Fixed progress counter only counting 'completed' tasks, missing 'failed' tasks that are also terminal
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --tests -- -D warnings: 0 warnings
+- npx vitest run: 972 tests passed
+- 16 new useWorkerStatusStore tests, 18 stageLabels tests, 5 parseReviewBlocks tests, 6 get_tasks_by_ids Rust tests
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.55, here is a summary of the major features introduced in recent releases:
+
+**beta.55 — Code-Review-Only Agent Workflow**
+Standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings with per-provider control over model, timeout, retries, and max iterations. Structured review timeline with severity badges and iteration tracking.
+
+**beta.54 — Strengthened Agent Test Commands**
+Integration-test command expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, mandatory run-and-verify with 3-retry loop, and service cleanup. Unit-tests command gains mandatory execution with structured failure diagnosis, assertion quality review, and regression checks.
+
+**beta.53 — Dynamic Model Discovery, Auto-Pilot Commands & Performance**
+Dynamic Cursor model discovery via CLI instead of a hardcoded list. Auto-pilot required commands with before/after phasing and iterative code-review loop support. Major performance optimization replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, and eliminating N+1 database queries across 25+ components.
+
+**beta.52 — Consolidated Review Task Creation**
+Standardized on a single `create_fix_tasks` JSON format, removing the deprecated singular `create_fix_task` variant. Review agent prompt rewritten to explicitly state that only the JSON tool block creates tasks.
+
+---
+
 ## [0.1.0-beta.55] - 2026-03-21
 
 Code-review-only agent workflow, updater restart resilience, and test stability. Adds a standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings give per-provider control over model, timeout, retries, and max iterations. A structured review timeline with severity badges and iteration tracking provides visibility into what the review agent finds and fixes. On the stability side, the API server now retries port binding with exponential backoff to survive the brief overlap during Tauri updater restarts, and residual broad store subscriptions in useChatSync and useBoardSync are replaced with targeted selectors and stable refs.
