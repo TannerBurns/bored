@@ -91,6 +91,7 @@ export function ChatPanel({ projectName, onNavigateToSpec, onOpenTicket }: ChatP
         agentType={currentChat.agentType}
         chatMode={currentChat.mode}
         chatId={currentChat.id}
+        ticketId={currentChat.ticketId}
         onNavigateToSpec={onNavigateToSpec}
         onOpenTicket={onOpenTicket}
         onEditMessage={editAndResend}

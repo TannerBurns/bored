@@ -267,4 +267,127 @@ describe('parseReviewBlocks', () => {
     expect(result.commands[0].type).toBe('run_command');
     expect(result.commands[0].command).toBe('npm test');
   });
+
+  // ── bare inline JSON support ─────────────────────────────────────
+
+  it('extracts create_fix_tasks from bare inline JSON', () => {
+    const content =
+      'The driver does not validate addresses at open time.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix empty address validation","description":"Add an early check in NewCHClient"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix empty address validation');
+    expect(result.cleanedContent).toContain('The driver does not validate');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare inline JSON with multiline description containing newlines', () => {
+    const content =
+      'Found an issue.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix test","description":"Problem: test fails\\n\\nRequirements:\\n- Add validation","acceptance_criteria":["Tests pass"]}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix test');
+    expect(result.tasks[0].acceptanceCriteria).toEqual(['Tests pass']);
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('does not double-parse when code fence is already matched', () => {
+    const content = [
+      '```json',
+      '{"create_fix_tasks":{"tasks":[{"title":"Task A"}]}}',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Task A');
+  });
+
+  it('extracts bare inline run_command', () => {
+    const content = 'Running tests now.\n\n{"run_command":{"command":"make test"}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('run_command');
+    expect(result.commands[0].command).toBe('make test');
+    expect(result.cleanedContent).not.toContain('run_command');
+  });
+
+  it('extracts bare JSON when explanation text contains curly braces like ${REPO}', () => {
+    const content =
+      'The PATCH call uses `repos/${REPO}/issues/${PR_NUM}/comments/${COMMENT_ID}` ' +
+      'but the correct endpoint is `repos/{owner}/{repo}/issues/comments/{comment_id}`.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix PR comment 404","description":"Change the PATCH endpoint from repos/${REPO}/issues/${PR_NUM}/comments/${COMMENT_ID} to repos/${REPO}/issues/comments/${COMMENT_ID}"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix PR comment 404');
+    expect(result.cleanedContent).toContain('The PATCH call uses');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare JSON whose description contains escaped quotes and backticks', () => {
+    const content =
+      'Two issues found:\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix CI","description":"Change:\\n   ```\\n   gh api \\"repos/${REPO}/issues/comments/${COMMENT_ID}\\"\\n   ```\\nDone."}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CI');
+    expect(result.cleanedContent).toContain('Two issues found:');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('preserves trailing text after bare inline JSON', () => {
+    const content =
+      'Here is the issue.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix it"}]}}\n\n' +
+      'Let me know if you have questions.';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.cleanedContent).toContain('Here is the issue.');
+    expect(result.cleanedContent).toContain('Let me know if you have questions.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('handles bare JSON with deeply nested objects in description', () => {
+    const content =
+      '{"create_fix_tasks":{"tasks":[{"title":"Nested","description":"config: {\\\"key\\\": {\\\"nested\\\": true}}"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Nested');
+  });
+
+  it('ignores bare JSON-like text without valid structure', () => {
+    const content =
+      'Use {"create_fix_tasks" as the key but this is not valid JSON at all';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(0);
+    expect(result.cleanedContent).toBe(content);
+  });
+
+  it('handles bare stop_app JSON', () => {
+    const content = 'Stopping now.\n\n{"stop_app":{}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('stop_app');
+    expect(result.cleanedContent).not.toContain('stop_app');
+  });
+
+  it('handles bare start_app JSON with port', () => {
+    const content = 'Starting.\n\n{"start_app":{"command":"npm start","port":3000}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.commands).toHaveLength(1);
+    expect(result.commands[0].type).toBe('start_app');
+    expect(result.commands[0].command).toBe('npm start');
+    expect(result.commands[0].port).toBe(3000);
+  });
 });

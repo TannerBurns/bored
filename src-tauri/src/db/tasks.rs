@@ -429,6 +429,27 @@ impl Database {
         })
     }
 
+    /// Get multiple tasks by their IDs
+    pub fn get_tasks_by_ids(&self, task_ids: &[String]) -> Result<Vec<Task>, DbError> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|conn| {
+            let placeholders = task_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                r#"SELECT id, ticket_id, order_index, task_type, title, content,
+                          status, run_id, created_at, started_at, completed_at
+                   FROM tasks WHERE id IN ({}) ORDER BY order_index"#,
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                task_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt.query_map(params.as_slice(), Self::map_task_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
@@ -1256,5 +1277,136 @@ mod tests {
         // Task should still be in progress
         let still_in_progress = db.get_task(&task.id).unwrap();
         assert_eq!(still_in_progress.status, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn get_tasks_by_ids_empty_input() {
+        let db = create_test_db();
+        let result = db.get_tasks_by_ids(&[]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn get_tasks_by_ids_single() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+
+        let task = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Solo Task".to_string()),
+                content: Some("content".to_string()),
+            })
+            .unwrap();
+
+        let result = db
+            .get_tasks_by_ids(&[task.id.clone()])
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, task.id);
+        assert_eq!(result[0].title, Some("Solo Task".to_string()));
+    }
+
+    #[test]
+    fn get_tasks_by_ids_multiple() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+
+        let t1 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("First".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let t2 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Second".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let t3 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Third".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let result = db
+            .get_tasks_by_ids(&[t3.id.clone(), t1.id.clone(), t2.id.clone()])
+            .unwrap();
+        assert_eq!(result.len(), 3);
+        // Should be ordered by order_index regardless of input order
+        assert_eq!(result[0].title, Some("First".to_string()));
+        assert_eq!(result[1].title, Some("Second".to_string()));
+        assert_eq!(result[2].title, Some("Third".to_string()));
+    }
+
+    #[test]
+    fn get_tasks_by_ids_nonexistent() {
+        let db = create_test_db();
+        let result = db
+            .get_tasks_by_ids(&["nonexistent-1".to_string(), "nonexistent-2".to_string()])
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn get_tasks_by_ids_mixed_existing_and_nonexistent() {
+        let db = create_test_db();
+        let ticket_id = setup_ticket(&db);
+
+        let task = db
+            .create_task(&CreateTask {
+                ticket_id: ticket_id.clone(),
+                task_type: TaskType::Custom,
+                title: Some("Real Task".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let result = db
+            .get_tasks_by_ids(&[task.id.clone(), "nonexistent".to_string()])
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, task.id);
+    }
+
+    #[test]
+    fn get_tasks_by_ids_across_tickets() {
+        let db = create_test_db();
+        let ticket1 = setup_ticket(&db);
+        let ticket2 = setup_ticket(&db);
+
+        let t1 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket1,
+                task_type: TaskType::Custom,
+                title: Some("Ticket1 Task".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let t2 = db
+            .create_task(&CreateTask {
+                ticket_id: ticket2,
+                task_type: TaskType::Custom,
+                title: Some("Ticket2 Task".to_string()),
+                content: None,
+            })
+            .unwrap();
+
+        let result = db
+            .get_tasks_by_ids(&[t1.id.clone(), t2.id.clone()])
+            .unwrap();
+        assert_eq!(result.len(), 2);
     }
 }

@@ -8,6 +8,9 @@ import { ChatEventTimeline } from './ChatEventTimeline';
 import { SpecBuilderMessage } from './SpecBuilderMessage';
 import { PlanBuilderMessage, looksLikePlanResponse } from './PlanBuilderMessage';
 import { TicketBuilderMessage } from './TicketBuilderMessage';
+import { TaskExecutionCard } from './TaskExecutionCard';
+import { parseReviewBlocks } from './parseReviewBlocks';
+import type { ParsedCommand } from './parseReviewBlocks';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -17,6 +20,7 @@ interface ChatMessageListProps {
   agentType: string;
   chatMode: ChatMode;
   chatId: string;
+  ticketId?: string;
   onNavigateToSpec?: (specId: string) => void;
   onOpenTicket?: (ticketId: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
@@ -224,6 +228,7 @@ export function ChatMessageList({
   agentType,
   chatMode,
   chatId,
+  ticketId,
   onNavigateToSpec,
   onOpenTicket,
   onEditMessage,
@@ -269,6 +274,26 @@ export function ChatMessageList({
     return set;
   }, [messages]);
 
+  const isWaitingForFixTasks = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'user') break;
+      if (
+        m.role === 'system' &&
+        (m.metadata?.type as string) === 'fix_tasks_created'
+      ) {
+        const ids = m.metadata?.task_ids as string[] | undefined;
+        if (ids && ids.length > 0) return true;
+      }
+    }
+    // Covers the timing gap before the system message loads into the array
+    return agentLogs.some(
+      (log) =>
+        log.message.includes('Waiting for worker agent to complete fix tasks') ||
+        /^Fix tasks: \d+ completed/.test(log.message),
+    );
+  }, [messages, agentLogs]);
+
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -313,6 +338,7 @@ export function ChatMessageList({
                 <SystemMessage
                   key={msg.id}
                   message={msg}
+                  ticketId={ticketId}
                   onNavigateToSpec={onNavigateToSpec}
                   onOpenTicket={onOpenTicket}
                 />
@@ -374,7 +400,7 @@ export function ChatMessageList({
             );
           })}
 
-          {isAgentThinking && (
+          {isAgentThinking && !isWaitingForFixTasks && (
             <ChatThinkingView agentLogs={agentLogs} agentType={agentType} />
           )}
 
@@ -384,9 +410,6 @@ export function ChatMessageList({
     </div>
   );
 }
-
-import { parseReviewBlocks } from './parseReviewBlocks';
-import type { ParsedFixTask, ParsedCommand } from './parseReviewBlocks';
 
 function CommandCard({ command }: { command: ParsedCommand }) {
   if (command.type === 'run_command') {
@@ -426,43 +449,6 @@ function CommandCard({ command }: { command: ParsedCommand }) {
   );
 }
 
-function FixTaskCard({ task }: { task: ParsedFixTask }) {
-  const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-500/20 text-yellow-400',
-    running: 'bg-blue-500/20 text-blue-400',
-    completed: 'bg-emerald-500/20 text-emerald-400',
-    failed: 'bg-red-500/20 text-red-400',
-  };
-  const statusColor = statusColors[task.status || 'pending'] || statusColors.pending;
-
-  return (
-    <div className="border border-board-border rounded-lg p-3 bg-board-card/30">
-      <div className="flex items-center gap-2">
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColor}`}>
-          {task.status || 'pending'}
-        </span>
-        <span className="font-medium text-sm">{task.title}</span>
-      </div>
-      {task.description && (
-        <p className="text-xs text-board-text-muted mt-1.5">{task.description}</p>
-      )}
-      {task.acceptanceCriteria && task.acceptanceCriteria.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-board-border/50">
-          <span className="text-[10px] font-medium text-board-text-muted uppercase tracking-wide">Acceptance Criteria</span>
-          <ul className="mt-1 space-y-0.5">
-            {task.acceptanceCriteria.map((criterion, i) => (
-              <li key={i} className="text-xs text-board-text-muted flex items-start gap-1.5">
-                <span className="text-board-text-muted/50 mt-0.5">•</span>
-                <span>{criterion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ReviewMessage({ content }: { content: string }) {
   const { cleanedContent, tasks, commands } = parseReviewBlocks(content);
   const hasBlocks = tasks.length > 0 || commands.length > 0;
@@ -478,20 +464,6 @@ function ReviewMessage({ content }: { content: string }) {
         <div className="space-y-2">
           {commands.map((cmd, i) => (
             <CommandCard key={i} command={cmd} />
-          ))}
-        </div>
-      )}
-      {tasks.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-medium text-board-text-muted">Fix Tasks Created</span>
-          </div>
-          {tasks.map((task, i) => (
-            <FixTaskCard key={i} task={task} />
           ))}
         </div>
       )}
@@ -572,10 +544,12 @@ function SpecFinalizedCard({ metadata }: { metadata: Record<string, unknown> }) 
 
 function SystemMessage({
   message,
+  ticketId,
   onNavigateToSpec,
   onOpenTicket,
 }: {
   message: ChatMessage;
+  ticketId?: string;
   onNavigateToSpec?: (specId: string) => void;
   onOpenTicket?: (ticketId: string) => void;
 }) {
@@ -594,34 +568,20 @@ function SystemMessage({
   }
 
   if (isFixTasksCreated) {
+    const metaTaskIds = (meta?.task_ids as string[] | undefined) ?? [];
     const { tasks } = parseReviewBlocks(message.content);
-    const taskTitles = tasks.length > 0
-      ? tasks
-      : (message.content.match(/^- (.+)$/gm) || []).map((line) => ({
-          title: line.replace(/^- /, ''),
-        }));
+    const fallbackTitles = tasks.length > 0
+      ? tasks.map((t) => t.title)
+      : (message.content.match(/^- (.+)$/gm) || []).map((line) =>
+          line.replace(/^- /, ''),
+        );
 
     return (
-      <div className="max-w-[85%]">
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
-          <div className="flex items-center gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-medium text-amber-400">Fix Tasks Created</span>
-          </div>
-          {taskTitles.map((task, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-board-text pl-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/60 flex-shrink-0" />
-              <span>{task.title}</span>
-            </div>
-          ))}
-          <p className="text-[10px] text-board-text-muted pt-1">
-            A worker agent will pick these up automatically.
-          </p>
-        </div>
-      </div>
+      <TaskExecutionCard
+        taskIds={metaTaskIds}
+        ticketId={ticketId}
+        fallbackTitles={fallbackTitles}
+      />
     );
   }
 

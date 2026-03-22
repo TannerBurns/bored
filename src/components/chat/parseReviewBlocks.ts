@@ -1,4 +1,4 @@
-export interface ParsedFixTask {
+interface ParsedFixTask {
   title: string;
   description?: string;
   acceptanceCriteria?: string[];
@@ -80,9 +80,48 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
     }
   }
 
+  // Bare inline JSON — only if no wrapped blocks were found.
+  // Anchored to `{"key"` so stray braces like ${REPO} don't match.
+  if (blocksToRemove.length === 0) {
+    const bareStartRegex = /\{\s*"(?:create_fix_tasks|run_command|start_app|stop_app)"/g;
+    while ((match = bareStartRegex.exec(content)) !== null) {
+      const startIdx = match.index;
+      const balanced = extractBalancedJson(content.slice(startIdx));
+      if (!balanced) continue;
+      try {
+        const parsed = JSON.parse(balanced);
+        if (processJsonMatch(parsed, tasks, commands)) {
+          blocksToRemove.push(balanced);
+        }
+      } catch {
+        // Not valid JSON, skip
+      }
+    }
+  }
+
   for (const block of blocksToRemove) {
     cleanedContent = cleanedContent.replace(block, '');
   }
 
   return { cleanedContent: cleanedContent.trim(), tasks, commands };
+}
+
+/** Walk from the opening brace and find the matching closing brace,
+ *  skipping braces inside JSON string literals. */
+function extractBalancedJson(text: string): string | null {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') { i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    if (depth === 0) return text.slice(0, i + 1);
+  }
+  return null;
 }
