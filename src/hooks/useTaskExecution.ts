@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Task, AgentRun } from '../types';
-import { deriveStageGroups, type StageGroup } from '../components/chat/stageLabels';
+import { deriveStageGroups, type StageGroup, type StageGroupStatus } from '../components/chat/stageLabels';
+import type { RunStatus } from '../types';
 
 export interface TaskWithStages {
   task: Task;
@@ -92,10 +93,12 @@ export function useTaskExecution(
         );
 
       if (subRuns.length === 0 && parentRun) {
+        const status = mapRunStatus(parentRun.status as RunStatus);
+        const label = runStatusLabel(parentRun.status as RunStatus);
         return {
           task,
-          stages: [{ label: 'Running', status: parentRun.status as 'running' }],
-          currentStage: 'Running',
+          stages: [{ label, status }],
+          currentStage: status === 'running' ? label : null,
         };
       }
 
@@ -108,4 +111,28 @@ export function useTaskExecution(
   }, [tasks, agentRuns]);
 
   return { tasks: tasksWithStages, isAllComplete, isLoading };
+}
+
+function mapRunStatus(status: RunStatus): StageGroupStatus {
+  switch (status) {
+    case 'running': return 'running';
+    case 'finished': return 'finished';
+    case 'error':
+    case 'aborted': return 'error';
+    case 'queued':
+    case 'paused':
+    default: return 'pending';
+  }
+}
+
+function runStatusLabel(status: RunStatus): string {
+  switch (status) {
+    case 'running': return 'Starting';
+    case 'finished': return 'Finished';
+    case 'error': return 'Failed';
+    case 'aborted': return 'Aborted';
+    case 'queued': return 'Queued';
+    case 'paused': return 'Paused';
+    default: return 'Running';
+  }
 }
