@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { TitleBar } from './components/layout/TitleBar';
 import { CreateTicketModal } from './components/board/CreateTicketModal';
 import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
@@ -211,21 +212,27 @@ function App() {
   }, [openTicketById]);
 
   return (
-    <div className="flex h-screen app-gradient-bg text-board-text">
-      <Sidebar
-        navItems={NAV_ITEMS}
-        activeItem={activeNav}
-        onItemClick={handleNavItemClick}
-        boards={boards}
-        currentBoard={currentBoard}
-        onBoardSelect={handleSidebarBoardSelect}
-        onCreateBoard={handleOpenCreateBoard}
-        onRenameBoard={handleRenameBoard}
-        onDeleteBoard={requestDeleteBoard}
-        onSettingsClick={handleSettingsClick}
+    <div className="flex flex-col h-screen app-gradient-bg text-board-text">
+      <TitleBar
+        activeNav={activeNav}
+        currentBoardName={currentBoard?.name}
+        selectedTicketTitle={isTicketModalOpen && selectedTicket ? selectedTicket.title : undefined}
       />
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar
+          navItems={NAV_ITEMS}
+          activeItem={activeNav}
+          onItemClick={handleNavItemClick}
+          boards={boards}
+          currentBoard={currentBoard}
+          onBoardSelect={handleSidebarBoardSelect}
+          onCreateBoard={handleOpenCreateBoard}
+          onRenameBoard={handleRenameBoard}
+          onDeleteBoard={requestDeleteBoard}
+          onSettingsClick={handleSettingsClick}
+        />
 
-      <main className="flex-1 p-4 overflow-hidden flex flex-col">
+        <main className="flex-1 p-4 overflow-hidden flex flex-col">
         {isTicketModalOpen && selectedTicket ? (
           <TicketDetailView
             ticket={selectedTicket}
@@ -317,6 +324,7 @@ function App() {
           </>
         )}
       </main>
+      </div>
 
       {isCreateModalOpen && currentBoard && (
         <CreateTicketModal

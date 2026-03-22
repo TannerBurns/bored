@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../../lib/utils';
 import { Button } from '../common/Button';
 import { ConfirmModal } from '../common';
 import { getAgentIcon, getAgentDisplayName, getAgentBrandColor } from '../common/AgentIcons';
-import type { WorkerStatus, WorkerQueueStatus } from '../../types';
+import type { WorkerStatus } from '../../types';
 import { logger } from '../../lib/logger';
 import { useSettingsStore, ensureAgentConfigsSynced } from '../../stores/settingsStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
+import { useWorkerStatus } from '../../hooks/useWorkerStatus';
 
 function AgentIconInline({ agentType, size }: { agentType: string; size: number }) {
   const Icon = getAgentIcon(agentType);
@@ -22,12 +23,7 @@ export function WorkerPanel() {
   const unsortedAgents = useAgentRegistryStore((s) => s.agents);
   const agents = useMemo(() => [...unsortedAgents].sort((a, b) => a.displayName.localeCompare(b.displayName)), [unsortedAgents]);
   const loadAgents = useAgentRegistryStore((s) => s.loadAgents);
-  const [workers, setWorkers] = useState<WorkerStatus[]>([]);
-  const [queueStatus, setQueueStatus] = useState<WorkerQueueStatus>({
-    readyCount: 0,
-    inProgressCount: 0,
-    workerCount: 0,
-  });
+  const { workers, queueStatus, refresh: loadStatus } = useWorkerStatus();
   const [isStarting, setIsStarting] = useState(false);
   const [agentCounts, setAgentCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
@@ -36,27 +32,6 @@ export function WorkerPanel() {
   useEffect(() => {
     loadAgents();
   }, [loadAgents]);
-
-  const loadStatus = useCallback(async () => {
-    try {
-      const [workerData, queueData] = await Promise.all([
-        invoke<WorkerStatus[]>('get_workers'),
-        invoke<WorkerQueueStatus>('get_worker_queue_status'),
-      ]);
-      setWorkers(workerData);
-      setQueueStatus(queueData);
-      setError(null);
-    } catch (err) {
-      logger.error('Failed to load worker status:', err);
-      setError(String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    loadStatus();
-    const interval = setInterval(loadStatus, 5000);
-    return () => clearInterval(interval);
-  }, [loadStatus]);
 
   const totalCount = Object.values(agentCounts).reduce((sum, c) => sum + c, 0);
 
@@ -93,7 +68,6 @@ export function WorkerPanel() {
   };
 
   const handleStopWorker = (workerId: string, isWorking: boolean) => {
-    // If worker is actively processing a ticket, confirm before stopping
     if (isWorking) {
       setStopConfirm(workerId);
       return;
