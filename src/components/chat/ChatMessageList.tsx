@@ -8,6 +8,7 @@ import { ChatEventTimeline } from './ChatEventTimeline';
 import { SpecBuilderMessage } from './SpecBuilderMessage';
 import { PlanBuilderMessage, looksLikePlanResponse } from './PlanBuilderMessage';
 import { TicketBuilderMessage } from './TicketBuilderMessage';
+import { TaskExecutionCard } from './TaskExecutionCard';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -17,6 +18,7 @@ interface ChatMessageListProps {
   agentType: string;
   chatMode: ChatMode;
   chatId: string;
+  ticketId?: string;
   onNavigateToSpec?: (specId: string) => void;
   onOpenTicket?: (ticketId: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
@@ -224,6 +226,7 @@ export function ChatMessageList({
   agentType,
   chatMode,
   chatId,
+  ticketId,
   onNavigateToSpec,
   onOpenTicket,
   onEditMessage,
@@ -267,6 +270,20 @@ export function ChatMessageList({
       }
     }
     return set;
+  }, [messages]);
+
+  const activeFixTaskIds = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.role === 'system' &&
+        (m.metadata?.type as string) === 'fix_tasks_created'
+      ) {
+        const ids = m.metadata?.task_ids as string[] | undefined;
+        if (ids && ids.length > 0) return ids;
+      }
+    }
+    return null;
   }, [messages]);
 
   useEffect(() => {
@@ -313,6 +330,7 @@ export function ChatMessageList({
                 <SystemMessage
                   key={msg.id}
                   message={msg}
+                  ticketId={ticketId}
                   onNavigateToSpec={onNavigateToSpec}
                   onOpenTicket={onOpenTicket}
                 />
@@ -375,7 +393,14 @@ export function ChatMessageList({
           })}
 
           {isAgentThinking && (
-            <ChatThinkingView agentLogs={agentLogs} agentType={agentType} />
+            activeFixTaskIds ? (
+              <TaskExecutionCard
+                taskIds={activeFixTaskIds}
+                ticketId={ticketId}
+              />
+            ) : (
+              <ChatThinkingView agentLogs={agentLogs} agentType={agentType} />
+            )
           )}
 
           <div ref={bottomRef} />
@@ -572,10 +597,12 @@ function SpecFinalizedCard({ metadata }: { metadata: Record<string, unknown> }) 
 
 function SystemMessage({
   message,
+  ticketId,
   onNavigateToSpec,
   onOpenTicket,
 }: {
   message: ChatMessage;
+  ticketId?: string;
   onNavigateToSpec?: (specId: string) => void;
   onOpenTicket?: (ticketId: string) => void;
 }) {
@@ -594,34 +621,30 @@ function SystemMessage({
   }
 
   if (isFixTasksCreated) {
+    const metaTaskIds = meta?.task_ids as string[] | undefined;
     const { tasks } = parseReviewBlocks(message.content);
-    const taskTitles = tasks.length > 0
-      ? tasks
-      : (message.content.match(/^- (.+)$/gm) || []).map((line) => ({
-          title: line.replace(/^- /, ''),
-        }));
+    const fallbackTitles = tasks.length > 0
+      ? tasks.map((t) => t.title)
+      : (message.content.match(/^- (.+)$/gm) || []).map((line) =>
+          line.replace(/^- /, ''),
+        );
+
+    if (metaTaskIds && metaTaskIds.length > 0) {
+      return (
+        <TaskExecutionCard
+          taskIds={metaTaskIds}
+          ticketId={ticketId}
+          fallbackTitles={fallbackTitles}
+        />
+      );
+    }
 
     return (
-      <div className="max-w-[85%]">
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
-          <div className="flex items-center gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-            </svg>
-            <span className="text-xs font-medium text-amber-400">Fix Tasks Created</span>
-          </div>
-          {taskTitles.map((task, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-board-text pl-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/60 flex-shrink-0" />
-              <span>{task.title}</span>
-            </div>
-          ))}
-          <p className="text-[10px] text-board-text-muted pt-1">
-            A worker agent will pick these up automatically.
-          </p>
-        </div>
-      </div>
+      <TaskExecutionCard
+        taskIds={[]}
+        ticketId={ticketId}
+        fallbackTitles={fallbackTitles}
+      />
     );
   }
 

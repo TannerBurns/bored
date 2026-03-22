@@ -122,6 +122,16 @@ pub fn add_command_task(
     Ok(task)
 }
 
+/// Get multiple tasks by their IDs
+#[tauri::command]
+pub fn get_tasks_by_ids(
+    db: State<'_, Arc<Database>>,
+    task_ids: Vec<String>,
+) -> Result<Vec<Task>, String> {
+    db.get_tasks_by_ids(&task_ids)
+        .map_err(|e| e.to_string())
+}
+
 /// Delete a task
 #[tauri::command]
 pub fn delete_task(db: State<'_, Arc<Database>>, task_id: String) -> Result<(), String> {

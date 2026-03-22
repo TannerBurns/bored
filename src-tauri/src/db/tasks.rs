@@ -429,6 +429,27 @@ impl Database {
         })
     }
 
+    /// Get multiple tasks by their IDs
+    pub fn get_tasks_by_ids(&self, task_ids: &[String]) -> Result<Vec<Task>, DbError> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|conn| {
+            let placeholders = task_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                r#"SELECT id, ticket_id, order_index, task_type, title, content,
+                          status, run_id, created_at, started_at, completed_at
+                   FROM tasks WHERE id IN ({}) ORDER BY order_index"#,
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                task_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt.query_map(params.as_slice(), Self::map_task_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+        })
+    }
+
     /// Delete a task
     pub fn delete_task(&self, task_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {

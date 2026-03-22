@@ -432,6 +432,7 @@ fn main() {
             commands::agents::list_cursor_models,
             // Task queue management
             commands::tasks::get_tasks,
+            commands::tasks::get_tasks_by_ids,
             commands::tasks::create_task,
             commands::tasks::add_command_task,
             commands::tasks::delete_task,
