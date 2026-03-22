@@ -66,7 +66,7 @@ export const TaskExecutionCard = memo(function TaskExecutionCard({
           </span>
           {!isAllComplete && (
             <span className="text-[10px] text-board-text-muted">
-              {tasks.filter((t) => t.task.status === 'completed').length}/{tasks.length} done
+              {tasks.filter((t) => t.task.status === 'completed' || t.task.status === 'failed').length}/{tasks.length} done
             </span>
           )}
         </div>
