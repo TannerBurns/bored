@@ -9,6 +9,8 @@ import { SpecBuilderMessage } from './SpecBuilderMessage';
 import { PlanBuilderMessage, looksLikePlanResponse } from './PlanBuilderMessage';
 import { TicketBuilderMessage } from './TicketBuilderMessage';
 import { TaskExecutionCard } from './TaskExecutionCard';
+import { parseReviewBlocks } from './parseReviewBlocks';
+import type { ParsedCommand } from './parseReviewBlocks';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -411,9 +413,6 @@ export function ChatMessageList({
   );
 }
 
-import { parseReviewBlocks } from './parseReviewBlocks';
-import type { ParsedCommand } from './parseReviewBlocks';
-
 function CommandCard({ command }: { command: ParsedCommand }) {
   if (command.type === 'run_command') {
     return (
@@ -571,7 +570,7 @@ function SystemMessage({
   }
 
   if (isFixTasksCreated) {
-    const metaTaskIds = meta?.task_ids as string[] | undefined;
+    const metaTaskIds = (meta?.task_ids as string[] | undefined) ?? [];
     const { tasks } = parseReviewBlocks(message.content);
     const fallbackTitles = tasks.length > 0
       ? tasks.map((t) => t.title)
@@ -579,19 +578,9 @@ function SystemMessage({
           line.replace(/^- /, ''),
         );
 
-    if (metaTaskIds && metaTaskIds.length > 0) {
-      return (
-        <TaskExecutionCard
-          taskIds={metaTaskIds}
-          ticketId={ticketId}
-          fallbackTitles={fallbackTitles}
-        />
-      );
-    }
-
     return (
       <TaskExecutionCard
-        taskIds={[]}
+        taskIds={metaTaskIds}
         ticketId={ticketId}
         fallbackTitles={fallbackTitles}
       />

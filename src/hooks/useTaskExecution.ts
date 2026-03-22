@@ -24,6 +24,7 @@ export function useTaskExecution(
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agentRuns, setAgentRuns] = useState<AgentRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const taskIdsKey = useMemo(() => taskIds.join(','), [taskIds]);
   const taskIdsRef = useRef(taskIds);
   taskIdsRef.current = taskIds;
 
@@ -74,7 +75,7 @@ export function useTaskExecution(
       cancelled = true;
       clearInterval(interval);
     };
-  }, [taskIds.join(','), ticketId, isAllComplete]);
+  }, [taskIdsKey, ticketId, isAllComplete]);
 
   const tasksWithStages = useMemo<TaskWithStages[]>(() => {
     return tasks.map((task) => {

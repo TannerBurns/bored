@@ -42,29 +42,19 @@ export const TaskExecutionCard = memo(function TaskExecutionCard({
     );
   }
 
-  const borderColor = isAllComplete
-    ? tasks.every((t) => t.task.status === 'completed')
-      ? 'border-emerald-500/30'
-      : 'border-red-500/30'
-    : tasks.some((t) => t.task.status === 'in_progress')
-      ? 'border-blue-500/30'
-      : 'border-amber-500/30';
+  const allSucceeded = isAllComplete && tasks.every((t) => t.task.status === 'completed');
+  const hasRunning = tasks.some((t) => t.task.status === 'in_progress');
+  const variant = isAllComplete
+    ? (allSucceeded ? 'success' : 'error')
+    : (hasRunning ? 'active' : 'pending');
 
-  const bgColor = isAllComplete
-    ? tasks.every((t) => t.task.status === 'completed')
-      ? 'bg-emerald-500/5'
-      : 'bg-red-500/5'
-    : tasks.some((t) => t.task.status === 'in_progress')
-      ? 'bg-blue-500/5'
-      : 'bg-amber-500/5';
-
-  const headerColor = isAllComplete
-    ? tasks.every((t) => t.task.status === 'completed')
-      ? 'text-emerald-400'
-      : 'text-red-400'
-    : tasks.some((t) => t.task.status === 'in_progress')
-      ? 'text-blue-400'
-      : 'text-amber-400';
+  const variantStyles = {
+    success: { border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', text: 'text-emerald-400' },
+    error:   { border: 'border-red-500/30',     bg: 'bg-red-500/5',     text: 'text-red-400' },
+    active:  { border: 'border-blue-500/30',    bg: 'bg-blue-500/5',    text: 'text-blue-400' },
+    pending: { border: 'border-amber-500/30',   bg: 'bg-amber-500/5',   text: 'text-amber-400' },
+  } as const;
+  const { border: borderColor, bg: bgColor, text: headerColor } = variantStyles[variant];
 
   return (
     <div className="max-w-[85%]">
