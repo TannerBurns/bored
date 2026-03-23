@@ -45,15 +45,15 @@ function makeWorker(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
 }
 
 function resetStore() {
-  const { _intervalId, _unlisten } = useWorkerStatusStore.getState();
+  const { _intervalId, _listenPromise } = useWorkerStatusStore.getState();
   if (_intervalId) clearInterval(_intervalId);
-  if (_unlisten) _unlisten();
+  if (_listenPromise) _listenPromise.then((fn) => fn());
   useWorkerStatusStore.setState({
     workers: [],
     queueStatus: EMPTY_QUEUE,
     _refCount: 0,
     _intervalId: null,
-    _unlisten: null,
+    _listenPromise: null,
   });
 }
 
@@ -348,9 +348,24 @@ describe('useWorkerStatusStore', () => {
       mockInvoke.mockResolvedValue(undefined);
 
       const unmount = useWorkerStatusStore.getState()._mount();
-      await vi.advanceTimersByTimeAsync(0);
-
       unmount();
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockUnlisten).toHaveBeenCalled();
+    });
+
+    it('unsubscribes even if unmount runs before listen resolves', async () => {
+      const mockUnlisten = vi.fn();
+      let resolveListen!: (fn: () => void) => void;
+      mockListen.mockReturnValue(new Promise((resolve) => { resolveListen = resolve; }));
+      mockInvoke.mockResolvedValue(undefined);
+
+      const unmount = useWorkerStatusStore.getState()._mount();
+      unmount();
+
+      expect(mockUnlisten).not.toHaveBeenCalled();
+      resolveListen(mockUnlisten);
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(mockUnlisten).toHaveBeenCalled();
     });
