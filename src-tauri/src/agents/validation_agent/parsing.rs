@@ -78,40 +78,61 @@ pub(crate) fn parse_create_fix_tasks_from_response(
 ) -> Option<CreateFixTasksBlock> {
     let mut all_tasks: Vec<FixTask> = Vec::new();
 
-    for v in parse_all_json_blocks(response_text) {
+    let blocks = parse_all_json_blocks(response_text);
+    tracing::debug!(
+        "parse_all_json_blocks returned {} block(s) from {} chars",
+        blocks.len(),
+        response_text.len()
+    );
+    for v in blocks {
         extract_fix_tasks_from_value(&v, &mut all_tasks);
+    }
+
+    if !all_tasks.is_empty() {
+        tracing::debug!(
+            "Primary path: extracted {} task(s)",
+            all_tasks.len()
+        );
+        return Some(CreateFixTasksBlock { tasks: all_tasks });
     }
 
     // Fallback: search for the key directly in the raw text. This handles
     // cases where extract_all_json_code_blocks is confused by triple-backtick
     // sequences inside JSON string values (e.g. markdown code blocks in task
     // descriptions), causing parse_all_json_blocks to miss the block entirely.
-    if all_tasks.is_empty() {
-        for key in &["\"create_fix_tasks\"", "\"create_fix_task\""] {
-            if let Some(key_pos) = response_text.find(key) {
-                if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
-                    if let Some(balanced) =
-                        find_balanced_from_offset(response_text, brace_pos, '{', '}')
+    for key in &["\"create_fix_tasks\"", "\"create_fix_task\""] {
+        if let Some(key_pos) = response_text.find(key) {
+            tracing::debug!("Fallback: found key {} at pos {}", key, key_pos);
+            if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
+                if let Some(balanced) =
+                    find_balanced_from_offset(response_text, brace_pos, '{', '}')
+                {
+                    tracing::debug!(
+                        "Fallback: extracted balanced JSON ({} chars)",
+                        balanced.len()
+                    );
+                    if let Ok(v) =
+                        serde_json::from_str::<serde_json::Value>(&balanced)
                     {
-                        if let Ok(v) =
-                            serde_json::from_str::<serde_json::Value>(&balanced)
-                        {
-                            extract_fix_tasks_from_value(&v, &mut all_tasks);
-                            if !all_tasks.is_empty() {
-                                break;
-                            }
+                        extract_fix_tasks_from_value(&v, &mut all_tasks);
+                        if !all_tasks.is_empty() {
+                            tracing::debug!(
+                                "Fallback path: extracted {} task(s)",
+                                all_tasks.len()
+                            );
+                            return Some(CreateFixTasksBlock { tasks: all_tasks });
                         }
+                    } else {
+                        tracing::debug!("Fallback: serde_json parse failed");
                     }
+                } else {
+                    tracing::debug!("Fallback: find_balanced_from_offset returned None");
                 }
             }
         }
     }
 
-    if all_tasks.is_empty() {
-        None
-    } else {
-        Some(CreateFixTasksBlock { tasks: all_tasks })
-    }
+    None
 }
 
 fn extract_fix_tasks_from_value(v: &serde_json::Value, all_tasks: &mut Vec<FixTask>) {
@@ -420,6 +441,47 @@ Please review."#;
         );
         assert!(block.tasks[0].description.contains("fixture cwd injection"));
         assert!(block.tasks[0].description.contains("test-coverage"));
+        assert!(block.tasks[0].description.contains("go vet"));
+    }
+
+    #[test]
+    fn fix_tasks_exact_production_output_v3() {
+        // Exact reproduction of third production failure report.
+        let text = "Good, the investigation reveals clear root causes. Here are the issues:\n\n\
+            **Issue 1 - Fixture CWD mismatch (causes test failures):** All 22 fixture JSON files have \
+            `\"cwd\": \"/tmp/test-repo\"` but `smee_git_context()` runs `git -C \"$CWD\"` using that \
+            static path. The test creates a real git repo in a dynamic temp dir via `initGitRepo(t, hookDir)`, \
+            but the fixture's CWD doesn't point there. So `REPO` and `BRANCH` resolve to empty strings, \
+            and the assertions at `hooks_test.go:176-182` (`workspace.repo == \"test/test-repo\"`, \
+            `workspace.branch == \"test-branch\"`) fail.\n\n\
+            **Issue 2 - test-coverage job also runs hooks tests:** The Makefile `test-coverage` target \
+            uses `./tests/integration/...` which includes `./tests/integration/hooks/...`. So hooks tests \
+            run in both the `test-coverage` and `integration-hooks` CI jobs, doubling execution time and coupling.\n\n\
+            **Issue 3 - Potential race with backgrounded curl:** The `disown`'d curl in `smee_post` is \
+            detached from the process group, creating a timing race with the 10-second polling in `waitForEventBySession`.\n\n\
+            { \"create_fix_tasks\": { \"tasks\": [{ \"title\": \"Fix hook integration test failures: CWD mismatch, CI overlap, and test reliability\", \
+            \"description\": \"Problem: Hook integration tests fail.\\n\\nRequirements:\\n\\n\
+            ### Fix 1: Fixture CWD must point to the temp git repo\\n\\n\
+            In `hooks_test.go`, after reading the fixture JSON, overwrite the `cwd` field with `hookDir`.\\n\\n\
+            **Fix:** Something like:\\n\
+            ```go\\nfixture[\\\"cwd\\\"] = hookDir\\nfixtureData, _ = json.Marshal(fixture)\\n```\\n\\n\
+            ### Fix 2: Exclude hooks tests from test-coverage target\\n\\n\
+            **Fix:** Update the Makefile:\\n\
+            ```makefile\\ntest-coverage:\\n\\tDB_HOST=localhost $(GO_CMD) test -v -tags=integration $(shell go list -tags=integration ./tests/integration/... | grep -v /hooks)\\n```\\n\\n\
+            ### Fix 3: Improve test reliability\\n\\n\
+            Ensure polling timeout is adequate.\\n\\n\
+            Acceptance Criteria:\\n\
+            - All 22 tests pass\\n\
+            - make test-coverage does NOT run hooks tests\\n\
+            - go vet passes\" }] } }";
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(
+            block.tasks[0].title,
+            "Fix hook integration test failures: CWD mismatch, CI overlap, and test reliability"
+        );
+        assert!(block.tasks[0].description.contains("Fix 1"));
+        assert!(block.tasks[0].description.contains("Fix 2"));
         assert!(block.tasks[0].description.contains("go vet"));
     }
 }

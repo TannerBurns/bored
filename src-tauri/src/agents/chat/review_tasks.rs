@@ -23,11 +23,20 @@ pub(super) fn process_fix_tasks_for_chat(
     event_tx: &broadcast::Sender<LiveEvent>,
 ) -> Vec<String> {
     let fix_block = match parse_create_fix_tasks_from_response(response_text) {
-        Some(block) => block,
-        None => {
-            tracing::debug!(
-                "No create_fix_tasks block found in response ({} chars)",
+        Some(block) => {
+            tracing::info!(
+                "Parsed {} fix task(s) from response ({} chars)",
+                block.tasks.len(),
                 response_text.len()
+            );
+            block
+        }
+        None => {
+            let has_key = response_text.contains("create_fix_task");
+            tracing::warn!(
+                "No create_fix_tasks block found in response ({} chars, contains_key={})",
+                response_text.len(),
+                has_key,
             );
             return Vec::new();
         }
