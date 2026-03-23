@@ -129,6 +129,32 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
   return { cleanedContent: cleanedContent.trim(), tasks, commands };
 }
 
+/** Unescape a JSON-encoded string value.
+ *  Chained `.replace()` calls cannot correctly distinguish `\\n` (escaped
+ *  backslash + literal `n`) from `\n` (escaped newline) because later passes
+ *  re-interpret output from earlier ones. */
+function unescapeJsonString(s: string): string {
+  const out: string[] = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && i + 1 < s.length) {
+      const next = s[i + 1];
+      switch (next) {
+        case 'n': out.push('\n'); break;
+        case 't': out.push('\t'); break;
+        case 'r': out.push('\r'); break;
+        case '"': out.push('"'); break;
+        case '\\': out.push('\\'); break;
+        case '/': out.push('/'); break;
+        default: out.push('\\', next); break;
+      }
+      i++;
+    } else {
+      out.push(s[i]);
+    }
+  }
+  return out.join('');
+}
+
 /** Extract a fix task from malformed JSON using string scanning.
  *  Handles the common case where the model emits unescaped `"` inside
  *  backtick-quoted code in the description string. */
@@ -165,12 +191,7 @@ function extractFixTaskFromMalformed(
       while (end > 0 && '}] \n\r'.includes(descBody[end - 1])) end--;
       if (end > 0 && descBody[end - 1] === '"') end--;
       if (end > 0) {
-        description = descBody
-          .slice(0, end)
-          .replace(/\\n/g, '\n')
-          .replace(/\\t/g, '\t')
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\');
+        description = unescapeJsonString(descBody.slice(0, end));
       }
     }
   }

@@ -164,7 +164,7 @@ pub(crate) fn parse_create_fix_tasks_from_response(
     None
 }
 
-/// Unescape a JSON-encoded string value using character-by-character scanning.
+/// Unescape a JSON-encoded string value.
 ///
 /// Chained `.replace()` calls cannot correctly distinguish `\\n` (escaped
 /// backslash + literal `n`) from `\n` (escaped newline) because the second
@@ -200,76 +200,39 @@ fn unescape_json_string(s: &str) -> String {
 /// unescaped `"` inside backtick-quoted code in the description, producing
 /// JSON that `serde_json` rejects.
 fn extract_fix_tasks_from_malformed(text: &str) -> Option<Vec<FixTask>> {
-    // Only attempt this if the text actually contains fix-task keys.
     let key_pos = text
         .find("\"create_fix_tasks\"")
         .or_else(|| text.find("\"create_fix_task\""))?;
 
-    // Find the `"title"` key after the fix-task key.
     let after_key = &text[key_pos..];
     let title_marker = "\"title\"";
     let title_key_pos = after_key.find(title_marker)?;
     let after_title_key = &after_key[title_key_pos + title_marker.len()..];
 
-    // Skip `: "` or `:"` to get to the title value.
     let after_colon = after_title_key.trim_start().strip_prefix(':')?;
     let after_colon = after_colon.trim_start().strip_prefix('"')?;
 
-    // Title ends at the next `"` followed by `,` or `}` (with optional
-    // whitespace). Titles are short and don't contain unescaped quotes.
+    // Titles don't contain unescaped quotes, so the first `"` is the closing delimiter.
     let title_end = after_colon.find('"')?;
     let title = &after_colon[..title_end];
 
-    // Find `"description"` after the title.
     let desc_marker = "\"description\"";
     let rest = &after_colon[title_end..];
     let desc_start = rest.find(desc_marker);
 
-    let description = if let Some(dp) = desc_start {
-        let after_desc_key = &rest[dp + desc_marker.len()..];
-        let after_colon = after_desc_key.trim_start().strip_prefix(':');
-        if let Some(after_colon) = after_colon {
-            let after_colon = after_colon.trim_start().strip_prefix('"');
-            if let Some(desc_body) = after_colon {
-                // The description is everything from here to the closing
-                // pattern. We scan backward from the end of the text to find
-                // the last `}` and work back through `} }` or `} } }` to
-                // approximate where the description value ends. Then we look
-                // for the last `"` before those braces.
-                let remaining_text = desc_body;
-                // Find the position of the last sequence of closing
-                // `" }] } }` or similar.
-                let trimmed = remaining_text.trim_end();
-                // Walk backward past `}`, `]`, whitespace to find the `"`.
-                let mut end = trimmed.len();
-                let bytes = trimmed.as_bytes();
-                while end > 0 {
-                    let ch = bytes[end - 1];
-                    if ch == b'}' || ch == b']' || ch == b' ' || ch == b'\n' || ch == b'\r' {
-                        end -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                // The char at `end - 1` should be `"` closing the description.
-                if end > 0 && bytes[end - 1] == b'"' {
-                    end -= 1;
-                }
-                if end > 0 {
-                    let raw = &trimmed[..end];
-                    unescape_json_string(raw)
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        }
-    } else {
-        String::new()
-    };
+    let description = desc_start
+        .and_then(|dp| {
+            let after_desc = &rest[dp + desc_marker.len()..];
+            let after_colon = after_desc.trim_start().strip_prefix(':')?;
+            let desc_body = after_colon.trim_start().strip_prefix('"')?;
+            // Walk backward past closing `}`, `]`, whitespace, then strip the
+            // closing `"` to isolate the raw description value.
+            let trimmed = desc_body.trim_end();
+            let stripped = trimmed.trim_end_matches(['}', ']', ' ', '\n', '\r']);
+            let stripped = stripped.strip_suffix('"').unwrap_or(stripped);
+            (!stripped.is_empty()).then(|| unescape_json_string(stripped))
+        })
+        .unwrap_or_default();
 
     if title.is_empty() {
         return None;
@@ -665,8 +628,71 @@ Please review."#;
     }
 
     #[test]
+    fn fix_tasks_malformed_json_title_only_no_description() {
+        let text = concat!(
+            "Found it.\n\n",
+            r#"{ "create_fix_task": { "title": "Fix auth", "notes": "see "JIRA-123" for details" } }"#,
+        );
+        let as_json: Result<serde_json::Value, _> =
+            serde_json::from_str(&text[text.find('{').unwrap()..]);
+        assert!(as_json.is_err(), "sanity: this JSON should be invalid");
+
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix auth");
+        assert!(block.tasks[0].description.is_empty());
+    }
+
+    #[test]
     fn fix_tasks_malformed_json_does_not_extract_from_unrelated_text() {
         let text = "No fix tasks here, just a mention of \"create_fix_tasks\" in prose.";
         assert!(parse_create_fix_tasks_from_response(text).is_none());
+    }
+
+    // ── unescape_json_string unit tests ───────────────────────
+
+    #[test]
+    fn unescape_basic_sequences() {
+        assert_eq!(unescape_json_string(r#"hello\nworld"#), "hello\nworld");
+        assert_eq!(unescape_json_string(r#"a\tb"#), "a\tb");
+        assert_eq!(unescape_json_string(r#"say \"hi\""#), "say \"hi\"");
+        assert_eq!(unescape_json_string(r#"back\\slash"#), "back\\slash");
+    }
+
+    #[test]
+    fn unescape_double_backslash_n_is_literal_backslash_and_n() {
+        // `\\n` in JSON encodes a literal backslash followed by `n`.
+        // The old chained-replace approach produced a newline here.
+        assert_eq!(unescape_json_string(r#"line\\nstuff"#), "line\\nstuff");
+    }
+
+    #[test]
+    fn unescape_double_backslash_t_is_literal_backslash_and_t() {
+        assert_eq!(unescape_json_string(r#"col\\there"#), "col\\there");
+    }
+
+    #[test]
+    fn unescape_mixed_sequences() {
+        // `first\nsecond\\nthird` → newline between first/second,
+        // literal `\n` between second/third.
+        assert_eq!(
+            unescape_json_string(r#"first\nsecond\\nthird"#),
+            "first\nsecond\\nthird"
+        );
+    }
+
+    #[test]
+    fn unescape_forward_slash() {
+        assert_eq!(unescape_json_string(r#"path\/to\/file"#), "path/to/file");
+    }
+
+    #[test]
+    fn unescape_trailing_backslash() {
+        assert_eq!(unescape_json_string("trailing\\"), "trailing\\");
+    }
+
+    #[test]
+    fn unescape_unknown_escape_preserved() {
+        assert_eq!(unescape_json_string(r#"\x"#), "\\x");
     }
 }
