@@ -1,7 +1,7 @@
 //! Pure parsing helpers for extracting structured blocks from validation agent responses.
 //! Shared by both the validation commands and the chat review mode runner.
 
-use crate::agents::json_extraction::parse_all_json_blocks;
+use crate::agents::json_extraction::{find_balanced_from_offset, parse_all_json_blocks};
 use crate::db::models::FixTask;
 
 pub(crate) struct StartAppBlock {
@@ -78,22 +78,184 @@ pub(crate) fn parse_create_fix_tasks_from_response(
 ) -> Option<CreateFixTasksBlock> {
     let mut all_tasks: Vec<FixTask> = Vec::new();
 
-    for v in parse_all_json_blocks(response_text) {
-        if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
-            if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
-                for tv in tasks_arr {
-                    if let Some(obj) = tv.as_object() {
-                        all_tasks.push(parse_fix_task_from_json_obj(obj));
+    let blocks = parse_all_json_blocks(response_text);
+    tracing::debug!(
+        "parse_all_json_blocks returned {} block(s) from {} chars",
+        blocks.len(),
+        response_text.len()
+    );
+    for v in blocks {
+        extract_fix_tasks_from_value(&v, &mut all_tasks);
+    }
+
+    if !all_tasks.is_empty() {
+        tracing::debug!(
+            "Primary path: extracted {} task(s)",
+            all_tasks.len()
+        );
+        return Some(CreateFixTasksBlock { tasks: all_tasks });
+    }
+
+    // Fallback: search for the key directly in the raw text. This handles
+    // cases where extract_all_json_code_blocks is confused by triple-backtick
+    // sequences inside JSON string values (e.g. markdown code blocks in task
+    // descriptions), causing parse_all_json_blocks to miss the block entirely.
+    for key in &["\"create_fix_tasks\"", "\"create_fix_task\""] {
+        if let Some(key_pos) = response_text.find(key) {
+            tracing::debug!("Fallback: found key {} at pos {}", key, key_pos);
+            if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
+                // Strategy 1: balanced brace extraction.
+                if let Some(balanced) =
+                    find_balanced_from_offset(response_text, brace_pos, '{', '}')
+                {
+                    if let Ok(v) =
+                        serde_json::from_str::<serde_json::Value>(&balanced)
+                    {
+                        extract_fix_tasks_from_value(&v, &mut all_tasks);
+                        if !all_tasks.is_empty() {
+                            tracing::info!("Fallback balanced: extracted {} task(s)", all_tasks.len());
+                            return Some(CreateFixTasksBlock { tasks: all_tasks });
+                        }
+                    }
+                }
+
+                // Strategy 2: parse from `{` to end of response directly.
+                let tail = response_text[brace_pos..].trim();
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(tail) {
+                    extract_fix_tasks_from_value(&v, &mut all_tasks);
+                    if !all_tasks.is_empty() {
+                        tracing::info!("Fallback tail-parse: extracted {} task(s)", all_tasks.len());
+                        return Some(CreateFixTasksBlock { tasks: all_tasks });
+                    }
+                }
+
+                // Strategy 3: `{` to last `}`.
+                if let Some(last_brace) = response_text.rfind('}') {
+                    if last_brace > brace_pos {
+                        let substr = &response_text[brace_pos..=last_brace];
+                        if let Ok(v) =
+                            serde_json::from_str::<serde_json::Value>(substr)
+                        {
+                            extract_fix_tasks_from_value(&v, &mut all_tasks);
+                            if !all_tasks.is_empty() {
+                                tracing::info!("Fallback last-brace: extracted {} task(s)", all_tasks.len());
+                                return Some(CreateFixTasksBlock { tasks: all_tasks });
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    if all_tasks.is_empty() {
-        None
-    } else {
-        Some(CreateFixTasksBlock { tasks: all_tasks })
+    // Last resort: the model often produces invalid JSON because it doesn't
+    // escape `"` inside backtick-quoted code within the description string
+    // (e.g. `"cwd": "/tmp/test-repo"` where the quotes should be `\"`).
+    // Since serde rejects this, extract the title and description using
+    // simple string scanning that tolerates malformed JSON.
+    if let Some(tasks) = extract_fix_tasks_from_malformed(response_text) {
+        tracing::info!(
+            "Malformed-JSON fallback: extracted {} task(s)",
+            tasks.len()
+        );
+        return Some(CreateFixTasksBlock { tasks });
+    }
+
+    None
+}
+
+/// Unescape a JSON-encoded string value.
+///
+/// Chained `.replace()` calls cannot correctly distinguish `\\n` (escaped
+/// backslash + literal `n`) from `\n` (escaped newline) because the second
+/// pass re-interprets output from the first. This function processes each
+/// `\X` escape exactly once, avoiding that ambiguity.
+fn unescape_json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Extract fix tasks from malformed JSON by scanning for `"title":` and
+/// `"description":` patterns. Handles the common case where the model emits
+/// unescaped `"` inside backtick-quoted code in the description, producing
+/// JSON that `serde_json` rejects.
+fn extract_fix_tasks_from_malformed(text: &str) -> Option<Vec<FixTask>> {
+    let key_pos = text
+        .find("\"create_fix_tasks\"")
+        .or_else(|| text.find("\"create_fix_task\""))?;
+
+    let after_key = &text[key_pos..];
+    let title_marker = "\"title\"";
+    let title_key_pos = after_key.find(title_marker)?;
+    let after_title_key = &after_key[title_key_pos + title_marker.len()..];
+
+    let after_colon = after_title_key.trim_start().strip_prefix(':')?;
+    let after_colon = after_colon.trim_start().strip_prefix('"')?;
+
+    // Titles don't contain unescaped quotes, so the first `"` is the closing delimiter.
+    let title_end = after_colon.find('"')?;
+    let title = &after_colon[..title_end];
+
+    let desc_marker = "\"description\"";
+    let rest = &after_colon[title_end..];
+    let desc_start = rest.find(desc_marker);
+
+    let description = desc_start
+        .and_then(|dp| {
+            let after_desc = &rest[dp + desc_marker.len()..];
+            let after_colon = after_desc.trim_start().strip_prefix(':')?;
+            let desc_body = after_colon.trim_start().strip_prefix('"')?;
+            // Walk backward past closing `}`, `]`, whitespace, then strip the
+            // closing `"` to isolate the raw description value.
+            let trimmed = desc_body.trim_end();
+            let stripped = trimmed.trim_end_matches(['}', ']', ' ', '\n', '\r']);
+            let stripped = stripped.strip_suffix('"').unwrap_or(stripped);
+            (!stripped.is_empty()).then(|| unescape_json_string(stripped))
+        })
+        .unwrap_or_default();
+
+    if title.is_empty() {
+        return None;
+    }
+
+    Some(vec![FixTask {
+        title: title.to_string(),
+        description,
+        acceptance_criteria: None,
+    }])
+}
+
+fn extract_fix_tasks_from_value(v: &serde_json::Value, all_tasks: &mut Vec<FixTask>) {
+    if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
+        if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
+            for tv in tasks_arr {
+                if let Some(obj) = tv.as_object() {
+                    all_tasks.push(parse_fix_task_from_json_obj(obj));
+                }
+            }
+        }
+    } else if let Some(cft) = v.get("create_fix_task").and_then(|s| s.as_object()) {
+        all_tasks.push(parse_fix_task_from_json_obj(cft));
     }
 }
 
@@ -272,5 +434,265 @@ I found an issue:
         let block = parse_create_fix_tasks_from_response(text).unwrap();
         assert_eq!(block.tasks.len(), 1);
         assert_eq!(block.tasks[0].title, "Solo fix");
+    }
+
+    // ── singular create_fix_task fallback ──────────────────────
+
+    #[test]
+    fn fix_task_singular_in_code_fence() {
+        let text = r#"```json
+{ "create_fix_task": { "title": "Fix login", "description": "Login broken" } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix login");
+        assert_eq!(block.tasks[0].description, "Login broken");
+    }
+
+    #[test]
+    fn fix_task_singular_bare_json() {
+        let text = r#"Found a bug.
+
+{ "create_fix_task": { "title": "Fix crash", "description": "App crashes on start" } }
+
+Please review."#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix crash");
+    }
+
+    #[test]
+    fn fix_task_singular_with_acceptance_criteria() {
+        let text = r#"```json
+{ "create_fix_task": { "title": "Fix it", "description": "desc", "acceptance_criteria": ["Tests pass"] } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks[0].acceptance_criteria, Some(vec!["Tests pass".to_string()]));
+    }
+
+    // ── direct-search fallback (triple-backticks in description) ──
+
+    #[test]
+    fn fix_tasks_bare_json_with_backticks_in_description() {
+        let text = concat!(
+            "Here are the issues I found:\n\n",
+            "**Root Cause:** The query is wrong.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix SQL query", "description": "The query is:\n```sql\nSELECT * FROM t\n```\nFix it." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix SQL query");
+        assert!(block.tasks[0].description.contains("SELECT * FROM t"));
+    }
+
+    #[test]
+    fn fix_tasks_bare_json_with_multiple_code_blocks_in_description() {
+        let text = concat!(
+            "Analysis complete.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests", "description": "Problem:\n```go\nfixture[\"cwd\"] = hookDir\nfixtureData, _ = json.Marshal(fixture)\n```\n\nAlso fix:\n```makefile\ntest-coverage:\n\tDB_HOST=localhost $(GO_CMD) test\n```\n\nDone." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix tests");
+        assert!(block.tasks[0].description.contains("fixture"));
+        assert!(block.tasks[0].description.contains("makefile"));
+    }
+
+    #[test]
+    fn fix_tasks_singular_bare_with_backticks_in_description() {
+        let text = concat!(
+            "Found an issue.\n\n",
+            r#"{ "create_fix_task": { "title": "Fix it", "description": "See:\n```go\nfmt.Println()\n```\nDone." } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix it");
+    }
+
+    #[test]
+    fn fix_tasks_large_response_with_prose_and_bare_json() {
+        let prose = "Now I have the full picture. Here are the issues I've identified:\n\n\
+            **Root Cause 1: Fixture values are wrong.** The API requires valid UUIDs \
+            but all fixtures use human-readable strings.\n\n\
+            **Root Cause 2: Fixture cwd doesn't match.** Fixtures hardcode a path \
+            but the test uses a temp dir.\n\n\
+            **Root Cause 3: Test coverage includes hook tests.** The glob recursively \
+            matches hook tests that need a different setup.\n\n";
+        let json = r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix integration tests", "description": "Problem: Tests fail for three reasons.\n\nRequirements:\n\n### Fix 1\nUse valid UUIDs.\n\n### Fix 2\nDynamic cwd injection:\n```go\nfixture[\"cwd\"] = hookDir\nfixtureData, _ = json.Marshal(fixture)\n```\n\n### Fix 3\nExclude hook tests:\n```makefile\ntest-coverage:\n\t$(GO_CMD) test ./tests/integration\n```\n\nAcceptance Criteria:\n- All fixtures use UUIDs\n- Tests pass" }] } }"#;
+        let text = format!("{}{}", prose, json);
+        let block = parse_create_fix_tasks_from_response(&text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix integration tests");
+        assert!(block.tasks[0].description.contains("Fix 1"));
+        assert!(block.tasks[0].description.contains("Fix 3"));
+    }
+
+    #[test]
+    fn fix_tasks_real_world_long_description_with_makefile_and_go_blocks() {
+        // Reproduces the exact production failure: prose with quoted strings
+        // like `"cwd"` and `"test-branch"`, followed by bare JSON whose
+        // description contains ```makefile and ```go code blocks with escaped
+        // quotes, tabs, and complex shell expressions.
+        let text = concat!(
+            "Now I have the full picture. Here are the issues found:\n\n",
+            "**Primary bug:** All 22 fixture files set `\"cwd\": \"/tmp/test-repo\"` ",
+            "but `smee_git_context()` runs `git -C \"$CWD\"` against that path. ",
+            "This causes `REPO=\"\"` and `BRANCH=\"\"`, failing the workspace assertions.\n\n",
+            "**Secondary issue:** `test-coverage` runs `./tests/integration/...` ",
+            "which recursively includes hooks tests.\n\n",
+            "Creating fix tasks:\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix hook integration test fixture cwd mismatch and CI double-run", "description": "Problem: The hook integration tests fail because all 22 fixture JSON files hardcode `\"cwd\": \"/tmp/test-repo\"` but `smee_git_context()` in `_common.sh` runs `git -C \"$CWD\"` against that path.\n\nRequirements:\n\n### 1. Fix fixture cwd injection\n\nAfter `json.Unmarshal` into `fixture`, set `fixture[\"cwd\"] = hookDir`, then re-marshal.\n\n### 2. Exclude hooks from test-coverage\n\nIn the Makefile:\n```makefile\ntest-coverage:\n\tDB_HOST=localhost $(GO_CMD) test -v -tags=integration -coverprofile=coverage.out $(shell go list -tags=integration ./tests/integration/... | grep -v /hooks)\n```\n\n### 3. Verify locally\n\nRun `go vet -tags=integration ./tests/integration/hooks/...`\n\nAcceptance Criteria:\n- All 22 hook test fixtures have their `cwd` dynamically set\n- `TestHookScripts` workspace assertions pass\n- Hook tests do NOT run as part of `make test-coverage`\n- `go vet` passes" }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(
+            block.tasks[0].title,
+            "Fix hook integration test fixture cwd mismatch and CI double-run"
+        );
+        assert!(block.tasks[0].description.contains("fixture cwd injection"));
+        assert!(block.tasks[0].description.contains("test-coverage"));
+        assert!(block.tasks[0].description.contains("go vet"));
+    }
+
+    #[test]
+    fn fix_tasks_exact_production_output_v3() {
+        // Exact reproduction of third production failure report.
+        let text = "Good, the investigation reveals clear root causes. Here are the issues:\n\n\
+            **Issue 1 - Fixture CWD mismatch (causes test failures):** All 22 fixture JSON files have \
+            `\"cwd\": \"/tmp/test-repo\"` but `smee_git_context()` runs `git -C \"$CWD\"` using that \
+            static path. The test creates a real git repo in a dynamic temp dir via `initGitRepo(t, hookDir)`, \
+            but the fixture's CWD doesn't point there. So `REPO` and `BRANCH` resolve to empty strings, \
+            and the assertions at `hooks_test.go:176-182` (`workspace.repo == \"test/test-repo\"`, \
+            `workspace.branch == \"test-branch\"`) fail.\n\n\
+            **Issue 2 - test-coverage job also runs hooks tests:** The Makefile `test-coverage` target \
+            uses `./tests/integration/...` which includes `./tests/integration/hooks/...`. So hooks tests \
+            run in both the `test-coverage` and `integration-hooks` CI jobs, doubling execution time and coupling.\n\n\
+            **Issue 3 - Potential race with backgrounded curl:** The `disown`'d curl in `smee_post` is \
+            detached from the process group, creating a timing race with the 10-second polling in `waitForEventBySession`.\n\n\
+            { \"create_fix_tasks\": { \"tasks\": [{ \"title\": \"Fix hook integration test failures: CWD mismatch, CI overlap, and test reliability\", \
+            \"description\": \"Problem: Hook integration tests fail.\\n\\nRequirements:\\n\\n\
+            ### Fix 1: Fixture CWD must point to the temp git repo\\n\\n\
+            In `hooks_test.go`, after reading the fixture JSON, overwrite the `cwd` field with `hookDir`.\\n\\n\
+            **Fix:** Something like:\\n\
+            ```go\\nfixture[\\\"cwd\\\"] = hookDir\\nfixtureData, _ = json.Marshal(fixture)\\n```\\n\\n\
+            ### Fix 2: Exclude hooks tests from test-coverage target\\n\\n\
+            **Fix:** Update the Makefile:\\n\
+            ```makefile\\ntest-coverage:\\n\\tDB_HOST=localhost $(GO_CMD) test -v -tags=integration $(shell go list -tags=integration ./tests/integration/... | grep -v /hooks)\\n```\\n\\n\
+            ### Fix 3: Improve test reliability\\n\\n\
+            Ensure polling timeout is adequate.\\n\\n\
+            Acceptance Criteria:\\n\
+            - All 22 tests pass\\n\
+            - make test-coverage does NOT run hooks tests\\n\
+            - go vet passes\" }] } }";
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(
+            block.tasks[0].title,
+            "Fix hook integration test failures: CWD mismatch, CI overlap, and test reliability"
+        );
+        assert!(block.tasks[0].description.contains("Fix 1"));
+        assert!(block.tasks[0].description.contains("Fix 2"));
+        assert!(block.tasks[0].description.contains("go vet"));
+    }
+
+    // ── malformed JSON fallback (unescaped quotes) ────────────
+
+    #[test]
+    fn fix_tasks_malformed_json_unescaped_quotes_in_description() {
+        // The model emits `"cwd"` inside backtick-quoted code without
+        // escaping the quotes. This is invalid JSON that serde rejects.
+        let text = concat!(
+            "Found the issue.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix CWD mismatch", "description": "The fixtures have `"cwd": "/tmp/test-repo"` but the test uses hookDir.\n\nFix:\n```go\nfixture[\"cwd\"] = hookDir\n```\n\nAcceptance:\n- Tests pass" }] } }"#,
+        );
+        // serde_json should reject this (unescaped " inside string)
+        let as_json: Result<serde_json::Value, _> =
+            serde_json::from_str(&text[text.find('{').unwrap()..]);
+        assert!(as_json.is_err(), "sanity: this JSON should be invalid");
+
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix CWD mismatch");
+        assert!(block.tasks[0].description.contains("fixtures have"));
+    }
+
+    #[test]
+    fn fix_tasks_malformed_json_multiple_unescaped_quotes() {
+        let text = concat!(
+            "Issues:\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests and CI", "description": "Problem: `"cwd": "/tmp"` is wrong and `"branch": "main"` is hardcoded.\n\nFix in Makefile:\n```makefile\ntest:\n\t$(GO_CMD) test\n```\n\nDone." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix tests and CI");
+    }
+
+    #[test]
+    fn fix_tasks_malformed_json_title_only_no_description() {
+        let text = concat!(
+            "Found it.\n\n",
+            r#"{ "create_fix_task": { "title": "Fix auth", "notes": "see "JIRA-123" for details" } }"#,
+        );
+        let as_json: Result<serde_json::Value, _> =
+            serde_json::from_str(&text[text.find('{').unwrap()..]);
+        assert!(as_json.is_err(), "sanity: this JSON should be invalid");
+
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix auth");
+        assert!(block.tasks[0].description.is_empty());
+    }
+
+    #[test]
+    fn fix_tasks_malformed_json_does_not_extract_from_unrelated_text() {
+        let text = "No fix tasks here, just a mention of \"create_fix_tasks\" in prose.";
+        assert!(parse_create_fix_tasks_from_response(text).is_none());
+    }
+
+    // ── unescape_json_string unit tests ───────────────────────
+
+    #[test]
+    fn unescape_basic_sequences() {
+        assert_eq!(unescape_json_string(r#"hello\nworld"#), "hello\nworld");
+        assert_eq!(unescape_json_string(r#"a\tb"#), "a\tb");
+        assert_eq!(unescape_json_string(r#"say \"hi\""#), "say \"hi\"");
+        assert_eq!(unescape_json_string(r#"back\\slash"#), "back\\slash");
+    }
+
+    #[test]
+    fn unescape_double_backslash_n_is_literal_backslash_and_n() {
+        // `\\n` in JSON encodes a literal backslash followed by `n`.
+        // The old chained-replace approach produced a newline here.
+        assert_eq!(unescape_json_string(r#"line\\nstuff"#), "line\\nstuff");
+    }
+
+    #[test]
+    fn unescape_double_backslash_t_is_literal_backslash_and_t() {
+        assert_eq!(unescape_json_string(r#"col\\there"#), "col\\there");
+    }
+
+    #[test]
+    fn unescape_mixed_sequences() {
+        // `first\nsecond\\nthird` → newline between first/second,
+        // literal `\n` between second/third.
+        assert_eq!(
+            unescape_json_string(r#"first\nsecond\\nthird"#),
+            "first\nsecond\\nthird"
+        );
+    }
+
+    #[test]
+    fn unescape_forward_slash() {
+        assert_eq!(unescape_json_string(r#"path\/to\/file"#), "path/to/file");
+    }
+
+    #[test]
+    fn unescape_trailing_backslash() {
+        assert_eq!(unescape_json_string("trailing\\"), "trailing\\");
+    }
+
+    #[test]
+    fn unescape_unknown_escape_preserved() {
+        assert_eq!(unescape_json_string(r#"\x"#), "\\x");
     }
 }

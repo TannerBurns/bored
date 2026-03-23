@@ -32,6 +32,14 @@ function processJsonMatch(
       });
     }
     return true;
+  } else if ((parsed.create_fix_task as Record<string, unknown>)?.title !== undefined) {
+    const t = parsed.create_fix_task as Record<string, unknown>;
+    tasks.push({
+      title: (t.title as string) || 'Fix task',
+      description: t.description as string | undefined,
+      acceptanceCriteria: (t.acceptance_criteria || t.acceptanceCriteria) as string[] | undefined,
+    });
+    return true;
   } else if (parsed.run_command) {
     const rc = parsed.run_command as Record<string, unknown>;
     commands.push({ type: 'run_command', command: rc.command as string });
@@ -83,18 +91,33 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
   // Bare inline JSON — only if no wrapped blocks were found.
   // Anchored to `{"key"` so stray braces like ${REPO} don't match.
   if (blocksToRemove.length === 0) {
-    const bareStartRegex = /\{\s*"(?:create_fix_tasks|run_command|start_app|stop_app)"/g;
+    const bareStartRegex = /\{\s*"(?:create_fix_tasks|create_fix_task|run_command|start_app|stop_app)"/g;
     while ((match = bareStartRegex.exec(content)) !== null) {
       const startIdx = match.index;
       const balanced = extractBalancedJson(content.slice(startIdx));
-      if (!balanced) continue;
-      try {
-        const parsed = JSON.parse(balanced);
-        if (processJsonMatch(parsed, tasks, commands)) {
-          blocksToRemove.push(balanced);
+      if (balanced) {
+        try {
+          const parsed = JSON.parse(balanced);
+          if (processJsonMatch(parsed, tasks, commands)) {
+            blocksToRemove.push(balanced);
+            continue;
+          }
+        } catch {
+          // Invalid JSON — fall through to malformed handling below
         }
-      } catch {
-        // Not valid JSON, skip
+      }
+
+      // Malformed JSON fallback: the model often emits unescaped `"` inside
+      // backtick-quoted code in the description, producing invalid JSON that
+      // neither extractBalancedJson nor JSON.parse can handle. Extract title
+      // via string scanning and strip the block from content.
+      if (match[0].includes('create_fix_task')) {
+        const rest = content.slice(startIdx);
+        const extracted = extractFixTaskFromMalformed(rest);
+        if (extracted) {
+          tasks.push(extracted.task);
+          blocksToRemove.push(rest.trimEnd());
+        }
       }
     }
   }
@@ -104,6 +127,76 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
   }
 
   return { cleanedContent: cleanedContent.trim(), tasks, commands };
+}
+
+/** Unescape a JSON-encoded string value.
+ *  Chained `.replace()` calls cannot correctly distinguish `\\n` (escaped
+ *  backslash + literal `n`) from `\n` (escaped newline) because later passes
+ *  re-interpret output from earlier ones. */
+function unescapeJsonString(s: string): string {
+  const out: string[] = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && i + 1 < s.length) {
+      const next = s[i + 1];
+      switch (next) {
+        case 'n': out.push('\n'); break;
+        case 't': out.push('\t'); break;
+        case 'r': out.push('\r'); break;
+        case '"': out.push('"'); break;
+        case '\\': out.push('\\'); break;
+        case '/': out.push('/'); break;
+        default: out.push('\\', next); break;
+      }
+      i++;
+    } else {
+      out.push(s[i]);
+    }
+  }
+  return out.join('');
+}
+
+/** Extract a fix task from malformed JSON using string scanning.
+ *  Handles the common case where the model emits unescaped `"` inside
+ *  backtick-quoted code in the description string. */
+function extractFixTaskFromMalformed(
+  text: string,
+): { task: ParsedFixTask } | null {
+  const titleMarker = '"title"';
+  const titleIdx = text.indexOf(titleMarker);
+  if (titleIdx === -1) return null;
+
+  const afterTitle = text.slice(titleIdx + titleMarker.length);
+  const colonMatch = afterTitle.match(/^\s*:\s*"/);
+  if (!colonMatch) return null;
+
+  const titleStart = colonMatch[0].length;
+  const titleBody = afterTitle.slice(titleStart);
+  const titleEnd = titleBody.indexOf('"');
+  if (titleEnd === -1) return null;
+
+  const title = titleBody.slice(0, titleEnd);
+  if (!title) return null;
+
+  let description: string | undefined;
+  const descMarker = '"description"';
+  const descIdx = text.indexOf(descMarker, titleIdx + titleMarker.length);
+  if (descIdx !== -1) {
+    const afterDesc = text.slice(descIdx + descMarker.length);
+    const descColonMatch = afterDesc.match(/^\s*:\s*"/);
+    if (descColonMatch) {
+      const descBody = afterDesc.slice(descColonMatch[0].length);
+      // Walk backward from end of text past `}`, `]`, whitespace to find
+      // the `"` that closes the description value.
+      let end = descBody.length;
+      while (end > 0 && '}] \n\r'.includes(descBody[end - 1])) end--;
+      if (end > 0 && descBody[end - 1] === '"') end--;
+      if (end > 0) {
+        description = unescapeJsonString(descBody.slice(0, end));
+      }
+    }
+  }
+
+  return { task: { title, description } };
 }
 
 /** Walk from the opening brace and find the matching closing brace,

@@ -365,6 +365,12 @@ fn find_balanced_from(
     None
 }
 
+/// Find a balanced pair of open/close characters starting at or after `from_byte`,
+/// returning only the matched substring.
+pub fn find_balanced_from_offset(text: &str, from_byte: usize, open: char, close: char) -> Option<String> {
+    find_balanced_from(text, from_byte, open, close).map(|m| m.matched)
+}
+
 /// Find the first balanced pair of open/close characters using depth counting.
 ///
 /// Starts from the first `open` character and walks forward, incrementing
@@ -967,6 +973,26 @@ That should work."#;
         let cmds = result.expect("should find valid array after 3 invalid matches");
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command, "cleanup");
+    }
+
+    #[test]
+    fn find_balanced_from_offset_returns_matched_string() {
+        let text = r#"prefix { "a": 1 } suffix"#;
+        let result = find_balanced_from_offset(text, 0, '{', '}');
+        assert_eq!(result, Some(r#"{ "a": 1 }"#.to_string()));
+    }
+
+    #[test]
+    fn find_balanced_from_offset_respects_offset() {
+        let text = r#"{"skip": true} {"want": true}"#;
+        let result = find_balanced_from_offset(text, 15, '{', '}');
+        assert_eq!(result, Some(r#"{"want": true}"#.to_string()));
+    }
+
+    #[test]
+    fn find_balanced_from_offset_returns_none_when_no_match() {
+        let text = "no braces here";
+        assert!(find_balanced_from_offset(text, 0, '{', '}').is_none());
     }
 
     #[test]

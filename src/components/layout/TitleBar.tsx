@@ -208,7 +208,7 @@ function WorkersDropdownButton({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-board-border bg-board-bg-solid shadow-2xl overflow-hidden">
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-board-border bg-board-popover shadow-2xl overflow-hidden">
           <div className="py-1">
             {sortedAgents.length === 0 ? (
               <div className="px-3 py-3 text-xs text-board-text-muted text-center">
@@ -247,7 +247,7 @@ function AgentWorkerRow({
   const brandColor = getAgentBrandColor(agent.id, agent.brandColor);
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-board-card-hover/50 transition-colors">
+    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-board-popover-hover transition-colors">
       {brandColor
         ? <Icon size={14} style={{ color: brandColor }} />
         : <Icon size={14} className="text-board-text-secondary" />

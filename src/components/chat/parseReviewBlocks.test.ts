@@ -390,4 +390,187 @@ describe('parseReviewBlocks', () => {
     expect(result.commands[0].command).toBe('npm start');
     expect(result.commands[0].port).toBe(3000);
   });
+
+  // ── create_fix_task (singular) support ──────────────────────
+
+  it('extracts create_fix_task (singular) from code fence', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "Fix login", "description": "Login is broken" } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix login');
+    expect(result.tasks[0].description).toBe('Login is broken');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts create_fix_task (singular) with acceptance_criteria', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "Fix form", "description": "Broken", "acceptance_criteria": ["Works", "Validates"] } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].acceptanceCriteria).toEqual(['Works', 'Validates']);
+  });
+
+  it('extracts bare inline create_fix_task (singular)', () => {
+    const content =
+      'Found an issue.\n\n' +
+      '{"create_fix_task":{"title":"Fix crash","description":"App crashes"}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix crash');
+    expect(result.cleanedContent).toContain('Found an issue.');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts bare create_fix_tasks with backticks in description', () => {
+    const content =
+      'Analysis complete.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix tests","description":"See:\\n```go\\nfmt.Println()\\n```\\nDone."}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix tests');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare create_fix_tasks with multiple code blocks in description', () => {
+    const content =
+      'Here are the issues.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix CI","description":"Problem:\\n```go\\nfixture[\\"cwd\\"] = hookDir\\n```\\n\\nAlso:\\n```makefile\\ntest-coverage:\\n\\tDB_HOST=localhost $(GO_CMD) test\\n```"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CI');
+    expect(result.cleanedContent).toContain('Here are the issues.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  // ── malformed JSON (unescaped quotes) ──────────────────────
+
+  it('strips malformed create_fix_tasks with unescaped quotes in description', () => {
+    const content =
+      'Found the bug.\n\n' +
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix CWD mismatch", "description": "The fixtures have `"cwd": "/tmp/test-repo"` but the test uses hookDir.\\n\\nFix it." }] } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CWD mismatch');
+    expect(result.cleanedContent).toContain('Found the bug.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+    expect(result.cleanedContent).not.toContain('"title"');
+  });
+
+  it('strips malformed create_fix_task (singular) with unescaped quotes', () => {
+    const content =
+      'Issue found.\n\n' +
+      '{ "create_fix_task": { "title": "Fix it", "description": "Change `"old"` to `"new"`." } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix it');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('handles malformed JSON where extractBalancedJson returns null', () => {
+    const content =
+      'Analysis done.\n\n' +
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests", "description": "Use `"hookDir"` for cwd.\\n\\nAlso `"${SMEE_URL}"` needs fixing." }] } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix tests');
+    expect(result.cleanedContent).toContain('Analysis done.');
+    expect(result.cleanedContent).not.toContain('"title"');
+  });
+
+  it('extracts create_fix_task (singular) from <json> tag', () => {
+    const content = [
+      'Found a problem:',
+      '<json>',
+      '{ "create_fix_task": { "title": "Fix query", "description": "SQL is wrong" } }',
+      '</json>',
+      'Done.',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix query');
+    expect(result.tasks[0].description).toBe('SQL is wrong');
+    expect(result.cleanedContent).toContain('Found a problem:');
+    expect(result.cleanedContent).toContain('Done.');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts create_fix_task (singular) with camelCase acceptanceCriteria', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "Fix form", "description": "Broken", "acceptanceCriteria": ["Passes tests", "No regressions"] } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].acceptanceCriteria).toEqual(['Passes tests', 'No regressions']);
+  });
+
+  it('defaults title to "Fix task" for singular create_fix_task when title is empty', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "", "description": "Something wrong" } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix task');
+    expect(result.tasks[0].description).toBe('Something wrong');
+  });
+
+  it('extracts malformed create_fix_task with title only (no description key)', () => {
+    const content =
+      'Found issue.\n\n' +
+      '{ "create_fix_task": { "title": "Fix auth", "notes": "see "JIRA-123" for details" } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix auth');
+    expect(result.tasks[0].description).toBeUndefined();
+    expect(result.cleanedContent).toContain('Found issue.');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('malformed description unescapes tab and carriage-return sequences', () => {
+    const content =
+      'Bug found.\n\n' +
+      '{ "create_fix_task": { "title": "Fix format", "description": "col1\\tcol2\\rline end." } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix format');
+    expect(result.tasks[0].description).toContain('col1\tcol2\rline end.');
+  });
+
+  it('malformed description preserves literal backslash-n (\\\\n) without converting to newline', () => {
+    // `\\n` in the raw malformed JSON encodes a literal backslash + `n`.
+    // Chained .replace() would corrupt this into backslash + newline.
+    const content =
+      'Found it.\n\n' +
+      '{ "create_fix_task": { "title": "Fix paths", "description": "Use `"C:\\\\nightly\\\\tools"` for the path." } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix paths');
+    // The description should contain a literal backslash + `n`, not a newline character
+    expect(result.tasks[0].description).toContain('C:\\nightly\\tools');
+    expect(result.tasks[0].description).not.toContain('C:\nightly');
+  });
 });
