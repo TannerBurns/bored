@@ -2,6 +2,52 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.58] - 2026-03-23
+
+Robust fix-task parsing with multi-strategy fallback chain. The review agent's `create_fix_tasks` parser was silently failing when model responses contained markdown code blocks (triple backticks) inside JSON string values. The parser now cascades through five extraction strategies: primary JSON code block extraction, direct key-search with balanced brace matching, tail-parse from the opening brace to end-of-response, last-brace truncation, and a malformed-JSON fallback that tolerates unescaped quotes entirely. Both Rust and TypeScript parsers also accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
+
+### Improvements
+
+- Added `create_fix_task` (singular) fallback in both Rust and TS parsers, normalizing to the plural array form for backward compatibility with model output variations
+- Added direct key-search fallback in `parse_create_fix_tasks_from_response` that bypasses `extract_all_json_code_blocks` and uses balanced brace matching directly on raw text
+- Added tail-parse and last-brace fallback strategies when balanced extraction fails due to unescaped quotes in JSON strings
+- Added `extract_fix_tasks_from_malformed()` as last-resort fallback that scans for `"title":` and `"description":` patterns using string operations tolerant of invalid JSON
+- Added `find_balanced_from_offset` public API in `json_extraction.rs`
+- Added structured tracing (debug/warn/info) throughout the fix task parsing pipeline for diagnostics
+- Workers dropdown uses popover theme tokens (`bg-board-popover`, `hover:bg-board-popover-hover`) for correct theming
+
+### Bug Fixes
+
+- Fixed review agent's `create_fix_tasks` parser silently failing when model responses contained markdown code blocks inside JSON string values — the `extract_all_json_code_blocks` scanner misidentified backtick-quoted code as fence openings, skipped to end of text, and the bare fallback couldn't recover
+- Fixed `\\n` corruption in malformed description extraction — chained `.replace()` calls incorrectly converted literal `\\n` (escaped backslash + n) to backslash + newline because later passes reinterpreted output from earlier ones
+- Fixed malformed JSON blocks appearing in review message display — added `extractFixTaskFromMalformed()` on the frontend to strip invalid JSON blocks when `JSON.parse` fails
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --tests -- -D warnings: 0 warnings
+- cargo test --lib: 1857 passed, 0 failed
+- npx vitest run: 47 files, 991 passed, 0 failed
+- 23 new tests: 7 TS (singular via `<json>` tag, camelCase acceptanceCriteria, empty title, malformed title-only, tab/CR escapes, `\\n` preservation, production-exact cases), 3 Rust json_extraction (`find_balanced_from_offset`), 2 Rust parsing (malformed title-only, forward-slash unescape), plus production-exact reproduction tests
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.57, here is a summary of the major features introduced in recent releases:
+
+**beta.57 — Real-Time Title Bar Status**
+Title bar queued/active status pills now update instantly when tickets move via user drag-and-drop or backend agent workflows, instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, with promise-based cleanup to prevent leaks under React strict mode.
+
+**beta.56 — Custom Title Bar & Task Execution UI**
+Native OS title bar replaced with a custom bar showing live worker count, queue depth, and active ticket counts with a Workers dropdown for starting/stopping workers from any view. Task execution in chat redesigned with a structured TaskExecutionCard showing real-time task status and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by local date instead of UTC.
+
+**beta.55 — Code-Review-Only Agent Workflow**
+Standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings with per-provider control over model, timeout, retries, and max iterations. Structured review timeline with severity badges and iteration tracking.
+
+**beta.54 — Strengthened Agent Test Commands**
+Integration-test command expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, mandatory run-and-verify with 3-retry loop, and service cleanup. Unit-tests command gains mandatory execution with structured failure diagnosis, assertion quality review, and regression checks.
+
+---
+
 ## [0.1.0-beta.57] - 2026-03-22
 
 Real-time title bar status updates. The title bar queued/active status pills now update instantly when tickets move — both from user drag-and-drop and backend agent workflows — instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, and the listener uses promise-based cleanup to prevent leaks under React strict mode.
