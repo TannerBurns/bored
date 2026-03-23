@@ -453,4 +453,42 @@ describe('parseReviewBlocks', () => {
     expect(result.cleanedContent).toContain('Here are the issues.');
     expect(result.cleanedContent).not.toContain('create_fix_tasks');
   });
+
+  // ── malformed JSON (unescaped quotes) ──────────────────────
+
+  it('strips malformed create_fix_tasks with unescaped quotes in description', () => {
+    const content =
+      'Found the bug.\n\n' +
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix CWD mismatch", "description": "The fixtures have `"cwd": "/tmp/test-repo"` but the test uses hookDir.\\n\\nFix it." }] } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CWD mismatch');
+    expect(result.cleanedContent).toContain('Found the bug.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+    expect(result.cleanedContent).not.toContain('"title"');
+  });
+
+  it('strips malformed create_fix_task (singular) with unescaped quotes', () => {
+    const content =
+      'Issue found.\n\n' +
+      '{ "create_fix_task": { "title": "Fix it", "description": "Change `"old"` to `"new"`." } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix it');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('handles malformed JSON where extractBalancedJson returns null', () => {
+    const content =
+      'Analysis done.\n\n' +
+      '{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests", "description": "Use `"hookDir"` for cwd.\\n\\nAlso `"${SMEE_URL}"` needs fixing." }] } }';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix tests');
+    expect(result.cleanedContent).toContain('Analysis done.');
+    expect(result.cleanedContent).not.toContain('"title"');
+  });
 });

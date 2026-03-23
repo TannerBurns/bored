@@ -164,6 +164,37 @@ pub(crate) fn parse_create_fix_tasks_from_response(
     None
 }
 
+/// Unescape a JSON-encoded string value using character-by-character scanning.
+///
+/// Chained `.replace()` calls cannot correctly distinguish `\\n` (escaped
+/// backslash + literal `n`) from `\n` (escaped newline) because the second
+/// pass re-interprets output from the first. This function processes each
+/// `\X` escape exactly once, avoiding that ambiguity.
+fn unescape_json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some('/') => out.push('/'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// Extract fix tasks from malformed JSON by scanning for `"title":` and
 /// `"description":` patterns. Handles the common case where the model emits
 /// unescaped `"` inside backtick-quoted code in the description, producing
@@ -225,14 +256,8 @@ fn extract_fix_tasks_from_malformed(text: &str) -> Option<Vec<FixTask>> {
                     end -= 1;
                 }
                 if end > 0 {
-                    // Unescape what we can: `\"` → `"`, `\\n` → `\n`, etc.
                     let raw = &trimmed[..end];
-                    let unescaped = raw
-                        .replace("\\n", "\n")
-                        .replace("\\t", "\t")
-                        .replace("\\\"", "\"")
-                        .replace("\\\\", "\\");
-                    unescaped
+                    unescape_json_string(raw)
                 } else {
                     String::new()
                 }

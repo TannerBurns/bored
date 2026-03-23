@@ -95,14 +95,29 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
     while ((match = bareStartRegex.exec(content)) !== null) {
       const startIdx = match.index;
       const balanced = extractBalancedJson(content.slice(startIdx));
-      if (!balanced) continue;
-      try {
-        const parsed = JSON.parse(balanced);
-        if (processJsonMatch(parsed, tasks, commands)) {
-          blocksToRemove.push(balanced);
+      if (balanced) {
+        try {
+          const parsed = JSON.parse(balanced);
+          if (processJsonMatch(parsed, tasks, commands)) {
+            blocksToRemove.push(balanced);
+            continue;
+          }
+        } catch {
+          // Invalid JSON — fall through to malformed handling below
         }
-      } catch {
-        // Not valid JSON, skip
+      }
+
+      // Malformed JSON fallback: the model often emits unescaped `"` inside
+      // backtick-quoted code in the description, producing invalid JSON that
+      // neither extractBalancedJson nor JSON.parse can handle. Extract title
+      // via string scanning and strip the block from content.
+      if (match[0].includes('create_fix_task')) {
+        const rest = content.slice(startIdx);
+        const extracted = extractFixTaskFromMalformed(rest);
+        if (extracted) {
+          tasks.push(extracted.task);
+          blocksToRemove.push(rest.trimEnd());
+        }
       }
     }
   }
@@ -112,6 +127,55 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
   }
 
   return { cleanedContent: cleanedContent.trim(), tasks, commands };
+}
+
+/** Extract a fix task from malformed JSON using string scanning.
+ *  Handles the common case where the model emits unescaped `"` inside
+ *  backtick-quoted code in the description string. */
+function extractFixTaskFromMalformed(
+  text: string,
+): { task: ParsedFixTask } | null {
+  const titleMarker = '"title"';
+  const titleIdx = text.indexOf(titleMarker);
+  if (titleIdx === -1) return null;
+
+  const afterTitle = text.slice(titleIdx + titleMarker.length);
+  const colonMatch = afterTitle.match(/^\s*:\s*"/);
+  if (!colonMatch) return null;
+
+  const titleStart = colonMatch[0].length;
+  const titleBody = afterTitle.slice(titleStart);
+  const titleEnd = titleBody.indexOf('"');
+  if (titleEnd === -1) return null;
+
+  const title = titleBody.slice(0, titleEnd);
+  if (!title) return null;
+
+  let description: string | undefined;
+  const descMarker = '"description"';
+  const descIdx = text.indexOf(descMarker, titleIdx + titleMarker.length);
+  if (descIdx !== -1) {
+    const afterDesc = text.slice(descIdx + descMarker.length);
+    const descColonMatch = afterDesc.match(/^\s*:\s*"/);
+    if (descColonMatch) {
+      const descBody = afterDesc.slice(descColonMatch[0].length);
+      // Walk backward from end of text past `}`, `]`, whitespace to find
+      // the `"` that closes the description value.
+      let end = descBody.length;
+      while (end > 0 && '}] \n\r'.includes(descBody[end - 1])) end--;
+      if (end > 0 && descBody[end - 1] === '"') end--;
+      if (end > 0) {
+        description = descBody
+          .slice(0, end)
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+      }
+    }
+  }
+
+  return { task: { title, description } };
 }
 
 /** Walk from the opening brace and find the matching closing brace,
