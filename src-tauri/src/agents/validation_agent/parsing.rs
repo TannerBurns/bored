@@ -104,11 +104,12 @@ pub(crate) fn parse_create_fix_tasks_from_response(
         if let Some(key_pos) = response_text.find(key) {
             tracing::debug!("Fallback: found key {} at pos {}", key, key_pos);
             if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
+                // Strategy 1: balanced brace extraction (handles most cases).
                 if let Some(balanced) =
                     find_balanced_from_offset(response_text, brace_pos, '{', '}')
                 {
                     tracing::debug!(
-                        "Fallback: extracted balanced JSON ({} chars)",
+                        "Fallback balanced: extracted {} chars",
                         balanced.len()
                     );
                     if let Ok(v) =
@@ -117,17 +118,71 @@ pub(crate) fn parse_create_fix_tasks_from_response(
                         extract_fix_tasks_from_value(&v, &mut all_tasks);
                         if !all_tasks.is_empty() {
                             tracing::debug!(
-                                "Fallback path: extracted {} task(s)",
+                                "Fallback balanced path: extracted {} task(s)",
                                 all_tasks.len()
                             );
                             return Some(CreateFixTasksBlock { tasks: all_tasks });
                         }
-                    } else {
-                        tracing::debug!("Fallback: serde_json parse failed");
                     }
-                } else {
-                    tracing::debug!("Fallback: find_balanced_from_offset returned None");
                 }
+
+                // Strategy 2: if balanced extraction fails (e.g. model emits
+                // unescaped quotes inside description strings that confuse the
+                // string-aware brace matcher), try parsing from the opening
+                // brace to the end of the response. The JSON block is typically
+                // the last thing in the response, so trimming trailing
+                // whitespace and trying serde directly often works even when
+                // the brace matcher can't find the boundary.
+                let tail = response_text[brace_pos..].trim();
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(tail) {
+                    tracing::debug!(
+                        "Fallback tail-parse: parsed {} chars directly",
+                        tail.len()
+                    );
+                    extract_fix_tasks_from_value(&v, &mut all_tasks);
+                    if !all_tasks.is_empty() {
+                        tracing::debug!(
+                            "Fallback tail-parse path: extracted {} task(s)",
+                            all_tasks.len()
+                        );
+                        return Some(CreateFixTasksBlock { tasks: all_tasks });
+                    }
+                }
+
+                // Strategy 3: find the last `}` in the text and try parsing
+                // from the opening brace to that position. Handles cases where
+                // there is trailing text after the JSON block.
+                if let Some(last_brace) = response_text.rfind('}') {
+                    if last_brace > brace_pos {
+                        let substr = &response_text[brace_pos..=last_brace];
+                        if let Ok(v) =
+                            serde_json::from_str::<serde_json::Value>(substr)
+                        {
+                            tracing::debug!(
+                                "Fallback last-brace: parsed {}..={} ({} chars)",
+                                brace_pos,
+                                last_brace,
+                                substr.len()
+                            );
+                            extract_fix_tasks_from_value(&v, &mut all_tasks);
+                            if !all_tasks.is_empty() {
+                                tracing::debug!(
+                                    "Fallback last-brace path: extracted {} task(s)",
+                                    all_tasks.len()
+                                );
+                                return Some(CreateFixTasksBlock {
+                                    tasks: all_tasks,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                tracing::debug!(
+                    "Fallback: all strategies failed for key {} at brace_pos {}",
+                    key,
+                    brace_pos
+                );
             }
         }
     }
