@@ -2,6 +2,42 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.57] - 2026-03-22
+
+Real-time title bar status updates. The title bar queued/active status pills now update instantly when tickets move — both from user drag-and-drop and backend agent workflows — instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, and the listener uses promise-based cleanup to prevent leaks under React strict mode.
+
+### Bug Fixes
+
+- Fixed title bar queued/active chips not updating in real time — `boardStore.moveTicket()` now calls `useWorkerStatusStore.refresh()` after a successful invoke, and `useWorkerStatus` subscribes to the Tauri `ticket-moved` event so backend-initiated moves also trigger an immediate refresh
+- Fixed leaked `ticket-moved` event listener on early unmount — replaced async-stored `_unlisten` callback with `_listenPromise` (the Promise itself) so cleanup chains `.then(fn => fn())` whether the promise already resolved or is still pending, preventing orphaned listeners under React strict mode mount-unmount-remount cycles
+- Fixed clippy `cloned_ref_to_slice_refs` lint in `get_tasks_by_ids` test — replaced `&[task.id.clone()]` with `std::slice::from_ref(&task.id)`
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --tests -- -D warnings: 0 warnings
+- cargo test --lib: 1834 passed, 0 failed
+- npx vitest run: 47 files, 977 passed, 0 failed
+- 5 new useWorkerStatusStore tests covering ticket-moved listener subscription, cleanup, and strict-mode race
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.56, here is a summary of the major features introduced in recent releases:
+
+**beta.56 — Custom Title Bar & Task Execution UI**
+Native OS title bar replaced with a custom bar showing live worker count, queue depth, and active ticket counts with a Workers dropdown for starting/stopping workers from any view. Task execution in chat redesigned with a structured TaskExecutionCard showing real-time task status and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by local date instead of UTC.
+
+**beta.55 — Code-Review-Only Agent Workflow**
+Standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings with per-provider control over model, timeout, retries, and max iterations. Structured review timeline with severity badges and iteration tracking.
+
+**beta.54 — Strengthened Agent Test Commands**
+Integration-test command expanded from 5 steps to 8, adding service dependency discovery, service startup with health checks, mandatory run-and-verify with 3-retry loop, and service cleanup. Unit-tests command gains mandatory execution with structured failure diagnosis, assertion quality review, and regression checks.
+
+**beta.53 — Dynamic Model Discovery, Auto-Pilot Commands & Performance**
+Dynamic Cursor model discovery via CLI instead of a hardcoded list. Auto-pilot required commands with before/after phasing and iterative code-review loop support. Major performance optimization replacing broad Zustand store subscriptions with individual selectors, memoizing expensive computations, and eliminating N+1 database queries across 25+ components.
+
+---
+
 ## [0.1.0-beta.56] - 2026-03-22
 
 Custom title bar with live worker controls, redesigned task execution UI with stage tracking, and timezone-aware dashboard charts. The native OS title bar is replaced with a custom title bar that shows live worker status, queue depth, and in-progress ticket counts, with a dropdown to start/stop workers from any view. Task execution in chat is redesigned with a structured TaskExecutionCard showing real-time task status (pending/running/done/failed) and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by the user's local date instead of UTC.

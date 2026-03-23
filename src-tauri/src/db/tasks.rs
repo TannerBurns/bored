@@ -1301,7 +1301,7 @@ mod tests {
             .unwrap();
 
         let result = db
-            .get_tasks_by_ids(&[task.id.clone()])
+            .get_tasks_by_ids(std::slice::from_ref(&task.id))
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, task.id);
