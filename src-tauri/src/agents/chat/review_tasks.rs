@@ -24,7 +24,13 @@ pub(super) fn process_fix_tasks_for_chat(
 ) -> Vec<String> {
     let fix_block = match parse_create_fix_tasks_from_response(response_text) {
         Some(block) => block,
-        None => return Vec::new(),
+        None => {
+            tracing::debug!(
+                "No create_fix_tasks block found in response ({} chars)",
+                response_text.len()
+            );
+            return Vec::new();
+        }
     };
 
     let mut task_ids = Vec::new();

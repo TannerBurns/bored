@@ -1,7 +1,7 @@
 //! Pure parsing helpers for extracting structured blocks from validation agent responses.
 //! Shared by both the validation commands and the chat review mode runner.
 
-use crate::agents::json_extraction::parse_all_json_blocks;
+use crate::agents::json_extraction::{find_balanced_from_offset, parse_all_json_blocks};
 use crate::db::models::FixTask;
 
 pub(crate) struct StartAppBlock {
@@ -79,11 +79,28 @@ pub(crate) fn parse_create_fix_tasks_from_response(
     let mut all_tasks: Vec<FixTask> = Vec::new();
 
     for v in parse_all_json_blocks(response_text) {
-        if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
-            if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
-                for tv in tasks_arr {
-                    if let Some(obj) = tv.as_object() {
-                        all_tasks.push(parse_fix_task_from_json_obj(obj));
+        extract_fix_tasks_from_value(&v, &mut all_tasks);
+    }
+
+    // Fallback: search for the key directly in the raw text. This handles
+    // cases where extract_all_json_code_blocks is confused by triple-backtick
+    // sequences inside JSON string values (e.g. markdown code blocks in task
+    // descriptions), causing parse_all_json_blocks to miss the block entirely.
+    if all_tasks.is_empty() {
+        for key in &["\"create_fix_tasks\"", "\"create_fix_task\""] {
+            if let Some(key_pos) = response_text.find(key) {
+                if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
+                    if let Some(balanced) =
+                        find_balanced_from_offset(response_text, brace_pos, '{', '}')
+                    {
+                        if let Ok(v) =
+                            serde_json::from_str::<serde_json::Value>(&balanced)
+                        {
+                            extract_fix_tasks_from_value(&v, &mut all_tasks);
+                            if !all_tasks.is_empty() {
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -94,6 +111,20 @@ pub(crate) fn parse_create_fix_tasks_from_response(
         None
     } else {
         Some(CreateFixTasksBlock { tasks: all_tasks })
+    }
+}
+
+fn extract_fix_tasks_from_value(v: &serde_json::Value, all_tasks: &mut Vec<FixTask>) {
+    if let Some(cft) = v.get("create_fix_tasks").and_then(|s| s.as_object()) {
+        if let Some(tasks_arr) = cft.get("tasks").and_then(|t| t.as_array()) {
+            for tv in tasks_arr {
+                if let Some(obj) = tv.as_object() {
+                    all_tasks.push(parse_fix_task_from_json_obj(obj));
+                }
+            }
+        }
+    } else if let Some(cft) = v.get("create_fix_task").and_then(|s| s.as_object()) {
+        all_tasks.push(parse_fix_task_from_json_obj(cft));
     }
 }
 
@@ -272,5 +303,123 @@ I found an issue:
         let block = parse_create_fix_tasks_from_response(text).unwrap();
         assert_eq!(block.tasks.len(), 1);
         assert_eq!(block.tasks[0].title, "Solo fix");
+    }
+
+    // ── singular create_fix_task fallback ──────────────────────
+
+    #[test]
+    fn fix_task_singular_in_code_fence() {
+        let text = r#"```json
+{ "create_fix_task": { "title": "Fix login", "description": "Login broken" } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix login");
+        assert_eq!(block.tasks[0].description, "Login broken");
+    }
+
+    #[test]
+    fn fix_task_singular_bare_json() {
+        let text = r#"Found a bug.
+
+{ "create_fix_task": { "title": "Fix crash", "description": "App crashes on start" } }
+
+Please review."#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix crash");
+    }
+
+    #[test]
+    fn fix_task_singular_with_acceptance_criteria() {
+        let text = r#"```json
+{ "create_fix_task": { "title": "Fix it", "description": "desc", "acceptance_criteria": ["Tests pass"] } }
+```"#;
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks[0].acceptance_criteria, Some(vec!["Tests pass".to_string()]));
+    }
+
+    // ── direct-search fallback (triple-backticks in description) ──
+
+    #[test]
+    fn fix_tasks_bare_json_with_backticks_in_description() {
+        let text = concat!(
+            "Here are the issues I found:\n\n",
+            "**Root Cause:** The query is wrong.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix SQL query", "description": "The query is:\n```sql\nSELECT * FROM t\n```\nFix it." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix SQL query");
+        assert!(block.tasks[0].description.contains("SELECT * FROM t"));
+    }
+
+    #[test]
+    fn fix_tasks_bare_json_with_multiple_code_blocks_in_description() {
+        let text = concat!(
+            "Analysis complete.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests", "description": "Problem:\n```go\nfixture[\"cwd\"] = hookDir\nfixtureData, _ = json.Marshal(fixture)\n```\n\nAlso fix:\n```makefile\ntest-coverage:\n\tDB_HOST=localhost $(GO_CMD) test\n```\n\nDone." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix tests");
+        assert!(block.tasks[0].description.contains("fixture"));
+        assert!(block.tasks[0].description.contains("makefile"));
+    }
+
+    #[test]
+    fn fix_tasks_singular_bare_with_backticks_in_description() {
+        let text = concat!(
+            "Found an issue.\n\n",
+            r#"{ "create_fix_task": { "title": "Fix it", "description": "See:\n```go\nfmt.Println()\n```\nDone." } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix it");
+    }
+
+    #[test]
+    fn fix_tasks_large_response_with_prose_and_bare_json() {
+        let prose = "Now I have the full picture. Here are the issues I've identified:\n\n\
+            **Root Cause 1: Fixture values are wrong.** The API requires valid UUIDs \
+            but all fixtures use human-readable strings.\n\n\
+            **Root Cause 2: Fixture cwd doesn't match.** Fixtures hardcode a path \
+            but the test uses a temp dir.\n\n\
+            **Root Cause 3: Test coverage includes hook tests.** The glob recursively \
+            matches hook tests that need a different setup.\n\n";
+        let json = r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix integration tests", "description": "Problem: Tests fail for three reasons.\n\nRequirements:\n\n### Fix 1\nUse valid UUIDs.\n\n### Fix 2\nDynamic cwd injection:\n```go\nfixture[\"cwd\"] = hookDir\nfixtureData, _ = json.Marshal(fixture)\n```\n\n### Fix 3\nExclude hook tests:\n```makefile\ntest-coverage:\n\t$(GO_CMD) test ./tests/integration\n```\n\nAcceptance Criteria:\n- All fixtures use UUIDs\n- Tests pass" }] } }"#;
+        let text = format!("{}{}", prose, json);
+        let block = parse_create_fix_tasks_from_response(&text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix integration tests");
+        assert!(block.tasks[0].description.contains("Fix 1"));
+        assert!(block.tasks[0].description.contains("Fix 3"));
+    }
+
+    #[test]
+    fn fix_tasks_real_world_long_description_with_makefile_and_go_blocks() {
+        // Reproduces the exact production failure: prose with quoted strings
+        // like `"cwd"` and `"test-branch"`, followed by bare JSON whose
+        // description contains ```makefile and ```go code blocks with escaped
+        // quotes, tabs, and complex shell expressions.
+        let text = concat!(
+            "Now I have the full picture. Here are the issues found:\n\n",
+            "**Primary bug:** All 22 fixture files set `\"cwd\": \"/tmp/test-repo\"` ",
+            "but `smee_git_context()` runs `git -C \"$CWD\"` against that path. ",
+            "This causes `REPO=\"\"` and `BRANCH=\"\"`, failing the workspace assertions.\n\n",
+            "**Secondary issue:** `test-coverage` runs `./tests/integration/...` ",
+            "which recursively includes hooks tests.\n\n",
+            "Creating fix tasks:\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix hook integration test fixture cwd mismatch and CI double-run", "description": "Problem: The hook integration tests fail because all 22 fixture JSON files hardcode `\"cwd\": \"/tmp/test-repo\"` but `smee_git_context()` in `_common.sh` runs `git -C \"$CWD\"` against that path.\n\nRequirements:\n\n### 1. Fix fixture cwd injection\n\nAfter `json.Unmarshal` into `fixture`, set `fixture[\"cwd\"] = hookDir`, then re-marshal.\n\n### 2. Exclude hooks from test-coverage\n\nIn the Makefile:\n```makefile\ntest-coverage:\n\tDB_HOST=localhost $(GO_CMD) test -v -tags=integration -coverprofile=coverage.out $(shell go list -tags=integration ./tests/integration/... | grep -v /hooks)\n```\n\n### 3. Verify locally\n\nRun `go vet -tags=integration ./tests/integration/hooks/...`\n\nAcceptance Criteria:\n- All 22 hook test fixtures have their `cwd` dynamically set\n- `TestHookScripts` workspace assertions pass\n- Hook tests do NOT run as part of `make test-coverage`\n- `go vet` passes" }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(
+            block.tasks[0].title,
+            "Fix hook integration test fixture cwd mismatch and CI double-run"
+        );
+        assert!(block.tasks[0].description.contains("fixture cwd injection"));
+        assert!(block.tasks[0].description.contains("test-coverage"));
+        assert!(block.tasks[0].description.contains("go vet"));
     }
 }

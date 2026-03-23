@@ -390,4 +390,67 @@ describe('parseReviewBlocks', () => {
     expect(result.commands[0].command).toBe('npm start');
     expect(result.commands[0].port).toBe(3000);
   });
+
+  // ── create_fix_task (singular) support ──────────────────────
+
+  it('extracts create_fix_task (singular) from code fence', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "Fix login", "description": "Login is broken" } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix login');
+    expect(result.tasks[0].description).toBe('Login is broken');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts create_fix_task (singular) with acceptance_criteria', () => {
+    const content = [
+      '```json',
+      '{ "create_fix_task": { "title": "Fix form", "description": "Broken", "acceptance_criteria": ["Works", "Validates"] } }',
+      '```',
+    ].join('\n');
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].acceptanceCriteria).toEqual(['Works', 'Validates']);
+  });
+
+  it('extracts bare inline create_fix_task (singular)', () => {
+    const content =
+      'Found an issue.\n\n' +
+      '{"create_fix_task":{"title":"Fix crash","description":"App crashes"}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix crash');
+    expect(result.cleanedContent).toContain('Found an issue.');
+    expect(result.cleanedContent).not.toContain('create_fix_task');
+  });
+
+  it('extracts bare create_fix_tasks with backticks in description', () => {
+    const content =
+      'Analysis complete.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix tests","description":"See:\\n```go\\nfmt.Println()\\n```\\nDone."}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix tests');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
+
+  it('extracts bare create_fix_tasks with multiple code blocks in description', () => {
+    const content =
+      'Here are the issues.\n\n' +
+      '{"create_fix_tasks":{"tasks":[{"title":"Fix CI","description":"Problem:\\n```go\\nfixture[\\"cwd\\"] = hookDir\\n```\\n\\nAlso:\\n```makefile\\ntest-coverage:\\n\\tDB_HOST=localhost $(GO_CMD) test\\n```"}]}}';
+
+    const result = parseReviewBlocks(content);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix CI');
+    expect(result.cleanedContent).toContain('Here are the issues.');
+    expect(result.cleanedContent).not.toContain('create_fix_tasks');
+  });
 });

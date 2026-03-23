@@ -365,6 +365,16 @@ fn find_balanced_from(
     None
 }
 
+/// Find a balanced pair of open/close characters starting at or after `from_byte`.
+///
+/// Public wrapper around the internal `find_balanced_from` helper, returning
+/// only the matched substring. Used by `parsing.rs` as a fallback when
+/// `parse_all_json_blocks` fails to extract JSON blocks from responses that
+/// contain triple-backtick sequences inside JSON string values.
+pub fn find_balanced_from_offset(text: &str, from_byte: usize, open: char, close: char) -> Option<String> {
+    find_balanced_from(text, from_byte, open, close).map(|m| m.matched)
+}
+
 /// Find the first balanced pair of open/close characters using depth counting.
 ///
 /// Starts from the first `open` character and walks forward, incrementing

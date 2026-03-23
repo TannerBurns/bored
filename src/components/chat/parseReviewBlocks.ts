@@ -32,6 +32,14 @@ function processJsonMatch(
       });
     }
     return true;
+  } else if ((parsed.create_fix_task as Record<string, unknown>)?.title !== undefined) {
+    const t = parsed.create_fix_task as Record<string, unknown>;
+    tasks.push({
+      title: (t.title as string) || 'Fix task',
+      description: t.description as string | undefined,
+      acceptanceCriteria: (t.acceptance_criteria || t.acceptanceCriteria) as string[] | undefined,
+    });
+    return true;
   } else if (parsed.run_command) {
     const rc = parsed.run_command as Record<string, unknown>;
     commands.push({ type: 'run_command', command: rc.command as string });
@@ -83,7 +91,7 @@ export function parseReviewBlocks(content: string): ParsedReviewBlocks {
   // Bare inline JSON — only if no wrapped blocks were found.
   // Anchored to `{"key"` so stray braces like ${REPO} don't match.
   if (blocksToRemove.length === 0) {
-    const bareStartRegex = /\{\s*"(?:create_fix_tasks|run_command|start_app|stop_app)"/g;
+    const bareStartRegex = /\{\s*"(?:create_fix_tasks|create_fix_task|run_command|start_app|stop_app)"/g;
     while ((match = bareStartRegex.exec(content)) !== null) {
       const startIdx = match.index;
       const balanced = extractBalancedJson(content.slice(startIdx));
