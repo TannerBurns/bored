@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { WorkerStatus, WorkerQueueStatus } from '../types';
 import { logger } from '../lib/logger';
 import { useSettingsStore, ensureAgentConfigsSynced } from '../stores/settingsStore';
@@ -13,6 +14,7 @@ interface WorkerStatusState {
   queueStatus: WorkerQueueStatus;
   _refCount: number;
   _intervalId: ReturnType<typeof setInterval> | null;
+  _unlisten: (() => void) | null;
   refresh: () => Promise<void>;
   startWorker: (agentType: string) => Promise<void>;
   stopWorkerByType: (agentType: string) => Promise<void>;
@@ -24,6 +26,7 @@ export const useWorkerStatusStore = create<WorkerStatusState>()((set, get) => ({
   queueStatus: { readyCount: 0, inProgressCount: 0, workerCount: 0 },
   _refCount: 0,
   _intervalId: null,
+  _unlisten: null,
 
   refresh: async () => {
     try {
@@ -83,15 +86,23 @@ export const useWorkerStatusStore = create<WorkerStatusState>()((set, get) => ({
       get().refresh();
       const id = setInterval(() => get().refresh(), POLL_INTERVAL_MS);
       set({ _intervalId: id });
+
+      listen('ticket-moved', () => {
+        get().refresh();
+      }).then(
+        (fn) => set({ _unlisten: fn }),
+        (err) => logger.error('Failed to listen for ticket-moved:', err),
+      );
     }
 
     return () => {
       const curr = get()._refCount - 1;
       set({ _refCount: curr });
       if (curr === 0) {
-        const { _intervalId } = get();
+        const { _intervalId, _unlisten } = get();
         if (_intervalId) clearInterval(_intervalId);
-        set({ _intervalId: null });
+        if (_unlisten) _unlisten();
+        set({ _intervalId: null, _unlisten: null });
       }
     };
   },

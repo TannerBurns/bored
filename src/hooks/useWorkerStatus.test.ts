@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useWorkerStatusStore } from './useWorkerStatus';
 import type { WorkerStatus, WorkerQueueStatus } from '../types';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(),
 }));
 
 vi.mock('../lib/logger', () => ({
@@ -24,6 +29,7 @@ vi.mock('../stores/settingsStore', () => ({
 }));
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
+const mockListen = listen as unknown as ReturnType<typeof vi.fn>;
 
 const EMPTY_QUEUE: WorkerQueueStatus = { readyCount: 0, inProgressCount: 0, workerCount: 0 };
 
@@ -39,13 +45,15 @@ function makeWorker(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
 }
 
 function resetStore() {
-  const { _intervalId } = useWorkerStatusStore.getState();
+  const { _intervalId, _unlisten } = useWorkerStatusStore.getState();
   if (_intervalId) clearInterval(_intervalId);
+  if (_unlisten) _unlisten();
   useWorkerStatusStore.setState({
     workers: [],
     queueStatus: EMPTY_QUEUE,
     _refCount: 0,
     _intervalId: null,
+    _unlisten: null,
   });
 }
 
@@ -53,6 +61,7 @@ describe('useWorkerStatusStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockListen.mockResolvedValue(vi.fn());
     resetStore();
   });
 
@@ -293,6 +302,69 @@ describe('useWorkerStatusStore', () => {
       vi.advanceTimersByTime(10000);
 
       expect(mockInvoke).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ticket-moved event listener', () => {
+    it('subscribes to ticket-moved on first mount', async () => {
+      mockInvoke.mockResolvedValue(undefined);
+
+      const unmount = useWorkerStatusStore.getState()._mount();
+
+      expect(mockListen).toHaveBeenCalledWith('ticket-moved', expect.any(Function));
+
+      unmount();
+    });
+
+    it('calls refresh when ticket-moved fires', async () => {
+      let capturedHandler: (() => void) | undefined;
+      mockListen.mockImplementation((_event: string, handler: () => void) => {
+        capturedHandler = handler;
+        return Promise.resolve(vi.fn());
+      });
+
+      const mockQueue: WorkerQueueStatus = { readyCount: 3, inProgressCount: 1, workerCount: 1 };
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_workers') return Promise.resolve([]);
+        if (cmd === 'get_worker_queue_status') return Promise.resolve(mockQueue);
+        return Promise.resolve();
+      });
+
+      const unmount = useWorkerStatusStore.getState()._mount();
+      await vi.advanceTimersByTimeAsync(0);
+
+      mockInvoke.mockClear();
+      capturedHandler!();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mockInvoke).toHaveBeenCalledWith('get_worker_queue_status');
+
+      unmount();
+    });
+
+    it('unsubscribes on last unmount', async () => {
+      const mockUnlisten = vi.fn();
+      mockListen.mockResolvedValue(mockUnlisten);
+      mockInvoke.mockResolvedValue(undefined);
+
+      const unmount = useWorkerStatusStore.getState()._mount();
+      await vi.advanceTimersByTimeAsync(0);
+
+      unmount();
+
+      expect(mockUnlisten).toHaveBeenCalled();
+    });
+
+    it('does not subscribe again on second mount', async () => {
+      mockInvoke.mockResolvedValue(undefined);
+
+      const unmount1 = useWorkerStatusStore.getState()._mount();
+      const unmount2 = useWorkerStatusStore.getState()._mount();
+
+      expect(mockListen).toHaveBeenCalledTimes(1);
+
+      unmount2();
+      unmount1();
     });
   });
 });
