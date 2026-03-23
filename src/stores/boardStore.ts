@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import type { Board, Column, Ticket, Comment, CreateTicketInput, Task, TaskCounts } from '../types';
 import { logger } from '../lib/logger';
+import { useWorkerStatusStore } from '../hooks/useWorkerStatus';
 
 interface BoardState {
   boards: Board[];
@@ -207,6 +208,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
     try {
       await invoke('move_ticket', { ticketId, columnId });
+      useWorkerStatusStore.getState().refresh();
     } catch (error) {
       const { currentBoard } = get();
       if (currentBoard) {
