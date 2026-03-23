@@ -104,90 +104,157 @@ pub(crate) fn parse_create_fix_tasks_from_response(
         if let Some(key_pos) = response_text.find(key) {
             tracing::debug!("Fallback: found key {} at pos {}", key, key_pos);
             if let Some(brace_pos) = response_text[..key_pos].rfind('{') {
-                // Strategy 1: balanced brace extraction (handles most cases).
+                // Strategy 1: balanced brace extraction.
                 if let Some(balanced) =
                     find_balanced_from_offset(response_text, brace_pos, '{', '}')
                 {
-                    tracing::debug!(
-                        "Fallback balanced: extracted {} chars",
-                        balanced.len()
-                    );
                     if let Ok(v) =
                         serde_json::from_str::<serde_json::Value>(&balanced)
                     {
                         extract_fix_tasks_from_value(&v, &mut all_tasks);
                         if !all_tasks.is_empty() {
-                            tracing::debug!(
-                                "Fallback balanced path: extracted {} task(s)",
-                                all_tasks.len()
-                            );
+                            tracing::info!("Fallback balanced: extracted {} task(s)", all_tasks.len());
                             return Some(CreateFixTasksBlock { tasks: all_tasks });
                         }
                     }
                 }
 
-                // Strategy 2: if balanced extraction fails (e.g. model emits
-                // unescaped quotes inside description strings that confuse the
-                // string-aware brace matcher), try parsing from the opening
-                // brace to the end of the response. The JSON block is typically
-                // the last thing in the response, so trimming trailing
-                // whitespace and trying serde directly often works even when
-                // the brace matcher can't find the boundary.
+                // Strategy 2: parse from `{` to end of response directly.
                 let tail = response_text[brace_pos..].trim();
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(tail) {
-                    tracing::debug!(
-                        "Fallback tail-parse: parsed {} chars directly",
-                        tail.len()
-                    );
                     extract_fix_tasks_from_value(&v, &mut all_tasks);
                     if !all_tasks.is_empty() {
-                        tracing::debug!(
-                            "Fallback tail-parse path: extracted {} task(s)",
-                            all_tasks.len()
-                        );
+                        tracing::info!("Fallback tail-parse: extracted {} task(s)", all_tasks.len());
                         return Some(CreateFixTasksBlock { tasks: all_tasks });
                     }
                 }
 
-                // Strategy 3: find the last `}` in the text and try parsing
-                // from the opening brace to that position. Handles cases where
-                // there is trailing text after the JSON block.
+                // Strategy 3: `{` to last `}`.
                 if let Some(last_brace) = response_text.rfind('}') {
                     if last_brace > brace_pos {
                         let substr = &response_text[brace_pos..=last_brace];
                         if let Ok(v) =
                             serde_json::from_str::<serde_json::Value>(substr)
                         {
-                            tracing::debug!(
-                                "Fallback last-brace: parsed {}..={} ({} chars)",
-                                brace_pos,
-                                last_brace,
-                                substr.len()
-                            );
                             extract_fix_tasks_from_value(&v, &mut all_tasks);
                             if !all_tasks.is_empty() {
-                                tracing::debug!(
-                                    "Fallback last-brace path: extracted {} task(s)",
-                                    all_tasks.len()
-                                );
-                                return Some(CreateFixTasksBlock {
-                                    tasks: all_tasks,
-                                });
+                                tracing::info!("Fallback last-brace: extracted {} task(s)", all_tasks.len());
+                                return Some(CreateFixTasksBlock { tasks: all_tasks });
                             }
                         }
                     }
                 }
-
-                tracing::debug!(
-                    "Fallback: all strategies failed for key {} at brace_pos {}",
-                    key,
-                    brace_pos
-                );
             }
         }
     }
 
+    // Last resort: the model often produces invalid JSON because it doesn't
+    // escape `"` inside backtick-quoted code within the description string
+    // (e.g. `"cwd": "/tmp/test-repo"` where the quotes should be `\"`).
+    // Since serde rejects this, extract the title and description using
+    // simple string scanning that tolerates malformed JSON.
+    if let Some(tasks) = extract_fix_tasks_from_malformed(response_text) {
+        tracing::info!(
+            "Malformed-JSON fallback: extracted {} task(s)",
+            tasks.len()
+        );
+        return Some(CreateFixTasksBlock { tasks });
+    }
+
     None
+}
+
+/// Extract fix tasks from malformed JSON by scanning for `"title":` and
+/// `"description":` patterns. Handles the common case where the model emits
+/// unescaped `"` inside backtick-quoted code in the description, producing
+/// JSON that `serde_json` rejects.
+fn extract_fix_tasks_from_malformed(text: &str) -> Option<Vec<FixTask>> {
+    // Only attempt this if the text actually contains fix-task keys.
+    let key_pos = text
+        .find("\"create_fix_tasks\"")
+        .or_else(|| text.find("\"create_fix_task\""))?;
+
+    // Find the `"title"` key after the fix-task key.
+    let after_key = &text[key_pos..];
+    let title_marker = "\"title\"";
+    let title_key_pos = after_key.find(title_marker)?;
+    let after_title_key = &after_key[title_key_pos + title_marker.len()..];
+
+    // Skip `: "` or `:"` to get to the title value.
+    let after_colon = after_title_key.trim_start().strip_prefix(':')?;
+    let after_colon = after_colon.trim_start().strip_prefix('"')?;
+
+    // Title ends at the next `"` followed by `,` or `}` (with optional
+    // whitespace). Titles are short and don't contain unescaped quotes.
+    let title_end = after_colon.find('"')?;
+    let title = &after_colon[..title_end];
+
+    // Find `"description"` after the title.
+    let desc_marker = "\"description\"";
+    let rest = &after_colon[title_end..];
+    let desc_start = rest.find(desc_marker);
+
+    let description = if let Some(dp) = desc_start {
+        let after_desc_key = &rest[dp + desc_marker.len()..];
+        let after_colon = after_desc_key.trim_start().strip_prefix(':');
+        if let Some(after_colon) = after_colon {
+            let after_colon = after_colon.trim_start().strip_prefix('"');
+            if let Some(desc_body) = after_colon {
+                // The description is everything from here to the closing
+                // pattern. We scan backward from the end of the text to find
+                // the last `}` and work back through `} }` or `} } }` to
+                // approximate where the description value ends. Then we look
+                // for the last `"` before those braces.
+                let remaining_text = desc_body;
+                // Find the position of the last sequence of closing
+                // `" }] } }` or similar.
+                let trimmed = remaining_text.trim_end();
+                // Walk backward past `}`, `]`, whitespace to find the `"`.
+                let mut end = trimmed.len();
+                let bytes = trimmed.as_bytes();
+                while end > 0 {
+                    let ch = bytes[end - 1];
+                    if ch == b'}' || ch == b']' || ch == b' ' || ch == b'\n' || ch == b'\r' {
+                        end -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                // The char at `end - 1` should be `"` closing the description.
+                if end > 0 && bytes[end - 1] == b'"' {
+                    end -= 1;
+                }
+                if end > 0 {
+                    // Unescape what we can: `\"` → `"`, `\\n` → `\n`, etc.
+                    let raw = &trimmed[..end];
+                    let unescaped = raw
+                        .replace("\\n", "\n")
+                        .replace("\\t", "\t")
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\");
+                    unescaped
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    if title.is_empty() {
+        return None;
+    }
+
+    Some(vec![FixTask {
+        title: title.to_string(),
+        description,
+        acceptance_criteria: None,
+    }])
 }
 
 fn extract_fix_tasks_from_value(v: &serde_json::Value, all_tasks: &mut Vec<FixTask>) {
@@ -538,5 +605,43 @@ Please review."#;
         assert!(block.tasks[0].description.contains("Fix 1"));
         assert!(block.tasks[0].description.contains("Fix 2"));
         assert!(block.tasks[0].description.contains("go vet"));
+    }
+
+    // ── malformed JSON fallback (unescaped quotes) ────────────
+
+    #[test]
+    fn fix_tasks_malformed_json_unescaped_quotes_in_description() {
+        // The model emits `"cwd"` inside backtick-quoted code without
+        // escaping the quotes. This is invalid JSON that serde rejects.
+        let text = concat!(
+            "Found the issue.\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix CWD mismatch", "description": "The fixtures have `"cwd": "/tmp/test-repo"` but the test uses hookDir.\n\nFix:\n```go\nfixture[\"cwd\"] = hookDir\n```\n\nAcceptance:\n- Tests pass" }] } }"#,
+        );
+        // serde_json should reject this (unescaped " inside string)
+        let as_json: Result<serde_json::Value, _> =
+            serde_json::from_str(&text[text.find('{').unwrap()..]);
+        assert!(as_json.is_err(), "sanity: this JSON should be invalid");
+
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix CWD mismatch");
+        assert!(block.tasks[0].description.contains("fixtures have"));
+    }
+
+    #[test]
+    fn fix_tasks_malformed_json_multiple_unescaped_quotes() {
+        let text = concat!(
+            "Issues:\n\n",
+            r#"{ "create_fix_tasks": { "tasks": [{ "title": "Fix tests and CI", "description": "Problem: `"cwd": "/tmp"` is wrong and `"branch": "main"` is hardcoded.\n\nFix in Makefile:\n```makefile\ntest:\n\t$(GO_CMD) test\n```\n\nDone." }] } }"#,
+        );
+        let block = parse_create_fix_tasks_from_response(text).unwrap();
+        assert_eq!(block.tasks.len(), 1);
+        assert_eq!(block.tasks[0].title, "Fix tests and CI");
+    }
+
+    #[test]
+    fn fix_tasks_malformed_json_does_not_extract_from_unrelated_text() {
+        let text = "No fix tasks here, just a mention of \"create_fix_tasks\" in prose.";
+        assert!(parse_create_fix_tasks_from_response(text).is_none());
     }
 }
