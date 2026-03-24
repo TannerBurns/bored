@@ -16,6 +16,7 @@ import {
 } from '../../lib/tauri';
 import type { Project, Workspace } from '../../types';
 import { ConfirmModal } from '../common';
+import { CreateWorkspaceForm, EditWorkspaceForm } from './WorkspaceForm';
 
 type AddMode = 'none' | 'existing' | 'create' | 'workspace';
 
@@ -404,113 +405,31 @@ export function ScopesList({ onProjectsChange }: ScopesListProps = {}) {
         </div>
       )}
 
-      {/* Create workspace form */}
       {addMode === 'workspace' && (
-        <div className="glass rounded-lg p-3 space-y-2">
-          <div className="text-xs font-medium text-purple-400">Create Workspace</div>
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">Workspace Name</label>
-            <input
-              type="text"
-              value={wsName}
-              onChange={(e) => setWsName(e.target.value)}
-              placeholder="My Workspace"
-              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/20"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">
-              Select Projects (min 2)
-            </label>
-            {projects.length === 0 ? (
-              <p className="text-xs text-board-text-muted">No projects available. Add projects first.</p>
-            ) : (
-              <div className="space-y-1 max-h-40 overflow-auto">
-                {projects.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-board-card-hover cursor-pointer transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={wsSelectedProjectIds.has(p.id)}
-                      onChange={() => toggleWsProject(p.id, wsSelectedProjectIds, setWsSelectedProjectIds)}
-                      className="rounded border-board-border text-board-accent focus:ring-board-accent"
-                    />
-                    <span className="text-sm text-board-text">{p.name}</span>
-                    <span className="text-xs text-board-text-muted font-mono truncate ml-auto">{p.path}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {wsSelectedProjectIds.size > 0 && wsSelectedProjectIds.size < 2 && (
-              <p className="text-xs text-status-warning mt-1">Select at least 2 projects</p>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button onClick={resetForm} disabled={creatingSaving} className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors disabled:opacity-50">
-              Cancel
-            </button>
-            <button
-              onClick={handleCreateWorkspace}
-              disabled={!wsName.trim() || wsSelectedProjectIds.size < 2 || creatingSaving}
-              className="px-2 py-1 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {creatingSaving ? 'Creating...' : 'Create Workspace'}
-            </button>
-          </div>
-        </div>
+        <CreateWorkspaceForm
+          projects={projects}
+          wsName={wsName}
+          setWsName={setWsName}
+          selectedProjectIds={wsSelectedProjectIds}
+          onToggleProject={(id) => toggleWsProject(id, wsSelectedProjectIds, setWsSelectedProjectIds)}
+          onSubmit={handleCreateWorkspace}
+          onCancel={resetForm}
+          saving={creatingSaving}
+        />
       )}
 
-      {/* Edit workspace form */}
       {editingWorkspace && (
-        <div className="glass rounded-lg p-3 space-y-2 border border-purple-500/30">
-          <div className="text-xs font-medium text-purple-400">Edit Workspace</div>
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">Workspace Name</label>
-            <input
-              type="text"
-              value={editWsName}
-              onChange={(e) => setEditWsName(e.target.value)}
-              className="w-full px-2 py-1.5 bg-board-surface-raised rounded-lg text-sm text-board-text border border-board-border focus:border-board-accent focus:outline-none focus:ring-1 focus:ring-board-accent/20"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-board-text-secondary mb-1">Member Projects</label>
-            <div className="space-y-1 max-h-40 overflow-auto">
-              {projects.map((p) => (
-                <label
-                  key={p.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-board-card-hover cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={editWsProjectIds.has(p.id)}
-                    onChange={() => toggleWsProject(p.id, editWsProjectIds, setEditWsProjectIds)}
-                    className="rounded border-board-border text-board-accent focus:ring-board-accent"
-                  />
-                  <span className="text-sm text-board-text">{p.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              onClick={() => setEditingWorkspace(null)}
-              disabled={savingWorkspace}
-              className="px-2 py-1 text-xs text-board-text-muted hover:text-board-text transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSaveWorkspace}
-              disabled={!editWsName.trim() || editWsProjectIds.size < 2 || savingWorkspace}
-              className="px-2 py-1 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {savingWorkspace ? 'Saving...' : 'Save Workspace'}
-            </button>
-          </div>
-        </div>
+        <EditWorkspaceForm
+          workspace={editingWorkspace}
+          projects={projects}
+          editName={editWsName}
+          setEditName={setEditWsName}
+          editProjectIds={editWsProjectIds}
+          onToggleProject={(id) => toggleWsProject(id, editWsProjectIds, setEditWsProjectIds)}
+          onSave={handleSaveWorkspace}
+          onCancel={() => setEditingWorkspace(null)}
+          saving={savingWorkspace}
+        />
       )}
 
       {/* Unified list */}

@@ -161,13 +161,15 @@ pub async fn send_chat_message(
         let ws_paths: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.path)).collect();
 
         let ws_dir = std::env::temp_dir().join("bored").join("chat-workspaces");
-        std::fs::create_dir_all(&ws_dir).ok();
+        std::fs::create_dir_all(&ws_dir)
+            .map_err(|e| format!("Failed to create workspace directory: {}", e))?;
         let ws_file = ws_dir.join(format!("{}.code-workspace", chat_id));
         let folders: Vec<serde_json::Value> = projects.iter()
             .map(|p| serde_json::json!({ "path": p.path, "name": p.name }))
             .collect();
         let ws_content = serde_json::json!({ "folders": folders });
-        std::fs::write(&ws_file, serde_json::to_string_pretty(&ws_content).unwrap_or_default()).ok();
+        std::fs::write(&ws_file, serde_json::to_string_pretty(&ws_content).unwrap_or_default())
+            .map_err(|e| format!("Failed to write .code-workspace file: {}", e))?;
 
         (primary_path, Some(ws_file), ws_paths)
     } else if let Some(ref project_id) = chat.project_id {

@@ -1,3 +1,5 @@
+use rusqlite::OptionalExtension;
+
 use crate::db::models::{Project, Workspace};
 use crate::db::{parse_datetime, Database, DbError};
 
@@ -202,5 +204,3 @@ impl Database {
         })
     }
 }
-
-use rusqlite::OptionalExtension;
