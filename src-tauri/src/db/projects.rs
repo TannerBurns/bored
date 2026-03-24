@@ -162,35 +162,53 @@ impl Database {
 
     pub fn can_move_to_ready(&self, ticket_id: &str) -> Result<ReadinessCheck, DbError> {
         self.with_conn(|conn| {
-            let ticket_project_id: Option<String> = conn
+            let (ticket_project_id, ticket_workspace_id): (Option<String>, Option<String>) = conn
                 .query_row(
-                    "SELECT project_id FROM tickets WHERE id = ?",
+                    "SELECT project_id, workspace_id FROM tickets WHERE id = ?",
                     [ticket_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))?;
 
-            let effective_project_id = ticket_project_id;
+            if let Some(pid) = ticket_project_id {
+                let path: Option<String> = conn
+                    .query_row("SELECT path FROM projects WHERE id = ?", [&pid], |row| {
+                        row.get(0)
+                    })
+                    .ok();
 
-            match effective_project_id {
-                Some(pid) => {
-                    let path: Option<String> = conn
-                        .query_row("SELECT path FROM projects WHERE id = ?", [&pid], |row| {
-                            row.get(0)
-                        })
-                        .ok();
+                if let Some(p) = path {
+                    if std::path::Path::new(&p).exists() {
+                        Ok(ReadinessCheck::Ready { project_id: pid })
+                    } else {
+                        Ok(ReadinessCheck::ProjectPathMissing { path: p })
+                    }
+                } else {
+                    Ok(ReadinessCheck::ProjectNotFound(None))
+                }
+            } else if let Some(wid) = ticket_workspace_id {
+                let mut stmt = conn.prepare(
+                    r#"SELECT p.id, p.path FROM projects p
+                   JOIN workspace_projects wp ON p.id = wp.project_id
+                   WHERE wp.workspace_id = ?
+                   ORDER BY wp.position LIMIT 1"#,
+                )?;
+                let result: Option<(String, String)> = stmt
+                    .query_row([&wid], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .ok();
 
-                    if let Some(p) = path {
-                        if std::path::Path::new(&p).exists() {
+                match result {
+                    Some((pid, path)) => {
+                        if std::path::Path::new(&path).exists() {
                             Ok(ReadinessCheck::Ready { project_id: pid })
                         } else {
-                            Ok(ReadinessCheck::ProjectPathMissing { path: p })
+                            Ok(ReadinessCheck::ProjectPathMissing { path })
                         }
-                    } else {
-                        Ok(ReadinessCheck::ProjectNotFound(None))
                     }
+                    None => Ok(ReadinessCheck::NoProject(None)),
                 }
-                None => Ok(ReadinessCheck::NoProject(None)),
+            } else {
+                Ok(ReadinessCheck::NoProject(None))
             }
         })
     }

@@ -42,9 +42,7 @@ export function TicketModal({
   onAgentComplete,
 }: TicketModalProps) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -76,28 +74,14 @@ export function TicketModal({
   useEffect(() => {
     const loadProjects = async () => {
       try {
-        setProjectsLoading(true);
-        const data = await getProjects();
+        const [data, wsData] = await Promise.all([getProjects(), getWorkspaces()]);
         setProjects(data);
+        setWorkspaces(wsData);
       } catch (e) {
-        logger.error('Failed to load projects:', e);
-      } finally {
-        setProjectsLoading(false);
-      }
-    };
-    const loadWorkspaces = async () => {
-      try {
-        setWorkspacesLoading(true);
-        const data = await getWorkspaces();
-        setWorkspaces(data);
-      } catch (e) {
-        logger.error('Failed to load workspaces:', e);
-      } finally {
-        setWorkspacesLoading(false);
+        logger.error('Failed to load projects/workspaces:', e);
       }
     };
     loadProjects();
-    loadWorkspaces();
   }, []);
 
   useEffect(() => {
@@ -163,10 +147,6 @@ export function TicketModal({
           {/* Edit form fields (only visible when editing) */}
           {editState.isEditing && (
             <TicketEditForm
-              projects={projects}
-              projectsLoading={projectsLoading}
-              workspaces={workspaces}
-              workspacesLoading={workspacesLoading}
               editPriority={editState.editPriority}
               setEditPriority={editState.setEditPriority}
               editLabels={editState.editLabels}
@@ -182,7 +162,7 @@ export function TicketModal({
 
           {/* Read-only details (only visible when not editing) */}
           {!editState.isEditing && (
-            <TicketDetails ticket={ticket} projects={projects} />
+            <TicketDetails ticket={ticket} projects={projects} workspaces={workspaces} />
           )}
 
           {/* Description */}

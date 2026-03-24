@@ -3,10 +3,12 @@ import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { useChatStore } from '../../stores/chatStore';
 import { useAgentRegistryStore } from '../../stores/agentRegistryStore';
-import { getProjects, getBoards, getTickets, getColumns } from '../../lib/tauri';
+import { getBoards, getTickets, getColumns } from '../../lib/tauri';
 import { getAgentIcon, getAgentBrandColor } from '../common/AgentIcons';
+import { ScopeSelector } from '../common/ScopeSelector';
+import type { ScopeType } from '../common/ScopeSelector';
 import { cn } from '../../lib/utils';
-import type { ChatMode, Project, Board, Ticket, Column } from '../../types';
+import type { ChatMode, Board, Ticket, Column } from '../../types';
 
 interface NewChatModalProps {
   open: boolean;
@@ -52,12 +54,11 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedMode, setSelectedMode] = useState<ChatMode | null>(null);
   const [selectedAgent, setSelectedAgent] = useState('');
-  const [selectedProject, setSelectedProject] = useState('');
+  const [selectedScope, setSelectedScope] = useState<{ type: ScopeType; id: string } | null>(null);
   const [selectedBoard, setSelectedBoard] = useState('');
   const [selectedTicket, setSelectedTicket] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [projects, setProjects] = useState<Project[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
 
@@ -67,11 +68,10 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
   useEffect(() => {
     if (open) {
       setSelectedAgent('');
-      setSelectedProject('');
+      setSelectedScope(null);
       setSelectedBoard('');
       setSelectedTicket('');
       loadAgents();
-      getProjects().then(setProjects).catch(() => {});
       getBoards().then(setBoards).catch(() => {});
 
       if (initialMode) {
@@ -111,7 +111,7 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
   };
 
   const handleStep2Next = () => {
-    if (!selectedAgent || !selectedProject) return;
+    if (!selectedAgent || !selectedScope) return;
     if (needsStep3) {
       setStep(3);
     } else {
@@ -120,12 +120,13 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
   };
 
   const handleSubmit = async () => {
-    if (!selectedMode || !selectedAgent || !selectedProject) return;
+    if (!selectedMode || !selectedAgent || !selectedScope) return;
     setIsSubmitting(true);
     try {
       const chat = await createChat({
         agentType: selectedAgent,
-        projectId: selectedProject,
+        projectId: selectedScope.type === 'project' ? selectedScope.id : undefined,
+        workspaceId: selectedScope.type === 'workspace' ? selectedScope.id : undefined,
         mode: selectedMode,
         boardId: selectedBoard || undefined,
         ticketId: selectedTicket || undefined,
@@ -198,19 +199,16 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-board-text-muted mb-1.5">Project</label>
-            <select
-              value={selectedProject}
-              onChange={(e) => setSelectedProject(e.target.value)}
-              className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
-            >
-              <option value="">Select a project...</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-medium text-board-text-muted mb-1.5">
+              {selectedMode === 'spec_builder' ? 'Project' : 'Scope'}
+            </label>
+            <ScopeSelector
+              value={selectedScope}
+              onChange={setSelectedScope}
+              allowEmpty={false}
+              emptyLabel="Select..."
+              projectsOnly={selectedMode === 'spec_builder'}
+            />
           </div>
 
           <div className="flex items-center justify-between pt-2">
@@ -221,7 +219,7 @@ export function NewChatModal({ open, onOpenChange, initialMode }: NewChatModalPr
               variant="primary"
               size="sm"
               onClick={handleStep2Next}
-              disabled={!selectedAgent || !selectedProject}
+              disabled={!selectedAgent || !selectedScope}
             >
               {needsStep3 ? 'Next' : 'Create Chat'}
             </Button>

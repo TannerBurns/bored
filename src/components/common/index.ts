@@ -8,4 +8,6 @@ export { Input } from './Input';
 export { MarkdownViewer } from './MarkdownViewer';
 export { Modal } from './Modal';
 export { ReleaseNotesModal } from './ReleaseNotesModal';
+export { ScopeSelector, toScopeValue } from './ScopeSelector';
+export type { ScopeType } from './ScopeSelector';
 export { UpdateNotification } from './UpdateNotification';

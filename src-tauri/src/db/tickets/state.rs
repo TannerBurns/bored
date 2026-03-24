@@ -25,8 +25,23 @@ impl Database {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
-                "UPDATE tickets SET project_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE tickets SET project_id = ?, workspace_id = NULL, updated_at = ? WHERE id = ?",
                 rusqlite::params![project_id, now, ticket_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_ticket_workspace(
+        &self,
+        ticket_id: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE tickets SET workspace_id = ?, project_id = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![workspace_id, now, ticket_id],
             )?;
             Ok(())
         })

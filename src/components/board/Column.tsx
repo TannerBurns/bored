@@ -9,11 +9,12 @@ interface ColumnProps {
   column: ColumnType;
   tickets: TicketType[];
   projectMap?: Record<string, string>;
+  workspaceMap?: Record<string, string>;
   taskCountsMap?: Record<string, TaskCounts>;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export const Column = memo(function Column({ column, tickets, projectMap, taskCountsMap, onTicketClick }: ColumnProps) {
+export const Column = memo(function Column({ column, tickets, projectMap, workspaceMap, taskCountsMap, onTicketClick }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
   });
@@ -59,7 +60,13 @@ export const Column = memo(function Column({ column, tickets, projectMap, taskCo
             <Ticket
               key={ticket.id}
               ticket={ticket}
-              projectName={ticket.projectId ? projectMap?.[ticket.projectId] : undefined}
+              projectName={
+                ticket.projectId
+                  ? projectMap?.[ticket.projectId]
+                  : ticket.workspaceId
+                    ? workspaceMap?.[ticket.workspaceId]
+                    : undefined
+              }
               columnName={column.name}
               taskCounts={taskCountsMap?.[ticket.id]}
               onTicketClick={onTicketClick}

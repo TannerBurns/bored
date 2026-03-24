@@ -51,12 +51,12 @@ export function TicketModalFooter({
           <div className="flex flex-col gap-2">
             <BuildWithDropdown
               onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
-              disabled={!ticket.projectId || isBacklog}
+              disabled={(!ticket.projectId && !ticket.workspaceId) || isBacklog}
               disabledReason={
                 isBacklog
                   ? 'Move this ticket to Ready to enable agent runs.'
-                  : !ticket.projectId
-                    ? 'Assign a project to this ticket to enable agent runs.'
+                  : (!ticket.projectId && !ticket.workspaceId)
+                    ? 'Assign a project or workspace to this ticket to enable agent runs.'
                     : undefined
               }
             />
@@ -64,9 +64,9 @@ export function TicketModalFooter({
               <p className="text-sm text-yellow-400">
                 Move this ticket to Ready to enable agent runs.
               </p>
-            ) : !ticket.projectId && (
+            ) : (!ticket.projectId && !ticket.workspaceId) && (
               <p className="text-sm text-yellow-400">
-                Assign a project to this ticket to enable agent runs.
+                Assign a project or workspace to this ticket to enable agent runs.
               </p>
             )}
           </div>

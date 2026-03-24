@@ -10,7 +10,7 @@ use crate::agents::validation_agent::prompts::{
 };
 use crate::agents::validation_agent::{AppLogEventKind, AppProcessManager, StartResult};
 use crate::api::state::LiveEvent;
-use crate::commands::next_steps::get_branch_diff_sync;
+use crate::commands::next_steps::{get_branch_diff_sync, get_default_branch, get_ticket_working_dirs};
 use crate::db::models::{
     ChatMessage, ChatMessageRole, ChatStatus, ValidationMessage, ValidationMessageRole,
 };
@@ -63,9 +63,47 @@ impl ChatAgent {
             return Err(ChatAgentError::AgentFailed("Chat has no project or workspace".into()));
         };
 
-        let branch_diff = get_branch_diff_sync(&self.db, &ticket_id)
-            .map_err(ChatAgentError::AgentFailed)?
-            .diff;
+        let branch_diff = if ticket.workspace_id.is_some() {
+            match get_ticket_working_dirs(&self.db, &ticket_id) {
+                Ok(dirs) if dirs.len() > 1 => {
+                    let mut combined = String::new();
+                    for (_, project_name, working_dir, branch) in &dirs {
+                        let default_branch = get_default_branch(working_dir)
+                            .unwrap_or_else(|_| "origin/main".to_string());
+                        let output = std::process::Command::new("git")
+                            .args(["diff", &format!("{}...{}", default_branch, branch)])
+                            .current_dir(working_dir)
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let diff = String::from_utf8_lossy(&out.stdout);
+                                if !diff.trim().is_empty() {
+                                    combined.push_str(&format!(
+                                        "\n### Project: {}\n\n",
+                                        project_name
+                                    ));
+                                    combined.push_str(&diff);
+                                }
+                            }
+                        }
+                    }
+                    if combined.is_empty() {
+                        get_branch_diff_sync(&self.db, &ticket_id)
+                            .map_err(ChatAgentError::AgentFailed)?
+                            .diff
+                    } else {
+                        combined
+                    }
+                }
+                _ => get_branch_diff_sync(&self.db, &ticket_id)
+                    .map_err(ChatAgentError::AgentFailed)?
+                    .diff,
+            }
+        } else {
+            get_branch_diff_sync(&self.db, &ticket_id)
+                .map_err(ChatAgentError::AgentFailed)?
+                .diff
+        };
 
         let (working_dir_path, worktree_path, repo_path_for_cleanup) =
             resolve_review_working_dir(&self.db, &ticket_id, &project_path, &self.config.chat_id)?;

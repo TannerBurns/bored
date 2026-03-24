@@ -1,11 +1,19 @@
-import type { Ticket, Project } from '../../../types';
+import type { Ticket, Project, Workspace } from '../../../types';
 
 export interface TicketDetailsProps {
   ticket: Ticket;
   projects: Project[];
+  workspaces: Workspace[];
 }
 
-export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
+export function TicketDetails({ ticket, projects, workspaces }: TicketDetailsProps) {
+  const scopeName = ticket.projectId
+    ? projects.find(p => p.id === ticket.projectId)?.name || ticket.projectId
+    : ticket.workspaceId
+      ? workspaces.find(w => w.id === ticket.workspaceId)?.name || ticket.workspaceId
+      : null;
+  const scopeLabel = ticket.projectId ? 'Project' : ticket.workspaceId ? 'Workspace' : null;
+
   return (
     <>
       {/* Labels */}
@@ -22,12 +30,12 @@ export function TicketDetails({ ticket, projects }: TicketDetailsProps) {
         </div>
       )}
 
-      {/* Project */}
-      {ticket.projectId && (
+      {/* Scope (Project or Workspace) */}
+      {scopeName && scopeLabel && (
         <div>
-          <h3 className="text-base font-semibold text-board-text mb-1">Project</h3>
+          <h3 className="text-base font-semibold text-board-text mb-1">{scopeLabel}</h3>
           <code className="text-sm text-board-text-secondary bg-board-surface px-2 py-1 rounded">
-            {projects.find(p => p.id === ticket.projectId)?.name || ticket.projectId}
+            {scopeName}
           </code>
         </div>
       )}

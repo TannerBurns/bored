@@ -92,8 +92,16 @@ pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String,
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Project not found: {}", project_id))?;
         project.path
+    } else if let Some(ref workspace_id) = ticket.workspace_id {
+        let projects = db
+            .get_workspace_projects(workspace_id)
+            .map_err(|e| e.to_string())?;
+        let first = projects
+            .first()
+            .ok_or_else(|| "Workspace has no projects".to_string())?;
+        first.path.clone()
     } else {
-        return Err("Ticket has no associated project".to_string());
+        return Err("Ticket has no associated project or workspace".to_string());
     };
 
     // Check if there's a worktree for this branch

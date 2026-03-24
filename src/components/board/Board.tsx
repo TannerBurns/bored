@@ -22,12 +22,13 @@ interface BoardProps {
   columns: ColumnType[];
   tickets: TicketType[];
   projectMap?: Record<string, string>;
+  workspaceMap?: Record<string, string>;
   taskCountsMap?: Record<string, TaskCounts>;
   onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: TicketType) => void;
 }
 
-export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMove, onTicketClick }: BoardProps) {
+export function Board({ columns, tickets, projectMap, workspaceMap, taskCountsMap, onTicketMove, onTicketClick }: BoardProps) {
   const [activeTicket, setActiveTicket] = useState<TicketType | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -146,6 +147,7 @@ export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMov
                 column={column}
                 tickets={ticketsByColumn.get(column.id) ?? []}
                 projectMap={projectMap}
+                workspaceMap={workspaceMap}
                 taskCountsMap={taskCountsMap}
                 onTicketClick={onTicketClick}
               />
@@ -157,7 +159,13 @@ export function Board({ columns, tickets, projectMap, taskCountsMap, onTicketMov
             <div className="rotate-2 scale-105 transition-transform duration-150">
               <TicketPreview
                 ticket={activeTicket}
-                projectName={activeTicket.projectId ? projectMap?.[activeTicket.projectId] : undefined}
+                projectName={
+                  activeTicket.projectId
+                    ? projectMap?.[activeTicket.projectId]
+                    : activeTicket.workspaceId
+                      ? workspaceMap?.[activeTicket.workspaceId]
+                      : undefined
+                }
                 isDragging
               />
             </div>

@@ -141,6 +141,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         ticket: ticket.clone(),
         task: task.clone(),
         repo_path: orchestrator_working_path,
+        workspace_file: None,
+        workspace_paths: vec![],
         agent_id,
         provider,
         cancel_handles,

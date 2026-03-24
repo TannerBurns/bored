@@ -1236,15 +1236,48 @@ impl Database {
                     )?;
                 }
 
+                // Existing databases created chats in v18 with project_id NOT NULL.
+                // The app now allows workspace-only chats where project_id is NULL,
+                // so we must recreate the table to drop the NOT NULL constraint
+                // and add the workspace_id column at the same time.
                 let has_chats_workspace_id: bool = conn.query_row(
                     "SELECT count(*) > 0 FROM pragma_table_info('chats') WHERE name = 'workspace_id'",
                     [],
                     |row| row.get(0),
                 )?;
                 if !has_chats_workspace_id {
-                    conn.execute(
-                        "ALTER TABLE chats ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL",
-                        [],
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE chats_v21 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            title TEXT,
+                            agent_type TEXT NOT NULL,
+                            project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+                            mode TEXT NOT NULL CHECK(mode IN ('general', 'spec_builder', 'ticket_builder', 'review')),
+                            board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                            spec_id TEXT REFERENCES specs(id) ON DELETE SET NULL,
+                            model TEXT,
+                            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'thinking', 'completed', 'error')),
+                            workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+                            agent_session_id TEXT,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO chats_v21 (id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, agent_session_id, created_at, updated_at)
+                        SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, agent_session_id, created_at, updated_at FROM chats;
+
+                        DROP TABLE chats;
+                        ALTER TABLE chats_v21 RENAME TO chats;
+
+                        CREATE INDEX IF NOT EXISTS idx_chats_project ON chats(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_chats_mode ON chats(mode);
+                        CREATE INDEX IF NOT EXISTS idx_chats_board ON chats(board_id) WHERE board_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_ticket ON chats(ticket_id) WHERE ticket_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_spec ON chats(spec_id) WHERE spec_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_created ON chats(created_at);
+                        "#,
                     )?;
                 }
 

@@ -1,14 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { getProjects } from '../../lib/tauri';
 import { FullscreenDescriptionModal } from './FullscreenDescriptionModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
+import { ScopeSelector } from '../common/ScopeSelector';
+import type { ScopeType } from '../common/ScopeSelector';
 import { useBoardStore } from '../../stores/boardStore';
 import { TaskDraftList } from './TaskDraftList';
 import type { TaskDraft } from './TaskDraftList';
-import type { Column, Ticket, CreateTicketInput, Project } from '../../types';
+import type { Column, Ticket, CreateTicketInput } from '../../types';
 
 interface CreateTicketModalProps {
   columns: Column[];
@@ -30,12 +31,10 @@ export function CreateTicketModal({
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [labelsInput, setLabelsInput] = useState('');
   const [columnId, setColumnId] = useState(defaultColumnId || columns[0]?.id || '');
-  const [projectId, setProjectId] = useState('');
+  const [selectedScope, setSelectedScope] = useState<{ type: ScopeType; id: string } | null>(null);
   const [branchName, setBranchName] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -62,21 +61,6 @@ export function CreateTicketModal({
       taskDrafts.some((t) => t.title.trim() !== '')
     );
   }, [title, description, labelsInput, branchName, priority, isEpic, epicId, taskDrafts]);
-
-  useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        setProjectsLoading(true);
-        const data = await getProjects();
-        setProjects(data);
-      } catch (e) {
-        console.error('Failed to load projects:', e);
-      } finally {
-        setProjectsLoading(false);
-      }
-    };
-    loadProjects();
-  }, []);
 
   // Load epics for parent selection
   useEffect(() => {
@@ -123,7 +107,8 @@ export function CreateTicketModal({
         priority,
         labels,
         columnId,
-        projectId: projectId || undefined,
+        projectId: selectedScope?.type === 'project' ? selectedScope.id : undefined,
+        workspaceId: selectedScope?.type === 'workspace' ? selectedScope.id : undefined,
         workflowType: 'multi_stage',
         branchName: branchName.trim() || undefined,
         isEpic,
@@ -333,28 +318,18 @@ export function CreateTicketModal({
               />
             </div>
 
-            {/* Project */}
+            {/* Scope (Project or Workspace) */}
             <div>
               <label
-                htmlFor="projectId"
                 className="block text-sm font-medium text-board-text-secondary mb-1.5"
               >
-                Project
+                Scope
               </label>
-              <select
-                id="projectId"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                disabled={projectsLoading}
-                className="w-full px-3 py-2.5 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border disabled:opacity-50"
-              >
-                <option value="">No project</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+              <ScopeSelector
+                value={selectedScope}
+                onChange={setSelectedScope}
+                emptyLabel="No scope"
+              />
             </div>
 
             {/* Branch Name (optional) */}

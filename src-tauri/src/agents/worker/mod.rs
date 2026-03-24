@@ -426,6 +426,8 @@ impl Worker {
             task: task.clone(),
             run_id: run.id.clone(),
             repo_path: working_path.clone(),
+            workspace_file: None, // Will be set for workspace tickets below
+            workspace_paths: vec![],
             agent_id: self.config.agent_id.clone(),
             provider: self.config.provider.clone(),
             cancel_handles: self.cancel_handles.clone(),

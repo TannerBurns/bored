@@ -73,18 +73,24 @@ function App() {
     }
   }, [theme]);
 
-  const { projects, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns, loadProjects } = useAppData(
+  const { projects, workspaces, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns, loadProjects } = useAppData(
     setColumns,
     setTickets
   );
 
-  // Create a map of project IDs to project names for efficient lookup
   const projectMap = useMemo(() => {
     return projects.reduce((acc, project) => {
       acc[project.id] = project.name;
       return acc;
     }, {} as Record<string, string>);
   }, [projects]);
+
+  const workspaceMap = useMemo(() => {
+    return workspaces.reduce((acc, ws) => {
+      acc[ws.id] = ws.name;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [workspaces]);
   
   // Activate onboarding when data is loaded and no projects/boards exist
   // Once activated, it stays open until explicitly completed/dismissed
@@ -298,6 +304,7 @@ function App() {
                   columns={columns}
                   tickets={tickets}
                   projectMap={projectMap}
+                  workspaceMap={workspaceMap}
                   onTicketMove={handleTicketMove}
                   onTicketClick={handleTicketClick}
                   onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { getProjects } from '../../../lib/tauri';
+import { getProjects, getWorkspaces } from '../../../lib/tauri';
 import { logger } from '../../../lib/logger';
 import { cn } from '../../../lib/utils';
 import { FullscreenDescriptionModal } from '../../board/FullscreenDescriptionModal';
@@ -17,7 +17,7 @@ import { OverviewTab } from './OverviewTab';
 import { TasksTab } from './TasksTab';
 import { AgentTab } from './AgentTab';
 import { ActivityTab } from './ActivityTab';
-import type { Ticket, Column, Comment, Project } from '../../../types';
+import type { Ticket, Column, Comment, Project, Workspace } from '../../../types';
 
 type TabId = 'overview' | 'tasks' | 'agent' | 'activity';
 
@@ -62,6 +62,7 @@ export function TicketDetailView({
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -121,10 +122,14 @@ export function TicketDetailView({
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await getProjects();
-        setProjects(data);
+        const [projectsData, workspacesData] = await Promise.all([
+          getProjects(),
+          getWorkspaces(),
+        ]);
+        setProjects(projectsData);
+        setWorkspaces(workspacesData);
       } catch (e) {
-        logger.error('Failed to load projects:', e);
+        logger.error('Failed to load projects/workspaces:', e);
       }
     };
     load();
@@ -324,6 +329,7 @@ export function TicketDetailView({
           ticket={ticket}
           columns={columns}
           projects={projects}
+          workspaces={workspaces}
           agentRuns={runsHistory.agentRuns}
           editState={editState}
           parentEpic={epicData.parentEpic}

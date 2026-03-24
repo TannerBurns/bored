@@ -89,6 +89,8 @@ pub struct WorkflowOrchestrator {
     /// an `UpdateTask` resolution without requiring `&mut self`.
     task: RwLock<Option<Task>>,
     repo_path: PathBuf,
+    workspace_file: Option<PathBuf>,
+    workspace_paths: Vec<PathBuf>,
     /// Agent ID string (e.g. "cursor", "claude").
     agent_id: String,
     /// Agent provider for agent-agnostic dispatch (text extraction, cost).
@@ -303,6 +305,8 @@ impl WorkflowOrchestrator {
             ticket: config.ticket,
             task: RwLock::new(config.task),
             repo_path: config.repo_path,
+            workspace_file: config.workspace_file,
+            workspace_paths: config.workspace_paths,
             agent_id: config.agent_id,
             provider: config.provider,
             cancel_handles: config.cancel_handles,
