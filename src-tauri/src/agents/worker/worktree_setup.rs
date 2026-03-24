@@ -192,12 +192,17 @@ pub async fn create_worktrees_for_workspace(
 
     let mut created_worktrees: Vec<WorktreeInfo> = Vec::new();
 
-    for project in &projects {
+    for (idx, project) in projects.iter().enumerate() {
         let repo_path = PathBuf::from(&project.path);
+        let project_run_id = if projects.len() > 1 {
+            format!("{}-{}", run_id, idx)
+        } else {
+            run_id.to_string()
+        };
         let ctx = WorktreeSetupContext {
             db: db.clone(),
             ticket,
-            run_id,
+            run_id: &project_run_id,
             repo_path,
             worker_id,
             app_handle: app_handle.clone(),

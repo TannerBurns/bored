@@ -1616,8 +1616,12 @@ impl Database {
             // Boards (depends on projects via default_project_id)
             conn.execute("DELETE FROM boards", [])?;
             
-            // Finally projects (root table)
+            // Workspace-project associations (depends on workspaces and projects)
+            conn.execute("DELETE FROM workspace_projects", [])?;
+            
+            // Root tables
             conn.execute("DELETE FROM projects", [])?;
+            conn.execute("DELETE FROM workspaces", [])?;
             
             tracing::info!("Factory reset: all user data deleted");
             

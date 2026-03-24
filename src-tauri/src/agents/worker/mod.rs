@@ -212,38 +212,87 @@ impl Worker {
             per_agent.get(&self.config.agent_id).map(|s| s.diagnostic_model.clone())
         });
 
-        // Create a worktree for isolated execution
-        let repo_path_buf = std::path::PathBuf::from(&repo_path);
-        let worktree = match worktree_setup::create_worktree_for_ticket(
-            worktree_setup::WorktreeSetupContext {
-                db: self.db.clone(),
-                ticket: &ticket,
-                run_id: &run_id,
-                repo_path: repo_path_buf.clone(),
-                worker_id: &self.id,
-                app_handle: self.config.app_handle.clone(),
-                provider: self.config.provider.clone(),
-                agent_config: self.config.agent_config.clone(),
-                diagnostic_model,
-            },
-        )
-        .await
-        {
-            worktree_setup::WorktreeSetupResult::Success(info) => info,
-            worktree_setup::WorktreeSetupResult::Failed { message, ticket_blocked } => {
-                if ticket_blocked {
-                    self.db.unlock_ticket(&ticket.id)?;
-                } else {
-                    tracing::warn!(
-                        "Worker {} could not move ticket {} to Blocked, keeping lock active ({} min expiry)",
-                        self.id,
-                        ticket.id,
-                        self.config.lock_duration_mins,
-                    );
+        // Create worktree(s) for isolated execution
+        let (worktree, extra_worktrees, ws_file, ws_paths) =
+            if let Some(ref workspace_id) = ticket.workspace_id {
+                match worktree_setup::create_worktrees_for_workspace(
+                    self.db.clone(),
+                    workspace_id,
+                    &ticket,
+                    &run_id,
+                    &self.id,
+                    self.config.app_handle.clone(),
+                    self.config.provider.clone(),
+                    self.config.agent_config.clone(),
+                    diagnostic_model,
+                )
+                .await
+                {
+                    Ok(ws_set) => {
+                        let workspace_file = ws_set.workspace_file;
+                        let mut worktrees = ws_set.worktrees;
+                        let primary = worktrees.remove(0);
+                        let paths: Vec<std::path::PathBuf> =
+                            std::iter::once(primary.path.clone())
+                                .chain(worktrees.iter().map(|wt| wt.path.clone()))
+                                .collect();
+                        tracing::info!(
+                            "Worker {} created {} workspace worktrees for ticket {}",
+                            self.id,
+                            1 + worktrees.len(),
+                            ticket.id
+                        );
+                        (primary, worktrees, Some(workspace_file), paths)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Worker {} failed to create workspace worktrees for ticket {}: {}",
+                            self.id,
+                            ticket.id,
+                            e
+                        );
+                        self.db.unlock_ticket(&ticket.id)?;
+                        return Err(e.into());
+                    }
                 }
-                return Err(message.into());
-            }
-        };
+            } else {
+                let repo_path_buf = std::path::PathBuf::from(&repo_path);
+                match worktree_setup::create_worktree_for_ticket(
+                    worktree_setup::WorktreeSetupContext {
+                        db: self.db.clone(),
+                        ticket: &ticket,
+                        run_id: &run_id,
+                        repo_path: repo_path_buf,
+                        worker_id: &self.id,
+                        app_handle: self.config.app_handle.clone(),
+                        provider: self.config.provider.clone(),
+                        agent_config: self.config.agent_config.clone(),
+                        diagnostic_model,
+                    },
+                )
+                .await
+                {
+                    worktree_setup::WorktreeSetupResult::Success(info) => {
+                        (info, vec![], None, vec![])
+                    }
+                    worktree_setup::WorktreeSetupResult::Failed {
+                        message,
+                        ticket_blocked,
+                    } => {
+                        if ticket_blocked {
+                            self.db.unlock_ticket(&ticket.id)?;
+                        } else {
+                            tracing::warn!(
+                                "Worker {} could not move ticket {} to Blocked, keeping lock active ({} min expiry)",
+                                self.id,
+                                ticket.id,
+                                self.config.lock_duration_mins,
+                            );
+                        }
+                        return Err(message.into());
+                    }
+                }
+            };
         let working_path = worktree.path.clone();
 
         // Create or resume run
@@ -426,8 +475,8 @@ impl Worker {
             task: task.clone(),
             run_id: run.id.clone(),
             repo_path: working_path.clone(),
-            workspace_file: None, // Will be set for workspace tickets below
-            workspace_paths: vec![],
+            workspace_file: ws_file.clone(),
+            workspace_paths: ws_paths,
             agent_id: self.config.agent_id.clone(),
             provider: self.config.provider.clone(),
             cancel_handles: self.cancel_handles.clone(),
@@ -566,6 +615,48 @@ impl Worker {
         // Only delete the detour branch if the merge succeeded; preserve it for manual merge otherwise
         if detour_merged {
             worktree::delete_branch(&worktree.repo_path, &worktree.branch_name);
+        }
+
+        // Clean up extra workspace worktrees (merge detour branches + remove directories)
+        for extra_wt in &extra_worktrees {
+            if let (Some(ref target), Some(ref fork_point)) =
+                (&extra_wt.target_branch, &extra_wt.detour_fork_point)
+            {
+                match worktree::merge_detour_into_target(
+                    &extra_wt.repo_path,
+                    &extra_wt.branch_name,
+                    target,
+                    fork_point,
+                ) {
+                    Ok(
+                        worktree::DetourMergeResult::Merged { .. }
+                        | worktree::DetourMergeResult::MergedWorkingTreeDirty { .. }
+                        | worktree::DetourMergeResult::MergedWorkingTreeStale { .. }
+                        | worktree::DetourMergeResult::NothingToMerge,
+                    ) => {
+                        worktree::delete_branch(&extra_wt.repo_path, &extra_wt.branch_name);
+                    }
+                    Ok(worktree::DetourMergeResult::Diverged { .. }) | Err(_) => {
+                        tracing::warn!(
+                            "Worker {} could not merge workspace detour {} into {} for repo {}",
+                            self.id,
+                            extra_wt.branch_name,
+                            target,
+                            extra_wt.repo_path.display()
+                        );
+                    }
+                }
+            }
+            if let Err(e) = worktree::remove_worktree(&extra_wt.path, &extra_wt.repo_path) {
+                tracing::warn!(
+                    "Failed to remove workspace worktree {}: {}",
+                    extra_wt.path.display(),
+                    e
+                );
+            }
+        }
+        if let Some(ref ws_file_path) = ws_file {
+            let _ = std::fs::remove_file(ws_file_path);
         }
 
         // Update worker status
