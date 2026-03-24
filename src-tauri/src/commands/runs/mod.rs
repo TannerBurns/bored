@@ -273,6 +273,21 @@ pub async fn start_agent_run(
     // We pass the Arc reference so the orchestrator can lock and read it.
     let shared_workflow_settings = workflow_settings_state.shared();
 
+    // Resolve workspace paths for multi-project tickets so the agent
+    // receives --add-dir arguments matching the prompt context.
+    let (workspace_file, workspace_paths) = if let Some(ref workspace_id) = ticket.workspace_id {
+        let projects = db_clone
+            .get_workspace_projects(workspace_id)
+            .unwrap_or_default();
+        let paths: Vec<std::path::PathBuf> = projects
+            .iter()
+            .map(|p| std::path::PathBuf::from(&p.path))
+            .collect();
+        (None, paths)
+    } else {
+        (None, vec![])
+    };
+
     // Build workflow context and spawn background task
     let ctx = orchestrate::WorkflowTaskContext {
         db: db_clone,
@@ -293,6 +308,8 @@ pub async fn start_agent_run(
         stage_timeout_secs: stage_timeout_hours.map(|h| h as u64 * 3600).unwrap_or(3600),
         stage_max_retries: stage_max_retries.unwrap_or(2),
         workflow_mode_override: workflow_mode,
+        workspace_file,
+        workspace_paths,
     };
 
     tauri::async_runtime::spawn(orchestrate::execute_workflow_task(ctx));

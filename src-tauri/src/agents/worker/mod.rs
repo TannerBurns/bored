@@ -31,7 +31,7 @@ mod worktree_setup;
 // Public re-exports
 pub use config::{WorkerConfig, WorkerState, WorkerStatus};
 pub use manager::WorkerManager;
-pub use worktree_setup::{WorkspaceWorktreeSet, create_worktrees_for_workspace};
+pub use worktree_setup::{WorkspaceWorktreeError, WorkspaceWorktreeSet, create_worktrees_for_workspace};
 
 pub struct Worker {
     pub id: String,
@@ -249,10 +249,19 @@ impl Worker {
                             "Worker {} failed to create workspace worktrees for ticket {}: {}",
                             self.id,
                             ticket.id,
-                            e
+                            e.message
                         );
-                        self.db.unlock_ticket(&ticket.id)?;
-                        return Err(e.into());
+                        if e.ticket_blocked {
+                            self.db.unlock_ticket(&ticket.id)?;
+                        } else {
+                            tracing::warn!(
+                                "Worker {} could not move ticket {} to Blocked, keeping lock active ({} min expiry)",
+                                self.id,
+                                ticket.id,
+                                self.config.lock_duration_mins,
+                            );
+                        }
+                        return Err(e.message.into());
                     }
                 }
             } else {

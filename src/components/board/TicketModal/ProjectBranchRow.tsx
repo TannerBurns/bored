@@ -10,7 +10,7 @@ interface ProjectBranchRowProps {
   preloadedDiffs?: FileDiff[] | null;
   onPushResult: (result: { message: string; success: boolean }) => void;
   onPrResult: (result: { message: string; url?: string; success: boolean }) => void;
-  onRequestFullscreen: () => void;
+  onRequestFullscreen: (projectName: string, files: FileDiff[] | null) => void;
   actionLoading: string | null;
   setActionLoading: (v: string | null) => void;
 }
@@ -159,7 +159,7 @@ export function ProjectBranchRow({
           <div className="flex items-center justify-end px-2 py-1 border-b border-board-border/50">
             <button
               type="button"
-              onClick={onRequestFullscreen}
+              onClick={() => onRequestFullscreen(status.projectName, diffFiles)}
               className="p-1 text-board-text-muted hover:text-board-text transition-colors rounded hover:bg-board-surface"
               title="Expand diff"
             >

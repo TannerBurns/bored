@@ -267,9 +267,15 @@ pub async fn create_worktrees_for_workspace(
     });
 
     let json = serde_json::to_string_pretty(&workspace_content)
-        .map_err(|e| format!("Failed to serialize .code-workspace file: {}", e))?;
+        .map_err(|e| WorkspaceWorktreeError {
+            message: format!("Failed to serialize .code-workspace file: {}", e),
+            ticket_blocked: false,
+        })?;
     std::fs::write(&workspace_file, json)
-        .map_err(|e| format!("Failed to write .code-workspace file: {}", e))?;
+        .map_err(|e| WorkspaceWorktreeError {
+            message: format!("Failed to write .code-workspace file: {}", e),
+            ticket_blocked: false,
+        })?;
 
     Ok(WorkspaceWorktreeSet {
         worktrees: created_worktrees,

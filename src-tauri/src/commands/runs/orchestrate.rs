@@ -44,6 +44,8 @@ pub(super) struct WorkflowTaskContext {
     pub stage_timeout_secs: u64,
     pub stage_max_retries: u32,
     pub workflow_mode_override: Option<String>,
+    pub workspace_file: Option<PathBuf>,
+    pub workspace_paths: Vec<PathBuf>,
 }
 
 /// Execute the multi-stage workflow in the background.
@@ -70,6 +72,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         stage_timeout_secs,
         stage_max_retries,
         workflow_mode_override,
+        workspace_file,
+        workspace_paths,
     } = ctx;
 
     if let Err(e) = db.update_run_status(&run_id, RunStatus::Running, None, None) {
@@ -141,8 +145,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         ticket: ticket.clone(),
         task: task.clone(),
         repo_path: orchestrator_working_path,
-        workspace_file: None,
-        workspace_paths: vec![],
+        workspace_file,
+        workspace_paths,
         agent_id,
         provider,
         cancel_handles,

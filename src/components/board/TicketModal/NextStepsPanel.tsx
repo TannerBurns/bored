@@ -17,6 +17,8 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
   const [pushStatus, setPushStatus] = useState<{ message: string; success: boolean } | null>(null);
   const [prStatus, setPrStatus] = useState<{ message: string; url?: string; success: boolean } | null>(null);
   const [diffFullscreen, setDiffFullscreen] = useState(false);
+  const [fullscreenProjectName, setFullscreenProjectName] = useState<string>('');
+  const [fullscreenDiffFiles, setFullscreenDiffFiles] = useState<FileDiff[] | null>(null);
   const [diffFiles, setDiffFiles] = useState<FileDiff[] | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
@@ -101,17 +103,11 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
     }
   }, [ticket, createChat, selectChat, onNavigateToChat]);
 
-  const handleRequestFullscreen = useCallback(async () => {
-    if (ticket.workspaceId && !diffFiles) {
-      try {
-        const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId: ticket.id });
-        setDiffFiles(files);
-      } catch (e) {
-        setDiffError(String(e));
-      }
-    }
+  const handleRequestFullscreen = useCallback((projectName: string, files: FileDiff[] | null) => {
+    setFullscreenProjectName(projectName);
+    setFullscreenDiffFiles(files);
     setDiffFullscreen(true);
-  }, [ticket.id, ticket.workspaceId, diffFiles]);
+  }, []);
 
   if (!shouldShow) return null;
 
@@ -171,14 +167,19 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
           <div className="flex items-center justify-between px-4 py-3 border-b border-board-border flex-shrink-0">
             <div className="flex items-center gap-3">
               <h2 className="text-sm font-semibold text-board-text">Diff</h2>
-              {diffFiles && diffFiles.length > 0 && (() => {
-                const totalAdd = diffFiles.reduce((s, f) => s + f.additions, 0);
-                const totalDel = diffFiles.reduce((s, f) => s + f.deletions, 0);
+              {fullscreenProjectName && (
+                <span className="text-xs bg-board-surface-raised px-2 py-0.5 rounded text-board-text-secondary border border-board-border">
+                  {fullscreenProjectName}
+                </span>
+              )}
+              {fullscreenDiffFiles && fullscreenDiffFiles.length > 0 && (() => {
+                const totalAdd = fullscreenDiffFiles.reduce((s, f) => s + f.additions, 0);
+                const totalDel = fullscreenDiffFiles.reduce((s, f) => s + f.deletions, 0);
                 return (
                   <span className="flex items-center gap-1.5 text-xs">
                     <span className="text-emerald-400">+{totalAdd}</span>
                     <span className="text-red-400">-{totalDel}</span>
-                    <span className="text-board-text-muted">({diffFiles.length} file{diffFiles.length !== 1 ? 's' : ''})</span>
+                    <span className="text-board-text-muted">({fullscreenDiffFiles.length} file{fullscreenDiffFiles.length !== 1 ? 's' : ''})</span>
                   </span>
                 );
               })()}
@@ -202,7 +203,10 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
             {diffError && (
               <div className="p-3 text-xs text-red-400">{diffError}</div>
             )}
-            {diffFiles && <FileDiffViewer files={diffFiles} />}
+            {fullscreenDiffFiles && <FileDiffViewer files={fullscreenDiffFiles} />}
+            {!fullscreenDiffFiles && !diffError && (
+              <div className="p-3 text-xs text-board-text-muted">Expand a project row to load its diff first.</div>
+            )}
           </div>
         </div>
       )}
