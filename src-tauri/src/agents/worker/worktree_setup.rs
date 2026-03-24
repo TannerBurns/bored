@@ -168,6 +168,14 @@ pub struct WorkspaceWorktreeSet {
     pub workspace_file: PathBuf,
 }
 
+/// Error from workspace worktree creation, preserving the `ticket_blocked` flag
+/// so callers can decide whether to unlock the ticket.
+pub struct WorkspaceWorktreeError {
+    pub message: String,
+    /// Whether the ticket was successfully moved to the Blocked column.
+    pub ticket_blocked: bool,
+}
+
 /// Create worktrees for all projects in a workspace, using the same branch name.
 /// Generates a .code-workspace file pointing to all worktrees.
 /// On partial failure, cleans up already-created worktrees.
@@ -181,13 +189,19 @@ pub async fn create_worktrees_for_workspace(
     provider: Arc<dyn AgentProvider>,
     agent_config: HashMap<String, serde_json::Value>,
     diagnostic_model: Option<String>,
-) -> Result<WorkspaceWorktreeSet, String> {
+) -> Result<WorkspaceWorktreeSet, WorkspaceWorktreeError> {
     let projects = db
         .get_workspace_projects(workspace_id)
-        .map_err(|e| format!("Failed to get workspace projects: {}", e))?;
+        .map_err(|e| WorkspaceWorktreeError {
+            message: format!("Failed to get workspace projects: {}", e),
+            ticket_blocked: false,
+        })?;
 
     if projects.is_empty() {
-        return Err("Workspace has no projects".to_string());
+        return Err(WorkspaceWorktreeError {
+            message: "Workspace has no projects".to_string(),
+            ticket_blocked: false,
+        });
     }
 
     let mut created_worktrees: Vec<WorktreeInfo> = Vec::new();
@@ -215,14 +229,17 @@ pub async fn create_worktrees_for_workspace(
             WorktreeSetupResult::Success(info) => {
                 created_worktrees.push(info);
             }
-            WorktreeSetupResult::Failed { message, .. } => {
+            WorktreeSetupResult::Failed { message, ticket_blocked } => {
                 for wt in &created_worktrees {
                     let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
                 }
-                return Err(format!(
-                    "Failed to create worktree for project '{}': {}",
-                    project.name, message
-                ));
+                return Err(WorkspaceWorktreeError {
+                    message: format!(
+                        "Failed to create worktree for project '{}': {}",
+                        project.name, message
+                    ),
+                    ticket_blocked,
+                });
             }
         }
     }

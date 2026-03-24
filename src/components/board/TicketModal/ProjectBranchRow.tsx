@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
 import type { FileDiff, ProjectBranchStatus } from '../../../types';
@@ -30,24 +30,27 @@ export function ProjectBranchRow({
   const [diffFiles, setDiffFiles] = useState<FileDiff[] | null>(preloadedDiffs ?? null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const loadingRef = useRef(false);
 
   useEffect(() => {
-    if (!expanded || diffFiles !== null || diffLoading) return;
+    if (!expanded || diffFiles !== null || loadingRef.current) return;
     let cancelled = false;
+    loadingRef.current = true;
+    setDiffLoading(true);
     const load = async () => {
       try {
-        setDiffLoading(true);
         const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId });
         if (!cancelled) setDiffFiles(files);
       } catch (e) {
         if (!cancelled) setDiffError(String(e));
       } finally {
+        loadingRef.current = false;
         if (!cancelled) setDiffLoading(false);
       }
     };
     void load();
     return () => { cancelled = true; };
-  }, [expanded, diffFiles, diffLoading, ticketId]);
+  }, [expanded, diffFiles, ticketId]);
 
   useEffect(() => {
     if (preloadedDiffs) setDiffFiles(preloadedDiffs);
