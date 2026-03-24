@@ -45,16 +45,6 @@ pub async fn delete_project(
 }
 
 #[tauri::command]
-pub async fn set_board_project(
-    board_id: String,
-    project_id: Option<String>,
-    db: State<'_, Arc<Database>>,
-) -> Result<(), String> {
-    db.set_board_project(&board_id, project_id.as_deref())
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn set_ticket_project(
     ticket_id: String,
     project_id: Option<String>,

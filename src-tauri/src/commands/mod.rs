@@ -15,6 +15,7 @@ pub mod tasks;
 pub mod tickets;
 pub mod workers;
 pub mod workflow_settings;
+pub mod workspaces;
 
 pub use agents::{check_agent_available, get_agent_status, AgentStatus};
 pub use boards::*;

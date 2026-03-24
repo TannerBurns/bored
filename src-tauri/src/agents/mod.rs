@@ -47,6 +47,7 @@ pub use prompt::{
     generate_plan_prompt, generate_system_prompt, generate_task_implement_prompt,
     generate_task_plan_prompt, generate_task_prompt, generate_ticket_prompt,
     generate_ticket_prompt_full, generate_ticket_prompt_with_workflow,
+    generate_workspace_context, generate_workspace_task_context,
     parse_branch_name_from_output,
 };
 pub use diagnostic::{

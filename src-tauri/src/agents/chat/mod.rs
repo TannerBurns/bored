@@ -122,6 +122,8 @@ impl ChatAgent {
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
             session_id: stored_session_id.clone(),
+            workspace_file: self.config.workspace_file.clone(),
+            workspace_paths: self.config.workspace_paths.clone(),
         };
 
         if stored_session_id.is_some() {
@@ -434,17 +436,19 @@ impl ChatAgent {
             return;
         }
 
-        title::spawn_title_generation(
-            self.db.clone(),
-            self.config.chat_id.clone(),
-            first_user_message.to_string(),
-            self.event_tx.clone(),
-            self.registry.clone(),
-            self.config.agent_id.clone(),
-            self.config.repo_path.clone(),
-            self.config.agent_config.clone(),
-            self.config.model.clone(),
-        );
+        title::spawn_title_generation(title::TitleGenParams {
+            db: self.db.clone(),
+            chat_id: self.config.chat_id.clone(),
+            first_message: first_user_message.to_string(),
+            event_tx: self.event_tx.clone(),
+            registry: self.registry.clone(),
+            agent_id: self.config.agent_id.clone(),
+            repo_path: self.config.repo_path.clone(),
+            agent_config: self.config.agent_config.clone(),
+            model: self.config.model.clone(),
+            workspace_file: self.config.workspace_file.clone(),
+            workspace_paths: self.config.workspace_paths.clone(),
+        });
     }
 
 }
@@ -497,6 +501,8 @@ mod tests {
                 model: None,
                 agent_config: std::collections::HashMap::new(),
                 timeout_secs: Some(120),
+                workspace_file: None,
+                workspace_paths: vec![],
             },
             tx,
             Arc::new(registry),

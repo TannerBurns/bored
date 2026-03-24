@@ -65,7 +65,8 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
       setActionLoading('review');
       const chat = await createChat({
         agentType,
-        projectId: ticket.projectId || '',
+        projectId: ticket.projectId,
+        workspaceId: ticket.workspaceId,
         mode: 'review' as const,
         boardId: ticket.boardId,
         ticketId: ticket.id,

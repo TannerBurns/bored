@@ -64,6 +64,8 @@ pub async fn validate_plan_for_clarification(
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
 
     let db = config.db.clone();
@@ -198,6 +200,8 @@ pub async fn generate_clarification_message(
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
 
     let db = config.db.clone();
@@ -325,6 +329,8 @@ pub async fn rewrite_task_with_clarification(
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
 
     let db = config.db.clone();
@@ -457,6 +463,8 @@ pub async fn auto_resolve_clarification(
         model: config.model.clone(),
         agent_config: config.agent_config.clone(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
 
     let db = config.db.clone();

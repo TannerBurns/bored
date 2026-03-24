@@ -42,7 +42,7 @@ impl ChatAgent {
         let has_session = chat.agent_session_id.is_some();
 
         let prompt = if is_first_turn || !has_session {
-            let board_context = build_board_context(&self.db, &board_id, &chat.project_id)?;
+            let board_context = build_board_context(&self.db, &board_id, chat.project_id.as_deref(), chat.workspace_id.as_deref())?;
             build_ticket_builder_prompt(&messages, &board_context)
         } else {
             let new_msgs = super::extract_new_chat_messages(&messages);
@@ -63,16 +63,35 @@ impl ChatAgent {
 fn build_board_context(
     db: &Arc<Database>,
     board_id: &str,
-    project_id: &str,
+    project_id: Option<&str>,
+    workspace_id: Option<&str>,
 ) -> Result<String, ChatAgentError> {
     let board = db
         .get_board(board_id)?
         .ok_or(ChatAgentError::MissingField("board"))?;
     let columns = db.get_columns(board_id)?;
     let all_tickets = db.get_tickets(board_id, None)?;
+
+    let workspace_project_ids: Option<Vec<String>> = workspace_id.map(|wid| {
+        db.get_workspace_projects(wid)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.id)
+            .collect()
+    });
+
     let tickets: Vec<_> = all_tickets
         .into_iter()
-        .filter(|t| t.project_id.as_deref() == Some(project_id))
+        .filter(|t| {
+            if let Some(ref wp_ids) = workspace_project_ids {
+                t.project_id.as_deref().is_some_and(|pid| wp_ids.iter().any(|id| id == pid))
+                    || t.workspace_id.as_deref() == workspace_id
+            } else if let Some(pid) = project_id {
+                t.project_id.as_deref() == Some(pid)
+            } else {
+                false
+            }
+        })
         .collect();
 
     let mut context = format!("Board: {}\n", board.name);
@@ -461,6 +480,7 @@ Let me know if you want changes."###;
             priority: Priority::Medium,
             labels: vec![],
             project_id: Some(project_a.id.clone()),
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -480,6 +500,7 @@ Let me know if you want changes."###;
             priority: Priority::High,
             labels: vec![],
             project_id: Some(project_b.id.clone()),
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -491,11 +512,11 @@ Let me know if you want changes."###;
         })
         .unwrap();
 
-        let ctx_a = build_board_context(&db, &board.id, &project_a.id).unwrap();
+        let ctx_a = build_board_context(&db, &board.id, Some(&project_a.id), None).unwrap();
         assert!(ctx_a.contains("Ticket for A"), "should include project A ticket");
         assert!(!ctx_a.contains("Ticket for B"), "should exclude project B ticket");
 
-        let ctx_b = build_board_context(&db, &board.id, &project_b.id).unwrap();
+        let ctx_b = build_board_context(&db, &board.id, Some(&project_b.id), None).unwrap();
         assert!(ctx_b.contains("Ticket for B"), "should include project B ticket");
         assert!(!ctx_b.contains("Ticket for A"), "should exclude project A ticket");
     }
@@ -525,6 +546,7 @@ Let me know if you want changes."###;
             priority: Priority::Medium,
             labels: vec![],
             project_id: Some(project.id.clone()),
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -544,6 +566,7 @@ Let me know if you want changes."###;
             priority: Priority::Low,
             labels: vec![],
             project_id: None,
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -555,7 +578,7 @@ Let me know if you want changes."###;
         })
         .unwrap();
 
-        let ctx = build_board_context(&db, &board.id, &project.id).unwrap();
+        let ctx = build_board_context(&db, &board.id, Some(&project.id), None).unwrap();
         assert!(ctx.contains("Owned ticket"));
         assert!(!ctx.contains("Orphan ticket"), "tickets with no project_id should be excluded");
     }
@@ -592,6 +615,7 @@ Let me know if you want changes."###;
             priority: Priority::Medium,
             labels: vec![],
             project_id: Some(project_b.id.clone()),
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -603,7 +627,7 @@ Let me know if you want changes."###;
         })
         .unwrap();
 
-        let ctx = build_board_context(&db, &board.id, &project_a.id).unwrap();
+        let ctx = build_board_context(&db, &board.id, Some(&project_a.id), None).unwrap();
         assert!(ctx.contains("Board: Board"));
         assert!(!ctx.contains("Existing tickets"), "should have no tickets section");
         assert!(!ctx.contains("Only for B"));

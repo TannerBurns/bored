@@ -28,7 +28,6 @@ impl Database {
             Ok(Board {
                 id: board_id,
                 name: name.to_string(),
-                default_project_id: None,
                 created_at: now,
                 updated_at: now,
             })
@@ -38,16 +37,15 @@ impl Database {
     pub fn get_boards(&self) -> Result<Vec<Board>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, default_project_id, created_at, updated_at FROM boards ORDER BY created_at DESC"
+                "SELECT id, name, created_at, updated_at FROM boards ORDER BY created_at DESC"
             )?;
             
             let boards = stmt.query_map([], |row| {
                 Ok(Board {
                     id: row.get(0)?,
                     name: row.get(1)?,
-                    default_project_id: row.get(2)?,
-                    created_at: parse_datetime(row.get(3)?),
-                    updated_at: parse_datetime(row.get(4)?),
+                    created_at: parse_datetime(row.get(2)?),
+                    updated_at: parse_datetime(row.get(3)?),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -111,16 +109,15 @@ impl Database {
             }
             
             let mut stmt = conn.prepare(
-                "SELECT id, name, default_project_id, created_at, updated_at FROM boards WHERE id = ?"
+                "SELECT id, name, created_at, updated_at FROM boards WHERE id = ?"
             )?;
             
             let board = stmt.query_row([board_id], |row| {
                 Ok(Board {
                     id: row.get(0)?,
                     name: row.get(1)?,
-                    default_project_id: row.get(2)?,
-                    created_at: parse_datetime(row.get(3)?),
-                    updated_at: parse_datetime(row.get(4)?),
+                    created_at: parse_datetime(row.get(2)?),
+                    updated_at: parse_datetime(row.get(3)?),
                 })
             })?;
             
@@ -166,7 +163,6 @@ mod tests {
         let board = db.create_board("Test Board").unwrap();
 
         assert_eq!(board.name, "Test Board");
-        assert!(board.default_project_id.is_none());
 
         let columns = db.get_columns(&board.id).unwrap();
         assert_eq!(columns.len(), 6);

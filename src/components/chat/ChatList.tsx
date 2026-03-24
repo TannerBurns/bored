@@ -49,7 +49,7 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
                 key={chat.id}
                 chat={chat}
                 isActive={currentChatId === chat.id}
-                projectName={projectMap[chat.projectId]}
+                projectName={chat.projectId ? projectMap[chat.projectId] : undefined}
                 onClick={() => selectChat(chat.id)}
                 onDelete={() => setChatToDelete(chat)}
               />

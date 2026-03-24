@@ -124,7 +124,8 @@ pub struct Chat {
     pub id: String,
     pub title: Option<String>,
     pub agent_type: String,
-    pub project_id: String,
+    pub project_id: Option<String>,
+    pub workspace_id: Option<String>,
     pub mode: ChatMode,
     pub board_id: Option<String>,
     pub ticket_id: Option<String>,
@@ -142,7 +143,8 @@ pub struct Chat {
 #[serde(rename_all = "camelCase")]
 pub struct CreateChat {
     pub agent_type: String,
-    pub project_id: String,
+    pub project_id: Option<String>,
+    pub workspace_id: Option<String>,
     pub mode: ChatMode,
     pub board_id: Option<String>,
     pub ticket_id: Option<String>,

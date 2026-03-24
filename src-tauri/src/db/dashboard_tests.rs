@@ -35,6 +35,7 @@ fn create_ticket(db: &Database, board_id: &str, column_id: &str) -> crate::db::m
         priority: Priority::Low,
         labels: vec![],
         project_id: None,
+        workspace_id: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,

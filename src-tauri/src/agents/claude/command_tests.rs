@@ -15,6 +15,8 @@ fn create_provider_config() -> AgentRunConfig {
         model: None,
         agent_config: std::collections::HashMap::new(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     }
 }
 

@@ -18,6 +18,7 @@ mod specs;
 pub mod tasks;
 pub mod tickets;
 mod validation;
+mod workspaces;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -1090,13 +1091,14 @@ impl Database {
                         id TEXT PRIMARY KEY NOT NULL,
                         title TEXT,
                         agent_type TEXT NOT NULL,
-                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
                         mode TEXT NOT NULL CHECK(mode IN ('general', 'spec_builder', 'ticket_builder', 'review')),
                         board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
                         ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
                         spec_id TEXT REFERENCES specs(id) ON DELETE SET NULL,
                         model TEXT,
                         status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'thinking', 'completed', 'error')),
+                        workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
                         created_at TEXT NOT NULL DEFAULT (datetime('now')),
                         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                     );
@@ -1166,6 +1168,84 @@ impl Database {
                     "CREATE INDEX IF NOT EXISTS idx_runs_started ON agent_runs(started_at);",
                 )?;
                 tracing::info!("Migration to version 20 complete: idx_runs_started added");
+            }
+
+            if current_version < 21 {
+                tracing::info!("Running migration to version 21: add workspaces, remove default_project_id from boards");
+
+                conn.execute_batch(
+                    r#"
+                    CREATE TABLE IF NOT EXISTS workspaces (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        name TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+
+                    CREATE TABLE IF NOT EXISTS workspace_projects (
+                        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                        position INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (workspace_id, project_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_workspace_projects_workspace ON workspace_projects(workspace_id);
+                    CREATE INDEX IF NOT EXISTS idx_workspace_projects_project ON workspace_projects(project_id);
+                    CREATE INDEX IF NOT EXISTS idx_tickets_workspace ON tickets(workspace_id) WHERE workspace_id IS NOT NULL;
+                    "#,
+                )?;
+
+                // Add workspace_id column to tickets if upgrading (fresh installs from CREATE_TABLES already have it)
+                let has_workspace_id: bool = conn.query_row(
+                    "SELECT count(*) > 0 FROM pragma_table_info('tickets') WHERE name = 'workspace_id'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if !has_workspace_id {
+                    conn.execute(
+                        "ALTER TABLE tickets ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL",
+                        [],
+                    )?;
+                }
+
+                // Remove default_project_id from boards if it still exists (fresh installs never had it)
+                let has_default_project_id: bool = conn.query_row(
+                    "SELECT count(*) > 0 FROM pragma_table_info('boards') WHERE name = 'default_project_id'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if has_default_project_id {
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE boards_v21 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            name TEXT NOT NULL,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO boards_v21 (id, name, created_at, updated_at)
+                        SELECT id, name, created_at, updated_at FROM boards;
+
+                        DROP TABLE boards;
+                        ALTER TABLE boards_v21 RENAME TO boards;
+                        "#,
+                    )?;
+                }
+
+                let has_chats_workspace_id: bool = conn.query_row(
+                    "SELECT count(*) > 0 FROM pragma_table_info('chats') WHERE name = 'workspace_id'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if !has_chats_workspace_id {
+                    conn.execute(
+                        "ALTER TABLE chats ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL",
+                        [],
+                    )?;
+                }
+
+                tracing::info!("Migration to version 21 complete: workspaces added, default_project_id removed from boards");
             }
 
             conn.execute(
@@ -1722,9 +1802,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_is_20() {
+    fn schema_version_is_21() {
         use crate::db::schema::SCHEMA_VERSION;
-        assert_eq!(SCHEMA_VERSION, 20);
+        assert_eq!(SCHEMA_VERSION, 21);
     }
 
     #[test]

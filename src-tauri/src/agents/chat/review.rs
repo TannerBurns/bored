@@ -41,25 +41,34 @@ impl ChatAgent {
             .get_ticket(&ticket_id)
             .map_err(|e| ChatAgentError::AgentFailed(e.to_string()))?;
 
-        if ticket.project_id.as_deref() != Some(&chat.project_id) {
-            return Err(ChatAgentError::AgentFailed(
-                "Ticket does not belong to the chat's project".into(),
-            ));
+        if let Some(ref chat_project_id) = chat.project_id {
+            if ticket.project_id.as_deref() != Some(chat_project_id) {
+                return Err(ChatAgentError::AgentFailed(
+                    "Ticket does not belong to the chat's project".into(),
+                ));
+            }
         }
 
-        let project = self
-            .db
-            .get_project(&chat.project_id)?
-            .ok_or_else(|| {
-                ChatAgentError::AgentFailed(format!("Project not found: {}", chat.project_id))
-            })?;
+        let project_path = if let Some(ref project_id) = chat.project_id {
+            let project = self.db.get_project(project_id)?
+                .ok_or_else(|| ChatAgentError::AgentFailed(format!("Project not found: {}", project_id)))?;
+            project.path
+        } else if let Some(ref workspace_id) = chat.workspace_id {
+            let projects = self.db.get_workspace_projects(workspace_id)
+                .map_err(|e| ChatAgentError::AgentFailed(e.to_string()))?;
+            projects.first()
+                .ok_or_else(|| ChatAgentError::AgentFailed("Workspace has no projects".into()))?
+                .path.clone()
+        } else {
+            return Err(ChatAgentError::AgentFailed("Chat has no project or workspace".into()));
+        };
 
         let branch_diff = get_branch_diff_sync(&self.db, &ticket_id)
             .map_err(ChatAgentError::AgentFailed)?
             .diff;
 
         let (working_dir_path, worktree_path, repo_path_for_cleanup) =
-            resolve_review_working_dir(&self.db, &ticket_id, &project.path, &self.config.chat_id)?;
+            resolve_review_working_dir(&self.db, &ticket_id, &project_path, &self.config.chat_id)?;
         let working_dir = Path::new(&working_dir_path);
 
         let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);

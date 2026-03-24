@@ -62,10 +62,16 @@ pub async fn create_chat(
                 let ticket = db
                     .get_ticket(tid)
                     .map_err(|e| format!("Failed to load ticket: {}", e))?;
-                if ticket.project_id.as_deref() != Some(&input.project_id) {
-                    return Err(
-                        "Ticket does not belong to the selected project".into(),
-                    );
+                if input.workspace_id.is_some() {
+                    if ticket.workspace_id != input.workspace_id {
+                        return Err("Ticket does not belong to the selected workspace".into());
+                    }
+                } else if let Some(ref pid) = input.project_id {
+                    if ticket.project_id.as_deref() != Some(pid.as_str()) {
+                        return Err(
+                            "Ticket does not belong to the selected project".into(),
+                        );
+                    }
                 }
             }
         }
@@ -143,10 +149,35 @@ pub async fn send_chat_message(
     timeout_secs: Option<u64>,
 ) -> Result<ChatMessage, String> {
     let chat = db.get_chat(&chat_id).map_err(|e| e.to_string())?;
-    let project = db
-        .get_project(&chat.project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Project not found: {}", chat.project_id))?;
+
+    let (repo_path, workspace_file, workspace_paths) = if let Some(ref workspace_id) = chat.workspace_id {
+        let projects = db.get_workspace_projects(workspace_id)
+            .map_err(|e| e.to_string())?;
+        if projects.is_empty() {
+            return Err("Workspace has no projects".to_string());
+        }
+        let primary_path = PathBuf::from(&projects[0].path);
+
+        let ws_paths: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.path)).collect();
+
+        let ws_dir = std::env::temp_dir().join("bored").join("chat-workspaces");
+        std::fs::create_dir_all(&ws_dir).ok();
+        let ws_file = ws_dir.join(format!("{}.code-workspace", chat_id));
+        let folders: Vec<serde_json::Value> = projects.iter()
+            .map(|p| serde_json::json!({ "path": p.path, "name": p.name }))
+            .collect();
+        let ws_content = serde_json::json!({ "folders": folders });
+        std::fs::write(&ws_file, serde_json::to_string_pretty(&ws_content).unwrap_or_default()).ok();
+
+        (primary_path, Some(ws_file), ws_paths)
+    } else if let Some(ref project_id) = chat.project_id {
+        let project = db.get_project(project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Project not found: {}", project_id))?;
+        (PathBuf::from(&project.path), None, vec![])
+    } else {
+        return Err("Chat has no project or workspace".to_string());
+    };
 
     let user_msg = db
         .create_chat_message(&chat_id, ChatMessageRole::User, &content, None)
@@ -168,10 +199,12 @@ pub async fn send_chat_message(
         chat_id: chat_id.clone(),
         mode: chat.mode,
         agent_id: chat.agent_type.clone(),
-        repo_path: PathBuf::from(&project.path),
+        repo_path,
         model,
         agent_config,
         timeout_secs: Some(timeout_secs.unwrap_or(600)),
+        workspace_file,
+        workspace_paths,
     };
 
     let cancel_handles = running_chats.handles.clone();
@@ -333,7 +366,8 @@ pub async fn create_tickets_from_chat(
                 description_md: ticket_data.description.clone(),
                 priority,
                 labels: vec![],
-                project_id: Some(chat.project_id.clone()),
+                project_id: chat.project_id.clone(),
+                workspace_id: chat.workspace_id.clone(),
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -606,6 +640,7 @@ mod tests {
                 priority: crate::db::models::Priority::Medium,
                 labels: vec![],
                 project_id: Some(project_b.id.clone()),
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

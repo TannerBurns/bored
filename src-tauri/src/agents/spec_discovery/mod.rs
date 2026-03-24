@@ -90,6 +90,8 @@ impl SpecDiscoveryAgent {
             model: self.config.model.clone(),
             agent_config: self.config.agent_config.clone(),
             session_id: None,
+            workspace_file: None,
+            workspace_paths: vec![],
         };
 
         let tx_clone = self.event_tx.clone();

@@ -4,4 +4,5 @@ export { BoardsView } from './BoardsView';
 export { AgentsView } from './AgentsView';
 export { SpecsView } from './SpecsView';
 export { ProjectsView } from './ProjectsView';
+export { ScopesView } from './ScopesView';
 export { TicketDetailView } from './TicketDetailView';

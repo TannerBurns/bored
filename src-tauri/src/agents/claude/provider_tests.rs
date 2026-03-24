@@ -16,6 +16,8 @@ fn make_config() -> AgentRunConfig {
         model: None,
         agent_config: HashMap::new(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     }
 }
 
@@ -700,6 +702,8 @@ fn lightweight_config_produces_valid_command() {
         model: Some("claude-sonnet-4-6".into()),
         agent_config: cfg,
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
     let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "claude");

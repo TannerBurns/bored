@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getProjects } from '../../../lib/tauri';
+import { getProjects, getWorkspaces } from '../../../lib/tauri';
 import { logger } from '../../../lib/logger';
 import { FullscreenDescriptionModal } from '../FullscreenDescriptionModal';
 import { FullscreenCommentModal } from '../FullscreenCommentModal';
 import { CreateCommentModal } from '../CreateCommentModal';
 import { TaskList } from '../TaskList';
 import { validateTransition } from '../TransitionGuard';
-import type { Project, Comment } from '../../../types';
+import type { Project, Workspace, Comment } from '../../../types';
 import type { TicketModalProps } from './types';
 import { useTicketEdit } from './hooks/useTicketEdit';
 import { useEpicData } from './hooks/useEpicData';
@@ -43,6 +43,8 @@ export function TicketModal({
 }: TicketModalProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -83,7 +85,19 @@ export function TicketModal({
         setProjectsLoading(false);
       }
     };
+    const loadWorkspaces = async () => {
+      try {
+        setWorkspacesLoading(true);
+        const data = await getWorkspaces();
+        setWorkspaces(data);
+      } catch (e) {
+        logger.error('Failed to load workspaces:', e);
+      } finally {
+        setWorkspacesLoading(false);
+      }
+    };
     loadProjects();
+    loadWorkspaces();
   }, []);
 
   useEffect(() => {
@@ -151,12 +165,16 @@ export function TicketModal({
             <TicketEditForm
               projects={projects}
               projectsLoading={projectsLoading}
+              workspaces={workspaces}
+              workspacesLoading={workspacesLoading}
               editPriority={editState.editPriority}
               setEditPriority={editState.setEditPriority}
               editLabels={editState.editLabels}
               setEditLabels={editState.setEditLabels}
               editProjectId={editState.editProjectId}
               setEditProjectId={editState.setEditProjectId}
+              editWorkspaceId={editState.editWorkspaceId}
+              setEditWorkspaceId={editState.setEditWorkspaceId}
               editBranchName={editState.editBranchName}
               setEditBranchName={editState.setEditBranchName}
             />

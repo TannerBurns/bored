@@ -36,6 +36,47 @@ pub struct BranchDiff {
     pub branch: String,
 }
 
+/// Per-project branch status for workspace tickets
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectBranchStatus {
+    pub project_id: String,
+    pub project_name: String,
+    pub branch: String,
+    pub working_dir: String,
+    pub has_changes: bool,
+    pub files_changed: usize,
+    pub additions: usize,
+    pub deletions: usize,
+}
+
+/// Per-project file diffs
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFileDiffs {
+    pub project_id: String,
+    pub project_name: String,
+    pub files: Vec<FileDiff>,
+}
+
+/// Per-project push result
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPushResult {
+    pub project_id: String,
+    pub project_name: String,
+    pub success: bool,
+    pub message: String,
+    pub branch: String,
+}
+
+/// Workspace-wide push results
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePushResult {
+    pub results: Vec<ProjectPushResult>,
+}
+
 /// Find the working directory for a ticket (worktree or project path).
 /// Returns (working_dir, branch).
 pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String, String), String> {
@@ -83,6 +124,79 @@ pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String,
     }
 
     Ok((working_dir, branch))
+}
+
+/// Get working directories for all projects in a workspace ticket.
+/// For single-project tickets, returns a one-element vec.
+/// Returns vec of (project_id, project_name, working_dir, branch).
+pub fn get_ticket_working_dirs(
+    db: &Database,
+    ticket_id: &str,
+) -> Result<Vec<(String, String, String, String)>, String> {
+    let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
+    let branch = ticket
+        .branch_name
+        .ok_or_else(|| "Ticket has no branch name".to_string())?;
+
+    if let Some(ref workspace_id) = ticket.workspace_id {
+        let projects = db
+            .get_workspace_projects(workspace_id)
+            .map_err(|e| e.to_string())?;
+
+        let mut results = Vec::new();
+        for project in &projects {
+            let working_dir = resolve_working_dir_for_project(&project.path, &branch)?;
+            results.push((
+                project.id.clone(),
+                project.name.clone(),
+                working_dir,
+                branch.clone(),
+            ));
+        }
+        Ok(results)
+    } else if let Some(ref project_id) = ticket.project_id {
+        let project = db
+            .get_project(project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Project not found: {}", project_id))?;
+        let working_dir = resolve_working_dir_for_project(&project.path, &branch)?;
+        Ok(vec![(
+            project.id.clone(),
+            project.name.clone(),
+            working_dir,
+            branch,
+        )])
+    } else {
+        Err("Ticket has no associated project or workspace".to_string())
+    }
+}
+
+/// Resolve the working directory for a specific project and branch.
+fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<String, String> {
+    let worktree_output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(project_path)
+        .output()
+        .map_err(|e| format!("Failed to list worktrees: {}", e))?;
+
+    let worktree_list = String::from_utf8_lossy(&worktree_output.stdout);
+    let mut working_dir = project_path.to_string();
+    let mut current_worktree = String::new();
+
+    for line in worktree_list.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_worktree = path.to_string();
+        }
+        if let Some(branch_ref) = line.strip_prefix("branch ") {
+            let wt_branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
+            if wt_branch == branch {
+                working_dir = current_worktree.clone();
+                break;
+            }
+        }
+    }
+
+    Ok(working_dir)
 }
 
 /// Extract a conventional commit type from the branch name prefix.
@@ -373,6 +487,68 @@ pub fn get_default_branch(working_dir: &str) -> Result<String, String> {
     }
 
     Ok("origin/master".to_string())
+}
+
+#[tauri::command]
+pub async fn get_workspace_branch_status(
+    ticket_id: String,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<ProjectBranchStatus>, String> {
+    let dirs = get_ticket_working_dirs(&db, &ticket_id)?;
+    let mut results = Vec::new();
+
+    for (project_id, project_name, working_dir, branch) in &dirs {
+        let default_branch = get_default_branch(working_dir)
+            .unwrap_or_else(|_| "origin/main".to_string());
+
+        let stat_output = Command::new("git")
+            .args(["diff", "--stat", &format!("{}...{}", default_branch, branch)])
+            .current_dir(working_dir)
+            .output();
+
+        let (has_changes, files_changed, additions, deletions) = if let Ok(output) = stat_output {
+            if output.status.success() {
+                let stat = String::from_utf8_lossy(&output.stdout).to_string();
+                let fc = stat.lines().count().saturating_sub(1);
+
+                let numstat = Command::new("git")
+                    .args(["diff", "--numstat", &format!("{}...{}", default_branch, branch)])
+                    .current_dir(working_dir)
+                    .output();
+
+                let (adds, dels) = if let Ok(ns) = numstat {
+                    let text = String::from_utf8_lossy(&ns.stdout);
+                    text.lines().fold((0usize, 0usize), |(a, d), line| {
+                        let parts: Vec<&str> = line.split('\t').collect();
+                        let add: usize = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+                        let del: usize = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+                        (a + add, d + del)
+                    })
+                } else {
+                    (0, 0)
+                };
+
+                (fc > 0, fc, adds, dels)
+            } else {
+                (false, 0, 0, 0)
+            }
+        } else {
+            (false, 0, 0, 0)
+        };
+
+        results.push(ProjectBranchStatus {
+            project_id: project_id.clone(),
+            project_name: project_name.clone(),
+            branch: branch.clone(),
+            working_dir: working_dir.clone(),
+            has_changes,
+            files_changed,
+            additions,
+            deletions,
+        });
+    }
+
+    Ok(results)
 }
 
 #[cfg(test)]

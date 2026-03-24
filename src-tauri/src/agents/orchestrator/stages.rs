@@ -179,6 +179,8 @@ impl WorkflowOrchestrator {
             model: Some(stage_model.clone()),
             agent_config: self.agent_config.clone(),
             session_id: session_id.map(|s| s.to_string()),
+            workspace_file: None,
+            workspace_paths: vec![],
         };
 
         // Create log callback

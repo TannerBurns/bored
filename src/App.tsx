@@ -9,7 +9,7 @@ import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView, TicketDetailView } from './components/views';
+import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ScopesView, TicketDetailView } from './components/views';
 import { ChatView } from './components/chat';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
@@ -318,7 +318,7 @@ function App() {
                 <AgentsView recentRuns={recentRuns} />
               )}
 
-              {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
+              {activeNav === 'scopes' && <ScopesView onProjectsChange={loadProjects} />}
 
               {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
             </>
@@ -372,7 +372,7 @@ function App() {
           open={isCreateSpecModalOpen}
           onOpenChange={setIsCreateSpecModalOpen}
           boardId={currentBoard.id}
-          projectId={currentBoard.defaultProjectId}
+          projectId={undefined}
           onChatCreated={() => setActiveNav('chat')}
         />
       )}

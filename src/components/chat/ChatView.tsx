@@ -140,7 +140,7 @@ export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {})
         {currentChat ? (
           <ChatPanel
             key={currentChat.id}
-            projectName={projectMap[currentChat.projectId]}
+            projectName={currentChat.projectId ? projectMap[currentChat.projectId] : undefined}
             onNavigateToSpec={onNavigateToSpec}
             onOpenTicket={onOpenTicket}
           />

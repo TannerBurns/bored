@@ -19,6 +19,8 @@ export interface UseTicketEditReturn {
   setEditLabels: (labels: string) => void;
   editProjectId: string;
   setEditProjectId: (id: string) => void;
+  editWorkspaceId: string;
+  setEditWorkspaceId: (id: string) => void;
   editBranchName: string;
   setEditBranchName: (branch: string) => void;
   isSaving: boolean;
@@ -33,6 +35,7 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
   const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>(ticket.priority);
   const [editLabels, setEditLabels] = useState(ticket.labels.join(', '));
   const [editProjectId, setEditProjectId] = useState(ticket.projectId || '');
+  const [editWorkspaceId, setEditWorkspaceId] = useState(ticket.workspaceId || '');
   const [editBranchName, setEditBranchName] = useState<string>(ticket.branchName || '');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -42,6 +45,7 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
+    setEditWorkspaceId(ticket.workspaceId || '');
     setEditBranchName(ticket.branchName || '');
     setIsEditing(false);
   }, [ticket.id, ticket.pausedAt]);
@@ -52,6 +56,7 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditPriority(ticket.priority);
     setEditLabels(ticket.labels.join(', '));
     setEditProjectId(ticket.projectId || '');
+    setEditWorkspaceId(ticket.workspaceId || '');
     setEditBranchName(ticket.branchName || '');
   }, [ticket]);
 
@@ -74,7 +79,8 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
         descriptionMd: editDescription,
         priority: editPriority,
         labels,
-        projectId: editProjectId,
+        projectId: editProjectId || undefined,
+        workspaceId: editWorkspaceId || undefined,
         workflowType: 'multi_stage',
         branchName: editBranchName || undefined,
       });
@@ -90,6 +96,7 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     editPriority,
     editLabels,
     editProjectId,
+    editWorkspaceId,
     editBranchName,
     onUpdate,
   ]);
@@ -107,6 +114,8 @@ export function useTicketEdit({ ticket, onUpdate }: UseTicketEditOptions): UseTi
     setEditLabels,
     editProjectId,
     setEditProjectId,
+    editWorkspaceId,
+    setEditWorkspaceId,
     editBranchName,
     setEditBranchName,
     isSaving,

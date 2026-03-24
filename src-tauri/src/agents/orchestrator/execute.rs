@@ -287,6 +287,20 @@ impl WorkflowOrchestrator {
         );
     }
 
+    /// Workspace display name and (project name, path) pairs for multi-repo prompts.
+    fn workspace_prompt_owned(&self) -> Option<(String, Vec<(String, String)>)> {
+        let workspace_id = self.ticket.workspace_id.as_ref()?;
+        let ws = self.db.get_workspace(workspace_id).ok().flatten()?;
+        let projects = self.db.get_workspace_projects(workspace_id).ok()?;
+        if projects.is_empty() {
+            return None;
+        }
+        Some((
+            ws.name,
+            projects.into_iter().map(|p| (p.name, p.path)).collect(),
+        ))
+    }
+
     /// Run the plan stage and return the extracted plan.
     async fn run_plan_stage(&self) -> Result<String, String> {
         let plan = if self.should_skip_stage("plan") {
@@ -345,6 +359,11 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
 
+        let workspace_owned = self.workspace_prompt_owned();
+        let workspace_arg = workspace_owned
+            .as_ref()
+            .map(|(name, pairs)| (name.as_str(), pairs.as_slice()));
+
         let current_task = self.get_task();
         let plan_prompt = if let Some(ref task) = current_task {
             if matches!(task.task_type, TaskType::Command(_)) {
@@ -354,10 +373,10 @@ impl WorkflowOrchestrator {
                 );
                 String::new()
             } else {
-                generate_task_plan_prompt(task, &self.ticket)
+                generate_task_plan_prompt(task, &self.ticket, workspace_arg)
             }
         } else {
-            generate_plan_prompt(&self.ticket)
+            generate_plan_prompt(&self.ticket, workspace_arg)
         };
 
         if plan_prompt.is_empty() {
@@ -404,6 +423,11 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
 
+        let workspace_owned = self.workspace_prompt_owned();
+        let workspace_arg = workspace_owned
+            .as_ref()
+            .map(|(name, pairs)| (name.as_str(), pairs.as_slice()));
+
         let todos = self.get_implementation_todos();
 
         if todos.is_empty() {
@@ -411,12 +435,17 @@ impl WorkflowOrchestrator {
             let implement_prompt = if let Some(ref task) = current_task {
                 if matches!(task.task_type, TaskType::Command(_)) {
                     let custom_dir = self.custom_commands_dir();
-                    generate_task_prompt(task, &self.ticket, custom_dir.as_deref())
+                    generate_task_prompt(
+                        task,
+                        &self.ticket,
+                        custom_dir.as_deref(),
+                        workspace_arg,
+                    )
                 } else {
-                    generate_task_implement_prompt(task, &self.ticket, plan)
+                    generate_task_implement_prompt(task, &self.ticket, plan, workspace_arg)
                 }
             } else {
-                generate_implement_prompt(&self.ticket, plan)
+                generate_implement_prompt(&self.ticket, plan, workspace_arg)
             };
 
             let impl_result = self.run_stage("implement", &implement_prompt).await?;
@@ -508,6 +537,7 @@ impl WorkflowOrchestrator {
                 &todo.description,
                 idx,
                 total,
+                workspace_arg,
             );
 
             match self.run_stage("implement", &prompt).await {

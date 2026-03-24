@@ -31,6 +31,7 @@ mod worktree_setup;
 // Public re-exports
 pub use config::{WorkerConfig, WorkerState, WorkerStatus};
 pub use manager::WorkerManager;
+pub use worktree_setup::{WorkspaceWorktreeSet, create_worktrees_for_workspace};
 
 pub struct Worker {
     pub id: String,
@@ -587,6 +588,19 @@ impl Worker {
             }
         }
 
+        if let Some(ref workspace_id) = ticket.workspace_id {
+            let projects = self
+                .db
+                .get_workspace_projects(workspace_id)
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                    format!("Failed to get workspace projects: {}", e).into()
+                })?;
+            if let Some(first) = projects.first() {
+                return Ok(first.path.clone());
+            }
+            return Err("Workspace has no projects".into());
+        }
+
         if let Some(ref project_id) = self.config.project_id {
             if let Ok(Some(project)) = self.db.get_project(project_id) {
                 return Ok(project.path);
@@ -761,6 +775,7 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -809,6 +824,7 @@ mod tests {
                 priority: Priority::Medium,
                 labels: vec![],
                 project_id: None,
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

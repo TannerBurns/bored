@@ -67,6 +67,8 @@ pub async fn run_diagnostic_agent(
         model,
         agent_config,
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
 
     let provider_for_extract = provider.clone();

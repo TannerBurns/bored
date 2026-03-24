@@ -1,7 +1,7 @@
 //! Worktree setup logic for worker operations.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::agents::provider::AgentProvider;
@@ -160,4 +160,97 @@ async fn create_worktree_with_new_branch(ctx: &WorktreeSetupContext<'_>) -> Work
             }
         }
     }
+}
+
+/// Result of workspace worktree setup (multiple worktrees + .code-workspace file)
+pub struct WorkspaceWorktreeSet {
+    pub worktrees: Vec<WorktreeInfo>,
+    pub workspace_file: PathBuf,
+}
+
+/// Create worktrees for all projects in a workspace, using the same branch name.
+/// Generates a .code-workspace file pointing to all worktrees.
+/// On partial failure, cleans up already-created worktrees.
+pub async fn create_worktrees_for_workspace(
+    db: Arc<Database>,
+    workspace_id: &str,
+    ticket: &Ticket,
+    run_id: &str,
+    worker_id: &str,
+    app_handle: Option<tauri::AppHandle>,
+    provider: Arc<dyn AgentProvider>,
+    agent_config: HashMap<String, serde_json::Value>,
+    diagnostic_model: Option<String>,
+) -> Result<WorkspaceWorktreeSet, String> {
+    let projects = db
+        .get_workspace_projects(workspace_id)
+        .map_err(|e| format!("Failed to get workspace projects: {}", e))?;
+
+    if projects.is_empty() {
+        return Err("Workspace has no projects".to_string());
+    }
+
+    let mut created_worktrees: Vec<WorktreeInfo> = Vec::new();
+
+    for project in &projects {
+        let repo_path = PathBuf::from(&project.path);
+        let ctx = WorktreeSetupContext {
+            db: db.clone(),
+            ticket,
+            run_id,
+            repo_path,
+            worker_id,
+            app_handle: app_handle.clone(),
+            provider: provider.clone(),
+            agent_config: agent_config.clone(),
+            diagnostic_model: diagnostic_model.clone(),
+        };
+
+        match create_worktree_for_ticket(ctx).await {
+            WorktreeSetupResult::Success(info) => {
+                created_worktrees.push(info);
+            }
+            WorktreeSetupResult::Failed { message, .. } => {
+                for wt in &created_worktrees {
+                    let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
+                }
+                return Err(format!(
+                    "Failed to create worktree for project '{}': {}",
+                    project.name, message
+                ));
+            }
+        }
+    }
+
+    let workspace_dir = created_worktrees[0]
+        .path
+        .parent()
+        .unwrap_or_else(|| Path::new("/tmp"))
+        .to_path_buf();
+    let workspace_file = workspace_dir.join(format!("{}.code-workspace", run_id));
+
+    let folders: Vec<serde_json::Value> = created_worktrees
+        .iter()
+        .zip(projects.iter())
+        .map(|(wt, proj)| {
+            serde_json::json!({
+                "path": wt.path.to_string_lossy(),
+                "name": proj.name
+            })
+        })
+        .collect();
+
+    let workspace_content = serde_json::json!({
+        "folders": folders
+    });
+
+    let json = serde_json::to_string_pretty(&workspace_content)
+        .map_err(|e| format!("Failed to serialize .code-workspace file: {}", e))?;
+    std::fs::write(&workspace_file, json)
+        .map_err(|e| format!("Failed to write .code-workspace file: {}", e))?;
+
+    Ok(WorkspaceWorktreeSet {
+        worktrees: created_worktrees,
+        workspace_file,
+    })
 }

@@ -22,7 +22,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ?
@@ -44,7 +44,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority, 
                           t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id, 
-                          t.lock_expires_at, t.project_id, t.workflow_type, t.model, t.branch_name,
+                          t.lock_expires_at, t.project_id, t.workspace_id, t.workflow_type, t.model, t.branch_name,
                           t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id, t.depends_on_epic_ids_json, t.spec_version_id,
                           t.paused_at, t.paused_at_stage, t.paused_run_id
                    FROM tickets t
@@ -201,7 +201,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets
@@ -548,7 +548,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority,
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE epic_id = ? AND order_in_epic = ?"#,

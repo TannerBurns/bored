@@ -112,6 +112,7 @@ fn seed_ticket(db: &Database) -> Ticket {
         priority: Priority::Medium,
         labels: vec![],
         project_id: None,
+        workspace_id: None,
         workflow_type: WorkflowType::default(),
         model: None,
         branch_name: None,

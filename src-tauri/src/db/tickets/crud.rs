@@ -7,7 +7,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#,
@@ -34,7 +34,7 @@ impl Database {
                 let mut stmt = conn.prepare(
                     r#"SELECT id, board_id, column_id, title, description_md, priority, 
                               labels_json, created_at, updated_at, locked_by_run_id, 
-                              lock_expires_at, project_id, workflow_type, model, branch_name,
+                              lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                               is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                        FROM tickets WHERE id = ?"#,
@@ -61,6 +61,11 @@ impl Database {
                 Some(id) if id.is_empty() => None, // Empty string means clear the project
                 Some(id) => Some(id.as_str()),
                 None => existing.project_id.as_deref(), // Keep existing
+            };
+            let workspace_id = match &updates.workspace_id {
+                Some(id) if id.is_empty() => None,
+                Some(id) => Some(id.as_str()),
+                None => existing.workspace_id.as_deref(),
             };
             let workflow_type = updates
                 .workflow_type
@@ -123,7 +128,7 @@ impl Database {
             conn.execute(
                 r#"UPDATE tickets 
                    SET title = ?, description_md = ?, priority = ?, labels_json = ?,
-                       project_id = ?, workflow_type = ?, model = ?, branch_name = ?, 
+                       project_id = ?, workspace_id = ?, workflow_type = ?, model = ?, branch_name = ?, 
                        column_id = ?, is_epic = ?, epic_id = ?, order_in_epic = ?, 
                        depends_on_epic_id = ?, depends_on_epic_ids_json = ?, spec_version_id = ?, updated_at = ?
                    WHERE id = ?"#,
@@ -133,6 +138,7 @@ impl Database {
                     priority.as_str(),
                     labels_json,
                     project_id,
+                    workspace_id,
                     workflow_type.as_str(),
                     model,
                     branch_name,
@@ -152,7 +158,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE id = ?"#,
@@ -208,10 +214,10 @@ impl Database {
             conn.execute(
                 r#"INSERT INTO tickets 
                    (id, board_id, column_id, title, description_md, priority, labels_json, 
-                    created_at, updated_at, project_id, workflow_type, model, branch_name,
+                    created_at, updated_at, project_id, workspace_id, workflow_type, model, branch_name,
                     is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                     paused_at, paused_at_stage, paused_run_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"#,
                 rusqlite::params![
                     ticket_id,
                     ticket.board_id,
@@ -223,6 +229,7 @@ impl Database {
                     now.to_rfc3339(),
                     now.to_rfc3339(),
                     ticket.project_id,
+                    ticket.workspace_id,
                     ticket.workflow_type.as_str(),
                     ticket.model,
                     ticket.branch_name,
@@ -248,6 +255,7 @@ impl Database {
                 locked_by_run_id: None,
                 lock_expires_at: None,
                 project_id: ticket.project_id.clone(),
+                workspace_id: ticket.workspace_id.clone(),
                 workflow_type: ticket.workflow_type.clone(),
                 model: ticket.model.clone(),
                 branch_name: ticket.branch_name.clone(),
@@ -275,7 +283,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT t.id, t.board_id, t.column_id, t.title, t.description_md, t.priority,
                           t.labels_json, t.created_at, t.updated_at, t.locked_by_run_id,
-                          t.lock_expires_at, t.project_id, t.workflow_type, t.model, t.branch_name,
+                          t.lock_expires_at, t.project_id, t.workspace_id, t.workflow_type, t.model, t.branch_name,
                           t.is_epic, t.epic_id, t.order_in_epic, t.depends_on_epic_id,
                           t.depends_on_epic_ids_json, t.spec_version_id,
                           t.paused_at, t.paused_at_stage, t.paused_run_id,
@@ -288,7 +296,7 @@ impl Database {
 
             let rows = stmt.query_map([limit], |row| {
                 let ticket = Self::map_ticket_row(row)?;
-                let column_name: String = row.get(24)?;
+                let column_name: String = row.get(25)?;
                 Ok((ticket, column_name))
             })?;
 
@@ -306,7 +314,7 @@ impl Database {
                 Some(_) => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, workflow_type, model, branch_name,
+                            lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                             is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? AND column_id = ? ORDER BY created_at"
@@ -314,7 +322,7 @@ impl Database {
                 None => {
                     "SELECT id, board_id, column_id, title, description_md, priority, 
                             labels_json, created_at, updated_at, locked_by_run_id, 
-                            lock_expires_at, project_id, workflow_type, model, branch_name,
+                            lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                             is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                      FROM tickets WHERE board_id = ? ORDER BY created_at"
