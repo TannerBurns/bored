@@ -1191,7 +1191,6 @@ impl Database {
 
                     CREATE INDEX IF NOT EXISTS idx_workspace_projects_workspace ON workspace_projects(workspace_id);
                     CREATE INDEX IF NOT EXISTS idx_workspace_projects_project ON workspace_projects(project_id);
-                    CREATE INDEX IF NOT EXISTS idx_tickets_workspace ON tickets(workspace_id) WHERE workspace_id IS NOT NULL;
                     "#,
                 )?;
 
@@ -1207,6 +1206,10 @@ impl Database {
                         [],
                     )?;
                 }
+
+                conn.execute_batch(
+                    "CREATE INDEX IF NOT EXISTS idx_tickets_workspace ON tickets(workspace_id) WHERE workspace_id IS NOT NULL;",
+                )?;
 
                 // Remove default_project_id from boards if it still exists (fresh installs never had it)
                 let has_default_project_id: bool = conn.query_row(
