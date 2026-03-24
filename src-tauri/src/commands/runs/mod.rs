@@ -275,6 +275,8 @@ pub async fn start_agent_run(
 
     // Resolve workspace paths for multi-project tickets so the agent
     // receives --add-dir arguments matching the prompt context.
+    // Exclude the primary project's original path — the agent accesses it
+    // through the worktree, and including the original would break isolation.
     let (workspace_file, workspace_paths) = if let Some(ref workspace_id) = ticket.workspace_id {
         let projects = db_clone
             .get_workspace_projects(workspace_id)
@@ -282,6 +284,7 @@ pub async fn start_agent_run(
         let paths: Vec<std::path::PathBuf> = projects
             .iter()
             .map(|p| std::path::PathBuf::from(&p.path))
+            .filter(|p| *p != main_repo_path)
             .collect();
         (None, paths)
     } else {

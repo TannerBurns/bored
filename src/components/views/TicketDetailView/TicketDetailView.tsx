@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getProjects, getWorkspaces } from '../../../lib/tauri';
+import { useChatStore } from '../../../stores/chatStore';
 import { logger } from '../../../lib/logger';
 import { cn } from '../../../lib/utils';
 import { FullscreenDescriptionModal } from '../../board/FullscreenDescriptionModal';
@@ -39,7 +40,6 @@ export interface TicketDetailViewProps {
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
-  onNavigateToChat?: () => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
 }
@@ -55,7 +55,6 @@ export function TicketDetailView({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
-  onNavigateToChat,
   onDelete,
   onAgentComplete,
 }: TicketDetailViewProps) {
@@ -91,6 +90,26 @@ export function TicketDetailView({
     setAgentRuns: runsHistory.setAgentRuns,
     setEditBranchName: editState.setEditBranchName,
   });
+
+  const createChat = useChatStore((s) => s.createChat);
+  const selectChat = useChatStore((s) => s.selectChat);
+
+  const handleValidateWithAgent = useCallback(async (agentType: string) => {
+    try {
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId,
+        workspaceId: ticket.workspaceId,
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      onClose();
+    } catch (e) {
+      logger.error('Failed to create validation chat:', e);
+    }
+  }, [ticket, createChat, selectChat, onClose]);
 
   // Auto-switch to Agent tab when a run starts
   useEffect(() => {
@@ -287,7 +306,6 @@ export function TicketDetailView({
                 agentEvents={agentEvents}
                 onUpdate={onUpdate}
                 onOpenFullscreen={() => setIsFullscreenOpen(true)}
-                onNavigateToChat={onNavigateToChat}
                 onBack={onClose}
               />
             )}
@@ -342,6 +360,7 @@ export function TicketDetailView({
             onMoveTicket(ticket.id, newColumnId);
           }}
           onRunWithAgent={onRunWithAgent}
+          onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete}
           onBack={onClose}
         />

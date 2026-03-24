@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getProjects, getWorkspaces } from '../../../lib/tauri';
+import { useChatStore } from '../../../stores/chatStore';
 import { logger } from '../../../lib/logger';
 import { FullscreenDescriptionModal } from '../FullscreenDescriptionModal';
 import { FullscreenCommentModal } from '../FullscreenCommentModal';
@@ -70,6 +71,26 @@ export function TicketModal({
     setAgentRuns: runsHistory.setAgentRuns,
     setEditBranchName: editState.setEditBranchName,
   });
+
+  const createChat = useChatStore((s) => s.createChat);
+  const selectChat = useChatStore((s) => s.selectChat);
+
+  const handleValidateWithAgent = useCallback(async (agentType: string) => {
+    try {
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId,
+        workspaceId: ticket.workspaceId,
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      onNavigateToChat?.();
+    } catch (e) {
+      logger.error('Failed to create validation chat:', e);
+    }
+  }, [ticket, createChat, selectChat, onNavigateToChat]);
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -227,7 +248,6 @@ export function TicketModal({
           <NextStepsPanel
             ticket={ticket}
             columns={columns}
-            onNavigateToChat={onNavigateToChat}
           />
 
           {/* Ticket Cost Summary */}
@@ -267,6 +287,7 @@ export function TicketModal({
           showDeleteConfirm={showDeleteConfirm}
           setShowDeleteConfirm={setShowDeleteConfirm}
           onRunWithAgent={onRunWithAgent}
+          onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete ? handleDelete : undefined}
           onSave={editState.handleSave}
           onCancelEdit={() => {

@@ -182,11 +182,6 @@ function App() {
     }
   }, []);
 
-  const handleNavigateToChat = useCallback(() => {
-    closeTicketModal();
-    setActiveNav('chat');
-  }, [closeTicketModal]);
-
   const openTicketById = useCallback(async (ticketId: string) => {
     try {
       const ticket = await getTicket(ticketId);
@@ -251,7 +246,6 @@ function App() {
               onAddComment={handleAddComment}
               onUpdateComment={handleUpdateComment}
               onRunWithAgent={handleRunWithAgent}
-              onNavigateToChat={handleNavigateToChat}
               onDelete={handleDeleteTicket}
               onAgentComplete={handleAgentComplete}
             />

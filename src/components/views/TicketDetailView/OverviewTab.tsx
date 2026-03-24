@@ -15,7 +15,6 @@ interface OverviewTabProps {
   agentEvents: UseAgentEventsReturn;
   onUpdate: (ticketId: string, updates: Partial<Ticket>) => Promise<void>;
   onOpenFullscreen: () => void;
-  onNavigateToChat?: () => void;
   onBack: () => void;
 }
 
@@ -28,7 +27,6 @@ export function OverviewTab({
   agentEvents,
   onUpdate,
   onOpenFullscreen,
-  onNavigateToChat,
   onBack,
 }: OverviewTabProps) {
   return (
@@ -37,7 +35,6 @@ export function OverviewTab({
       <NextStepsPanel
         ticket={ticket}
         columns={columns}
-        onNavigateToChat={onNavigateToChat}
       />
 
       {/* Blocked ticket banner */}

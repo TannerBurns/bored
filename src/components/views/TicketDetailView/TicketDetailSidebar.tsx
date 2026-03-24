@@ -16,6 +16,7 @@ interface TicketDetailSidebarProps {
   parentEpic: Ticket | null;
   onMoveTicket: (newColumnId: string) => void;
   onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onValidateWithAgent?: (agentType: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onBack: () => void;
 }
@@ -30,6 +31,7 @@ export function TicketDetailSidebar({
   parentEpic,
   onMoveTicket,
   onRunWithAgent,
+  onValidateWithAgent,
   onDelete,
   onBack,
 }: TicketDetailSidebarProps) {
@@ -39,6 +41,7 @@ export function TicketDetailSidebar({
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const isBacklog = currentColumn?.name.toLowerCase() === 'backlog';
+  const isReviewOrDone = currentColumn?.name === 'Review' || currentColumn?.name === 'Done';
   const project = projects.find((p) => p.id === ticket.projectId);
   const workspace = workspaces.find((w) => w.id === ticket.workspaceId);
   const scopeName = project?.name ?? workspace?.name;
@@ -299,6 +302,14 @@ export function TicketDetailSidebar({
                       <path d="m8 11 2 2 4-4" />
                     </svg>
                   }
+                />
+              )}
+              {ticket.branchName && isReviewOrDone && onValidateWithAgent && (
+                <BuildWithDropdown
+                  className="w-full"
+                  onSelect={onValidateWithAgent}
+                  label="Validate with"
+                  title="Open a validation chat to review this ticket's changes"
                 />
               )}
             </div>

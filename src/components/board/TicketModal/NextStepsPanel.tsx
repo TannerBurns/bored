@@ -1,19 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { BuildWithDropdown } from '../BuildWithDropdown';
 import { FileDiffViewer } from '../../common/FileDiffViewer';
 import { ProjectBranchRow } from './ProjectBranchRow';
-import { useChatStore } from '../../../stores/chatStore';
 import { getWorkspaceBranchStatus } from '../../../lib/tauri';
 import type { Ticket, Column, FileDiff, ProjectBranchStatus } from '../../../types';
 
 interface NextStepsPanelProps {
   ticket: Ticket;
   columns: Column[];
-  onNavigateToChat?: () => void;
 }
 
-export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsPanelProps) {
+export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
   const [pushStatus, setPushStatus] = useState<{ message: string; success: boolean } | null>(null);
   const [prStatus, setPrStatus] = useState<{ message: string; url?: string; success: boolean } | null>(null);
   const [diffFullscreen, setDiffFullscreen] = useState(false);
@@ -24,9 +21,6 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
   const [diffLoading, setDiffLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [branchStatus, setBranchStatus] = useState<ProjectBranchStatus[] | null>(null);
-
-  const createChat = useChatStore((s) => s.createChat);
-  const selectChat = useChatStore((s) => s.selectChat);
 
   useEffect(() => {
     if (!diffFullscreen) return;
@@ -83,26 +77,6 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
     return () => { cancelled = true; };
   }, [ticket.id, ticket.workspaceId, ticket.projectId, ticket.branchName, shouldShow]);
 
-  const handleReviewWithAgent = useCallback(async (agentType: string) => {
-    try {
-      setActionLoading('review');
-      const chat = await createChat({
-        agentType,
-        projectId: ticket.projectId,
-        workspaceId: ticket.workspaceId,
-        mode: 'review' as const,
-        boardId: ticket.boardId,
-        ticketId: ticket.id,
-      });
-      await selectChat(chat.id);
-      onNavigateToChat?.();
-    } catch (e) {
-      console.error('Failed to create review chat:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  }, [ticket, createChat, selectChat, onNavigateToChat]);
-
   const handleRequestFullscreen = useCallback((projectName: string, files: FileDiff[] | null) => {
     setFullscreenProjectName(projectName);
     setFullscreenDiffFiles(files);
@@ -127,17 +101,8 @@ export function NextStepsPanel({ ticket, columns, onNavigateToChat }: NextStepsP
       </div>
 
       <p className="text-xs text-board-text-muted">
-        The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>. Choose your next step:
+        The agent has committed changes to branch <code className="text-board-text-secondary">{ticket.branchName}</code>.
       </p>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <BuildWithDropdown
-          label="Review with"
-          title="Open a review chat — choose an agent to validate this ticket's changes"
-          onSelect={handleReviewWithAgent}
-          disabled={actionLoading === 'review'}
-        />
-      </div>
 
       {branchStatus && branchStatus.length > 0 && (
         <div className="space-y-2">
