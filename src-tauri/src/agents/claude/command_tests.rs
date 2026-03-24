@@ -283,3 +283,30 @@ fn build_command_without_session_id_omits_resume() {
     let (_, args) = build_command_from_provider_config(&config);
     assert!(!args.iter().any(|a| a == "--resume"), "--resume should not appear without session_id");
 }
+
+#[test]
+fn build_command_workspace_paths_adds_extra_dirs() {
+    let mut config = create_provider_config();
+    config.workspace_paths = vec![
+        PathBuf::from("/tmp/test"),
+        PathBuf::from("/tmp/backend"),
+        PathBuf::from("/tmp/shared"),
+    ];
+    let (_, args) = build_command_from_provider_config(&config);
+    let add_dir_indices: Vec<usize> = args.iter().enumerate()
+        .filter(|(_, a)| a.as_str() == "--add-dir")
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(add_dir_indices.len(), 2, "should add 2 dirs (not repo_path)");
+    assert_eq!(args[add_dir_indices[0] + 1], "/tmp/backend");
+    assert_eq!(args[add_dir_indices[1] + 1], "/tmp/shared");
+    let p_idx = args.iter().position(|a| a == "-p").unwrap();
+    assert!(add_dir_indices.iter().all(|i| *i < p_idx), "--add-dir must appear before -p");
+}
+
+#[test]
+fn build_command_no_workspace_paths_no_add_dir() {
+    let config = create_provider_config();
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(!args.contains(&"--add-dir".to_string()));
+}

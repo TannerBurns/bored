@@ -79,6 +79,13 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         args.push(sid.clone());
     }
 
+    for wp in &config.workspace_paths {
+        if wp != &config.repo_path {
+            args.push("--add-dir".to_string());
+            args.push(wp.to_string_lossy().to_string());
+        }
+    }
+
     args.push("-p".to_string());
     args.push(config.prompt.clone());
 

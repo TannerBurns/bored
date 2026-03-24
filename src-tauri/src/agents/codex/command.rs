@@ -59,6 +59,13 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     args.push("--config".to_string());
     args.push(format!("features.multi_agent={}", multi_agent));
 
+    for wp in &config.workspace_paths {
+        if wp != &config.repo_path {
+            args.push("--add-dir".to_string());
+            args.push(wp.to_string_lossy().to_string());
+        }
+    }
+
     args.push(config.prompt.clone());
     (command, args)
 }
@@ -305,6 +312,32 @@ mod tests {
         let (_, args) = build_command_from_provider_config(&config);
         assert_eq!(args[0], "exec");
         assert_ne!(args.get(1).map(|s| s.as_str()), Some("resume"));
+    }
+
+    #[test]
+    fn build_command_workspace_paths_adds_extra_dirs() {
+        let mut config = create_test_config();
+        config.workspace_paths = vec![
+            PathBuf::from("/tmp/test"),
+            PathBuf::from("/tmp/backend"),
+            PathBuf::from("/tmp/shared"),
+        ];
+        let (_, args) = build_command_from_provider_config(&config);
+        let add_dir_indices: Vec<usize> = args.iter().enumerate()
+            .filter(|(_, a)| a.as_str() == "--add-dir")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(add_dir_indices.len(), 2, "should add 2 dirs (not repo_path)");
+        assert_eq!(args[add_dir_indices[0] + 1], "/tmp/backend");
+        assert_eq!(args[add_dir_indices[1] + 1], "/tmp/shared");
+        assert_eq!(args.last(), Some(&"Test prompt".to_string()), "prompt must still be last");
+    }
+
+    #[test]
+    fn build_command_no_workspace_paths_no_add_dir() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        assert!(!args.contains(&"--add-dir".to_string()));
     }
 
     #[test]
