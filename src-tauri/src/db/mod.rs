@@ -1284,6 +1284,54 @@ impl Database {
                 tracing::info!("Migration to version 21 complete: workspaces added, default_project_id removed from boards");
             }
 
+            // Migration to version 22: fix chats.project_id NOT NULL for databases
+            // that ran v21 before the table rebuild was added.
+            if current_version < 22 {
+                let project_id_notnull: bool = conn.query_row(
+                    "SELECT COALESCE(\"notnull\", 0) FROM pragma_table_info('chats') WHERE name = 'project_id'",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap_or(false);
+
+                if project_id_notnull {
+                    tracing::info!("Running migration to version 22: fix chats.project_id NOT NULL constraint");
+                    conn.execute_batch(
+                        r#"
+                        CREATE TABLE chats_v22 (
+                            id TEXT PRIMARY KEY NOT NULL,
+                            title TEXT,
+                            agent_type TEXT NOT NULL,
+                            project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+                            mode TEXT NOT NULL CHECK(mode IN ('general', 'spec_builder', 'ticket_builder', 'review')),
+                            board_id TEXT REFERENCES boards(id) ON DELETE SET NULL,
+                            ticket_id TEXT REFERENCES tickets(id) ON DELETE SET NULL,
+                            spec_id TEXT REFERENCES specs(id) ON DELETE SET NULL,
+                            model TEXT,
+                            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'thinking', 'completed', 'error')),
+                            workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+                            agent_session_id TEXT,
+                            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                        );
+
+                        INSERT INTO chats_v22 (id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, workspace_id, agent_session_id, created_at, updated_at)
+                        SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, workspace_id, agent_session_id, created_at, updated_at FROM chats;
+
+                        DROP TABLE chats;
+                        ALTER TABLE chats_v22 RENAME TO chats;
+
+                        CREATE INDEX IF NOT EXISTS idx_chats_project ON chats(project_id);
+                        CREATE INDEX IF NOT EXISTS idx_chats_mode ON chats(mode);
+                        CREATE INDEX IF NOT EXISTS idx_chats_board ON chats(board_id) WHERE board_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_ticket ON chats(ticket_id) WHERE ticket_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_spec ON chats(spec_id) WHERE spec_id IS NOT NULL;
+                        CREATE INDEX IF NOT EXISTS idx_chats_created ON chats(created_at);
+                        "#,
+                    )?;
+                    tracing::info!("Migration to version 22 complete: chats.project_id is now nullable");
+                }
+            }
+
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
                 [SCHEMA_VERSION],
@@ -1838,9 +1886,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_is_21() {
+    fn schema_version_is_22() {
         use crate::db::schema::SCHEMA_VERSION;
-        assert_eq!(SCHEMA_VERSION, 21);
+        assert_eq!(SCHEMA_VERSION, 22);
     }
 
     #[test]
