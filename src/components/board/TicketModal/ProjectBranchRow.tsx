@@ -39,7 +39,10 @@ export function ProjectBranchRow({
     setDiffLoading(true);
     const load = async () => {
       try {
-        const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId });
+        const files = await invoke<FileDiff[]>('get_branch_diff_files', {
+          ticketId,
+          projectId: status.projectId || undefined,
+        });
         if (!cancelled) setDiffFiles(files);
       } catch (e) {
         if (!cancelled) setDiffError(String(e));

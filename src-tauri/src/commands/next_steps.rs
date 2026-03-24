@@ -451,9 +451,37 @@ pub fn get_branch_diff_files_sync(db: &Database, ticket_id: &str) -> Result<Vec<
 #[tauri::command]
 pub async fn get_branch_diff_files(
     ticket_id: String,
+    project_id: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<FileDiff>, String> {
-    get_branch_diff_files_sync(&db, &ticket_id)
+    if let Some(ref pid) = project_id {
+        let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+        let branch = ticket
+            .branch_name
+            .ok_or_else(|| "Ticket has no branch name".to_string())?;
+        let project = db
+            .get_project(pid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Project not found: {}", pid))?;
+        let working_dir = resolve_working_dir_for_project(&project.path, &branch)?;
+        let default_branch = get_default_branch(&working_dir)?;
+
+        let diff_output = Command::new("git")
+            .args(["diff", &format!("{}...{}", default_branch, branch)])
+            .current_dir(&working_dir)
+            .output()
+            .map_err(|e| format!("Failed to run git diff: {}", e))?;
+
+        if !diff_output.status.success() {
+            let stderr = String::from_utf8_lossy(&diff_output.stderr);
+            return Err(format!("git diff failed: {}", stderr.trim()));
+        }
+
+        let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
+        Ok(parse_unified_diff(&diff))
+    } else {
+        get_branch_diff_files_sync(&db, &ticket_id)
+    }
 }
 
 #[tauri::command]
