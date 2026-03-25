@@ -62,11 +62,28 @@ The JSON block **must** be the last thing in your output.
 
 ### Structured results (for machine parsing) — REQUIRED
 
-Always emit this JSON block as the very last thing in your response:
+Always emit a **single** fenced JSON block as the very last thing in your response.
+The JSON object **must** live at the top level (not nested inside another key) and **must**
+contain exactly these two fields:
+
+- `issues_found` — integer, the total number of issues
+- `issues` — array of issue objects
+
+Each issue object **must** have these fields:
+
+| Field         | Type   | Description                       |
+|---------------|--------|-----------------------------------|
+| `title`       | string | Brief description                 |
+| `file`        | string | Single file path (not an array)   |
+| `lines`       | string | Line range, e.g. `"42-48"`       |
+| `severity`    | string | `"high"`, `"medium"`, or `"low"` |
+| `description` | string | Detailed explanation               |
+
+Example (issues found):
 
 ```json
 {
-  "issues_found": <number>,
+  "issues_found": 2,
   "issues": [
     {
       "title": "Brief description",
@@ -74,12 +91,19 @@ Always emit this JSON block as the very last thing in your response:
       "lines": "42-48",
       "severity": "high",
       "description": "Detailed explanation"
+    },
+    {
+      "title": "Another issue",
+      "file": "path/to/other.ts",
+      "lines": "10",
+      "severity": "low",
+      "description": "Explanation"
     }
   ]
 }
 ```
 
-When no issues are found, emit:
+Example (no issues):
 
 ```json
 {
@@ -87,6 +111,12 @@ When no issues are found, emit:
   "issues": []
 }
 ```
+
+**Do NOT** deviate from this schema:
+- Do NOT wrap the object inside another key (e.g. `{"review": {...}}` or `{"results": {...}}`).
+- Do NOT rename `issues_found` to `summary`, `count`, `total`, or anything else.
+- Do NOT use `files` (array) — always use `file` (single string). For multi-file issues pick the primary file.
+- Do NOT add extra top-level keys like `summary`, `branch`, or `review`.
 
 ## Important
 - Do NOT make any code changes
