@@ -2,6 +2,55 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.61] - 2026-03-25
+
+Extended context model suffix, auto-pilot model filtering, and code-review pass-status parsing. Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
+
+### New Features
+
+- Auto-pilot model filtering — new `autoPilotEnabledModels` field end-to-end (types, store migration v24, Rust backend serde, orchestrator filtering) restricts which models auto-pilot can select for command execution
+- `AutoPilotRow` component with collapsible per-model enable/disable panel replacing the inline toggle, showing selection model dropdown and available model count badge
+
+### Improvements
+
+- Extended context uses `[1m]` model suffix instead of the deprecated `--betas` CLI flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6 via `is_1m_eligible()`
+- Claude Code effort level moved from `--effort` CLI argument to `CLAUDE_CODE_EFFORT_LEVEL` environment variable, set before the early return so it applies regardless of local provider config
+- Code-review fallback parser (`parse_structured_review_fallback`) extended with a 5-condition guard that accepts JSON blocks containing an explicit `issues` key or a pass-like `review_status`/`status` field (pass/clean/approved, case-insensitive)
+- Code-review prompt adds `review_status` and `status` to the disallowed field rename list to reduce future LLM schema deviations
+
+### Bug Fixes
+
+- Fixed code-review fallback parser rejecting valid pass-status JSON (e.g. `{"review_status":"pass","issues":[]}`) — the guard returned `None` when it saw no `issues_found` key and no issues in the array, causing the orchestrator to treat a passing review as unparseable and unnecessarily run the fix phase
+- Fixed extended context `--betas` flag being sent to Claude CLI which no longer supports it — replaced with `[1m]` model suffix on eligible models
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --all-targets -- -D warnings: 0 warnings
+- cargo test --lib: 1941 passed, 0 failed
+- npx vitest run: 47 files, 994 passed, 0 failed
+- 16 new Rust unit tests for pass-status recognition, case insensitivity, non-string value resilience, wrapper objects, contradictory status+issues, and public API integration
+- New Rust tests for `[1m]` suffix eligibility gating on opus, sonnet, and ineligible models
+- New TypeScript tests for `AutoPilotRow` model count badge, expand/collapse, and store migration v24
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.60, here is a summary of the major features introduced in recent releases:
+
+**beta.60 — Robust Code-Review Parsing & Auto-Clarification Routing**
+The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings.
+
+**beta.59 — Multi-Project Workspaces**
+Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames "Projects" to "Scopes" with a unified list. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via `.code-workspace` files and `--add-dir` flags.
+
+**beta.58 — Robust Fix-Task Parsing**
+Multi-strategy fallback chain for the review agent's `create_fix_tasks` parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
+
+**beta.57 — Real-Time Title Bar Status**
+Title bar queued/active status pills now update instantly when tickets move via user drag-and-drop or backend agent workflows, instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, with promise-based cleanup to prevent leaks under React strict mode.
+
+---
+
 ## [0.1.0-beta.60] - 2026-03-25
 
 Robust code-review JSON parsing with fallback extraction and smarter auto-clarification ticket routing. The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings instead of always landing in Ready.
