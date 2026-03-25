@@ -81,6 +81,14 @@ impl AgentProvider for ClaudeProvider {
         let api_config = ClaudeApiConfig::from_agent_config(&config.agent_config);
         let mut env_vars = Vec::new();
 
+        let effort = api_config
+            .effort
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_else(|| "medium".to_string());
+        env_vars.push(("CLAUDE_CODE_EFFORT_LEVEL".to_string(), effort));
+
         if !api_config.use_local_provider.unwrap_or(false)
             || api_config.base_url.as_ref().is_none_or(|s| s.is_empty())
         {

@@ -91,7 +91,15 @@ impl WorkflowOrchestrator {
             ),
         };
 
-        let provider_models = self.provider.available_models();
+        let all_provider_models = self.provider.available_models();
+        let provider_models: Vec<(&str, &str)> = if self.auto_pilot_enabled_models.is_empty() {
+            all_provider_models
+        } else {
+            all_provider_models
+                .into_iter()
+                .filter(|(id, _)| self.auto_pilot_enabled_models.iter().any(|e| e == id))
+                .collect()
+        };
 
         if provider_models.is_empty() {
             tracing::warn!(

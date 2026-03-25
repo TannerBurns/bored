@@ -98,7 +98,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
           onChange={(v) => updateSetting('thinkingEnabled', v)}
         />
         <ToggleRow
-          label="Extended Context" description="Enable 1M token context window."
+          label="Extended Context" description="Enable 1M token context window (Opus 4.6 and Sonnet 4.6 only)."
           enabled={extendedContext}
           onChange={(v) => updateSetting('extendedContext', v)}
         />

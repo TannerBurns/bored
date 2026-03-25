@@ -37,6 +37,10 @@ pub struct WorkflowSettings {
     /// Model used for the auto-pilot command-selection call.
     #[serde(default = "default_auto_pilot_model")]
     pub auto_pilot_model: String,
+    /// Model IDs the auto-pilot is allowed to choose from for commands.
+    /// Empty means all provider models are available (backward compat).
+    #[serde(default)]
+    pub auto_pilot_enabled_models: Vec<String>,
     /// Commands that always run in auto-pilot mode, regardless of the agent's selection.
     #[serde(default)]
     pub auto_pilot_required_commands: Vec<AutoPilotRequiredCommand>,
@@ -135,6 +139,7 @@ impl Default for WorkflowSettings {
         Self {
             auto_pilot_enabled: false,
             auto_pilot_model: default_auto_pilot_model(),
+            auto_pilot_enabled_models: Vec::new(),
             auto_pilot_required_commands: Vec::new(),
             auto_complete_tickets: false,
             auto_clarification: false,
@@ -922,6 +927,51 @@ mod tests {
     fn workflow_settings_default_has_empty_required_commands() {
         let settings = WorkflowSettings::default();
         assert!(settings.auto_pilot_required_commands.is_empty());
+    }
+
+    // ── auto_pilot_enabled_models ─────────────────────────────────
+
+    #[test]
+    fn auto_pilot_enabled_models_defaults_to_empty_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_pilot_enabled_models.is_empty());
+    }
+
+    #[test]
+    fn auto_pilot_enabled_models_deserializes() {
+        let json = r#"{
+            "autoPilotEnabledModels":["claude-opus-4-6","claude-sonnet-4-6"],
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.auto_pilot_enabled_models, vec!["claude-opus-4-6", "claude-sonnet-4-6"]);
+    }
+
+    #[test]
+    fn auto_pilot_enabled_models_round_trips() {
+        let original = WorkflowSettings {
+            auto_pilot_enabled_models: vec!["gpt-5.4".to_string(), "gpt-5.2-codex".to_string()],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains("autoPilotEnabledModels"));
+        let restored: WorkflowSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.auto_pilot_enabled_models, vec!["gpt-5.4", "gpt-5.2-codex"]);
+    }
+
+    #[test]
+    fn workflow_settings_default_has_empty_enabled_models() {
+        let settings = WorkflowSettings::default();
+        assert!(settings.auto_pilot_enabled_models.is_empty());
     }
 
     // ── code_review_agent_* fields ───────────────────────────────

@@ -531,10 +531,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 23', () => {
+    it('uses version 24', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(23);
+      expect(options.version).toBe(24);
     });
   });
 
@@ -1331,6 +1331,49 @@ describe('useSettingsStore', () => {
         { command: 'cleanup', phase: 'before' },
         { command: 'deslop', phase: 'after' },
       ]);
+    });
+  });
+
+  describe('persist migration v23->v24 (autoPilotEnabledModels backfill)', () => {
+    it('adds empty autoPilotEnabledModels when missing', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        23
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotEnabledModels?: string[] }>;
+      expect(configs.claude.autoPilotEnabledModels).toEqual([]);
+    });
+
+    it('preserves existing autoPilotEnabledModels', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              autoPilotEnabledModels: ['claude-opus-4-6', 'claude-sonnet-4-6'],
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        23
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { autoPilotEnabledModels?: string[] }>;
+      expect(configs.claude.autoPilotEnabledModels).toEqual(['claude-opus-4-6', 'claude-sonnet-4-6']);
     });
   });
 });

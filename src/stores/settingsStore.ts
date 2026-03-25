@@ -308,7 +308,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 23,
+      version: 24,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -400,6 +400,7 @@ export const useSettingsStore = create<SettingsState>()(
             return {
               autoPilotEnabled: false,
               autoPilotModel: base.autoPilotModel,
+              autoPilotEnabledModels: [],
               autoPilotRequiredCommands: [],
               autoCompleteTickets: false,
               autoClarification: false,
@@ -627,6 +628,17 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
 
+        if (version < 24) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (cfg.autoPilotEnabledModels === undefined) {
+                cfg.autoPilotEnabledModels = [];
+              }
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -637,6 +649,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
   const payload: Record<string, {
     autoPilotEnabled: boolean;
     autoPilotModel: string;
+    autoPilotEnabledModels: string[];
     autoPilotRequiredCommands: { command: string; phase: string }[];
     autoCompleteTickets: boolean;
     autoClarification: boolean;
@@ -659,6 +672,7 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     payload[agentId] = {
       autoPilotEnabled: config.autoPilotEnabled ?? false,
       autoPilotModel: config.autoPilotModel ?? (agentId === 'codex' ? 'gpt-5.4' : 'claude-opus-4-6'),
+      autoPilotEnabledModels: config.autoPilotEnabledModels ?? [],
       autoPilotRequiredCommands: config.autoPilotRequiredCommands ?? [],
       autoCompleteTickets: config.autoCompleteTickets ?? false,
       autoClarification: config.autoClarification ?? false,

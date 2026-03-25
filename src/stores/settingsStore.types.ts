@@ -117,6 +117,7 @@ export interface AutoPilotRequiredCommand {
 export interface AgentConfig {
   autoPilotEnabled: boolean;
   autoPilotModel: AIModel;
+  autoPilotEnabledModels: string[];
   autoPilotRequiredCommands: AutoPilotRequiredCommand[];
   autoCompleteTickets: boolean;
   autoClarification: boolean;
@@ -195,6 +196,8 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
     ...base,
     workflowStages: deepCopyStages(base.workflowStages),
     stageOrder: [...base.stageOrder],
+    autoPilotEnabledModels: [...base.autoPilotEnabledModels],
+    autoPilotRequiredCommands: base.autoPilotRequiredCommands.map((c) => ({ ...c })),
     settings: { ...(settingsOverride ?? base.settings) },
   };
 }
@@ -202,6 +205,7 @@ function cloneConfig(base: AgentConfig, settingsOverride?: Record<string, unknow
 const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoPilotEnabledModels: ['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5'],
   autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
@@ -244,6 +248,7 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
 const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'claude-opus-4-6',
+  autoPilotEnabledModels: [],
   autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
@@ -278,6 +283,7 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
 const DEFAULT_CODEX_CONFIG: AgentConfig = {
   autoPilotEnabled: false,
   autoPilotModel: 'gpt-5.4',
+  autoPilotEnabledModels: ['gpt-5.4', 'gpt-5.3-codex', 'gpt-5.2-codex'],
   autoPilotRequiredCommands: [],
   autoCompleteTickets: false,
   autoClarification: false,
