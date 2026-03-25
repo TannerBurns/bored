@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useBoardStore } from '../stores/boardStore';
 import { useSettingsStore, ensureAgentConfigsSynced } from '../stores/settingsStore';
-import { deleteTicket, startAgentRun } from '../lib/tauri';
+import { deleteTicket, startAgentRun, getWorkspaceProjects } from '../lib/tauri';
 import { logger } from '../lib/logger';
 import type { Ticket, Project, CreateTicketInput } from '../types';
 
@@ -80,18 +80,27 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
       return;
     }
     
-    if (!ticket.projectId) {
-      logger.error('Ticket has no projectId:', ticketId);
+    let projectPath: string;
+    if (ticket.projectId) {
+      const project = projects.find(p => p.id === ticket.projectId);
+      if (!project) {
+        logger.error('Project not found:', ticket.projectId);
+        return;
+      }
+      projectPath = project.path;
+    } else if (ticket.workspaceId) {
+      const wsProjects = await getWorkspaceProjects(ticket.workspaceId);
+      if (wsProjects.length === 0) {
+        logger.error('Workspace has no projects:', ticket.workspaceId);
+        return;
+      }
+      projectPath = wsProjects[0].path;
+    } else {
+      logger.error('Ticket has no projectId or workspaceId:', ticketId);
       return;
     }
     
-    const project = projects.find(p => p.id === ticket.projectId);
-    if (!project) {
-      logger.error('Project not found:', ticket.projectId);
-      return;
-    }
-    
-    logger.debug('Starting agent with project', { projectId: project.id, path: project.path });
+    logger.debug('Starting agent with project path', { path: projectPath });
     
     await ensureAgentConfigsSynced();
 
@@ -101,7 +110,7 @@ export function useTicketHandlers({ tickets, setTickets, projects }: UseTicketHa
     try {
       logger.debug('Calling startAgentRun...');
 
-      const runId = await startAgentRun(ticketId, agentType, project.path, {
+      const runId = await startAgentRun(ticketId, agentType, projectPath, {
         codeReviewMaxIterations: cfg.codeReviewMaxIterations,
         stageTimeoutHours: cfg.stageTimeoutHours,
         stageMaxRetries: cfg.stageMaxRetries,

@@ -10,7 +10,7 @@ use crate::agents::validation_agent::prompts::{
 };
 use crate::agents::validation_agent::{AppLogEventKind, AppProcessManager, StartResult};
 use crate::api::state::LiveEvent;
-use crate::commands::next_steps::get_branch_diff_sync;
+use crate::commands::next_steps::{get_branch_diff_sync, get_default_branch, get_ticket_working_dirs};
 use crate::db::models::{
     ChatMessage, ChatMessageRole, ChatStatus, ValidationMessage, ValidationMessageRole,
 };
@@ -41,25 +41,72 @@ impl ChatAgent {
             .get_ticket(&ticket_id)
             .map_err(|e| ChatAgentError::AgentFailed(e.to_string()))?;
 
-        if ticket.project_id.as_deref() != Some(&chat.project_id) {
-            return Err(ChatAgentError::AgentFailed(
-                "Ticket does not belong to the chat's project".into(),
-            ));
+        if let Some(ref chat_project_id) = chat.project_id {
+            if ticket.project_id.as_deref() != Some(chat_project_id) {
+                return Err(ChatAgentError::AgentFailed(
+                    "Ticket does not belong to the chat's project".into(),
+                ));
+            }
         }
 
-        let project = self
-            .db
-            .get_project(&chat.project_id)?
-            .ok_or_else(|| {
-                ChatAgentError::AgentFailed(format!("Project not found: {}", chat.project_id))
-            })?;
+        let project_path = if let Some(ref project_id) = chat.project_id {
+            let project = self.db.get_project(project_id)?
+                .ok_or_else(|| ChatAgentError::AgentFailed(format!("Project not found: {}", project_id)))?;
+            project.path
+        } else if let Some(ref workspace_id) = chat.workspace_id {
+            let projects = self.db.get_workspace_projects(workspace_id)
+                .map_err(|e| ChatAgentError::AgentFailed(e.to_string()))?;
+            projects.first()
+                .ok_or_else(|| ChatAgentError::AgentFailed("Workspace has no projects".into()))?
+                .path.clone()
+        } else {
+            return Err(ChatAgentError::AgentFailed("Chat has no project or workspace".into()));
+        };
 
-        let branch_diff = get_branch_diff_sync(&self.db, &ticket_id)
-            .map_err(ChatAgentError::AgentFailed)?
-            .diff;
+        let branch_diff = if ticket.workspace_id.is_some() {
+            match get_ticket_working_dirs(&self.db, &ticket_id) {
+                Ok(dirs) if dirs.len() > 1 => {
+                    let mut combined = String::new();
+                    for (_, project_name, working_dir, branch) in &dirs {
+                        let default_branch = get_default_branch(working_dir)
+                            .unwrap_or_else(|_| "origin/main".to_string());
+                        let output = std::process::Command::new("git")
+                            .args(["diff", &format!("{}...{}", default_branch, branch)])
+                            .current_dir(working_dir)
+                            .output();
+                        if let Ok(out) = output {
+                            if out.status.success() {
+                                let diff = String::from_utf8_lossy(&out.stdout);
+                                if !diff.trim().is_empty() {
+                                    combined.push_str(&format!(
+                                        "\n### Project: {}\n\n",
+                                        project_name
+                                    ));
+                                    combined.push_str(&diff);
+                                }
+                            }
+                        }
+                    }
+                    if combined.is_empty() {
+                        get_branch_diff_sync(&self.db, &ticket_id)
+                            .map_err(ChatAgentError::AgentFailed)?
+                            .diff
+                    } else {
+                        combined
+                    }
+                }
+                _ => get_branch_diff_sync(&self.db, &ticket_id)
+                    .map_err(ChatAgentError::AgentFailed)?
+                    .diff,
+            }
+        } else {
+            get_branch_diff_sync(&self.db, &ticket_id)
+                .map_err(ChatAgentError::AgentFailed)?
+                .diff
+        };
 
         let (working_dir_path, worktree_path, repo_path_for_cleanup) =
-            resolve_review_working_dir(&self.db, &ticket_id, &project.path, &self.config.chat_id)?;
+            resolve_review_working_dir(&self.db, &ticket_id, &project_path, &self.config.chat_id)?;
         let working_dir = Path::new(&working_dir_path);
 
         let is_first_turn = !messages.iter().any(|m| m.role == ChatMessageRole::Assistant);

@@ -179,7 +179,10 @@ impl Database {
                          AND t.is_epic = 0
                          AND t.paused_at IS NULL
                          AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?3)
-                         AND (?4 IS NULL OR t.project_id = ?4)
+                         AND (?4 IS NULL OR t.project_id = ?4
+                              OR t.workspace_id IN (
+                                SELECT wp.workspace_id FROM workspace_projects wp WHERE wp.project_id = ?4
+                              ))
                        ORDER BY 
                          CASE t.priority 
                            WHEN 'urgent' THEN 0 
@@ -202,7 +205,7 @@ impl Database {
             let ticket = tx.query_row(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets WHERE locked_by_run_id = ?1
@@ -273,16 +276,21 @@ impl Database {
                 .unwrap_or(0);
 
             // Count with wrong project
-            let wrong_project: i64 = if let Some(proj_id) = project_filter {
+            let wrong_project: i64 = if project_filter.is_some() {
                 conn.query_row(
                     r#"SELECT COUNT(*) FROM tickets t
                        JOIN columns c ON t.column_id = c.id
                        WHERE c.name = 'Ready' 
                          AND t.is_epic = 0 
                          AND t.paused_at IS NULL
-                         AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
-                         AND t.project_id != ?"#,
-                    rusqlite::params![&now_str, proj_id],
+                         AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?1)
+                         AND NOT (
+                           t.project_id = ?2
+                           OR t.workspace_id IN (
+                             SELECT wp.workspace_id FROM workspace_projects wp WHERE wp.project_id = ?2
+                           )
+                         )"#,
+                    rusqlite::params![&now_str, project_filter],
                     |row| row.get(0),
                 )
                 .unwrap_or(0)
@@ -298,9 +306,11 @@ impl Database {
                    WHERE c.name = 'Ready'
                      AND t.is_epic = 0
                      AND t.paused_at IS NULL
-                     AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?)
-                     AND (? IS NULL OR t.project_id = ?)"#,
-                    rusqlite::params![&now_str, project_filter, project_filter],
+                     AND (t.locked_by_run_id IS NULL OR t.lock_expires_at < ?1)
+                     AND (?2 IS NULL OR t.project_id = ?2 OR t.workspace_id IN (
+                       SELECT wp.workspace_id FROM workspace_projects wp WHERE wp.project_id = ?2
+                     ))"#,
+                    rusqlite::params![&now_str, project_filter],
                     |row| row.get(0),
                 )
                 .unwrap_or(0);

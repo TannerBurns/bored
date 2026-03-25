@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { getProjects } from '../../../lib/tauri';
+import { getProjects, getWorkspaces } from '../../../lib/tauri';
+import { useChatStore } from '../../../stores/chatStore';
 import { logger } from '../../../lib/logger';
 import { cn } from '../../../lib/utils';
 import { FullscreenDescriptionModal } from '../../board/FullscreenDescriptionModal';
@@ -17,7 +18,7 @@ import { OverviewTab } from './OverviewTab';
 import { TasksTab } from './TasksTab';
 import { AgentTab } from './AgentTab';
 import { ActivityTab } from './ActivityTab';
-import type { Ticket, Column, Comment, Project } from '../../../types';
+import type { Ticket, Column, Comment, Project, Workspace } from '../../../types';
 
 type TabId = 'overview' | 'tasks' | 'agent' | 'activity';
 
@@ -62,6 +63,7 @@ export function TicketDetailView({
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -90,6 +92,30 @@ export function TicketDetailView({
     setAgentRuns: runsHistory.setAgentRuns,
     setEditBranchName: editState.setEditBranchName,
   });
+
+  const createChat = useChatStore((s) => s.createChat);
+  const selectChat = useChatStore((s) => s.selectChat);
+
+  const handleValidateWithAgent = useCallback(async (agentType: string) => {
+    try {
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId,
+        workspaceId: ticket.workspaceId,
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      if (onNavigateToChat) {
+        onNavigateToChat();
+      } else {
+        onClose();
+      }
+    } catch (e) {
+      logger.error('Failed to create validation chat:', e);
+    }
+  }, [ticket, createChat, selectChat, onNavigateToChat, onClose]);
 
   // Auto-switch to Agent tab when a run starts
   useEffect(() => {
@@ -121,10 +147,14 @@ export function TicketDetailView({
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await getProjects();
-        setProjects(data);
+        const [projectsData, workspacesData] = await Promise.all([
+          getProjects(),
+          getWorkspaces(),
+        ]);
+        setProjects(projectsData);
+        setWorkspaces(workspacesData);
       } catch (e) {
-        logger.error('Failed to load projects:', e);
+        logger.error('Failed to load projects/workspaces:', e);
       }
     };
     load();
@@ -282,7 +312,6 @@ export function TicketDetailView({
                 agentEvents={agentEvents}
                 onUpdate={onUpdate}
                 onOpenFullscreen={() => setIsFullscreenOpen(true)}
-                onNavigateToChat={onNavigateToChat}
                 onBack={onClose}
               />
             )}
@@ -324,6 +353,7 @@ export function TicketDetailView({
           ticket={ticket}
           columns={columns}
           projects={projects}
+          workspaces={workspaces}
           agentRuns={runsHistory.agentRuns}
           editState={editState}
           parentEpic={epicData.parentEpic}
@@ -336,6 +366,7 @@ export function TicketDetailView({
             onMoveTicket(ticket.id, newColumnId);
           }}
           onRunWithAgent={onRunWithAgent}
+          onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete}
           onBack={onClose}
         />

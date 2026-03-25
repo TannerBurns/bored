@@ -8,6 +8,17 @@ use uuid::Uuid;
 
 impl Database {
     pub fn create_chat(&self, input: &CreateChat) -> Result<Chat, DbError> {
+        if input.project_id.is_none() && input.workspace_id.is_none() {
+            return Err(DbError::Validation(
+                "Either project_id or workspace_id must be provided".to_string(),
+            ));
+        }
+        if input.mode == ChatMode::SpecBuilder && input.project_id.is_none() {
+            return Err(DbError::Validation(
+                "spec_builder mode requires a single project_id".to_string(),
+            ));
+        }
+
         match input.mode {
             ChatMode::TicketBuilder | ChatMode::SpecBuilder => {
                 if input.board_id.is_none() {
@@ -33,8 +44,8 @@ impl Database {
             let now_str = now.to_rfc3339();
 
             conn.execute(
-                r#"INSERT INTO chats (id, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, created_at, updated_at)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+                r#"INSERT INTO chats (id, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, workspace_id, created_at, updated_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
                 params![
                     id,
                     input.agent_type,
@@ -45,6 +56,7 @@ impl Database {
                     input.spec_id,
                     input.model,
                     ChatStatus::Active.as_str(),
+                    input.workspace_id,
                     now_str,
                     now_str,
                 ],
@@ -55,6 +67,7 @@ impl Database {
                 title: None,
                 agent_type: input.agent_type.clone(),
                 project_id: input.project_id.clone(),
+                workspace_id: input.workspace_id.clone(),
                 mode: input.mode.clone(),
                 board_id: input.board_id.clone(),
                 ticket_id: input.ticket_id.clone(),
@@ -71,7 +84,7 @@ impl Database {
     pub fn get_chat(&self, id: &str) -> Result<Chat, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
-                r#"SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, created_at, updated_at, agent_session_id
+                r#"SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, created_at, updated_at, agent_session_id, workspace_id
                    FROM chats
                    WHERE id = ?1"#,
                 [id],
@@ -83,6 +96,7 @@ impl Database {
                         title: row.get(1)?,
                         agent_type: row.get(2)?,
                         project_id: row.get(3)?,
+                        workspace_id: row.get(13)?,
                         mode: ChatMode::parse(&mode_str).unwrap_or(ChatMode::General),
                         board_id: row.get(5)?,
                         ticket_id: row.get(6)?,
@@ -107,7 +121,7 @@ impl Database {
     pub fn get_chats(&self, limit: i64, offset: i64) -> Result<Vec<Chat>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, created_at, updated_at, agent_session_id
+                r#"SELECT id, title, agent_type, project_id, mode, board_id, ticket_id, spec_id, model, status, created_at, updated_at, agent_session_id, workspace_id
                    FROM chats
                    ORDER BY created_at DESC
                    LIMIT ?1 OFFSET ?2"#,
@@ -122,6 +136,7 @@ impl Database {
                         title: row.get(1)?,
                         agent_type: row.get(2)?,
                         project_id: row.get(3)?,
+                        workspace_id: row.get(13)?,
                         mode: ChatMode::parse(&mode_str).unwrap_or(ChatMode::General),
                         board_id: row.get(5)?,
                         ticket_id: row.get(6)?,

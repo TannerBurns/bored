@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useBoardStore } from '../stores/boardStore';
 import { useSpecStore } from '../stores/specStore';
-import { getProjects, getBoards, getTickets, getApiConfig, getRecentRunsWithContext, getColumns } from '../lib/tauri';
+import { getProjects, getWorkspaces, getBoards, getTickets, getApiConfig, getRecentRunsWithContext, getColumns } from '../lib/tauri';
 import { logger } from '../lib/logger';
-import type { Project, AgentRunWithContext } from '../types';
+import type { Project, Workspace, AgentRunWithContext } from '../types';
 
 interface UseAppDataResult {
   projects: Project[];
+  workspaces: Workspace[];
   recentRuns: AgentRunWithContext[];
   isDataLoaded: boolean;
   apiConfig: { url: string; token: string } | null;
@@ -20,6 +21,7 @@ export function useAppData(
   setTickets: (tickets: ReturnType<typeof getTickets> extends Promise<infer T> ? T : never) => void
 ): UseAppDataResult {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [recentRuns, setRecentRuns] = useState<AgentRunWithContext[]>([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [apiConfig, setApiConfig] = useState<{ url: string; token: string } | null>(null);
@@ -57,11 +59,13 @@ export function useAppData(
         const config = await getApiConfigWithRetry();
         setApiConfig(config);
         
-        const [projectsData, boardsData] = await Promise.all([
+        const [projectsData, workspacesData, boardsData] = await Promise.all([
           getProjects(),
+          getWorkspaces(),
           getBoards(),
         ]);
         setProjects(projectsData);
+        setWorkspaces(workspacesData);
         storeSetBoards(boardsData);
         
         if (boardsData.length > 0) {
@@ -87,6 +91,7 @@ export function useAppData(
 
   return {
     projects,
+    workspaces,
     recentRuns,
     isDataLoaded,
     apiConfig,

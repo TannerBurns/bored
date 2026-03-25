@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
-import { getProjects } from '../../../lib/tauri';
+import { useState, useEffect, useCallback } from 'react';
+import { getProjects, getWorkspaces } from '../../../lib/tauri';
+import { useChatStore } from '../../../stores/chatStore';
 import { logger } from '../../../lib/logger';
 import { FullscreenDescriptionModal } from '../FullscreenDescriptionModal';
 import { FullscreenCommentModal } from '../FullscreenCommentModal';
 import { CreateCommentModal } from '../CreateCommentModal';
 import { TaskList } from '../TaskList';
 import { validateTransition } from '../TransitionGuard';
-import type { Project, Comment } from '../../../types';
+import type { Project, Workspace, Comment } from '../../../types';
 import type { TicketModalProps } from './types';
 import { useTicketEdit } from './hooks/useTicketEdit';
 import { useEpicData } from './hooks/useEpicData';
@@ -42,7 +43,7 @@ export function TicketModal({
   onAgentComplete,
 }: TicketModalProps) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
   const [fullscreenComment, setFullscreenComment] = useState<Comment | null>(null);
   const [isCreateCommentModalOpen, setIsCreateCommentModalOpen] = useState(false);
@@ -71,16 +72,34 @@ export function TicketModal({
     setEditBranchName: editState.setEditBranchName,
   });
 
+  const createChat = useChatStore((s) => s.createChat);
+  const selectChat = useChatStore((s) => s.selectChat);
+
+  const handleValidateWithAgent = useCallback(async (agentType: string) => {
+    try {
+      const chat = await createChat({
+        agentType,
+        projectId: ticket.projectId,
+        workspaceId: ticket.workspaceId,
+        mode: 'review' as const,
+        boardId: ticket.boardId,
+        ticketId: ticket.id,
+      });
+      await selectChat(chat.id);
+      onNavigateToChat?.();
+    } catch (e) {
+      logger.error('Failed to create validation chat:', e);
+    }
+  }, [ticket, createChat, selectChat, onNavigateToChat]);
+
   useEffect(() => {
     const loadProjects = async () => {
       try {
-        setProjectsLoading(true);
-        const data = await getProjects();
+        const [data, wsData] = await Promise.all([getProjects(), getWorkspaces()]);
         setProjects(data);
+        setWorkspaces(wsData);
       } catch (e) {
-        logger.error('Failed to load projects:', e);
-      } finally {
-        setProjectsLoading(false);
+        logger.error('Failed to load projects/workspaces:', e);
       }
     };
     loadProjects();
@@ -149,14 +168,14 @@ export function TicketModal({
           {/* Edit form fields (only visible when editing) */}
           {editState.isEditing && (
             <TicketEditForm
-              projects={projects}
-              projectsLoading={projectsLoading}
               editPriority={editState.editPriority}
               setEditPriority={editState.setEditPriority}
               editLabels={editState.editLabels}
               setEditLabels={editState.setEditLabels}
               editProjectId={editState.editProjectId}
               setEditProjectId={editState.setEditProjectId}
+              editWorkspaceId={editState.editWorkspaceId}
+              setEditWorkspaceId={editState.setEditWorkspaceId}
               editBranchName={editState.editBranchName}
               setEditBranchName={editState.setEditBranchName}
             />
@@ -164,7 +183,7 @@ export function TicketModal({
 
           {/* Read-only details (only visible when not editing) */}
           {!editState.isEditing && (
-            <TicketDetails ticket={ticket} projects={projects} />
+            <TicketDetails ticket={ticket} projects={projects} workspaces={workspaces} />
           )}
 
           {/* Description */}
@@ -229,7 +248,6 @@ export function TicketModal({
           <NextStepsPanel
             ticket={ticket}
             columns={columns}
-            onNavigateToChat={onNavigateToChat}
           />
 
           {/* Ticket Cost Summary */}
@@ -269,6 +287,7 @@ export function TicketModal({
           showDeleteConfirm={showDeleteConfirm}
           setShowDeleteConfirm={setShowDeleteConfirm}
           onRunWithAgent={onRunWithAgent}
+          onValidateWithAgent={handleValidateWithAgent}
           onDelete={onDelete ? handleDelete : undefined}
           onSave={editState.handleSave}
           onCancelEdit={() => {

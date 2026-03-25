@@ -42,21 +42,30 @@ fn sanitize_title(raw: &str) -> String {
     }
 }
 
+pub struct TitleGenParams {
+    pub db: Arc<Database>,
+    pub chat_id: String,
+    pub first_message: String,
+    pub event_tx: broadcast::Sender<LiveEvent>,
+    pub registry: Arc<AgentRegistry>,
+    pub agent_id: String,
+    pub repo_path: std::path::PathBuf,
+    pub agent_config: HashMap<String, serde_json::Value>,
+    pub model: Option<String>,
+    pub workspace_file: Option<std::path::PathBuf>,
+    pub workspace_paths: Vec<std::path::PathBuf>,
+}
+
 /// Spawn a background task that generates a title for the chat from the first message.
 ///
 /// Runs concurrently so it doesn't block the main message processing path.
 /// Uses a lightweight agent config (no thinking, max 1 turn) to keep it fast.
-pub fn spawn_title_generation(
-    db: Arc<Database>,
-    chat_id: String,
-    first_message: String,
-    event_tx: broadcast::Sender<LiveEvent>,
-    registry: Arc<AgentRegistry>,
-    agent_id: String,
-    repo_path: std::path::PathBuf,
-    agent_config: HashMap<String, serde_json::Value>,
-    model: Option<String>,
-) {
+pub fn spawn_title_generation(params: TitleGenParams) {
+    let TitleGenParams {
+        db, chat_id, first_message, event_tx, registry,
+        agent_id, repo_path, agent_config, model,
+        workspace_file, workspace_paths,
+    } = params;
     tokio::spawn(async move {
         let truncated_input: String = first_message.chars().take(500).collect();
         let prompt = format!(
@@ -86,6 +95,8 @@ pub fn spawn_title_generation(
             model,
             agent_config: title_config,
             session_id: None,
+            workspace_file,
+            workspace_paths,
         };
 
         let provider_clone = provider.clone();

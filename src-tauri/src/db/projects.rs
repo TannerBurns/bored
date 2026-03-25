@@ -155,80 +155,60 @@ impl Database {
 
     pub fn delete_project(&self, project_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let board_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM boards WHERE default_project_id = ?",
-                [project_id],
-                |row| row.get(0),
-            )?;
-
-            if board_count > 0 {
-                return Err(DbError::Validation(format!(
-                    "Cannot delete project: {} board(s) use it as default",
-                    board_count
-                )));
-            }
-
             conn.execute("DELETE FROM projects WHERE id = ?", [project_id])?;
-            Ok(())
-        })
-    }
-
-    pub fn set_board_project(
-        &self,
-        board_id: &str,
-        project_id: Option<&str>,
-    ) -> Result<(), DbError> {
-        self.with_conn(|conn| {
-            let now = chrono::Utc::now().to_rfc3339();
-            conn.execute(
-                "UPDATE boards SET default_project_id = ?, updated_at = ? WHERE id = ?",
-                rusqlite::params![project_id, now, board_id],
-            )?;
             Ok(())
         })
     }
 
     pub fn can_move_to_ready(&self, ticket_id: &str) -> Result<ReadinessCheck, DbError> {
         self.with_conn(|conn| {
-            let result: Result<(Option<String>, String), _> = conn.query_row(
-                "SELECT project_id, board_id FROM tickets WHERE id = ?",
-                [ticket_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            );
-
-            let (ticket_project_id, board_id) =
-                result.map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))?;
-
-            let board_project_id: Option<String> = conn
+            let (ticket_project_id, ticket_workspace_id): (Option<String>, Option<String>) = conn
                 .query_row(
-                    "SELECT default_project_id FROM boards WHERE id = ?",
-                    [&board_id],
-                    |row| row.get(0),
+                    "SELECT project_id, workspace_id FROM tickets WHERE id = ?",
+                    [ticket_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
-                .ok()
-                .flatten();
+                .map_err(|_| DbError::NotFound(format!("Ticket {} not found", ticket_id)))?;
 
-            let effective_project_id = ticket_project_id.or(board_project_id);
+            if let Some(pid) = ticket_project_id {
+                let path: Option<String> = conn
+                    .query_row("SELECT path FROM projects WHERE id = ?", [&pid], |row| {
+                        row.get(0)
+                    })
+                    .ok();
 
-            match effective_project_id {
-                Some(pid) => {
-                    let path: Option<String> = conn
-                        .query_row("SELECT path FROM projects WHERE id = ?", [&pid], |row| {
-                            row.get(0)
-                        })
-                        .ok();
+                if let Some(p) = path {
+                    if std::path::Path::new(&p).exists() {
+                        Ok(ReadinessCheck::Ready { project_id: pid })
+                    } else {
+                        Ok(ReadinessCheck::ProjectPathMissing { path: p })
+                    }
+                } else {
+                    Ok(ReadinessCheck::ProjectNotFound(None))
+                }
+            } else if let Some(wid) = ticket_workspace_id {
+                let mut stmt = conn.prepare(
+                    r#"SELECT p.id, p.path FROM projects p
+                   JOIN workspace_projects wp ON p.id = wp.project_id
+                   WHERE wp.workspace_id = ?
+                   ORDER BY wp.position LIMIT 1"#,
+                )?;
+                let result: Option<(String, String)> = stmt
+                    .query_row([&wid], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .ok();
 
-                    if let Some(p) = path {
-                        if std::path::Path::new(&p).exists() {
+                match result {
+                    Some((pid, path)) => {
+                        if std::path::Path::new(&path).exists() {
                             Ok(ReadinessCheck::Ready { project_id: pid })
                         } else {
-                            Ok(ReadinessCheck::ProjectPathMissing { path: p })
+                            Ok(ReadinessCheck::ProjectPathMissing { path })
                         }
-                    } else {
-                        Ok(ReadinessCheck::ProjectNotFound(None))
                     }
+                    None => Ok(ReadinessCheck::NoProject(None)),
                 }
-                None => Ok(ReadinessCheck::NoProject(None)),
+            } else {
+                Ok(ReadinessCheck::NoProject(None))
             }
         })
     }
@@ -301,51 +281,6 @@ mod tests {
     }
 
     #[test]
-    fn delete_project_fails_if_board_uses_it() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        let board = db.create_board("Board").unwrap();
-        db.set_board_project(&board.id, Some(&project.id)).unwrap();
-
-        let result = db.delete_project(&project.id);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("board"));
-    }
-
-    #[test]
-    fn set_board_project() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Test".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        let board = db.create_board("Board").unwrap();
-        assert!(board.default_project_id.is_none());
-
-        db.set_board_project(&board.id, Some(&project.id)).unwrap();
-
-        let updated = db.get_board(&board.id).unwrap().unwrap();
-        assert_eq!(updated.default_project_id, Some(project.id.clone()));
-
-        db.set_board_project(&board.id, None).unwrap();
-        let cleared = db.get_board(&board.id).unwrap().unwrap();
-        assert!(cleared.default_project_id.is_none());
-    }
-
-    #[test]
     fn update_project_blocked_patterns() {
         let db = create_test_db();
 
@@ -399,49 +334,7 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: Some(project.id.clone()),
-                workflow_type: WorkflowType::default(),
-                model: None,
-                branch_name: None,
-                is_epic: false,
-                epic_id: None,
-                depends_on_epic_id: None,
-                depends_on_epic_ids: vec![],
-                spec_version_id: None,
-            })
-            .unwrap();
-
-        let check = db.can_move_to_ready(&ticket.id).unwrap();
-        match check {
-            ReadinessCheck::Ready { project_id } => assert_eq!(project_id, project.id),
-            other => panic!("Expected Ready, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn can_move_to_ready_uses_board_default() {
-        let db = create_test_db();
-
-        let project = db
-            .create_project(&CreateProject {
-                name: "Proj".to_string(),
-                path: temp_dir_path(),
-                requires_git: true,
-            })
-            .unwrap();
-
-        let board = db.create_board("Board").unwrap();
-        db.set_board_project(&board.id, Some(&project.id)).unwrap();
-
-        let columns = db.get_columns(&board.id).unwrap();
-        let ticket = db
-            .create_ticket(&CreateTicket {
-                board_id: board.id.clone(),
-                column_id: columns[0].id.clone(),
-                title: "Ticket".to_string(),
-                description_md: "".to_string(),
-                priority: Priority::Low,
-                labels: vec![],
-                project_id: None,
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,
@@ -476,6 +369,7 @@ mod tests {
                 priority: Priority::Low,
                 labels: vec![],
                 project_id: None,
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

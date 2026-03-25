@@ -30,7 +30,14 @@ export interface UpdateProjectInput {
 export interface Board {
   id: string;
   name: string;
-  defaultProjectId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  projectIds: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,6 +92,7 @@ export interface Ticket {
   lockedByRunId?: string | null;
   lockExpiresAt?: Date | string;
   projectId?: string;
+  workspaceId?: string;
   workflowType?: WorkflowType;
   model?: string;
   /** The git branch name for this ticket (agent-generated) */
@@ -198,6 +206,7 @@ export interface CreateTicketInput {
   labels: string[];
   columnId: string;
   projectId?: string;
+  workspaceId?: string;
   workflowType?: WorkflowType;
   model?: string;
   /** Optional pre-defined branch name (if not provided, will be AI-generated on first run) */
@@ -542,6 +551,35 @@ export interface FileDiff {
   hunks: DiffHunk[];
 }
 
+export interface ProjectBranchStatus {
+  projectId: string;
+  projectName: string;
+  branch: string;
+  workingDir: string;
+  hasChanges: boolean;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+}
+
+export interface ProjectFileDiffs {
+  projectId: string;
+  projectName: string;
+  files: FileDiff[];
+}
+
+export interface ProjectPushResult {
+  projectId: string;
+  projectName: string;
+  success: boolean;
+  message: string;
+  branch: string;
+}
+
+export interface WorkspacePushResult {
+  results: ProjectPushResult[];
+}
+
 // Dashboard types
 
 export interface DashboardSummary {
@@ -600,7 +638,8 @@ export interface Chat {
   id: string;
   title?: string;
   agentType: string;
-  projectId: string;
+  projectId?: string;
+  workspaceId?: string;
   mode: ChatMode;
   boardId?: string;
   ticketId?: string;
@@ -613,7 +652,8 @@ export interface Chat {
 
 export interface CreateChat {
   agentType: string;
-  projectId: string;
+  projectId?: string;
+  workspaceId?: string;
   mode: ChatMode;
   boardId?: string;
   ticketId?: string;

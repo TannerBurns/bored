@@ -165,12 +165,15 @@ impl ChatAgent {
             .clone()
             .ok_or(ChatAgentError::MissingField("board_id"))?;
 
+        let project_id = chat.project_id.clone()
+            .ok_or(ChatAgentError::MissingField("project_id"))?;
+
         let spec = self
             .db
             .create_spec(&CreateSpec {
                 board_id,
                 target_board_id: None,
-                project_id: chat.project_id.clone(),
+                project_id,
                 name: truncate_for_name(&user_input),
                 user_input,
                 model: self.config.model.clone(),

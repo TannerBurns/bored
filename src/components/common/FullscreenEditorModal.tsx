@@ -95,14 +95,13 @@ export function FullscreenEditorModal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isEditMode) {
-          // Cancel edit mode
           setIsEditMode(false);
           setEditContent(content);
         } else {
           onClose();
         }
       }
-      // Cmd/Ctrl + Enter to save when editing
+      if (e.isComposing) return;
       if (isEditMode && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSave();

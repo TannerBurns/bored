@@ -48,6 +48,7 @@ pub struct Ticket {
     pub locked_by_run_id: Option<String>,
     pub lock_expires_at: Option<DateTime<Utc>>,
     pub project_id: Option<String>,
+    pub workspace_id: Option<String>,
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
@@ -93,6 +94,7 @@ pub struct CreateTicket {
     pub priority: Priority,
     pub labels: Vec<String>,
     pub project_id: Option<String>,
+    pub workspace_id: Option<String>,
     #[serde(default)]
     pub workflow_type: WorkflowType,
     pub model: Option<String>,
@@ -120,6 +122,7 @@ pub struct UpdateTicket {
     pub priority: Option<Priority>,
     pub labels: Option<Vec<String>>,
     pub project_id: Option<String>,
+    pub workspace_id: Option<String>,
     pub workflow_type: Option<WorkflowType>,
     pub model: Option<String>,
     pub branch_name: Option<String>,
@@ -234,6 +237,7 @@ mod tests {
                 locked_by_run_id: None,
                 lock_expires_at: None,
                 project_id: None,
+                workspace_id: None,
                 workflow_type: WorkflowType::default(),
                 model: None,
                 branch_name: None,

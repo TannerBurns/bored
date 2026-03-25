@@ -4,16 +4,33 @@ use super::utils::slugify;
 use crate::agents::provider::AgentProvider;
 use crate::db::models::{Priority, Ticket};
 
+/// Generate workspace context section for multi-project tickets.
+/// Callers should omit this for single-project (non-workspace) tickets.
+pub fn generate_workspace_context(
+    workspace_name: &str,
+    projects: &[(String, String)], // (name, path) pairs
+) -> String {
+    let mut ctx = String::new();
+    ctx.push_str(&format!("## Workspace: {}\n\n", workspace_name));
+    ctx.push_str("This ticket spans multiple projects:\n");
+    for (name, path) in projects {
+        ctx.push_str(&format!("- **{}** ({})\n", name, path));
+    }
+    ctx.push_str("\nYou have access to all projects simultaneously. Make coordinated changes across projects as needed.\n\n");
+    ctx
+}
+
 pub fn generate_ticket_prompt(ticket: &Ticket) -> String {
-    generate_ticket_prompt_with_workflow(ticket, None)
+    generate_ticket_prompt_with_workflow(ticket, None, None)
 }
 
 /// Generate a ticket prompt with optional workflow instructions for the given agent provider
 pub fn generate_ticket_prompt_with_workflow(
     ticket: &Ticket,
     provider: Option<&dyn AgentProvider>,
+    workspace: Option<(&str, &[(String, String)])>,
 ) -> String {
-    generate_ticket_prompt_full(ticket, provider, true)
+    generate_ticket_prompt_full(ticket, provider, true, workspace)
 }
 
 /// Generate a ticket prompt with full control over workflow options
@@ -21,10 +38,15 @@ pub fn generate_ticket_prompt_full(
     ticket: &Ticket,
     provider: Option<&dyn AgentProvider>,
     requires_git: bool,
+    workspace: Option<(&str, &[(String, String)])>,
 ) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
@@ -137,11 +159,18 @@ The board will be automatically updated as you work.
 }
 
 /// Generate a prompt for the planning stage
-pub fn generate_plan_prompt(ticket: &Ticket) -> String {
+pub fn generate_plan_prompt(
+    ticket: &Ticket,
+    workspace: Option<(&str, &[(String, String)])>,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str("Create an implementation plan for this task.\n\n");
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
@@ -252,10 +281,15 @@ pub fn generate_todo_implement_prompt(
     todo_description: &str,
     todo_index: usize,
     todo_total: usize,
+    workspace: Option<(&str, &[(String, String)])>,
 ) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
@@ -304,10 +338,18 @@ Just implement this specific step as described.
 }
 
 /// Generate a prompt for the implementation stage
-pub fn generate_implement_prompt(ticket: &Ticket, plan: &str) -> String {
+pub fn generate_implement_prompt(
+    ticket: &Ticket,
+    plan: &str,
+    workspace: Option<(&str, &[(String, String)])>,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Description\n\n");
@@ -361,6 +403,7 @@ mod tests {
             locked_by_run_id: None,
             lock_expires_at: None,
             project_id: None,
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -374,6 +417,37 @@ mod tests {
             paused_at_stage: None,
             paused_run_id: None,
         }
+    }
+
+    #[test]
+    fn generate_workspace_context_lists_projects() {
+        let projects = vec![
+            ("api".to_string(), "/path/api".to_string()),
+            ("web".to_string(), "/path/web".to_string()),
+        ];
+        let s = generate_workspace_context("My Workspace", &projects);
+        assert!(s.contains("## Workspace: My Workspace"));
+        assert!(s.contains("**api** (/path/api)"));
+        assert!(s.contains("**web** (/path/web)"));
+        assert!(s.contains("coordinated changes across projects"));
+    }
+
+    #[test]
+    fn generate_ticket_prompt_full_inserts_workspace_after_title() {
+        let ticket = create_test_ticket();
+        let cursor = CursorProvider::new();
+        let projs = [("svc".to_string(), "/svc".to_string())];
+        let prompt = generate_ticket_prompt_full(
+            &ticket,
+            Some(&cursor),
+            true,
+            Some(("WS", &projs)),
+        );
+        let title_pos = prompt.find("# Task: Test Ticket").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
     }
 
     #[test]
@@ -486,7 +560,7 @@ mod tests {
     fn generate_ticket_prompt_with_workflow_cursor() {
         let ticket = create_test_ticket();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor), None);
         assert!(prompt.contains("## Workflow"));
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains("/deslop"));
@@ -500,7 +574,7 @@ mod tests {
     fn generate_ticket_prompt_with_workflow_claude() {
         let ticket = create_test_ticket();
         let claude = ClaudeProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&claude));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&claude), None);
         assert!(prompt.contains("## Workflow"));
         assert!(prompt.contains("Create a branch:"));
         assert!(prompt.contains(".claude/commands/deslop.md"));
@@ -513,7 +587,7 @@ mod tests {
     #[test]
     fn generate_ticket_prompt_with_workflow_none_uses_basic_instructions() {
         let ticket = create_test_ticket();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, None);
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, None, None);
         assert!(prompt.contains("## Instructions"));
         assert!(!prompt.contains("## Workflow"));
     }
@@ -524,7 +598,7 @@ mod tests {
         ticket.id = "abc12345-full-id".to_string();
         ticket.title = "Add User Authentication".to_string();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor), None);
         assert!(prompt.contains("ticket/abc12345/add-user-authentication"));
     }
 
@@ -534,7 +608,7 @@ mod tests {
         ticket.id = "🎉🚀ab12".to_string();
         ticket.title = "Test Feature".to_string();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor), None);
         assert!(prompt.contains("ticket/🎉🚀ab12/test-feature"));
     }
 
@@ -544,7 +618,7 @@ mod tests {
         ticket.id = "abc".to_string();
         ticket.title = "Short ID Test".to_string();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor), None);
         assert!(prompt.contains("ticket/abc/short-id-test"));
     }
 
@@ -554,7 +628,7 @@ mod tests {
         ticket.id = "a🎉bcdefgh".to_string();
         ticket.title = "Mixed Test".to_string();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor));
+        let prompt = generate_ticket_prompt_with_workflow(&ticket, Some(&cursor), None);
         assert!(prompt.contains("ticket/a🎉bcdefg/mixed-test"));
     }
 
@@ -562,7 +636,7 @@ mod tests {
     fn generate_ticket_prompt_full_without_git_cursor() {
         let ticket = create_test_ticket();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), false);
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), false, None);
 
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
@@ -582,7 +656,7 @@ mod tests {
     fn generate_ticket_prompt_full_without_git_claude() {
         let ticket = create_test_ticket();
         let claude = ClaudeProvider::new();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(&claude), false);
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&claude), false, None);
 
         // Should have workflow section
         assert!(prompt.contains("## Workflow"));
@@ -601,7 +675,7 @@ mod tests {
     fn generate_ticket_prompt_full_with_git_includes_all_steps() {
         let ticket = create_test_ticket();
         let cursor = CursorProvider::new();
-        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), true);
+        let prompt = generate_ticket_prompt_full(&ticket, Some(&cursor), true, None);
 
         // Should have all workflow steps including git
         assert!(prompt.contains("Create a branch:"));
@@ -631,7 +705,7 @@ mod tests {
         let ticket = create_test_ticket();
         let plan = "1. Modify file_a.rs\n2. Modify file_b.rs";
         let prompt = generate_todo_implement_prompt(
-            &ticket, plan, "Add API endpoint", "Create GET /api/items", 0, 3,
+            &ticket, plan, "Add API endpoint", "Create GET /api/items", 0, 3, None,
         );
         assert!(prompt.contains("# Task: Test Ticket"));
         assert!(prompt.contains("## Description"));
@@ -648,7 +722,7 @@ mod tests {
     fn generate_todo_implement_prompt_step_numbering_last() {
         let ticket = create_test_ticket();
         let prompt = generate_todo_implement_prompt(
-            &ticket, "plan", "Final step", "Cleanup", 4, 5,
+            &ticket, "plan", "Final step", "Cleanup", 4, 5, None,
         );
         assert!(prompt.contains("## Current Step (5/5): Final step"));
         assert!(prompt.contains("step 5 of 5"));
@@ -659,7 +733,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.description_md = String::new();
         let prompt = generate_todo_implement_prompt(
-            &ticket, "plan", "Step", "Do things", 0, 1,
+            &ticket, "plan", "Step", "Do things", 0, 1, None,
         );
         assert!(!prompt.contains("## Description"));
         assert!(prompt.contains("# Task: Test Ticket"));
@@ -670,10 +744,80 @@ mod tests {
     fn generate_todo_implement_prompt_contains_scope_instructions() {
         let ticket = create_test_ticket();
         let prompt = generate_todo_implement_prompt(
-            &ticket, "plan", "One thing", "desc", 0, 2,
+            &ticket, "plan", "One thing", "desc", 0, 2, None,
         );
         assert!(prompt.contains("Focus ONLY on this step"));
         assert!(prompt.contains("Do NOT work on other steps"));
         assert!(prompt.contains("Do NOT"));
+    }
+
+    #[test]
+    fn generate_plan_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [("api".to_string(), "/api".to_string())];
+        let prompt = generate_plan_prompt(&ticket, Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("spans multiple projects"));
+        assert!(prompt.contains("**api** (/api)"));
+    }
+
+    #[test]
+    fn generate_plan_prompt_without_workspace_has_no_workspace_section() {
+        let ticket = create_test_ticket();
+        let prompt = generate_plan_prompt(&ticket, None);
+        assert!(!prompt.contains("## Workspace"));
+        assert!(prompt.contains("# Task:"));
+        assert!(prompt.contains("## Description"));
+    }
+
+    #[test]
+    fn generate_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [("web".to_string(), "/web".to_string())];
+        let prompt = generate_implement_prompt(&ticket, "do stuff", Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("coordinated changes"));
+        assert!(prompt.contains("**web** (/web)"));
+        assert!(prompt.contains("do stuff"));
+    }
+
+    #[test]
+    fn generate_implement_prompt_without_workspace_has_no_workspace_section() {
+        let ticket = create_test_ticket();
+        let prompt = generate_implement_prompt(&ticket, "plan text", None);
+        assert!(!prompt.contains("## Workspace"));
+        assert!(prompt.contains("# Task:"));
+        assert!(prompt.contains("plan text"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [
+            ("svc".to_string(), "/svc".to_string()),
+            ("lib".to_string(), "/lib".to_string()),
+        ];
+        let prompt = generate_todo_implement_prompt(
+            &ticket, "plan", "Step A", "Do step A", 0, 2, Some(("WS", &projs)),
+        );
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("**svc** (/svc)"));
+        assert!(prompt.contains("**lib** (/lib)"));
+        assert!(prompt.contains("## Current Step (1/2): Step A"));
     }
 }

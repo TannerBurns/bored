@@ -25,8 +25,23 @@ impl Database {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
-                "UPDATE tickets SET project_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE tickets SET project_id = ?, workspace_id = NULL, updated_at = ? WHERE id = ?",
                 rusqlite::params![project_id, now, ticket_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_ticket_workspace(
+        &self,
+        ticket_id: &str,
+        workspace_id: Option<&str>,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE tickets SET workspace_id = ?, project_id = NULL, updated_at = ? WHERE id = ?",
+                rusqlite::params![workspace_id, now, ticket_id],
             )?;
             Ok(())
         })
@@ -121,7 +136,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 r#"SELECT id, board_id, column_id, title, description_md, priority, 
                           labels_json, created_at, updated_at, locked_by_run_id, 
-                          lock_expires_at, project_id, workflow_type, model, branch_name,
+                          lock_expires_at, project_id, workspace_id, workflow_type, model, branch_name,
                           is_epic, epic_id, order_in_epic, depends_on_epic_id, depends_on_epic_ids_json, spec_version_id,
                           paused_at, paused_at_stage, paused_run_id
                    FROM tickets 

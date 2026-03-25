@@ -9,6 +9,7 @@ mod task;
 mod ticket;
 mod validation;
 mod workflow;
+mod workspace;
 
 pub use agent::*;
 pub use board::*;
@@ -21,3 +22,4 @@ pub use task::*;
 pub use ticket::*;
 pub use validation::*;
 pub use workflow::*;
+pub use workspace::*;

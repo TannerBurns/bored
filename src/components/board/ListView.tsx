@@ -8,6 +8,7 @@ interface ListViewProps {
   columns: Column[];
   tickets: Ticket[];
   projectMap?: Record<string, string>;
+  workspaceMap?: Record<string, string>;
   taskCountsMap?: Record<string, TaskCounts>;
   onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick?: (ticket: Ticket) => void;
@@ -28,7 +29,7 @@ function formatDate(date: Date | string | undefined): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function ListView({ columns, tickets, projectMap, taskCountsMap, onTicketMove, onTicketClick }: ListViewProps) {
+export function ListView({ columns, tickets, projectMap, workspaceMap, taskCountsMap, onTicketMove, onTicketClick }: ListViewProps) {
   const columnPositionMap = useMemo(() => {
     const map = new Map<string, number>();
     columns.forEach((c) => map.set(c.id, c.position));
@@ -72,14 +73,19 @@ export function ListView({ columns, tickets, projectMap, taskCountsMap, onTicket
             <th className="text-left py-3 px-3 font-medium w-44">Status</th>
             <th className="text-left py-3 px-3 font-medium w-40">Labels</th>
             <th className="text-left py-3 px-3 font-medium w-20">Tasks</th>
-            <th className="text-left py-3 px-3 font-medium w-36">Project</th>
+            <th className="text-left py-3 px-3 font-medium w-36">Scope</th>
             <th className="text-left py-3 px-3 font-medium w-24">Updated</th>
           </tr>
         </thead>
         <tbody>
           {sortedTickets.map((ticket) => {
             const colName = columnNameMap.get(ticket.columnId) ?? '';
-            const projectName = ticket.projectId ? projectMap?.[ticket.projectId] : undefined;
+            const projectName = ticket.projectId
+              ? projectMap?.[ticket.projectId]
+              : ticket.workspaceId
+                ? workspaceMap?.[ticket.workspaceId]
+                : undefined;
+            const isWorkspaceScope = !ticket.projectId && !!ticket.workspaceId;
 
             return (
               <tr
@@ -188,14 +194,21 @@ export function ListView({ columns, tickets, projectMap, taskCountsMap, onTicket
                   })()}
                 </td>
 
-                {/* Project */}
+                {/* Scope */}
                 <td className="py-2.5 px-3">
                   {projectName ? (
-                    <span className="text-xs text-board-text-secondary truncate block max-w-[120px]" title={projectName}>
-                      {projectName}
+                    <span className="text-xs text-board-text-secondary truncate flex items-center gap-1 max-w-[120px]" title={projectName}>
+                      {isWorkspaceScope && (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                          <polyline points="2 17 12 22 22 17" />
+                          <polyline points="2 12 12 17 22 12" />
+                        </svg>
+                      )}
+                      <span className="truncate">{projectName}</span>
                     </span>
                   ) : (
-                    <span className="text-xs text-status-warning">No project</span>
+                    <span className="text-xs text-status-warning">No scope</span>
                   )}
                 </td>
 

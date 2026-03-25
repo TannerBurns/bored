@@ -37,28 +37,28 @@ impl Database {
         let priority = Priority::parse(&priority_str).unwrap_or(Priority::Medium);
 
         let workflow_type_str: String = row
-            .get::<_, Option<String>>(12)?
+            .get::<_, Option<String>>(13)?
             .unwrap_or_else(|| "basic".to_string());
         let workflow_type = WorkflowType::parse(&workflow_type_str).unwrap_or_default();
 
-        let model: Option<String> = row.get(13)?;
-        let branch_name: Option<String> = row.get(14)?;
+        let model: Option<String> = row.get(14)?;
+        let branch_name: Option<String> = row.get(15)?;
 
-        // Epic fields (columns 15, 16, 17, 18, 19, 20)
-        let is_epic: bool = row.get::<_, i32>(15).unwrap_or(0) != 0;
-        let epic_id: Option<String> = row.get(16)?;
-        let order_in_epic: Option<i32> = row.get(17)?;
-        let depends_on_epic_id: Option<String> = row.get(18)?;
-        let depends_on_epic_ids_json: Option<String> = row.get(19)?;
+        // Epic fields (columns 16–21)
+        let is_epic: bool = row.get::<_, i32>(16).unwrap_or(0) != 0;
+        let epic_id: Option<String> = row.get(17)?;
+        let order_in_epic: Option<i32> = row.get(18)?;
+        let depends_on_epic_id: Option<String> = row.get(19)?;
+        let depends_on_epic_ids_json: Option<String> = row.get(20)?;
         let depends_on_epic_ids: Vec<String> = depends_on_epic_ids_json
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let spec_version_id: Option<String> = row.get(20)?;
+        let spec_version_id: Option<String> = row.get(21)?;
 
-        // Pause fields (columns 21, 22, 23)
-        let paused_at: Option<String> = row.get(21)?;
-        let paused_at_stage: Option<String> = row.get(22)?;
-        let paused_run_id: Option<String> = row.get(23)?;
+        // Pause fields (columns 22, 23, 24)
+        let paused_at: Option<String> = row.get(22)?;
+        let paused_at_stage: Option<String> = row.get(23)?;
+        let paused_run_id: Option<String> = row.get(24)?;
 
         Ok(Ticket {
             id: row.get(0)?,
@@ -73,6 +73,7 @@ impl Database {
             locked_by_run_id: row.get(9)?,
             lock_expires_at: row.get::<_, Option<String>>(10)?.map(parse_datetime),
             project_id: row.get(11)?,
+            workspace_id: row.get(12)?,
             workflow_type,
             model,
             branch_name,

@@ -11,6 +11,7 @@ export interface TicketModalFooterProps {
   showDeleteConfirm: boolean;
   setShowDeleteConfirm: (show: boolean) => void;
   onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onValidateWithAgent?: (agentType: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onSave: () => Promise<void>;
   onCancelEdit: () => void;
@@ -25,6 +26,7 @@ export function TicketModalFooter({
   showDeleteConfirm,
   setShowDeleteConfirm,
   onRunWithAgent,
+  onValidateWithAgent,
   onDelete,
   onSave,
   onCancelEdit,
@@ -43,30 +45,47 @@ export function TicketModalFooter({
   };
 
   const isBacklog = currentColumn?.name.toLowerCase() === 'backlog';
+  const isReviewOrDone = currentColumn?.name === 'Review' || currentColumn?.name === 'Done';
+  const showValidate = isReviewOrDone && !!ticket.branchName && !ticket.lockedByRunId;
 
   return (
     <div className="flex items-center justify-between p-4 border-t border-board-border">
       <div className="flex flex-col gap-2">
         {!ticket.lockedByRunId && onRunWithAgent && (
           <div className="flex flex-col gap-2">
-            <BuildWithDropdown
-              onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
-              disabled={!ticket.projectId || isBacklog}
-              disabledReason={
-                isBacklog
-                  ? 'Move this ticket to Ready to enable agent runs.'
-                  : !ticket.projectId
-                    ? 'Assign a project to this ticket to enable agent runs.'
-                    : undefined
-              }
-            />
+            <div className="flex items-center gap-2">
+              <BuildWithDropdown
+                onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
+                disabled={(!ticket.projectId && !ticket.workspaceId) || isBacklog}
+                disabledReason={
+                  isBacklog
+                    ? 'Move this ticket to Ready to enable agent runs.'
+                    : (!ticket.projectId && !ticket.workspaceId)
+                      ? 'Assign a scope to this ticket to enable agent runs.'
+                      : undefined
+                }
+              />
+              {showValidate && onValidateWithAgent && (
+                <BuildWithDropdown
+                  label="Validate with"
+                  title="Open a validation chat to review this ticket's changes"
+                  onSelect={onValidateWithAgent}
+                  icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      <path d="m9 12 2 2 4-4" />
+                    </svg>
+                  }
+                />
+              )}
+            </div>
             {isBacklog ? (
               <p className="text-sm text-yellow-400">
                 Move this ticket to Ready to enable agent runs.
               </p>
-            ) : !ticket.projectId && (
+            ) : (!ticket.projectId && !ticket.workspaceId) && (
               <p className="text-sm text-yellow-400">
-                Assign a project to this ticket to enable agent runs.
+                Assign a scope to this ticket to enable agent runs.
               </p>
             )}
           </div>

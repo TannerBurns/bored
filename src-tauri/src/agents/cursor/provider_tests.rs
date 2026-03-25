@@ -16,6 +16,8 @@ fn make_config() -> AgentRunConfig {
         model: None,
         agent_config: HashMap::new(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     }
 }
 

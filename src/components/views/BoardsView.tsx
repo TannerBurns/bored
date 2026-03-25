@@ -45,6 +45,7 @@ interface BoardsViewProps {
   columns: Column[];
   tickets: Ticket[];
   projectMap?: Record<string, string>;
+  workspaceMap?: Record<string, string>;
   onTicketMove: (ticketId: string, newColumnId: string) => void | Promise<void>;
   onTicketClick: (ticket: Ticket) => void;
   onCreateBoardClick: () => void;
@@ -57,6 +58,7 @@ export function BoardsView({
   columns,
   tickets,
   projectMap,
+  workspaceMap,
   onTicketMove,
   onTicketClick,
   onCreateBoardClick,
@@ -241,6 +243,7 @@ export function BoardsView({
             columns={filteredColumns}
             tickets={filteredTickets}
             projectMap={projectMap}
+            workspaceMap={workspaceMap}
             taskCountsMap={taskCountsMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}
@@ -250,6 +253,7 @@ export function BoardsView({
             columns={filteredColumns}
             tickets={filteredTickets}
             projectMap={projectMap}
+            workspaceMap={workspaceMap}
             taskCountsMap={taskCountsMap}
             onTicketMove={onTicketMove}
             onTicketClick={onTicketClick}

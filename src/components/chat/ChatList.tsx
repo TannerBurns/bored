@@ -6,10 +6,11 @@ import type { Chat } from '../../types';
 
 interface ChatListProps {
   projectMap: Record<string, string>;
+  workspaceMap: Record<string, string>;
   onNewChat: () => void;
 }
 
-export function ChatList({ projectMap, onNewChat }: ChatListProps) {
+export function ChatList({ projectMap, workspaceMap, onNewChat }: ChatListProps) {
   const chats = useChatStore((s) => s.chats);
   const currentChatId = useChatStore((s) => s.currentChat?.id);
   const selectChat = useChatStore((s) => s.selectChat);
@@ -49,7 +50,14 @@ export function ChatList({ projectMap, onNewChat }: ChatListProps) {
                 key={chat.id}
                 chat={chat}
                 isActive={currentChatId === chat.id}
-                projectName={projectMap[chat.projectId]}
+                projectName={
+                  chat.projectId
+                    ? projectMap[chat.projectId]
+                    : chat.workspaceId
+                      ? workspaceMap[chat.workspaceId]
+                      : undefined
+                }
+                isWorkspace={!chat.projectId && !!chat.workspaceId}
                 onClick={() => selectChat(chat.id)}
                 onDelete={() => setChatToDelete(chat)}
               />

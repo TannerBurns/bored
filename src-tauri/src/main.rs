@@ -207,6 +207,48 @@ fn main() {
             #[cfg(not(target_os = "macos"))]
             let builder = builder.decorations(false);
 
+            #[cfg(target_os = "macos")]
+            let builder = {
+                use tauri::menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
+
+                let app_submenu = SubmenuBuilder::with_id(app, "app", "Bored")
+                    .item(&PredefinedMenuItem::about(app, Some("About Bored"), None)?)
+                    .item(&PredefinedMenuItem::separator(app)?)
+                    .item(&PredefinedMenuItem::services(app, Some("Services"))?)
+                    .item(&PredefinedMenuItem::separator(app)?)
+                    .item(&PredefinedMenuItem::hide(app, Some("Hide Bored"))?)
+                    .item(&PredefinedMenuItem::hide_others(app, Some("Hide Others"))?)
+                    .item(&PredefinedMenuItem::show_all(app, Some("Show All"))?)
+                    .item(&PredefinedMenuItem::separator(app)?)
+                    .item(&PredefinedMenuItem::quit(app, Some("Quit Bored"))?)
+                    .build()?;
+
+                let edit_submenu = SubmenuBuilder::with_id(app, "edit", "Edit")
+                    .item(&PredefinedMenuItem::undo(app, Some("Undo"))?)
+                    .item(&PredefinedMenuItem::redo(app, Some("Redo"))?)
+                    .item(&PredefinedMenuItem::separator(app)?)
+                    .item(&PredefinedMenuItem::cut(app, Some("Cut"))?)
+                    .item(&PredefinedMenuItem::copy(app, Some("Copy"))?)
+                    .item(&PredefinedMenuItem::paste(app, Some("Paste"))?)
+                    .item(&PredefinedMenuItem::separator(app)?)
+                    .item(&PredefinedMenuItem::select_all(app, Some("Select All"))?)
+                    .build()?;
+
+                let window_submenu = SubmenuBuilder::with_id(app, "window", "Window")
+                    .item(&PredefinedMenuItem::minimize(app, Some("Minimize"))?)
+                    .item(&PredefinedMenuItem::close_window(app, Some("Close"))?)
+                    .build()?;
+
+                let menu = MenuBuilder::new(app)
+                    .item(&app_submenu)
+                    .item(&edit_submenu)
+                    .item(&window_submenu)
+                    .build()?;
+
+                tracing::debug!("macOS application menu created");
+                builder.menu(menu)
+            };
+
             let _main_window = builder
                 .on_navigation(|url| {
                     let allowed = is_allowed_url(url);
@@ -407,7 +449,6 @@ fn main() {
             commands::create_project,
             commands::update_project,
             commands::delete_project,
-            commands::set_board_project,
             commands::set_ticket_project,
             commands::check_ticket_readiness,
             commands::browse_for_directory,
@@ -502,6 +543,16 @@ fn main() {
             commands::next_steps::create_pull_request,
             commands::next_steps::get_branch_diff,
             commands::next_steps::get_branch_diff_files,
+            commands::next_steps::get_workspace_branch_status,
+            // Workspace commands
+            commands::workspaces::get_workspaces,
+            commands::workspaces::get_workspace,
+            commands::workspaces::create_workspace,
+            commands::workspaces::update_workspace,
+            commands::workspaces::delete_workspace,
+            commands::workspaces::add_project_to_workspace,
+            commands::workspaces::remove_project_from_workspace,
+            commands::workspaces::get_workspace_projects,
             // Dashboard commands
             commands::dashboard::get_dashboard_summary,
             commands::dashboard::get_dashboard_trends,

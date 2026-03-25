@@ -7,11 +7,12 @@ interface ChatListItemProps {
   chat: Chat;
   isActive: boolean;
   projectName?: string;
+  isWorkspace?: boolean;
   onClick: () => void;
   onDelete: () => void;
 }
 
-export const ChatListItem = memo(function ChatListItem({ chat, isActive, projectName, onClick, onDelete }: ChatListItemProps) {
+export const ChatListItem = memo(function ChatListItem({ chat, isActive, projectName, isWorkspace, onClick, onDelete }: ChatListItemProps) {
   return (
     <div
       role="button"
@@ -47,7 +48,16 @@ export const ChatListItem = memo(function ChatListItem({ chat, isActive, project
           {MODE_LABELS[chat.mode]}
         </span>
         {projectName && (
-          <span className="truncate max-w-[80px]">{projectName}</span>
+          <span className="truncate max-w-[80px] flex items-center gap-0.5">
+            {isWorkspace && (
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+            )}
+            {projectName}
+          </span>
         )}
         <span className="ml-auto flex-shrink-0">{formatRelativeTime(chat.createdAt)}</span>
       </div>

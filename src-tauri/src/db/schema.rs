@@ -1,6 +1,6 @@
 //! Database schema definitions and migrations
 
-pub const SCHEMA_VERSION: i32 = 20;
+pub const SCHEMA_VERSION: i32 = 22;
 
 /// Initial schema creation SQL
 pub const CREATE_TABLES: &str = r#"
@@ -27,11 +27,29 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
 
+-- Workspaces table (groups of projects for multi-repo agent work)
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Workspace-project join table
+CREATE TABLE IF NOT EXISTS workspace_projects (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (workspace_id, project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_projects_workspace ON workspace_projects(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_projects_project ON workspace_projects(project_id);
+
 -- Boards table
 CREATE TABLE IF NOT EXISTS boards (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
-    default_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -103,6 +121,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     locked_by_run_id TEXT,
     lock_expires_at TEXT,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+    workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
     workflow_type TEXT NOT NULL DEFAULT 'multi_stage' CHECK(workflow_type IN ('multi_stage')),
     model TEXT,
     branch_name TEXT,
@@ -126,6 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_column ON tickets(column_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_locked ON tickets(locked_by_run_id) WHERE locked_by_run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_project ON tickets(project_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_workspace ON tickets(workspace_id) WHERE workspace_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id, order_in_epic) WHERE epic_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_depends_on ON tickets(depends_on_epic_id) WHERE depends_on_epic_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tickets_spec_version ON tickets(spec_version_id) WHERE spec_version_id IS NOT NULL;

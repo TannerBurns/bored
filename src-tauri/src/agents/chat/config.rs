@@ -15,6 +15,8 @@ pub struct ChatAgentConfig {
     pub model: Option<String>,
     pub agent_config: HashMap<String, serde_json::Value>,
     pub timeout_secs: Option<u64>,
+    pub workspace_file: Option<PathBuf>,
+    pub workspace_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -430,6 +430,8 @@ fn build_command_uses_exec_resume_when_session_set() {
         model: None,
         agent_config: HashMap::new(),
         session_id: Some("thread-resume-456".to_string()),
+        workspace_file: None,
+        workspace_paths: vec![],
     };
     let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "codex");
@@ -453,6 +455,8 @@ fn build_command_uses_plain_exec_when_no_session() {
         model: None,
         agent_config: HashMap::new(),
         session_id: None,
+        workspace_file: None,
+        workspace_paths: vec![],
     };
     let (_, args) = p.build_command(&config);
     assert_eq!(args[0], "exec");

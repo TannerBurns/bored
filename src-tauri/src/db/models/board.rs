@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 pub struct Board {
     pub id: String,
     pub name: String,
-    pub default_project_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

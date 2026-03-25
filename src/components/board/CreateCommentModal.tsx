@@ -49,7 +49,7 @@ export function CreateCommentModal({
       if (e.key === 'Escape') {
         onClose();
       }
-      // Cmd/Ctrl + Enter to submit
+      if (e.isComposing) return;
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSubmit();

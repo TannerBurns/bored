@@ -33,6 +33,8 @@ pub struct OrchestratorConfig {
     /// The task being executed. If None, falls back to legacy ticket-based workflow.
     pub task: Option<crate::db::models::Task>,
     pub repo_path: PathBuf,
+    pub workspace_file: Option<PathBuf>,
+    pub workspace_paths: Vec<PathBuf>,
     /// Agent ID string (e.g. "cursor", "claude").
     pub agent_id: String,
     /// Agent provider for agent-agnostic dispatch.

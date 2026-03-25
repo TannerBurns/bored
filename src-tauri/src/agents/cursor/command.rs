@@ -4,6 +4,13 @@ use crate::agents::provider::AgentRunConfig;
 
 pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, Vec<String>) {
     let command = "cursor".to_string();
+
+    let workspace_path = config
+        .workspace_file
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| config.repo_path.to_string_lossy().to_string());
+
     let mut args = vec![
         "agent".to_string(),
         "--print".to_string(),
@@ -12,7 +19,7 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         "--output-format".to_string(),
         "stream-json".to_string(),
         "--workspace".to_string(),
-        config.repo_path.to_string_lossy().to_string(),
+        workspace_path,
     ];
 
     if let Some(ref model) = config.model {
@@ -45,6 +52,8 @@ mod tests {
             model: None,
             agent_config: std::collections::HashMap::new(),
             session_id: None,
+            workspace_file: None,
+            workspace_paths: vec![],
         }
     }
 
@@ -134,5 +143,23 @@ mod tests {
         let config = create_test_config();
         let (_, args) = build_command_from_provider_config(&config);
         assert!(!args.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn build_command_workspace_file_overrides_repo_path() {
+        let mut config = create_test_config();
+        config.workspace_file = Some(PathBuf::from("/tmp/my-workspace.code-workspace"));
+        let (_, args) = build_command_from_provider_config(&config);
+        let idx = args.iter().position(|a| a == "--workspace").expect("--workspace must be present");
+        assert_eq!(args[idx + 1], "/tmp/my-workspace.code-workspace");
+        assert!(!args.contains(&"/tmp/test".to_string()));
+    }
+
+    #[test]
+    fn build_command_no_workspace_file_uses_repo_path() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        let idx = args.iter().position(|a| a == "--workspace").expect("--workspace must be present");
+        assert_eq!(args[idx + 1], "/tmp/test");
     }
 }

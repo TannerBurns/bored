@@ -41,6 +41,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
   const thinkingEnabled = (settings.thinkingEnabled as boolean) ?? true;
   const extendedContext = (settings.extendedContext as boolean) ?? false;
   const chromeEnabled = (settings.chromeEnabled as boolean) ?? false;
+  const effort = (settings.effort as string) ?? 'medium';
   const useLocalProvider = (settings.useLocalProvider as boolean) ?? false;
 
   const [authToken, setAuthToken] = useState('');
@@ -66,6 +67,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
         apiKey: str('api_key', 'apiKey'),
         baseUrl: str('base_url', 'baseUrl'),
         modelOverride: str('model_override', 'modelOverride'),
+        effort: str('effort') || 'medium',
       };
       setAuthToken(loaded.authToken);
       setApiKey(loaded.apiKey);
@@ -105,6 +107,31 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
           enabled={chromeEnabled}
           onChange={(v) => updateSetting('chromeEnabled', v)}
         />
+        <div className="glass-subtle rounded-lg px-3 py-2 space-y-1.5">
+          <label className="block text-sm font-medium text-board-text">Effort</label>
+          <p className="text-xs text-board-text-muted">Controls how much effort the model spends on each response.</p>
+          <div className="flex gap-1.5">
+            {[
+              { value: 'low', label: 'Low' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'high', label: 'High' },
+              { value: 'max', label: 'Max' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => updateSetting('effort', opt.value)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200',
+                  effort === opt.value
+                    ? 'glass-intense ring-1 ring-board-accent text-board-accent'
+                    : 'glass text-board-text-muted hover:text-board-text hover:glass-intense'
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">

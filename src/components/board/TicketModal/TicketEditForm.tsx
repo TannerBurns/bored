@@ -1,29 +1,28 @@
 import { Input } from '../../common/Input';
-import type { Project } from '../../../types';
+import { ScopeSelector, toScopeValue } from '../../common/ScopeSelector';
 
 export interface TicketEditFormProps {
-  projects: Project[];
-  projectsLoading: boolean;
-  // Edit state
   editPriority: 'low' | 'medium' | 'high' | 'urgent';
   setEditPriority: (priority: 'low' | 'medium' | 'high' | 'urgent') => void;
   editLabels: string;
   setEditLabels: (labels: string) => void;
   editProjectId: string;
   setEditProjectId: (id: string) => void;
+  editWorkspaceId: string;
+  setEditWorkspaceId: (id: string) => void;
   editBranchName: string;
   setEditBranchName: (branch: string) => void;
 }
 
 export function TicketEditForm({
-  projects,
-  projectsLoading,
   editPriority,
   setEditPriority,
   editLabels,
   setEditLabels,
   editProjectId,
   setEditProjectId,
+  editWorkspaceId,
+  setEditWorkspaceId,
   editBranchName,
   setEditBranchName,
 }: TicketEditFormProps) {
@@ -55,22 +54,24 @@ export function TicketEditForm({
         />
       </div>
 
-      {/* Project */}
+      {/* Scope */}
       <div>
-        <h3 className="text-sm font-medium text-board-text-muted mb-2">Project</h3>
-        <select
-          value={editProjectId}
-          onChange={(e) => setEditProjectId(e.target.value)}
-          disabled={projectsLoading}
-          className="w-full px-3 py-2 bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border disabled:opacity-50"
-        >
-          <option value="">No project</option>
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
+        <h3 className="text-sm font-medium text-board-text-muted mb-2">Scope</h3>
+        <ScopeSelector
+          value={toScopeValue(editProjectId, editWorkspaceId)}
+          onChange={(scope) => {
+            if (!scope) {
+              setEditProjectId('');
+              setEditWorkspaceId('');
+            } else if (scope.type === 'project') {
+              setEditProjectId(scope.id);
+              setEditWorkspaceId('');
+            } else {
+              setEditWorkspaceId(scope.id);
+              setEditProjectId('');
+            }
+          }}
+        />
       </div>
 
       {/* Branch Name */}

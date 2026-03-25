@@ -2,18 +2,21 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { ColumnSelect } from '../../board/ColumnSelect';
 import { BuildWithDropdown } from '../../board/BuildWithDropdown';
 import { TicketCostSummary } from '../../board/TicketModal/TicketCostSummary';
-import type { Ticket, Column, Project, AgentRun } from '../../../types';
+import { ScopeSelector, toScopeValue } from '../../common/ScopeSelector';
+import type { Ticket, Column, Project, Workspace, AgentRun } from '../../../types';
 import type { UseTicketEditReturn } from '../../board/TicketModal/hooks/useTicketEdit';
 
 interface TicketDetailSidebarProps {
   ticket: Ticket;
   columns: Column[];
   projects: Project[];
+  workspaces: Workspace[];
   agentRuns: AgentRun[];
   editState: UseTicketEditReturn;
   parentEpic: Ticket | null;
   onMoveTicket: (newColumnId: string) => void;
   onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onValidateWithAgent?: (agentType: string) => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onBack: () => void;
 }
@@ -22,11 +25,13 @@ export function TicketDetailSidebar({
   ticket,
   columns,
   projects,
+  workspaces,
   agentRuns,
   editState,
   parentEpic,
   onMoveTicket,
   onRunWithAgent,
+  onValidateWithAgent,
   onDelete,
   onBack,
 }: TicketDetailSidebarProps) {
@@ -36,7 +41,12 @@ export function TicketDetailSidebar({
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const currentColumn = columns.find((c) => c.id === ticket.columnId);
   const isBacklog = currentColumn?.name.toLowerCase() === 'backlog';
+  const isReviewOrDone = currentColumn?.name === 'Review' || currentColumn?.name === 'Done';
   const project = projects.find((p) => p.id === ticket.projectId);
+  const workspace = workspaces.find((w) => w.id === ticket.workspaceId);
+  const scopeName = project?.name ?? workspace?.name;
+  const scopeLabel = project ? 'Project' : workspace ? 'Workspace' : null;
+  const hasScope = !!ticket.projectId || !!ticket.workspaceId;
 
   useEffect(() => {
     return () => clearTimeout(copyTimerRef.current);
@@ -77,27 +87,36 @@ export function TicketDetailSidebar({
         />
       </SidebarSection>
 
-      {/* Project */}
-      <SidebarSection label="Project">
+      {/* Scope (Project / Workspace) */}
+      <SidebarSection label="Scope">
         {editState.isEditing ? (
-          <select
-            value={editState.editProjectId}
-            onChange={(e) => editState.setEditProjectId(e.target.value)}
-            className="w-full px-2 py-1.5 text-sm bg-board-surface-raised rounded-lg text-board-text focus:outline-none focus:ring-1 focus:ring-board-accent border border-board-border"
-          >
-            <option value="">No project</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <ScopeSelector
+            value={toScopeValue(editState.editProjectId, editState.editWorkspaceId)}
+            onChange={(scope) => {
+              if (!scope) {
+                editState.setEditProjectId('');
+                editState.setEditWorkspaceId('');
+              } else if (scope.type === 'project') {
+                editState.setEditProjectId(scope.id);
+                editState.setEditWorkspaceId('');
+              } else {
+                editState.setEditWorkspaceId(scope.id);
+                editState.setEditProjectId('');
+              }
+            }}
+            className="text-sm"
+          />
         ) : (
           <span className="text-sm text-board-text-secondary">
-            {project ? (
-              <code className="bg-board-surface px-1.5 py-0.5 rounded text-xs">
-                {project.name}
-              </code>
+            {scopeName ? (
+              <span className="flex items-center gap-1.5">
+                {scopeLabel && (
+                  <span className="text-[10px] uppercase tracking-wider text-board-text-muted">{scopeLabel}</span>
+                )}
+                <code className="bg-board-surface px-1.5 py-0.5 rounded text-xs">
+                  {scopeName}
+                </code>
+              </span>
             ) : (
               <span className="text-board-text-muted italic">Not set</span>
             )}
@@ -248,12 +267,12 @@ export function TicketDetailSidebar({
               <BuildWithDropdown
                 className="w-full"
                 onSelect={(agent) => onRunWithAgent(ticket.id, agent)}
-                disabled={!ticket.projectId || isBacklog}
+                disabled={!hasScope || isBacklog}
                 disabledReason={
                   isBacklog
                     ? 'Move to Ready first'
-                    : !ticket.projectId
-                      ? 'Assign a project first'
+                    : !hasScope
+                      ? 'Assign a scope first'
                       : undefined
                 }
               />
@@ -261,8 +280,8 @@ export function TicketDetailSidebar({
                 <BuildWithDropdown
                   className="w-full"
                   onSelect={(agent) => onRunWithAgent(ticket.id, agent, 'code_review_only')}
-                  disabled={!ticket.projectId}
-                  disabledReason={!ticket.projectId ? 'Assign a project first' : undefined}
+                  disabled={!hasScope}
+                  disabledReason={!hasScope ? 'Assign a scope first' : undefined}
                   label="Review with"
                   title="Run code review loop on the existing branch"
                   icon={
@@ -276,11 +295,25 @@ export function TicketDetailSidebar({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      className="text-board-accent"
+                      className="text-amber-400"
                     >
                       <circle cx="11" cy="11" r="8" />
                       <line x1="21" y1="21" x2="16.65" y2="16.65" />
                       <path d="m8 11 2 2 4-4" />
+                    </svg>
+                  }
+                />
+              )}
+              {ticket.branchName && isReviewOrDone && onValidateWithAgent && (
+                <BuildWithDropdown
+                  className="w-full"
+                  onSelect={onValidateWithAgent}
+                  label="Validate with"
+                  title="Open a validation chat to review this ticket's changes"
+                  icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      <path d="m9 12 2 2 4-4" />
                     </svg>
                   }
                 />

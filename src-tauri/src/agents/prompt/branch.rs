@@ -233,6 +233,7 @@ mod tests {
             locked_by_run_id: None,
             lock_expires_at: None,
             project_id: None,
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,

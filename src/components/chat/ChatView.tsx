@@ -3,8 +3,8 @@ import { ChatList } from './ChatList';
 import { ChatPanel } from './ChatPanel';
 import { NewChatModal } from './NewChatModal';
 import { useChatStore } from '../../stores/chatStore';
-import { getProjects } from '../../lib/tauri';
-import type { ChatMode, Project } from '../../types';
+import { getProjects, getWorkspaces } from '../../lib/tauri';
+import type { ChatMode, Project, Workspace } from '../../types';
 
 const MODE_CARDS: { mode: ChatMode; label: string; description: string; color: string; icon: JSX.Element }[] = [
   {
@@ -99,13 +99,16 @@ export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {})
   const [initialMode, setInitialMode] = useState<ChatMode | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workspacesData, setWorkspacesData] = useState<Workspace[]>([]);
 
   useEffect(() => {
     if (!chatsLoaded) loadChats();
   }, [chatsLoaded, loadChats]);
 
   useEffect(() => {
-    getProjects().then(setProjects).catch(() => {});
+    Promise.all([getProjects(), getWorkspaces()])
+      .then(([p, w]) => { setProjects(p); setWorkspacesData(w); })
+      .catch(() => {});
   }, []);
 
   const projectMap = useMemo(
@@ -117,12 +120,22 @@ export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {})
     [projects]
   );
 
+  const workspaceMap = useMemo(
+    () =>
+      workspacesData.reduce<Record<string, string>>((acc, ws) => {
+        acc[ws.id] = ws.name;
+        return acc;
+      }, {}),
+    [workspacesData]
+  );
+
   return (
     <div className="flex-1 overflow-hidden flex gap-1">
       {!sidebarCollapsed && (
         <div className="w-80 flex-shrink-0 glass rounded-2xl overflow-hidden flex flex-col">
           <ChatList
             projectMap={projectMap}
+            workspaceMap={workspaceMap}
             onNewChat={() => {
               setInitialMode(null);
               setIsNewChatModalOpen(true);
@@ -140,7 +153,13 @@ export function ChatView({ onNavigateToSpec, onOpenTicket }: ChatViewProps = {})
         {currentChat ? (
           <ChatPanel
             key={currentChat.id}
-            projectName={projectMap[currentChat.projectId]}
+            projectName={
+              currentChat.projectId
+                ? projectMap[currentChat.projectId]
+                : currentChat.workspaceId
+                  ? workspaceMap[currentChat.workspaceId]
+                  : undefined
+            }
             onNavigateToSpec={onNavigateToSpec}
             onOpenTicket={onOpenTicket}
           />

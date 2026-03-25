@@ -25,6 +25,11 @@ pub struct AgentRunConfig {
     pub agent_config: HashMap<String, serde_json::Value>,
     /// Session identifier from a previous run, used to resume an agent session.
     pub session_id: Option<String>,
+    /// Path to a `.code-workspace` file for multi-root workspace execution.
+    /// When set, agents that support it (e.g. Cursor) use this instead of `repo_path`.
+    pub workspace_file: Option<PathBuf>,
+    /// All worktree paths in a workspace execution (one per project).
+    pub workspace_paths: Vec<PathBuf>,
 }
 
 /// The trait every agent implementation must satisfy.

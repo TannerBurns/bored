@@ -12,6 +12,8 @@ import type {
   UpdateProjectInput,
   ReadinessCheck,
   AggregatedCost,
+  Workspace,
+  ProjectBranchStatus,
 } from '../types';
 
 // API configuration
@@ -55,6 +57,43 @@ export async function updateProject(
 
 export async function deleteProject(projectId: string): Promise<void> {
   return invoke('delete_project', { projectId });
+}
+
+// Workspaces
+export async function getWorkspaces(): Promise<Workspace[]> {
+  return invoke('get_workspaces');
+}
+
+export async function getWorkspace(workspaceId: string): Promise<Workspace | null> {
+  return invoke('get_workspace', { workspaceId });
+}
+
+export async function createWorkspace(name: string, projectIds: string[]): Promise<Workspace> {
+  return invoke('create_workspace', { name, projectIds });
+}
+
+export async function updateWorkspace(workspaceId: string, name: string): Promise<Workspace> {
+  return invoke('update_workspace', { workspaceId, name });
+}
+
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  return invoke('delete_workspace', { workspaceId });
+}
+
+export async function addProjectToWorkspace(workspaceId: string, projectId: string, position: number): Promise<void> {
+  return invoke('add_project_to_workspace', { workspaceId, projectId, position });
+}
+
+export async function removeProjectFromWorkspace(workspaceId: string, projectId: string): Promise<void> {
+  return invoke('remove_project_from_workspace', { workspaceId, projectId });
+}
+
+export async function getWorkspaceProjects(workspaceId: string): Promise<Project[]> {
+  return invoke('get_workspace_projects', { workspaceId });
+}
+
+export async function getWorkspaceBranchStatus(ticketId: string): Promise<ProjectBranchStatus[]> {
+  return invoke('get_workspace_branch_status', { ticketId });
 }
 
 export async function checkTicketReadiness(

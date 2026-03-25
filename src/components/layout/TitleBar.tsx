@@ -44,7 +44,7 @@ export const TitleBar = memo(function TitleBar({
       case 'chat': return { current: 'Chat' };
       case 'specs': return { current: 'AI Specs' };
       case 'agents': return { current: 'Agents' };
-      case 'projects': return { current: 'Projects' };
+      case 'scopes': return { current: 'Scopes' };
       case 'settings': return { current: 'Settings' };
       default: return { current: 'Bored' };
     }

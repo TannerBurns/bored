@@ -4,24 +4,55 @@ use std::path::Path;
 
 use crate::db::models::{Priority, Task, TaskType, Ticket};
 
+/// Generate workspace context for task prompts.
+pub fn generate_workspace_task_context(
+    workspace_name: &str,
+    projects: &[(String, String)],
+) -> String {
+    let mut ctx = String::new();
+    ctx.push_str(&format!("## Workspace: {}\n\n", workspace_name));
+    ctx.push_str("This task is part of a multi-project workspace:\n");
+    for (name, path) in projects {
+        ctx.push_str(&format!("- **{}** ({})\n", name, path));
+    }
+    ctx.push_str("\nCoordinate changes across projects as needed.\n\n");
+    ctx
+}
+
 /// Generate a prompt for executing a task
 /// This is the main entry point for task-based prompt generation
 pub fn generate_task_prompt(
     task: &Task,
     ticket: &Ticket,
     custom_commands_dir: Option<&Path>,
+    workspace: Option<(&str, &[(String, String)])>,
 ) -> String {
     match &task.task_type {
-        TaskType::Custom => generate_custom_task_prompt(task, ticket),
-        TaskType::Command(id) => generate_command_task_prompt(id, custom_commands_dir),
+        TaskType::Custom => generate_custom_task_prompt(task, ticket, workspace),
+        TaskType::Command(id) => {
+            let mut body = generate_command_task_prompt(id, custom_commands_dir);
+            if let Some((name, projects)) = workspace {
+                let prefix = generate_workspace_task_context(name, projects);
+                body = format!("{prefix}{body}");
+            }
+            body
+        }
     }
 }
 
 /// Generate a prompt for a custom task
-fn generate_custom_task_prompt(task: &Task, ticket: &Ticket) -> String {
+fn generate_custom_task_prompt(
+    task: &Task,
+    ticket: &Ticket,
+    workspace: Option<(&str, &[(String, String)])>,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_task_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Ticket Context\n\n");
@@ -165,11 +196,19 @@ Execute the {} task. Follow any project conventions for this task type.
 }
 
 /// Generate a planning prompt for a task
-pub fn generate_task_plan_prompt(task: &Task, ticket: &Ticket) -> String {
+pub fn generate_task_plan_prompt(
+    task: &Task,
+    ticket: &Ticket,
+    workspace: Option<(&str, &[(String, String)])>,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str("Create an implementation plan for this task.\n\n");
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_task_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Ticket Context\n\n");
@@ -230,10 +269,19 @@ Do NOT implement any code. Just create the plan.
 }
 
 /// Generate an implementation prompt for a task with a plan
-pub fn generate_task_implement_prompt(task: &Task, ticket: &Ticket, plan: &str) -> String {
+pub fn generate_task_implement_prompt(
+    task: &Task,
+    ticket: &Ticket,
+    plan: &str,
+    workspace: Option<(&str, &[(String, String)])>,
+) -> String {
     let mut prompt = String::new();
 
     prompt.push_str(&format!("# Task: {}\n\n", ticket.title));
+
+    if let Some((name, projects)) = workspace {
+        prompt.push_str(&generate_workspace_task_context(name, projects));
+    }
 
     if !ticket.description_md.is_empty() {
         prompt.push_str("## Ticket Context\n\n");
@@ -293,6 +341,7 @@ mod tests {
             locked_by_run_id: None,
             lock_expires_at: None,
             project_id: None,
+            workspace_id: None,
             workflow_type: WorkflowType::default(),
             model: None,
             branch_name: None,
@@ -325,10 +374,46 @@ mod tests {
     }
 
     #[test]
+    fn generate_workspace_task_context_lists_projects() {
+        let projects = vec![("p1".to_string(), "/p1".to_string())];
+        let s = generate_workspace_task_context("W", &projects);
+        assert!(s.contains("## Workspace: W"));
+        assert!(s.contains("multi-project workspace"));
+        assert!(s.contains("**p1** (/p1)"));
+    }
+
+    #[test]
+    fn generate_custom_task_prompt_includes_workspace_before_ticket_context() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let projs = [("svc".to_string(), "/svc".to_string())];
+        let prompt = generate_custom_task_prompt(&task, &ticket, Some(("WS", &projs)));
+        let ws = prompt.find("## Workspace: WS").unwrap();
+        let ctx = prompt.find("## Ticket Context").unwrap();
+        assert!(ws < ctx);
+    }
+
+    #[test]
+    fn generate_task_prompt_command_prepends_workspace() {
+        let ticket = create_test_ticket();
+        let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
+        task.content = None;
+        let projs = [("x".to_string(), "/x".to_string())];
+        let prompt = generate_task_prompt(
+            &task,
+            &ticket,
+            None,
+            Some(("WS", &projs)),
+        );
+        assert!(prompt.starts_with("## Workspace: WS"));
+        assert!(prompt.contains("Sync with Main"));
+    }
+
+    #[test]
     fn generate_task_prompt_custom_includes_content_and_ticket_context() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains(&ticket.title));
         assert!(prompt.contains("Custom task content"));
@@ -341,7 +426,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains("Sync with Main"));
         assert!(prompt.contains("git fetch"));
@@ -352,7 +437,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.priority = Priority::Urgent;
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains("URGENT"));
     }
@@ -361,7 +446,7 @@ mod tests {
     fn generate_custom_task_prompt_includes_labels() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains("bug"));
     }
@@ -396,7 +481,7 @@ mod tests {
     fn generate_task_plan_prompt_includes_context_and_requirements() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_plan_prompt(&task, &ticket);
+        let prompt = generate_task_plan_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("Create an implementation plan"));
         assert!(prompt.contains(&ticket.title));
@@ -411,7 +496,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Custom);
         task.content = None;
-        let prompt = generate_task_plan_prompt(&task, &ticket);
+        let prompt = generate_task_plan_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("Ticket Context"));
         assert!(prompt.contains(&ticket.description_md));
@@ -423,7 +508,7 @@ mod tests {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
         let plan = "Step 1: Do this\nStep 2: Do that";
-        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, None);
 
         assert!(prompt.contains(&ticket.title));
         assert!(prompt.contains("Ticket Context"));
@@ -444,7 +529,7 @@ mod tests {
         let mut task = create_test_task(TaskType::Command("sync-with-main".to_string()));
         task.content = None;
 
-        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp), None);
 
         assert!(prompt.contains("Custom sync instructions"), "Should find custom command file");
         assert!(!prompt.contains("git fetch"), "Should NOT fall through to hardcoded fallback");
@@ -457,7 +542,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("fix-lint".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains("Fix Lint") || prompt.contains("fix-lint"));
     }
@@ -467,7 +552,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Command("my-custom-cmd".to_string()));
         task.content = None;
-        let prompt = generate_task_prompt(&task, &ticket, None);
+        let prompt = generate_task_prompt(&task, &ticket, None, None);
 
         assert!(prompt.contains("my-custom-cmd"));
     }
@@ -482,7 +567,7 @@ mod tests {
         let mut task = create_test_task(TaskType::Command("fix-lint".to_string()));
         task.content = None;
 
-        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp), None);
 
         assert!(
             prompt.contains("Fix Lint") || prompt.contains("fix-lint"),
@@ -500,7 +585,7 @@ mod tests {
             let mut task = create_test_task(TaskType::Command("code-review".to_string()));
             task.content = None;
 
-            let prompt = generate_task_prompt(&task, &ticket, None);
+            let prompt = generate_task_prompt(&task, &ticket, None, None);
 
             assert!(
                 prompt.contains("Command Task: code-review"),
@@ -520,7 +605,7 @@ mod tests {
 
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp));
+        let prompt = generate_task_prompt(&task, &ticket, Some(&tmp), None);
 
         assert!(prompt.contains("Custom task content"));
         assert!(prompt.contains(&ticket.title));
@@ -533,7 +618,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.description_md = String::new();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_custom_task_prompt(&task, &ticket);
+        let prompt = generate_custom_task_prompt(&task, &ticket, None);
 
         assert!(!prompt.contains("Ticket Context"));
         assert!(prompt.contains("Task Instructions"));
@@ -545,7 +630,7 @@ mod tests {
         let ticket = create_test_ticket();
         let mut task = create_test_task(TaskType::Custom);
         task.content = None;
-        let prompt = generate_custom_task_prompt(&task, &ticket);
+        let prompt = generate_custom_task_prompt(&task, &ticket, None);
 
         assert!(prompt.contains("Ticket Context"));
         assert!(prompt.contains(&ticket.description_md));
@@ -556,7 +641,7 @@ mod tests {
     fn custom_task_ticket_context_appears_before_task_instructions() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_custom_task_prompt(&task, &ticket);
+        let prompt = generate_custom_task_prompt(&task, &ticket, None);
 
         let ctx_pos = prompt.find("## Ticket Context").unwrap();
         let instr_pos = prompt.find("## Task Instructions").unwrap();
@@ -568,7 +653,7 @@ mod tests {
         let mut ticket = create_test_ticket();
         ticket.description_md = String::new();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_plan_prompt(&task, &ticket);
+        let prompt = generate_task_plan_prompt(&task, &ticket, None);
 
         assert!(!prompt.contains("Ticket Context"));
         assert!(prompt.contains("Task Requirements"));
@@ -579,7 +664,7 @@ mod tests {
     fn plan_prompt_ticket_context_appears_before_task_requirements() {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
-        let prompt = generate_task_plan_prompt(&task, &ticket);
+        let prompt = generate_task_plan_prompt(&task, &ticket, None);
 
         let ctx_pos = prompt.find("## Ticket Context").unwrap();
         let req_pos = prompt.find("## Task Requirements").unwrap();
@@ -592,7 +677,7 @@ mod tests {
         let mut task = create_test_task(TaskType::Custom);
         task.content = None;
         let plan = "Step 1: Do this";
-        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, None);
 
         assert!(prompt.contains("Ticket Context"));
         assert!(prompt.contains(&ticket.description_md));
@@ -607,7 +692,7 @@ mod tests {
         ticket.description_md = String::new();
         let task = create_test_task(TaskType::Custom);
         let plan = "Step 1: Do this";
-        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, None);
 
         assert!(!prompt.contains("Ticket Context"));
         assert!(prompt.contains("Task Requirements"));
@@ -619,10 +704,43 @@ mod tests {
         let ticket = create_test_ticket();
         let task = create_test_task(TaskType::Custom);
         let plan = "Step 1: Do this";
-        let prompt = generate_task_implement_prompt(&task, &ticket, plan);
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, None);
 
         let ctx_pos = prompt.find("## Ticket Context").unwrap();
         let req_pos = prompt.find("## Task Requirements").unwrap();
         assert!(ctx_pos < req_pos, "Ticket Context must appear before Task Requirements");
+    }
+
+    #[test]
+    fn generate_task_plan_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let projs = [("api".to_string(), "/api".to_string())];
+        let prompt = generate_task_plan_prompt(&task, &ticket, Some(("WS", &projs)));
+
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < ctx_pos);
+        assert!(prompt.contains("multi-project workspace"));
+        assert!(prompt.contains("**api** (/api)"));
+    }
+
+    #[test]
+    fn generate_task_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let plan = "Step 1: Foo";
+        let projs = [("web".to_string(), "/web".to_string())];
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < ctx_pos);
+        assert!(prompt.contains("**web** (/web)"));
+        assert!(prompt.contains(plan));
     }
 }

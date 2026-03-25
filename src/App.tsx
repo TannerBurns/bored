@@ -9,7 +9,7 @@ import { CreateBoardModal } from './components/board/CreateBoardModal';
 import { RenameBoardModal } from './components/board/RenameBoardModal';
 import { ConfirmModal, ReleaseNotesModal, UpdateNotification } from './components/common';
 import { CreateSpecModal } from './components/planner';
-import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ProjectsView, TicketDetailView } from './components/views';
+import { DashboardView, BoardsView, SettingsView, AgentsView, SpecsView, ScopesView, TicketDetailView } from './components/views';
 import { ChatView } from './components/chat';
 import { OnboardingWizard } from './components/onboarding';
 import { useBoardStore } from './stores/boardStore';
@@ -73,18 +73,24 @@ function App() {
     }
   }, [theme]);
 
-  const { projects, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns, loadProjects } = useAppData(
+  const { projects, workspaces, recentRuns, isDataLoaded, apiConfig, setProjects, setRecentRuns, loadProjects } = useAppData(
     setColumns,
     setTickets
   );
 
-  // Create a map of project IDs to project names for efficient lookup
   const projectMap = useMemo(() => {
     return projects.reduce((acc, project) => {
       acc[project.id] = project.name;
       return acc;
     }, {} as Record<string, string>);
   }, [projects]);
+
+  const workspaceMap = useMemo(() => {
+    return workspaces.reduce((acc, ws) => {
+      acc[ws.id] = ws.name;
+      return acc;
+    }, {} as Record<string, string>);
+  }, [workspaces]);
   
   // Activate onboarding when data is loaded and no projects/boards exist
   // Once activated, it stays open until explicitly completed/dismissed
@@ -176,11 +182,6 @@ function App() {
     }
   }, []);
 
-  const handleNavigateToChat = useCallback(() => {
-    closeTicketModal();
-    setActiveNav('chat');
-  }, [closeTicketModal]);
-
   const openTicketById = useCallback(async (ticketId: string) => {
     try {
       const ticket = await getTicket(ticketId);
@@ -245,7 +246,10 @@ function App() {
               onAddComment={handleAddComment}
               onUpdateComment={handleUpdateComment}
               onRunWithAgent={handleRunWithAgent}
-              onNavigateToChat={handleNavigateToChat}
+              onNavigateToChat={() => {
+                closeTicketModal();
+                setActiveNav('chat');
+              }}
               onDelete={handleDeleteTicket}
               onAgentComplete={handleAgentComplete}
             />
@@ -298,6 +302,7 @@ function App() {
                   columns={columns}
                   tickets={tickets}
                   projectMap={projectMap}
+                  workspaceMap={workspaceMap}
                   onTicketMove={handleTicketMove}
                   onTicketClick={handleTicketClick}
                   onCreateBoardClick={() => setIsCreateBoardModalOpen(true)}
@@ -318,7 +323,7 @@ function App() {
                 <AgentsView recentRuns={recentRuns} />
               )}
 
-              {activeNav === 'projects' && <ProjectsView onProjectsChange={loadProjects} />}
+              {activeNav === 'scopes' && <ScopesView onProjectsChange={loadProjects} />}
 
               {activeNav === 'settings' && <SettingsView onShowReleaseNotes={showReleaseNotes} />}
             </>
@@ -372,7 +377,7 @@ function App() {
           open={isCreateSpecModalOpen}
           onOpenChange={setIsCreateSpecModalOpen}
           boardId={currentBoard.id}
-          projectId={currentBoard.defaultProjectId}
+          projectId={undefined}
           onChatCreated={() => setActiveNav('chat')}
         />
       )}
