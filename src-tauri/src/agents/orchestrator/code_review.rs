@@ -68,7 +68,7 @@ pub fn parse_structured_review(text: &str) -> Option<CodeReviewOutput> {
 /// 2. Missing `issues_found` — derives from the `issues` array length
 fn parse_structured_review_fallback(block: &str) -> Option<CodeReviewOutput> {
     let val: serde_json::Value = serde_json::from_str(block).ok()?;
-    let obj = unwrap_to_inner_object(&val);
+    let obj = unwrap_to_inner_object(&val)?;
 
     let issues = obj
         .get("issues")
@@ -94,24 +94,18 @@ fn parse_structured_review_fallback(block: &str) -> Option<CodeReviewOutput> {
 
 /// If the top-level object has no `issues` key but contains exactly one key
 /// whose value is an object (e.g. `"review"`), unwrap to that inner object.
-fn unwrap_to_inner_object(val: &serde_json::Value) -> &serde_json::Map<String, serde_json::Value> {
-    static EMPTY: std::sync::LazyLock<serde_json::Map<String, serde_json::Value>> =
-        std::sync::LazyLock::new(serde_json::Map::new);
+fn unwrap_to_inner_object(
+    val: &serde_json::Value,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    let map = val.as_object()?;
 
-    let Some(map) = val.as_object() else {
-        return &EMPTY;
-    };
-
-    if !map.contains_key("issues") && !map.contains_key("issues_found") {
-        let values: Vec<_> = map.values().collect();
-        if values.len() == 1 {
-            if let Some(inner) = values[0].as_object() {
-                return inner;
-            }
+    if !map.contains_key("issues") && !map.contains_key("issues_found") && map.len() == 1 {
+        if let Some(inner) = map.values().next().and_then(|v| v.as_object()) {
+            return Some(inner);
         }
     }
 
-    map
+    Some(map)
 }
 
 /// Build a `CodeReviewIssue` from a JSON value, tolerating `files` (array)
