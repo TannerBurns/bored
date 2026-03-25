@@ -2,6 +2,79 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.59] - 2026-03-24
+
+Multi-project workspace support. Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. The sidebar navigation renames "Projects" to "Scopes" with a unified list showing both projects and workspaces. Per-project branch status, diffs, push, and PR creation are shown in a collapsible accordion in the ticket detail panel. Cursor, Claude Code, and Codex agents all receive multi-root context via `.code-workspace` files and `--add-dir` flags. Also adds Claude Code `--effort` flag support, macOS native Edit menus for Cmd+C/V/X and dictation, and a "Validate with" button in the ticket sidebar.
+
+### New Features
+
+- Multi-project workspaces — new `workspaces` and `workspace_projects` tables (schema v21) that group multiple projects for coordinated agent execution across repositories
+- Workspace-scoped tickets and chats — tickets and chats can be assigned to a workspace instead of a single project, enabling agents to work across all workspace repos simultaneously
+- "Scopes" navigation — sidebar renames "Projects" to "Scopes" with a unified ScopesList showing both projects and workspaces with inline create/edit/delete UI
+- ScopeSelector component — shared dropdown listing both projects and workspaces with optgroup headers, used in CreateTicketModal, NewChatModal, TicketEditForm, and TicketDetailSidebar
+- Per-project accordion in NextStepsPanel — workspace tickets show expandable rows per project with independent branch status, diff viewer, push, and PR creation
+- `.code-workspace` file generation — workspace chats auto-generate a VS Code workspace file so Cursor agents get multi-root context
+- `--add-dir` support for Claude Code and Codex — workspace projects beyond the primary repo are passed as `--add-dir` flags so agents can read/write across all repos
+- Claude Code `--effort` flag — new effort setting (low/medium/high) exposed through agent settings UI and wired through ClaudeApiConfig and command builder
+- "Validate with" button — moved from NextStepsPanel to Agent Actions in TicketDetailSidebar and TicketModalFooter, visible when a ticket has a branch
+- macOS native Edit menus — Undo/Redo/Cut/Copy/Paste/Select All via PredefinedMenuItem, enabling Cmd+C/V/X and dictation support
+- macOS Info.plist for microphone/speech recognition permissions via build.rs linker args
+- Fullscreen diff viewer shows project name badge for workspace ticket diffs
+- `get_workspace_branch_status` Tauri command for per-project branch/diff status in workspace tickets
+
+### Improvements
+
+- Removed `default_project_id` from boards — boards are now scope-agnostic containers; scope lives on tickets and chats
+- Schema v22 migration makes `chats.project_id` nullable for workspace-only chats (detects NOT NULL constraint via `pragma_table_info` and rebuilds only if needed)
+- `reserve_next_ticket` matches workspace tickets via `workspace_projects` join so workers with a project filter pick up workspace tickets containing that project
+- `can_move_to_ready` accepts workspace tickets by checking the first workspace project path instead of returning NoProject
+- Review mode aggregates diffs from all workspace projects for workspace-scoped tickets
+- `set_ticket_project` clears `workspace_id` and `set_ticket_workspace` clears `project_id` for mutual exclusivity at the DB level
+- Extracted `CreateWorkspaceForm` and `EditWorkspaceForm` into `WorkspaceForm.tsx`, reducing ScopesList from 613 to 532 lines
+- Replaced silent `.ok()` on workspace file I/O in `send_chat_message` with proper `map_err` error propagation
+- Extracted duplicated worktree cleanup into a closure in `worktree_setup.rs`
+- Replaced silent `unwrap_or_default()` with proper error propagation in `commands/chat.rs` and `ticket_builder.rs`
+- Downgraded noisy startup log to debug level
+
+### Bug Fixes
+
+- Fixed migration v21 creating `idx_tickets_workspace` index before the `workspace_id` column exists, causing "no such column" error and migration rollback on existing databases upgrading from v20
+- Fixed `reserve_next_ticket` not matching workspace tickets — workers with a project filter skipped tickets scoped to a workspace containing that project
+- Fixed `can_move_to_ready` rejecting workspace tickets with NoProject error instead of checking workspace project paths
+- Fixed `get_ticket_working_dir` failing for workspace tickets when `ticket.project_id` is None — now falls back to the first workspace project
+- Fixed `chats.project_id` NOT NULL constraint blocking workspace chat creation on databases that ran v21 before the table rebuild was added (v22 migration)
+- Fixed workspace worktree path collision for multi-project tickets — each project in a workspace received the same `run_id`, causing "Worktree path already exists" on the second project; now appends a per-project index
+- Fixed workspace diff accordion stuck on loading forever — `diffLoading` state in the `useEffect` dependency array caused an infinite re-run/cancel loop; replaced with a ref-based guard
+- Fixed workspace diff rows all showing the same project's changes — `get_branch_diff_files` lacked a `projectId` parameter, so every row loaded the first project's diff
+- Fixed broken NextStepsPanel and ListView tests after component refactor — updated mocks for `ProjectBranchRow` and changed "No project" assertion to "No scope"
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --all-targets -- -D warnings: 0 warnings
+- cargo test --lib: 1894 passed, 0 failed
+- npx vitest run: 47 files, 987 passed, 0 failed
+- 27 new Rust tests covering workspace context in prompts, effort parsing/defaults, workspace_id create/update/clear semantics
+- 12 new workspace DB tests covering CRUD operations for workspaces and workspace_projects
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.58, here is a summary of the major features introduced in recent releases:
+
+**beta.58 — Robust Fix-Task Parsing**
+Multi-strategy fallback chain for the review agent's `create_fix_tasks` parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
+
+**beta.57 — Real-Time Title Bar Status**
+Title bar queued/active status pills now update instantly when tickets move via user drag-and-drop or backend agent workflows, instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, with promise-based cleanup to prevent leaks under React strict mode.
+
+**beta.56 — Custom Title Bar & Task Execution UI**
+Native OS title bar replaced with a custom bar showing live worker count, queue depth, and active ticket counts with a Workers dropdown for starting/stopping workers from any view. Task execution in chat redesigned with a structured TaskExecutionCard showing real-time task status and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by local date instead of UTC.
+
+**beta.55 — Code-Review-Only Agent Workflow**
+Standalone "Review with" workflow that iteratively runs code-review and code-review-fix stages on completed feature branches without re-running plan/implement. Dedicated Code Review Agent settings with per-provider control over model, timeout, retries, and max iterations. Structured review timeline with severity badges and iteration tracking.
+
+---
+
 ## [0.1.0-beta.58] - 2026-03-23
 
 Robust fix-task parsing with multi-strategy fallback chain. The review agent's `create_fix_tasks` parser was silently failing when model responses contained markdown code blocks (triple backticks) inside JSON string values. The parser now cascades through five extraction strategies: primary JSON code block extraction, direct key-search with balanced brace matching, tail-parse from the opening brace to end-of-response, last-brace truncation, and a malformed-JSON fallback that tolerates unescaped quotes entirely. Both Rust and TypeScript parsers also accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
