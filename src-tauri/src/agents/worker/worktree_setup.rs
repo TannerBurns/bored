@@ -206,6 +206,12 @@ pub async fn create_worktrees_for_workspace(
 
     let mut created_worktrees: Vec<WorktreeInfo> = Vec::new();
 
+    let cleanup = |wts: &[WorktreeInfo]| {
+        for wt in wts {
+            let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
+        }
+    };
+
     for (idx, project) in projects.iter().enumerate() {
         let repo_path = PathBuf::from(&project.path);
         let project_run_id = if projects.len() > 1 {
@@ -230,9 +236,7 @@ pub async fn create_worktrees_for_workspace(
                 created_worktrees.push(info);
             }
             WorktreeSetupResult::Failed { message, ticket_blocked } => {
-                for wt in &created_worktrees {
-                    let _ = worktree::remove_worktree(&wt.path, &wt.repo_path);
-                }
+                cleanup(&created_worktrees);
                 return Err(WorkspaceWorktreeError {
                     message: format!(
                         "Failed to create worktree for project '{}': {}",
@@ -266,16 +270,23 @@ pub async fn create_worktrees_for_workspace(
         "folders": folders
     });
 
-    let json = serde_json::to_string_pretty(&workspace_content)
-        .map_err(|e| WorkspaceWorktreeError {
-            message: format!("Failed to serialize .code-workspace file: {}", e),
-            ticket_blocked: false,
-        })?;
-    std::fs::write(&workspace_file, json)
-        .map_err(|e| WorkspaceWorktreeError {
+    let json = match serde_json::to_string_pretty(&workspace_content) {
+        Ok(j) => j,
+        Err(e) => {
+            cleanup(&created_worktrees);
+            return Err(WorkspaceWorktreeError {
+                message: format!("Failed to serialize .code-workspace file: {}", e),
+                ticket_blocked: false,
+            });
+        }
+    };
+    if let Err(e) = std::fs::write(&workspace_file, json) {
+        cleanup(&created_worktrees);
+        return Err(WorkspaceWorktreeError {
             message: format!("Failed to write .code-workspace file: {}", e),
             ticket_blocked: false,
-        })?;
+        });
+    }
 
     Ok(WorkspaceWorktreeSet {
         worktrees: created_worktrees,

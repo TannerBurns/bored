@@ -618,3 +618,150 @@ fn create_ticket_empty_description_creates_no_tasks() {
     assert_eq!(tasks.len(), 0);
     assert_eq!(ticket.description_md, "");
 }
+
+#[test]
+fn create_ticket_with_workspace_id_round_trips() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ws = db.create_workspace("Test WS").unwrap();
+
+    let ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "WS Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workspace_id: Some(ws.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    assert_eq!(ticket.workspace_id, Some(ws.id.clone()));
+
+    let fetched = db.get_ticket(&ticket.id).unwrap();
+    assert_eq!(fetched.workspace_id, Some(ws.id));
+}
+
+#[test]
+fn update_ticket_clears_workspace_with_empty_string() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ws = db.create_workspace("WS").unwrap();
+
+    let ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workspace_id: Some(ws.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    assert_eq!(ticket.workspace_id, Some(ws.id));
+
+    let updated = db
+        .update_ticket(
+            &ticket.id,
+            &UpdateTicket {
+                title: None,
+                description_md: None,
+                priority: None,
+                labels: None,
+                project_id: None,
+                workspace_id: Some(String::new()),
+                workflow_type: None,
+                model: None,
+                branch_name: None,
+                column_id: None,
+                is_epic: None,
+                epic_id: None,
+                order_in_epic: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.workspace_id, None);
+}
+
+#[test]
+fn update_ticket_keeps_workspace_when_none() {
+    let db = create_test_db();
+    let board = db.create_board("Board").unwrap();
+    let columns = db.get_columns(&board.id).unwrap();
+    let ws = db.create_workspace("WS Keep").unwrap();
+
+    let ticket = db
+        .create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Medium,
+            labels: vec![],
+            project_id: None,
+            workspace_id: Some(ws.id.clone()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap();
+
+    let updated = db
+        .update_ticket(
+            &ticket.id,
+            &UpdateTicket {
+                title: Some("New Title".to_string()),
+                description_md: None,
+                priority: None,
+                labels: None,
+                project_id: None,
+                workspace_id: None,
+                workflow_type: None,
+                model: None,
+                branch_name: None,
+                column_id: None,
+                is_epic: None,
+                epic_id: None,
+                order_in_epic: None,
+                depends_on_epic_id: None,
+                depends_on_epic_ids: vec![],
+                spec_version_id: None,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(updated.workspace_id, Some(ws.id));
+    assert_eq!(updated.title, "New Title");
+}

@@ -72,13 +72,15 @@ fn build_board_context(
     let columns = db.get_columns(board_id)?;
     let all_tickets = db.get_tickets(board_id, None)?;
 
-    let workspace_project_ids: Option<Vec<String>> = workspace_id.map(|wid| {
-        db.get_workspace_projects(wid)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.id)
-            .collect()
-    });
+    let workspace_project_ids: Option<Vec<String>> = match workspace_id {
+        Some(wid) => Some(
+            db.get_workspace_projects(wid)?
+                .into_iter()
+                .map(|p| p.id)
+                .collect(),
+        ),
+        None => None,
+    };
 
     let tickets: Vec<_> = all_tickets
         .into_iter()

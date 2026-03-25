@@ -710,4 +710,37 @@ mod tests {
         let req_pos = prompt.find("## Task Requirements").unwrap();
         assert!(ctx_pos < req_pos, "Ticket Context must appear before Task Requirements");
     }
+
+    #[test]
+    fn generate_task_plan_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let projs = [("api".to_string(), "/api".to_string())];
+        let prompt = generate_task_plan_prompt(&task, &ticket, Some(("WS", &projs)));
+
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < ctx_pos);
+        assert!(prompt.contains("multi-project workspace"));
+        assert!(prompt.contains("**api** (/api)"));
+    }
+
+    #[test]
+    fn generate_task_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let task = create_test_task(TaskType::Custom);
+        let plan = "Step 1: Foo";
+        let projs = [("web".to_string(), "/web".to_string())];
+        let prompt = generate_task_implement_prompt(&task, &ticket, plan, Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let ctx_pos = prompt.find("## Ticket Context").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < ctx_pos);
+        assert!(prompt.contains("**web** (/web)"));
+        assert!(prompt.contains(plan));
+    }
 }

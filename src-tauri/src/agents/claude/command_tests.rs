@@ -285,6 +285,42 @@ fn build_command_without_session_id_omits_resume() {
 }
 
 #[test]
+fn provider_build_default_effort_is_medium() {
+    let config = create_provider_config();
+    let (_, args) = build_command_from_provider_config(&config);
+    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
+    assert_eq!(args[idx + 1], "medium");
+}
+
+#[test]
+fn provider_build_custom_effort() {
+    let mut config = create_provider_config();
+    config.agent_config.insert("effort".to_string(), serde_json::json!("max"));
+    let (_, args) = build_command_from_provider_config(&config);
+    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
+    assert_eq!(args[idx + 1], "max");
+}
+
+#[test]
+fn provider_build_empty_effort_falls_back_to_medium() {
+    let mut config = create_provider_config();
+    config.agent_config.insert("effort".to_string(), serde_json::json!(""));
+    let (_, args) = build_command_from_provider_config(&config);
+    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
+    assert_eq!(args[idx + 1], "medium");
+}
+
+#[test]
+fn provider_build_effort_appears_before_prompt() {
+    let mut config = create_provider_config();
+    config.agent_config.insert("effort".to_string(), serde_json::json!("high"));
+    let (_, args) = build_command_from_provider_config(&config);
+    let effort_idx = args.iter().position(|a| a == "--effort").unwrap();
+    let p_idx = args.iter().position(|a| a == "-p").unwrap();
+    assert!(effort_idx < p_idx, "--effort must appear before -p");
+}
+
+#[test]
 fn build_command_workspace_paths_adds_extra_dirs() {
     let mut config = create_provider_config();
     config.workspace_paths = vec![

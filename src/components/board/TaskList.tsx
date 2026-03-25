@@ -416,6 +416,7 @@ function FullscreenAddTaskModal({
       if (e.key === 'Escape') {
         onClose();
       }
+      if (e.isComposing) return;
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSave();

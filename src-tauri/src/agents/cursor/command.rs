@@ -144,4 +144,22 @@ mod tests {
         let (_, args) = build_command_from_provider_config(&config);
         assert!(!args.contains(&"--resume".to_string()));
     }
+
+    #[test]
+    fn build_command_workspace_file_overrides_repo_path() {
+        let mut config = create_test_config();
+        config.workspace_file = Some(PathBuf::from("/tmp/my-workspace.code-workspace"));
+        let (_, args) = build_command_from_provider_config(&config);
+        let idx = args.iter().position(|a| a == "--workspace").expect("--workspace must be present");
+        assert_eq!(args[idx + 1], "/tmp/my-workspace.code-workspace");
+        assert!(!args.contains(&"/tmp/test".to_string()));
+    }
+
+    #[test]
+    fn build_command_no_workspace_file_uses_repo_path() {
+        let config = create_test_config();
+        let (_, args) = build_command_from_provider_config(&config);
+        let idx = args.iter().position(|a| a == "--workspace").expect("--workspace must be present");
+        assert_eq!(args[idx + 1], "/tmp/test");
+    }
 }

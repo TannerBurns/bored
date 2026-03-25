@@ -19,6 +19,7 @@ pub struct ClaudeApiConfig {
     pub chrome_enabled: Option<bool>,
     /// Restrict available tools. Empty string disables all tools.
     pub allowed_tools: Option<String>,
+    pub effort: Option<String>,
 }
 
 impl ClaudeApiConfig {
@@ -42,6 +43,7 @@ impl ClaudeApiConfig {
             extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled"),
             chrome_enabled: Self::get_bool(map, "chrome_enabled", "chromeEnabled"),
             allowed_tools: Self::get_str(map, "allowed_tools", "allowedTools"),
+            effort: Self::get_str(map, "effort", "effort"),
         }
     }
 
@@ -194,6 +196,7 @@ impl AgentProvider for ClaudeProvider {
         cfg.insert("chromeEnabled".into(), serde_json::json!(false));
         cfg.insert("extendedContextEnabled".into(), serde_json::json!(false));
         cfg.insert("allowedTools".into(), serde_json::json!(""));
+        cfg.insert("effort".into(), serde_json::json!("low"));
 
         for &key in PASSTHROUGH_KEYS {
             if let Some(val) = config.get(key) {

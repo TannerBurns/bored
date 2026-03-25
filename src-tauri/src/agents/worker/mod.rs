@@ -212,7 +212,6 @@ impl Worker {
             per_agent.get(&self.config.agent_id).map(|s| s.diagnostic_model.clone())
         });
 
-        // Create worktree(s) for isolated execution
         let (worktree, extra_worktrees, ws_file, ws_paths) =
             if let Some(ref workspace_id) = ticket.workspace_id {
                 match worktree_setup::create_worktrees_for_workspace(
@@ -626,7 +625,6 @@ impl Worker {
             worktree::delete_branch(&worktree.repo_path, &worktree.branch_name);
         }
 
-        // Clean up extra workspace worktrees (merge detour branches + remove directories)
         for extra_wt in &extra_worktrees {
             if let (Some(ref target), Some(ref fork_point)) =
                 (&extra_wt.target_branch, &extra_wt.detour_fork_point)

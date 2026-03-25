@@ -40,6 +40,7 @@ export interface TicketDetailViewProps {
   onAddComment: (ticketId: string, body: string) => Promise<void>;
   onUpdateComment: (commentId: string, body: string) => Promise<void>;
   onRunWithAgent?: (ticketId: string, agentType: string, workflowMode?: string) => void;
+  onNavigateToChat?: () => void;
   onDelete?: (ticketId: string) => Promise<void>;
   onAgentComplete?: (runId: string, status: string) => void;
 }
@@ -55,6 +56,7 @@ export function TicketDetailView({
   onAddComment,
   onUpdateComment,
   onRunWithAgent,
+  onNavigateToChat,
   onDelete,
   onAgentComplete,
 }: TicketDetailViewProps) {
@@ -105,11 +107,15 @@ export function TicketDetailView({
         ticketId: ticket.id,
       });
       await selectChat(chat.id);
-      onClose();
+      if (onNavigateToChat) {
+        onNavigateToChat();
+      } else {
+        onClose();
+      }
     } catch (e) {
       logger.error('Failed to create validation chat:', e);
     }
-  }, [ticket, createChat, selectChat, onClose]);
+  }, [ticket, createChat, selectChat, onNavigateToChat, onClose]);
 
   // Auto-switch to Agent tab when a run starts
   useEffect(() => {

@@ -246,6 +246,10 @@ function App() {
               onAddComment={handleAddComment}
               onUpdateComment={handleUpdateComment}
               onRunWithAgent={handleRunWithAgent}
+              onNavigateToChat={() => {
+                closeTicketModal();
+                setActiveNav('chat');
+              }}
               onDelete={handleDeleteTicket}
               onAgentComplete={handleAgentComplete}
             />

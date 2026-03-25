@@ -69,6 +69,15 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
     let chrome = api_config.chrome_enabled.unwrap_or(false);
     push_cli_option_flags_raw(&mut args, thinking, extended_context, chrome);
 
+    let effort = api_config
+        .effort
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "medium".to_string());
+    args.push("--effort".to_string());
+    args.push(effort);
+
     if let Some(ref tools) = api_config.allowed_tools {
         args.push("--tools".to_string());
         args.push(tools.clone());

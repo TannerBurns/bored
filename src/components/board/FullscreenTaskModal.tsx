@@ -94,7 +94,7 @@ export function FullscreenTaskModal({
           onClose();
         }
       }
-      // Cmd/Ctrl + Enter to save when editing
+      if (e.isComposing) return;
       if (isEditMode && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSave();

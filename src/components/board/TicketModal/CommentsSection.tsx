@@ -153,7 +153,7 @@ export function CommentsSection({
               type="text"
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+              onKeyDown={(e) => { if (!e.nativeEvent.isComposing && e.key === 'Enter') handleAddComment(); }}
               placeholder="Add a comment..."
               className="flex-1 px-3 py-2.5 bg-board-surface-raised rounded-lg text-sm text-board-text placeholder-board-text-muted focus:outline-none focus:ring-2 focus:ring-board-accent border border-board-border"
             />

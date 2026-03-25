@@ -1,0 +1,2 @@
+[target.'cfg(target_os = "macos")']
+runner = ["sh", "-c", "codesign --force --sign - --identifier com.bored.app \"$1\" 2>/dev/null; exec \"$@\"", "--"]

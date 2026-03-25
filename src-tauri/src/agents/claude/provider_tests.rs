@@ -714,4 +714,28 @@ fn lightweight_config_produces_valid_command() {
     assert!(!args.contains(&"--max-turns".to_string()), "invalid --max-turns should not appear");
 }
 
+// ── effort field coverage ────────────────────────────────────────
+
+#[test]
+fn claude_api_config_parses_effort() {
+    let mut map = HashMap::new();
+    map.insert("effort".to_string(), serde_json::json!("max"));
+    let config = ClaudeApiConfig::from_agent_config(&map);
+    assert_eq!(config.effort, Some("max".to_string()));
+}
+
+#[test]
+fn claude_api_config_effort_none_when_absent() {
+    let map = HashMap::new();
+    let config = ClaudeApiConfig::from_agent_config(&map);
+    assert!(config.effort.is_none());
+}
+
+#[test]
+fn lightweight_config_sets_effort_low() {
+    let p = ClaudeProvider::new();
+    let cfg = p.lightweight_agent_config(&HashMap::new());
+    assert_eq!(cfg.get("effort"), Some(&serde_json::json!("low")));
+}
+
 // is_dangerous_command tests live in agents::cli_utils::tests

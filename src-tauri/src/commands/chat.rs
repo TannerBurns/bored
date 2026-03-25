@@ -168,7 +168,9 @@ pub async fn send_chat_message(
             .map(|p| serde_json::json!({ "path": p.path, "name": p.name }))
             .collect();
         let ws_content = serde_json::json!({ "folders": folders });
-        std::fs::write(&ws_file, serde_json::to_string_pretty(&ws_content).unwrap_or_default())
+        let ws_json = serde_json::to_string_pretty(&ws_content)
+            .map_err(|e| format!("Failed to serialize .code-workspace: {}", e))?;
+        std::fs::write(&ws_file, ws_json)
             .map_err(|e| format!("Failed to write .code-workspace file: {}", e))?;
 
         (primary_path, Some(ws_file), ws_paths)

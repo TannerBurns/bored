@@ -89,7 +89,7 @@ describe('ListView', () => {
       expect(screen.getByText('My Project')).toBeInTheDocument();
     });
 
-    it('shows "No project" when ticket has no projectId', () => {
+    it('shows "No scope" when ticket has no projectId or workspaceId', () => {
       render(
         <ListView
           columns={makeColumns()}
@@ -97,7 +97,7 @@ describe('ListView', () => {
           onTicketMove={vi.fn()}
         />,
       );
-      expect(screen.getByText('No project')).toBeInTheDocument();
+      expect(screen.getByText('No scope')).toBeInTheDocument();
     });
 
     it('shows Epic badge for epic tickets', () => {

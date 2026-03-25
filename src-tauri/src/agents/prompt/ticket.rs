@@ -750,4 +750,74 @@ mod tests {
         assert!(prompt.contains("Do NOT work on other steps"));
         assert!(prompt.contains("Do NOT"));
     }
+
+    #[test]
+    fn generate_plan_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [("api".to_string(), "/api".to_string())];
+        let prompt = generate_plan_prompt(&ticket, Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("spans multiple projects"));
+        assert!(prompt.contains("**api** (/api)"));
+    }
+
+    #[test]
+    fn generate_plan_prompt_without_workspace_has_no_workspace_section() {
+        let ticket = create_test_ticket();
+        let prompt = generate_plan_prompt(&ticket, None);
+        assert!(!prompt.contains("## Workspace"));
+        assert!(prompt.contains("# Task:"));
+        assert!(prompt.contains("## Description"));
+    }
+
+    #[test]
+    fn generate_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [("web".to_string(), "/web".to_string())];
+        let prompt = generate_implement_prompt(&ticket, "do stuff", Some(("WS", &projs)));
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("coordinated changes"));
+        assert!(prompt.contains("**web** (/web)"));
+        assert!(prompt.contains("do stuff"));
+    }
+
+    #[test]
+    fn generate_implement_prompt_without_workspace_has_no_workspace_section() {
+        let ticket = create_test_ticket();
+        let prompt = generate_implement_prompt(&ticket, "plan text", None);
+        assert!(!prompt.contains("## Workspace"));
+        assert!(prompt.contains("# Task:"));
+        assert!(prompt.contains("plan text"));
+    }
+
+    #[test]
+    fn generate_todo_implement_prompt_with_workspace_inserts_after_title() {
+        let ticket = create_test_ticket();
+        let projs = [
+            ("svc".to_string(), "/svc".to_string()),
+            ("lib".to_string(), "/lib".to_string()),
+        ];
+        let prompt = generate_todo_implement_prompt(
+            &ticket, "plan", "Step A", "Do step A", 0, 2, Some(("WS", &projs)),
+        );
+
+        let title_pos = prompt.find("# Task:").unwrap();
+        let ws_pos = prompt.find("## Workspace: WS").unwrap();
+        let desc_pos = prompt.find("## Description").unwrap();
+        assert!(title_pos < ws_pos);
+        assert!(ws_pos < desc_pos);
+        assert!(prompt.contains("**svc** (/svc)"));
+        assert!(prompt.contains("**lib** (/lib)"));
+        assert!(prompt.contains("## Current Step (1/2): Step A"));
+    }
 }

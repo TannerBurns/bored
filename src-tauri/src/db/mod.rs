@@ -19,6 +19,8 @@ pub mod tasks;
 pub mod tickets;
 mod validation;
 mod workspaces;
+#[cfg(test)]
+mod workspace_tests;
 
 use rusqlite::Connection;
 use std::path::PathBuf;

@@ -1,14 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { NextStepsPanel } from './NextStepsPanel';
 import type { Ticket, Column } from '../../../types';
 
-vi.mock('../BuildWithDropdown', () => ({
-  BuildWithDropdown: () => <button data-testid="build-dropdown">Validate</button>,
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('../../common/FileDiffViewer', () => ({
   FileDiffViewer: () => <div data-testid="diff-viewer" />,
+}));
+
+vi.mock('./ProjectBranchRow', () => ({
+  ProjectBranchRow: ({ status }: { status: { branch: string } }) => (
+    <div data-testid="project-branch-row">{status.branch}</div>
+  ),
+}));
+
+vi.mock('../../../lib/tauri', () => ({
+  getWorkspaceBranchStatus: vi.fn().mockResolvedValue([]),
 }));
 
 function makeColumns(): Column[] {
@@ -140,65 +150,23 @@ describe('NextStepsPanel', () => {
     });
   });
 
-  describe('action buttons', () => {
-    it('shows Push to Remote and Create PR buttons', () => {
-      render(
-        <NextStepsPanel
-          ticket={makeTicket({ columnId: 'col-review' })}
-          columns={makeColumns()}
-        />
-      );
-      expect(screen.getByText('Push to Remote')).toBeInTheDocument();
-      expect(screen.getByText('Create PR')).toBeInTheDocument();
-    });
+  describe('branch status loading', () => {
+    it('renders ProjectBranchRow after loading for non-workspace ticket', async () => {
+      const { invoke } = await import('@tauri-apps/api/core');
+      vi.mocked(invoke).mockResolvedValueOnce([]);
 
-    it('shows diff toggle button', () => {
-      render(
-        <NextStepsPanel
-          ticket={makeTicket({ columnId: 'col-review' })}
-          columns={makeColumns()}
-        />
-      );
-      expect(screen.getByRole('button', { name: /view diff|loading diff/i })).toBeInTheDocument();
-    });
-  });
-
-  describe('diff fullscreen', () => {
-    async function renderAndWaitForLoad(ticketOverrides: Partial<Ticket> = {}) {
       await act(async () => {
         render(
           <NextStepsPanel
-            ticket={makeTicket({ columnId: 'col-review', ...ticketOverrides })}
+            ticket={makeTicket({ columnId: 'col-review' })}
             columns={makeColumns()}
           />
         );
       });
-    }
 
-    it('shows expand button when diff is visible inline', async () => {
-      await renderAndWaitForLoad();
-      fireEvent.click(screen.getByText(/View diff/));
-      expect(screen.getByTitle('Expand diff')).toBeInTheDocument();
-    });
+      await act(async () => {});
 
-    it('opens fullscreen overlay when expand is clicked', async () => {
-      await renderAndWaitForLoad({ branchName: 'feat/test' });
-      fireEvent.click(screen.getByText(/View diff/));
-      fireEvent.click(screen.getByTitle('Expand diff'));
-      expect(screen.getByText('Diff')).toBeInTheDocument();
-      expect(screen.getByTitle('Close fullscreen')).toBeInTheDocument();
-      expect(screen.getAllByText('feat/test').length).toBeGreaterThan(0);
-    });
-
-    it('closes fullscreen overlay when close is clicked', async () => {
-      await renderAndWaitForLoad();
-      fireEvent.click(screen.getByText(/View diff/));
-      fireEvent.click(screen.getByTitle('Expand diff'));
-      expect(screen.getByText('Diff')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByTitle('Close fullscreen'));
-      expect(screen.getByTitle('Expand diff')).toBeInTheDocument();
-      expect(screen.queryByTitle('Close fullscreen')).not.toBeInTheDocument();
+      expect(screen.getByTestId('project-branch-row')).toBeInTheDocument();
     });
   });
 });

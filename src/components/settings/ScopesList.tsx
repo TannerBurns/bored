@@ -38,12 +38,10 @@ export function ScopesList({ onProjectsChange }: ScopesListProps = {}) {
   const [creatingProject, setCreatingProject] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string; type: 'project' | 'workspace' } | null>(null);
 
-  // Workspace form state
   const [wsName, setWsName] = useState('');
   const [wsSelectedProjectIds, setWsSelectedProjectIds] = useState<Set<string>>(new Set());
   const [creatingSaving, setCreatingSaving] = useState(false);
 
-  // Workspace edit state
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
   const [editWsName, setEditWsName] = useState('');
   const [editWsProjectIds, setEditWsProjectIds] = useState<Set<string>>(new Set());
