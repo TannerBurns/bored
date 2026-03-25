@@ -178,11 +178,31 @@ impl WorkflowOrchestrator {
                         return None;
                     }
                     self.add_auto_clarification_comment("Task deleted", &resolution.reason);
-                    self.move_ticket_to_column("Ready");
-                    tracing::info!(
-                        "Auto-clarification resolved (delete_task) for ticket {}, moved to Ready",
-                        self.ticket.id,
-                    );
+
+                    let has_pending = self
+                        .db
+                        .has_pending_tasks(&self.ticket.id)
+                        .unwrap_or(false);
+
+                    if has_pending {
+                        self.move_ticket_to_column("Ready");
+                        tracing::info!(
+                            "Auto-clarification resolved (delete_task) for ticket {}, moved to Ready (pending tasks remain)",
+                            self.ticket.id,
+                        );
+                    } else if self.auto_complete_tickets {
+                        self.move_ticket_to_column("Done");
+                        tracing::info!(
+                            "Auto-clarification resolved (delete_task) for ticket {}, moved to Done (auto-complete, no pending tasks)",
+                            self.ticket.id,
+                        );
+                    } else {
+                        self.move_ticket_to_column("Review");
+                        tracing::info!(
+                            "Auto-clarification resolved (delete_task) for ticket {}, moved to Review (no pending tasks)",
+                            self.ticket.id,
+                        );
+                    }
                     Some(Err(format!(
                         "Task deleted by auto-clarification: {}",
                         resolution.reason,

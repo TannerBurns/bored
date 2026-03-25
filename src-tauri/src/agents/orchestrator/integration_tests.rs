@@ -2133,7 +2133,7 @@ fn delete_task_auto_clarification_moves_ticket_to_ready_when_pending_remain() {
 }
 
 #[test]
-fn delete_task_auto_clarification_moves_ticket_to_ready_when_no_pending_remain() {
+fn delete_task_auto_clarification_moves_ticket_to_review_when_no_pending_remain() {
     let db = create_test_db();
     let ticket = seed_ticket(&db);
     let run_id = seed_parent_run(&db, &ticket.id);
@@ -2149,12 +2149,43 @@ fn delete_task_auto_clarification_moves_ticket_to_ready_when_no_pending_remain()
     let orch = WorkflowOrchestrator::new(config);
 
     db.delete_task(&task.id).unwrap();
-    orch.move_ticket_to_column("Ready");
+
+    let has_pending = db.has_pending_tasks(&ticket.id).unwrap();
+    assert!(!has_pending, "no pending tasks should remain after deletion");
+
+    orch.move_ticket_to_column("Review");
 
     assert_eq!(
         get_ticket_column_name(&db, &ticket.id),
-        "Ready",
-        "ticket must not remain stuck in In Progress after task deletion"
+        "Review",
+        "ticket should move to Review when last task is deleted (not stay in Ready)"
+    );
+}
+
+#[test]
+fn delete_task_auto_clarification_moves_ticket_to_done_when_auto_complete_and_no_pending() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings_auto_complete(false, true, true);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    move_ticket_to_in_progress(&db, &ticket);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task.clone());
+    let orch = WorkflowOrchestrator::new(config);
+
+    db.delete_task(&task.id).unwrap();
+
+    orch.move_ticket_to_column("Done");
+
+    assert_eq!(
+        get_ticket_column_name(&db, &ticket.id),
+        "Done",
+        "ticket should move to Done when auto-complete is on and last task is deleted"
     );
 }
 
