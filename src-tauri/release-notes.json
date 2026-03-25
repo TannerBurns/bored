@@ -1,5 +1,46 @@
 [
   {
+    "version": "0.1.0-beta.60",
+    "published_at": "2026-03-25",
+    "summary": "Robust code-review JSON parsing with fallback extraction and smarter auto-clarification ticket routing. The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing issues_found, files arrays instead of file strings, and numeric lines values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification DeleteTask now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings instead of always landing in Ready.",
+    "notes": [
+      {
+        "category": "Improvements",
+        "items": [
+          "Fallback parser in parse_structured_review handles common LLM deviations when strict CodeReviewOutput deserialization fails — unwraps single-key wrapper objects, derives issues_found from array length, tolerates files array in place of file string",
+          "Code-review.md prompt tightened with explicit field-level schema table, two concrete examples, and DO-NOT rules against wrapping in extra keys, renaming fields, or using arrays for file",
+          "Auto-clarification DeleteTask routes tickets based on remaining tasks — Ready (pending tasks remain), Review (no pending, no auto-complete), or Done (no pending, auto-complete enabled)"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed code-review structured output parser silently returning None when LLMs wrap JSON in an extra key (e.g. {\"review\": {...}}), omit issues_found, or use files array instead of file string — fallback parser now extracts what it can from the raw JSON value",
+          "Fixed issue_from_value dropping numeric lines values — as_str() returns None for JSON numbers like \"lines\": 42, now falls back to as_u64() stringified",
+          "Fixed auto-clarification DeleteTask always moving tickets to Ready regardless of remaining tasks — tickets with no pending tasks now go to Review (or Done with auto-complete), matching the routing logic used by finish_workflow"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.59",
+        "highlight": "Multi-project workspace support. Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames Projects to Scopes. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via .code-workspace files and --add-dir flags."
+      },
+      {
+        "version": "0.1.0-beta.58",
+        "highlight": "Multi-strategy fallback chain for the review agent's create_fix_tasks parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular create_fix_task form, and the frontend strips malformed JSON blocks from displayed review messages."
+      },
+      {
+        "version": "0.1.0-beta.57",
+        "highlight": "Title bar queued/active status pills now update instantly when tickets move via user drag-and-drop or backend agent workflows, instead of waiting for the 5-second polling interval. The Tauri ticket-moved event listener lifecycle is ref-counted alongside the existing polling interval, with promise-based cleanup to prevent leaks under React strict mode."
+      },
+      {
+        "version": "0.1.0-beta.56",
+        "highlight": "Native OS title bar replaced with a custom bar showing live worker count, queue depth, and active ticket counts with a Workers dropdown for starting/stopping workers from any view. Task execution in chat redesigned with a structured TaskExecutionCard showing real-time task status and a workflow stage progress stepper (Branch \u2192 Plan \u2192 Implement \u2192 Code Review \u2192 Commit). Dashboard trend charts now bucket events by local date instead of UTC."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.59",
     "published_at": "2026-03-24",
     "summary": "Multi-project workspace support. Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. The sidebar renames Projects to Scopes with a unified list showing both projects and workspaces. Per-project branch status, diffs, push, and PR creation are shown in a collapsible accordion. Cursor, Claude Code, and Codex agents all receive multi-root context via .code-workspace files and --add-dir flags. Also adds Claude Code --effort flag support, macOS native Edit menus, and a Validate with button in the ticket sidebar.",
