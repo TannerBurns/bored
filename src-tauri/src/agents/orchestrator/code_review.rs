@@ -538,6 +538,120 @@ mod tests {
     }
 
     #[test]
+    fn fallback_issues_found_as_string_derives_from_array() {
+        let text = r#"```json
+{"issues_found": "seven", "issues": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 3);
+        assert_eq!(result.issues.len(), 3);
+    }
+
+    #[test]
+    fn fallback_filters_invalid_issues() {
+        let text = r#"```json
+{
+  "issues": [
+    {"title": "Good one", "file": "a.rs"},
+    {"no_title": true},
+    {"title": "Another good one"}
+  ]
+}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 2);
+        assert_eq!(result.issues.len(), 2);
+        assert_eq!(result.issues[0].title, "Good one");
+        assert_eq!(result.issues[1].title, "Another good one");
+    }
+
+    #[test]
+    fn fallback_issues_found_without_issues_array() {
+        let text = "```json\n{\"issues_found\": 3}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 3);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_multi_key_wrapper_not_unwrapped() {
+        let text = r#"```json
+{"meta": {"version": 1}, "data": {"issues_found": 2, "issues": [{"title": "X"}]}}
+```"#;
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_non_object_json_returns_none() {
+        let text = "```json\n[1, 2, 3]\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_single_key_non_object_value_returns_none() {
+        let text = "```json\n{\"result\": \"all good\"}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_issue_prefers_file_over_files() {
+        let text = r#"```json
+{
+  "issues": [{"title": "X", "file": "preferred.rs", "files": ["other.rs"]}]
+}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues[0].file, "preferred.rs");
+    }
+
+    #[test]
+    fn fallback_issue_empty_files_array_defaults() {
+        let text = r#"```json
+{"issues": [{"title": "X", "files": []}]}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues[0].file, "");
+    }
+
+    #[test]
+    fn fallback_issue_non_object_items_filtered() {
+        let text = r#"```json
+{"issues": [42, "string", null, {"title": "Real"}]}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 1);
+        assert_eq!(result.issues[0].title, "Real");
+    }
+
+    // ── integration: fallback flows through public API ──────────
+
+    #[test]
+    fn parse_issues_count_via_fallback() {
+        let text = r#"```json
+{"summary": "3 issues", "issues": [{"title": "A"}, {"title": "B"}, {"title": "C"}]}
+```"#;
+        assert_eq!(parse_code_review_issues(text), Some(3));
+    }
+
+    #[test]
+    fn extract_issues_section_via_fallback() {
+        let text = r#"Analysis.
+
+```json
+{
+  "review": {
+    "issues_found": 1,
+    "issues": [{"title": "NPE risk", "file": "app.ts", "lines": "42", "severity": "high", "description": "Could be null"}]
+  }
+}
+```"#;
+        let result = extract_issues_section(text);
+        assert!(result.contains("### Issue 1: NPE risk"));
+        assert!(result.contains("`app.ts`"));
+        assert!(result.contains("high"));
+    }
+
+    #[test]
     fn parse_structured_review_unclosed_fence_returns_none() {
         let text = "```json\n{\"issues_found\": 1, \"issues\": []}";
         assert!(parse_structured_review(text).is_none());
