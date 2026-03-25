@@ -163,6 +163,8 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         stage_timeout_secs,
         stage_max_retries,
         workflow_mode_override,
+        debug_mode: false,
+        auto_code_review_on_complete: false,
     });
 
     tracing::info!("Starting workflow for run {}", run_id);

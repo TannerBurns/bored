@@ -92,6 +92,7 @@ impl SpecDiscoveryAgent {
             session_id: None,
             workspace_file: None,
             workspace_paths: vec![],
+            debug_mode: false,
         };
 
         let tx_clone = self.event_tx.clone();

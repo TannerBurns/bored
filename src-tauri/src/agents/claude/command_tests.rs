@@ -17,6 +17,7 @@ fn create_provider_config() -> AgentRunConfig {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     }
 }
 

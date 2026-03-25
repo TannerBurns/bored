@@ -63,6 +63,7 @@ impl WorkflowOrchestrator {
         }
 
         self.run_detour_sync_if_needed().await?;
+        self.maybe_run_auto_code_review().await?;
         self.finish_workflow("Multi-stage");
         Ok(())
     }
@@ -178,6 +179,7 @@ impl WorkflowOrchestrator {
         self.run_commit_stage().await?;
 
         self.run_detour_sync_if_needed().await?;
+        self.maybe_run_auto_code_review().await?;
         self.finish_workflow("Auto-pilot");
         Ok(())
     }
@@ -223,6 +225,32 @@ impl WorkflowOrchestrator {
             .await
             .map(|_| ())
         }
+    }
+
+    /// If auto_code_review_on_complete is enabled and this is the last task
+    /// of the ticket, run the code review loop followed by a commit stage.
+    async fn maybe_run_auto_code_review(&self) -> Result<(), String> {
+        if !self.auto_code_review_on_complete {
+            return Ok(());
+        }
+
+        let is_last_task = self.get_task().is_some()
+            && !self
+                .db
+                .has_pending_tasks(&self.ticket.id)
+                .unwrap_or(true);
+
+        if !is_last_task || self.is_cancelled() {
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Auto code review: last task of ticket {} completed, running code review loop",
+            self.ticket.id
+        );
+        self.run_code_review_loop().await?;
+        self.run_commit_stage().await?;
+        Ok(())
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {

@@ -86,6 +86,12 @@ pub struct WorkflowSettings {
     /// Max iterations for the code-review-only loop (0 = unlimited).
     #[serde(default)]
     pub code_review_agent_max_iterations: usize,
+    /// Whether to automatically run the Code Review Agent when the last task of a ticket completes.
+    #[serde(default)]
+    pub auto_code_review_on_complete: bool,
+    /// When enabled, CLI commands are captured and displayed as system entries in the timeline.
+    #[serde(default)]
+    pub debug_mode: bool,
     /// Full stage ordering (frontend stage keys, e.g. "code-review", "cleanup").
     /// Contains all stage keys including required stages.
     #[serde(default)]
@@ -156,6 +162,8 @@ impl Default for WorkflowSettings {
             code_review_agent_timeout_minutes: default_code_review_agent_timeout(),
             code_review_agent_max_retries: default_code_review_agent_retries(),
             code_review_agent_max_iterations: 0,
+            auto_code_review_on_complete: false,
+            debug_mode: false,
             stage_order: None,
             synced: false,
         }

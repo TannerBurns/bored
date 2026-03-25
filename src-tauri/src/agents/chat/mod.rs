@@ -124,6 +124,7 @@ impl ChatAgent {
             session_id: stored_session_id.clone(),
             workspace_file: self.config.workspace_file.clone(),
             workspace_paths: self.config.workspace_paths.clone(),
+            debug_mode: self.config.debug_mode,
         };
 
         if stored_session_id.is_some() {
@@ -150,6 +151,26 @@ impl ChatAgent {
                     });
                 cb
             });
+
+        if self.config.debug_mode {
+            let (cmd, args) = provider.build_command(&run_config);
+            let full_command = std::iter::once(cmd)
+                .chain(args.into_iter())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let debug_json = serde_json::json!({
+                "type": "bored_system",
+                "message": format!("CLI Command [{}]", self.config.mode.as_str()),
+                "command": full_command,
+            });
+            if let Some(ref cb) = log_callback {
+                cb(LogLine {
+                    stream: LogStream::Stdout,
+                    content: debug_json.to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+            }
+        }
 
         let spawn_result = tokio::task::spawn_blocking(move || {
             spawner::run_agent_via_provider_with_cancel(
@@ -503,6 +524,7 @@ mod tests {
                 timeout_secs: Some(120),
                 workspace_file: None,
                 workspace_paths: vec![],
+                debug_mode: false,
             },
             tx,
             Arc::new(registry),

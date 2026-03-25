@@ -397,6 +397,19 @@ export function parseAgentLogToEntries(
       continue;
     }
 
+    if (json.type === 'bored_system') {
+      entries.push({
+        id: entries.length.toString(),
+        type: 'system',
+        timestamp: log.timestamp,
+        summary: (json.message as string) ?? 'Bored System',
+        content: json.command as string,
+        rawJson: log.message,
+        isStderr,
+      });
+      continue;
+    }
+
     const parsed = isCodex
       ? parseCodexEvent(log.message, json, entries.length.toString(), log.timestamp, isStderr)
       : parseClaudeEvent(log.message, json, entries.length.toString(), log.timestamp, isStderr, taskDescriptions);
@@ -451,6 +464,19 @@ export function parseLogEvents(events: RunEvent[], agentType: string): TimelineE
         timestamp: event.createdAt,
         summary: truncate(trimmed, 120),
         content: trimmed,
+        rawJson: raw,
+        isStderr,
+      });
+      continue;
+    }
+
+    if (json.type === 'bored_system') {
+      entries.push({
+        id: event.id,
+        type: 'system',
+        timestamp: event.createdAt,
+        summary: (json.message as string) ?? 'Bored System',
+        content: json.command as string,
         rawJson: raw,
         isStderr,
       });

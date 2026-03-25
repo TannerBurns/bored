@@ -518,6 +518,12 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           enabled={config.autoClarification}
           onChange={(v) => updateConfig(agentId, { autoClarification: v })}
         />
+        <ToggleRow
+          label="Enable Debug Mode"
+          description="Capture CLI commands submitted to agent processes and display them as system entries in the timeline view"
+          enabled={config.debugMode}
+          onChange={(v) => updateConfig(agentId, { debugMode: v })}
+        />
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
@@ -680,6 +686,12 @@ function CodeReviewAgentSection({ agentId, config, models, modelColWidth }: {
             />
           </div>
         </div>
+        <ToggleRow
+          label="Run on Ticket Complete"
+          description="Automatically run the Code Review Agent when all tasks of a ticket finish successfully"
+          enabled={config.autoCodeReviewOnComplete}
+          onChange={(v) => updateConfig(agentId, { autoCodeReviewOnComplete: v })}
+        />
         <ToggleRow
           label="Run until clean"
           description="Keep iterating until no issues are found, or you manually stop it"

@@ -30,6 +30,8 @@ pub struct AgentRunConfig {
     pub workspace_file: Option<PathBuf>,
     /// All worktree paths in a workspace execution (one per project).
     pub workspace_paths: Vec<PathBuf>,
+    /// When true, the CLI command string is emitted as a system timeline entry before spawning.
+    pub debug_mode: bool,
 }
 
 /// The trait every agent implementation must satisfy.

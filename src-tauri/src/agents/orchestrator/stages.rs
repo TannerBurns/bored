@@ -181,6 +181,7 @@ impl WorkflowOrchestrator {
             session_id: session_id.map(|s| s.to_string()),
             workspace_file: self.workspace_file.clone(),
             workspace_paths: self.workspace_paths.clone(),
+            debug_mode: self.debug_mode,
         };
 
         // Create log callback
@@ -216,6 +217,24 @@ impl WorkflowOrchestrator {
             handles.insert(sub_run_id_for_spawn.clone(), cancel_handle.clone());
             handles.insert(parent_run_id.clone(), cancel_handle);
         });
+
+        if self.debug_mode {
+            let (cmd, args) = self.provider.build_command(&config);
+            let full_command = std::iter::once(cmd)
+                .chain(args.into_iter())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let debug_json = serde_json::json!({
+                "type": "bored_system",
+                "message": format!("CLI Command [{}]", stage),
+                "command": full_command,
+            });
+            on_log(LogLine {
+                stream: LogStream::Stdout,
+                content: debug_json.to_string(),
+                timestamp: chrono::Utc::now(),
+            });
+        }
 
         let provider = self.provider.clone();
         let runner = self.stage_runner.clone();

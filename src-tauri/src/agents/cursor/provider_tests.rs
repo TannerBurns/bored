@@ -18,6 +18,7 @@ fn make_config() -> AgentRunConfig {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     }
 }
 

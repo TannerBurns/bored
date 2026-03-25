@@ -209,6 +209,7 @@ pub async fn send_chat_message(
         timeout_secs: Some(timeout_secs.unwrap_or(600)),
         workspace_file,
         workspace_paths,
+        debug_mode: ws.debug_mode,
     };
 
     let cancel_handles = running_chats.handles.clone();

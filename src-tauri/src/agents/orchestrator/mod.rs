@@ -134,6 +134,8 @@ pub struct WorkflowOrchestrator {
     auto_pilot_required_commands: Vec<crate::commands::workflow_settings::AutoPilotRequiredCommand>,
     auto_complete_tickets: bool,
     auto_clarification: bool,
+    auto_code_review_on_complete: bool,
+    debug_mode: bool,
     stage_runner: Arc<dyn StageRunner>,
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
@@ -200,7 +202,7 @@ impl WorkflowOrchestrator {
             .expect("workflow settings mutex poisoned");
 
         let agent_ws = per_agent.get(&config.agent_id);
-        let (mut stage_configs, mut code_review_max_iterations, mut stage_timeout_secs, mut stage_max_retries, mut stage_order, auto_pilot_enabled, auto_pilot_model, auto_pilot_enabled_models, auto_pilot_required_commands, auto_complete_tickets, auto_clarification) =
+        let (mut stage_configs, mut code_review_max_iterations, mut stage_timeout_secs, mut stage_max_retries, mut stage_order, auto_pilot_enabled, auto_pilot_model, auto_pilot_enabled_models, auto_pilot_required_commands, auto_complete_tickets, auto_clarification, auto_code_review_on_complete, debug_mode) =
             if let Some(ws) = agent_ws.filter(|ws| ws.synced) {
                 let order = ws.stage_order.clone().unwrap_or_else(|| {
                     config::DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()
@@ -217,6 +219,8 @@ impl WorkflowOrchestrator {
                     ws.auto_pilot_required_commands.clone(),
                     ws.auto_complete_tickets,
                     ws.auto_clarification,
+                    ws.auto_code_review_on_complete,
+                    ws.debug_mode,
                 )
             } else {
                 tracing::warn!("WorkflowSettings not yet synced for agent '{}', using config fallback", config.agent_id);
@@ -232,6 +236,8 @@ impl WorkflowOrchestrator {
                     Vec::new(),
                     false,
                     false,
+                    config.auto_code_review_on_complete,
+                    config.debug_mode,
                 )
             };
 
@@ -333,6 +339,8 @@ impl WorkflowOrchestrator {
             auto_pilot_required_commands,
             auto_complete_tickets,
             auto_clarification,
+            auto_code_review_on_complete,
+            debug_mode,
             stage_runner: Arc::new(DefaultStageRunner),
             implementation_todos: RwLock::new(Vec::new()),
             workflow_session_id: RwLock::new(None),

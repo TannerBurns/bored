@@ -68,6 +68,10 @@ pub struct OrchestratorConfig {
     pub code_review_max_iterations: usize,
     pub stage_timeout_secs: u64,
     pub stage_max_retries: u32,
+    /// When true, CLI commands are captured and displayed as system entries in the timeline.
+    pub debug_mode: bool,
+    /// When true, automatically run the Code Review Agent when the last task completes.
+    pub auto_code_review_on_complete: bool,
 }
 
 /// Map stage names from the pre-catalog-refactor workflow to their current

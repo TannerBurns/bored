@@ -152,6 +152,9 @@ export interface AgentConfig {
   codeReviewAgentTimeoutMinutes: number;
   codeReviewAgentMaxRetries: number;
   codeReviewAgentMaxIterations: number;
+  autoCodeReviewOnComplete: boolean;
+
+  debugMode: boolean;
 
   settings: Record<string, unknown>;
 }
@@ -234,6 +237,8 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {
     authToken: '',
     apiKey: '',
@@ -277,6 +282,8 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {},
 };
 
@@ -312,6 +319,8 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {
     ossEnabled: false,
     localProvider: 'ollama',

@@ -17,6 +17,7 @@ pub struct ChatAgentConfig {
     pub timeout_secs: Option<u64>,
     pub workspace_file: Option<PathBuf>,
     pub workspace_paths: Vec<PathBuf>,
+    pub debug_mode: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

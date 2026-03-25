@@ -223,6 +223,8 @@ fn make_config(
         stage_timeout_secs: 3600,
         stage_max_retries: 2,
         workflow_mode_override: None,
+        debug_mode: false,
+        auto_code_review_on_complete: false,
     }
 }
 
@@ -1215,6 +1217,8 @@ fn make_config_with_provider(
         stage_timeout_secs: 3600,
         stage_max_retries: 2,
         workflow_mode_override: None,
+        debug_mode: false,
+        auto_code_review_on_complete: false,
     }
 }
 
