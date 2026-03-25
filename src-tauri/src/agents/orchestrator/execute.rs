@@ -226,14 +226,15 @@ impl WorkflowOrchestrator {
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {
-        let has_pending = self.get_task().is_some()
+        let has_task = self.get_task().is_some();
+        let has_pending = has_task
             && self
                 .db
                 .has_pending_tasks(&self.ticket.id)
                 .unwrap_or(false);
 
         let should_auto_code_review = self.auto_code_review_on_complete
-            && self.get_task().is_some()
+            && has_task
             && !has_pending
             && self.workflow_mode != WorkflowMode::CodeReviewOnly;
 

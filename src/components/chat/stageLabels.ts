@@ -12,6 +12,7 @@ const STAGE_TO_GROUP: Record<string, string> = {
   'code-review': 'Code Review',
   'code-review-fix': 'Code Review',
   'add-and-commit': 'Commit',
+  'detour-sync': 'Commit',
 };
 
 /** Canonical display order for the stage groups shown in the stepper. */

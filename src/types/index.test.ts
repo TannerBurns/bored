@@ -14,6 +14,10 @@ describe('getCommandId', () => {
     expect(getCommandId('custom')).toBeNull();
   });
 
+  it('returns null for code_review type', () => {
+    expect(getCommandId('code_review')).toBeNull();
+  });
+
   it('returns null for arbitrary string without prefix', () => {
     expect(getCommandId('something-else')).toBeNull();
   });
@@ -26,6 +30,10 @@ describe('getCommandId', () => {
 describe('getTaskTypeLabel', () => {
   it('returns Custom for custom type', () => {
     expect(getTaskTypeLabel('custom')).toBe('Custom');
+  });
+
+  it('returns Code Review for code_review type', () => {
+    expect(getTaskTypeLabel('code_review')).toBe('Code Review');
   });
 
   it('title-cases a bare ID (serde/IPC format)', () => {

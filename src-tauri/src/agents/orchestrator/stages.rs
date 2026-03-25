@@ -243,28 +243,8 @@ impl WorkflowOrchestrator {
         });
 
         if self.debug_mode {
-            let (cmd, args) = self.provider.build_command(&config);
-            let env_vars = self.provider.build_env_vars(&config);
-            let env_prefix = crate::agents::debug_env_prefix(&env_vars);
-            let full_command = format!(
-                "{}{}",
-                env_prefix,
-                std::iter::once(cmd)
-                    .chain(args.into_iter())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
-            let debug_json = serde_json::json!({
-                "type": "bored_system",
-                "message": format!("CLI Command [{}]", stage),
-                "command": full_command,
-                "session_id": session_id,
-            });
-            on_log(LogLine {
-                stream: LogStream::Stdout,
-                content: debug_json.to_string(),
-                timestamp: chrono::Utc::now(),
-            });
+            let command = crate::agents::build_debug_command_line(&*self.provider, &config);
+            on_log(crate::agents::build_debug_log_line(stage, &command, session_id));
         }
 
         let provider = self.provider.clone();

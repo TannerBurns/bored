@@ -150,6 +150,7 @@ describe('constants', () => {
     expect(RESERVED_INTERNAL_STAGE_IDS.has('plan-decompose')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('code-review-fix')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('add-and-commit')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('detour-sync')).toBe(true);
   });
 
   it('RESERVED_INTERNAL_STAGE_IDS does not overlap with REQUIRED_STAGE_KEYS', () => {

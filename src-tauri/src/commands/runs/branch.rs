@@ -47,8 +47,8 @@ pub(super) async fn setup_worktree_and_branch(
         )
         .inspect(|info| {
             tracing::info!(
-                "Created worktree for run {} at {} using existing branch {}",
-                run_id, info.path.display(), info.branch_name
+                "Created worktree for run {} at {} using branch {} (target: {:?})",
+                run_id, info.path.display(), info.branch_name, info.target_branch
             );
         })
         .inspect_err(|e| {
@@ -59,7 +59,9 @@ pub(super) async fn setup_worktree_and_branch(
             );
         })?;
 
-        Ok((worktree, existing_branch.clone()))
+        // On detour branches, worktree.branch_name != existing_branch.
+        let actual_branch = worktree.branch_name.clone();
+        Ok((worktree, actual_branch))
     } else {
         let temp_branch = format!(
             "agent-work/{}/{}",

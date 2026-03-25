@@ -993,6 +993,27 @@ describe('useSettingsStore', () => {
       expect(config.stageOrder).toBeDefined();
       expect(config.generalModel).toBeDefined();
     });
+
+    it('agentConfigs include debugMode and autoCodeReviewOnComplete for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor', 'codex']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.debugMode).toBe('boolean');
+        expect(typeof config.autoCodeReviewOnComplete).toBe('boolean');
+      }
+    });
+
+    it('debugMode survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { debugMode: true });
+      const config = useSettingsStore.getState().agentConfigs.claude;
+      expect(config.debugMode).toBe(true);
+    });
+
+    it('autoCodeReviewOnComplete survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('cursor', { autoCodeReviewOnComplete: true });
+      const config = useSettingsStore.getState().agentConfigs.cursor;
+      expect(config.autoCodeReviewOnComplete).toBe(true);
+    });
   });
 
   describe('diagnostic agent settings', () => {

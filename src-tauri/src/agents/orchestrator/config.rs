@@ -91,7 +91,7 @@ pub fn normalize_legacy_stage_name(stage: &str) -> Option<&'static str> {
 #[cfg(test)]
 pub const RESERVED_INTERNAL_STAGES: &[&str] = &[
     "branch-gen", "branch", "plan-validation", "plan-decompose",
-    "code-review-fix", "add-and-commit",
+    "code-review-fix", "add-and-commit", "detour-sync",
 ];
 
 /// Expand a frontend stage key into its backend execution stage names.

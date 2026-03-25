@@ -153,29 +153,14 @@ impl ChatAgent {
             });
 
         if self.config.debug_mode {
-            let (cmd, args) = provider.build_command(&run_config);
-            let env_vars = provider.build_env_vars(&run_config);
-            let env_prefix = super::debug_env_prefix(&env_vars);
-            let full_command = format!(
-                "{}{}",
-                env_prefix,
-                std::iter::once(cmd)
-                    .chain(args.into_iter())
-                    .collect::<Vec<_>>()
-                    .join(" "),
+            let command = super::build_debug_command_line(&*provider, &run_config);
+            let log_line = super::build_debug_log_line(
+                self.config.mode.as_str(),
+                &command,
+                stored_session_id.as_deref(),
             );
-            let debug_json = serde_json::json!({
-                "type": "bored_system",
-                "message": format!("CLI Command [{}]", self.config.mode.as_str()),
-                "command": full_command,
-                "session_id": stored_session_id,
-            });
             if let Some(ref cb) = log_callback {
-                cb(LogLine {
-                    stream: LogStream::Stdout,
-                    content: debug_json.to_string(),
-                    timestamp: chrono::Utc::now(),
-                });
+                cb(log_line);
             }
         }
 

@@ -40,7 +40,7 @@ export const REQUIRED_STAGE_KEYS: ReadonlySet<string> = new Set([
  *  resume logic breaks due to duplicate positions in `full_execution_order`. */
 export const RESERVED_INTERNAL_STAGE_IDS: ReadonlySet<string> = new Set([
   'branch-gen', 'branch', 'plan-validation', 'plan-decompose',
-  'code-review-fix', 'add-and-commit',
+  'code-review-fix', 'add-and-commit', 'detour-sync',
 ]);
 
 export const DEFAULT_STAGE_ORDER: string[] = [
