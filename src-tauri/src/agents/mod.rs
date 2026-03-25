@@ -112,5 +112,31 @@ pub enum LogStream {
     Stderr,
 }
 
+const SENSITIVE_ENV_PREFIXES: &[&str] = &[
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "GIT_AUTHOR_",
+    "GIT_COMMITTER_",
+];
+
+/// Build a `KEY=value ` prefix string from env vars, filtering out secrets and
+/// git identity overrides so the debug output is both useful and safe.
+pub fn debug_env_prefix(env_vars: &[(String, String)]) -> String {
+    let safe: Vec<String> = env_vars
+        .iter()
+        .filter(|(k, _)| {
+            !SENSITIVE_ENV_PREFIXES
+                .iter()
+                .any(|prefix| k.starts_with(prefix))
+        })
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    if safe.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", safe.join(" "))
+    }
+}
+
 #[cfg(test)]
 mod tests;

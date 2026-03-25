@@ -557,6 +557,8 @@ export interface ProjectBranchStatus {
   branch: string;
   workingDir: string;
   hasChanges: boolean;
+  hasUnpushed: boolean;
+  hasUncommitted: boolean;
   filesChanged: number;
   additions: number;
   deletions: number;

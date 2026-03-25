@@ -136,6 +136,13 @@ pub struct WorkflowOrchestrator {
     auto_clarification: bool,
     auto_code_review_on_complete: bool,
     debug_mode: bool,
+    /// Code Review Agent overrides used by `maybe_run_auto_code_review` so that
+    /// the auto-triggered review honours the CR-agent-specific settings rather
+    /// than the pipeline defaults.
+    cr_agent_model: String,
+    cr_agent_max_iterations: usize,
+    cr_agent_timeout_secs: u64,
+    cr_agent_max_retries: u32,
     stage_runner: Arc<dyn StageRunner>,
     /// In-memory storage for implementation todos (populated by plan decomposition)
     implementation_todos: RwLock<Vec<config::ImplementationTodo>>,
@@ -251,6 +258,22 @@ impl WorkflowOrchestrator {
             )
         });
 
+        let (cr_agent_model, cr_agent_max_iterations, cr_agent_timeout_secs, cr_agent_max_retries) =
+            match &cr_agent_settings {
+                Some((cr_max, cr_timeout, cr_retries, cr_model)) => (
+                    cr_model.clone(),
+                    if *cr_max == 0 { usize::MAX } else { *cr_max },
+                    *cr_timeout as u64 * 60,
+                    *cr_retries,
+                ),
+                None => (
+                    crate::agents::models::DEFAULT_STAGE_MODEL.to_string(),
+                    usize::MAX,
+                    60 * 60,
+                    2,
+                ),
+            };
+
         let workflow_mode = match config.workflow_mode_override.as_deref() {
             Some("code_review_only") => config::WorkflowMode::CodeReviewOnly,
             _ if auto_pilot_enabled => config::WorkflowMode::AutoPilot,
@@ -341,6 +364,10 @@ impl WorkflowOrchestrator {
             auto_clarification,
             auto_code_review_on_complete,
             debug_mode,
+            cr_agent_model,
+            cr_agent_max_iterations,
+            cr_agent_timeout_secs,
+            cr_agent_max_retries,
             stage_runner: Arc::new(DefaultStageRunner),
             implementation_todos: RwLock::new(Vec::new()),
             workflow_session_id: RwLock::new(None),

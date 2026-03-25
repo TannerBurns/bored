@@ -20,7 +20,7 @@ impl WorkflowOrchestrator {
         prompt: &str,
     ) -> Result<AgentRunResult, String> {
         let sid = self.get_workflow_session_id();
-        self.run_stage_inner(stage, prompt, None, sid.as_deref())
+        self.run_stage_inner(stage, prompt, None, sid.as_deref(), None, None)
             .await
     }
 
@@ -32,8 +32,29 @@ impl WorkflowOrchestrator {
         model: &str,
     ) -> Result<AgentRunResult, String> {
         let sid = self.get_workflow_session_id();
-        self.run_stage_inner(stage, prompt, Some(model), sid.as_deref())
+        self.run_stage_inner(stage, prompt, Some(model), sid.as_deref(), None, None)
             .await
+    }
+
+    /// Run a single stage with explicit model, timeout, and retry overrides.
+    async fn run_stage_with_overrides(
+        &self,
+        stage: &str,
+        prompt: &str,
+        model: &str,
+        timeout_secs: u64,
+        max_retries: u32,
+    ) -> Result<AgentRunResult, String> {
+        let sid = self.get_workflow_session_id();
+        self.run_stage_inner(
+            stage,
+            prompt,
+            Some(model),
+            sid.as_deref(),
+            Some(timeout_secs),
+            Some(max_retries),
+        )
+        .await
     }
 
     fn get_workflow_session_id(&self) -> Option<String> {
@@ -66,8 +87,10 @@ impl WorkflowOrchestrator {
         prompt: &str,
         model_override: Option<&str>,
         session_id: Option<&str>,
+        timeout_override: Option<u64>,
+        retries_override: Option<u32>,
     ) -> Result<AgentRunResult, String> {
-        let max_attempts = self.stage_max_retries + 1;
+        let max_attempts = retries_override.unwrap_or(self.stage_max_retries) + 1;
         let mut last_error = String::new();
 
         for attempt in 1..=max_attempts {
@@ -98,7 +121,7 @@ impl WorkflowOrchestrator {
             let attempt_session_id = if attempt == 1 { session_id } else { None };
 
             match self
-                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id)
+                .run_stage_attempt(stage, prompt, attempt, max_attempts, model_override, attempt_session_id, timeout_override)
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -133,6 +156,7 @@ impl WorkflowOrchestrator {
         max_attempts: u32,
         model_override: Option<&str>,
         session_id: Option<&str>,
+        timeout_override: Option<u64>,
     ) -> Result<AgentRunResult, String> {
         tracing::info!(
             "Starting stage '{}' attempt {}/{} for parent run {}",
@@ -175,7 +199,7 @@ impl WorkflowOrchestrator {
             run_id: sub_run.id.clone(),
             repo_path: self.repo_path.clone(),
             prompt: prompt.to_string(),
-            timeout_secs: Some(self.stage_timeout_secs),
+            timeout_secs: Some(timeout_override.unwrap_or(self.stage_timeout_secs)),
             model: Some(stage_model.clone()),
             agent_config: self.agent_config.clone(),
             session_id: session_id.map(|s| s.to_string()),
@@ -220,14 +244,21 @@ impl WorkflowOrchestrator {
 
         if self.debug_mode {
             let (cmd, args) = self.provider.build_command(&config);
-            let full_command = std::iter::once(cmd)
-                .chain(args.into_iter())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let env_vars = self.provider.build_env_vars(&config);
+            let env_prefix = crate::agents::debug_env_prefix(&env_vars);
+            let full_command = format!(
+                "{}{}",
+                env_prefix,
+                std::iter::once(cmd)
+                    .chain(args.into_iter())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
             let debug_json = serde_json::json!({
                 "type": "bored_system",
                 "message": format!("CLI Command [{}]", stage),
                 "command": full_command,
+                "session_id": session_id,
             });
             on_log(LogLine {
                 stream: LogStream::Stdout,
@@ -378,6 +409,11 @@ impl WorkflowOrchestrator {
                     );
                     self.set_workflow_session_id(&sid);
                 }
+            } else if session_id.is_none() {
+                tracing::warn!(
+                    "No session_id found in agent output for stage '{}' — subsequent stages will not use --resume",
+                    stage,
+                );
             }
         }
 
@@ -476,7 +512,13 @@ impl WorkflowOrchestrator {
     /// Run the iterative code review loop using the model from stage_configs.
     pub(super) async fn run_code_review_loop(&self) -> Result<(), String> {
         let model = self.get_stage_model("code-review");
-        self.run_code_review_loop_with_model(&model).await
+        self.run_code_review_loop_inner(
+            &model,
+            self.code_review_max_iterations,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Run the iterative code review loop with an explicit model override.
@@ -484,8 +526,36 @@ impl WorkflowOrchestrator {
         &self,
         model: &str,
     ) -> Result<(), String> {
-        let max_iterations = self.code_review_max_iterations;
+        self.run_code_review_loop_inner(
+            model,
+            self.code_review_max_iterations,
+            None,
+            None,
+        )
+        .await
+    }
 
+    /// Run the code review loop using the Code Review Agent settings
+    /// (model, max iterations, timeout, retries) rather than the pipeline defaults.
+    pub(super) async fn run_code_review_loop_with_cr_agent_settings(
+        &self,
+    ) -> Result<(), String> {
+        self.run_code_review_loop_inner(
+            &self.cr_agent_model,
+            self.cr_agent_max_iterations,
+            Some(self.cr_agent_timeout_secs),
+            Some(self.cr_agent_max_retries),
+        )
+        .await
+    }
+
+    async fn run_code_review_loop_inner(
+        &self,
+        model: &str,
+        max_iterations: usize,
+        timeout_override: Option<u64>,
+        retries_override: Option<u32>,
+    ) -> Result<(), String> {
         if max_iterations == 0 {
             tracing::info!("Code review loop disabled (max_iterations = 0)");
             return Ok(());
@@ -504,6 +574,8 @@ impl WorkflowOrchestrator {
             model,
         );
 
+        let timeout = timeout_override.unwrap_or(self.stage_timeout_secs);
+        let retries = retries_override.unwrap_or(self.stage_max_retries);
         let custom_dir = self.custom_commands_dir();
 
         for iteration in 1..=max_iterations {
@@ -515,7 +587,7 @@ impl WorkflowOrchestrator {
 
             let review_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
             let review_result = self
-                .run_stage_with_model("code-review", &review_prompt, model)
+                .run_stage_with_overrides("code-review", &review_prompt, model, timeout, retries)
                 .await?;
 
             let sub_run_id = review_result.run_id.clone();
@@ -568,7 +640,7 @@ impl WorkflowOrchestrator {
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, issues_section
                     );
-                    self.run_stage_with_model("code-review-fix", &fix_prompt, model)
+                    self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;
                 }
                 None => {
@@ -584,7 +656,7 @@ impl WorkflowOrchestrator {
                         "{}\n\n## Issues to Address\n\n{}",
                         base_fix_prompt, text
                     );
-                    self.run_stage_with_model("code-review-fix", &fix_prompt, model)
+                    self.run_stage_with_overrides("code-review-fix", &fix_prompt, model, timeout, retries)
                         .await?;
                 }
             }

@@ -518,12 +518,6 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           enabled={config.autoClarification}
           onChange={(v) => updateConfig(agentId, { autoClarification: v })}
         />
-        <ToggleRow
-          label="Enable Debug Mode"
-          description="Capture CLI commands submitted to agent processes and display them as system entries in the timeline view"
-          enabled={config.debugMode}
-          onChange={(v) => updateConfig(agentId, { debugMode: v })}
-        />
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">

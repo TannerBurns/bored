@@ -229,7 +229,7 @@ impl WorkflowOrchestrator {
 
     /// If auto_code_review_on_complete is enabled and this is the last task
     /// of the ticket, run the code review loop followed by a commit stage.
-    async fn maybe_run_auto_code_review(&self) -> Result<(), String> {
+    pub(super) async fn maybe_run_auto_code_review(&self) -> Result<(), String> {
         if !self.auto_code_review_on_complete {
             return Ok(());
         }
@@ -245,10 +245,14 @@ impl WorkflowOrchestrator {
         }
 
         tracing::info!(
-            "Auto code review: last task of ticket {} completed, running code review loop",
-            self.ticket.id
+            "Auto code review: last task of ticket {} completed, running code review loop \
+             (model={}, timeout={}s, retries={})",
+            self.ticket.id,
+            self.cr_agent_model,
+            self.cr_agent_timeout_secs,
+            self.cr_agent_max_retries,
         );
-        self.run_code_review_loop().await?;
+        self.run_code_review_loop_with_cr_agent_settings().await?;
         self.run_commit_stage().await?;
         Ok(())
     }

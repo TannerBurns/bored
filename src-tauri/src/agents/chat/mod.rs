@@ -154,14 +154,21 @@ impl ChatAgent {
 
         if self.config.debug_mode {
             let (cmd, args) = provider.build_command(&run_config);
-            let full_command = std::iter::once(cmd)
-                .chain(args.into_iter())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let env_vars = provider.build_env_vars(&run_config);
+            let env_prefix = super::debug_env_prefix(&env_vars);
+            let full_command = format!(
+                "{}{}",
+                env_prefix,
+                std::iter::once(cmd)
+                    .chain(args.into_iter())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
             let debug_json = serde_json::json!({
                 "type": "bored_system",
                 "message": format!("CLI Command [{}]", self.config.mode.as_str()),
                 "command": full_command,
+                "session_id": stored_session_id,
             });
             if let Some(ref cb) = log_callback {
                 cb(LogLine {
@@ -258,6 +265,11 @@ impl ChatAgent {
                     tracing::warn!("Failed to persist agent session id: {}", e);
                 }
             }
+        } else if stored_session_id.is_none() {
+            tracing::warn!(
+                "No session_id found in agent output for chat {} — subsequent turns will rebuild full conversation history",
+                self.config.chat_id
+            );
         }
 
         if text.is_empty() {
@@ -410,17 +422,28 @@ impl ChatAgent {
 
             if content.starts_with('{') {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-                    let dominated = json.get("type").and_then(|t| t.as_str());
-                    match dominated {
-                        Some("assistant") | Some("system") | Some("tool_call") => {
-                            let _ = tx.send(LiveEvent::ChatLogEntry {
-                                chat_id: chat_id.clone(),
-                                stream: stream_str.to_string(),
-                                message: content.to_string(),
-                                timestamp: ts,
-                            });
-                        }
-                        _ => {}
+                    let event_type = json.get("type").and_then(|t| t.as_str());
+                    const SSE_SKIP: &[&str] = &[
+                        "thinking",
+                        "content_block_delta",
+                        "stream_event",
+                        "content_block_start",
+                        "content_block_stop",
+                        "message_start",
+                        "message_delta",
+                        "message_stop",
+                    ];
+                    let should_send = match event_type {
+                        Some(t) => !SSE_SKIP.contains(&t),
+                        None => false,
+                    };
+                    if should_send {
+                        let _ = tx.send(LiveEvent::ChatLogEntry {
+                            chat_id: chat_id.clone(),
+                            stream: stream_str.to_string(),
+                            message: content.to_string(),
+                            timestamp: ts,
+                        });
                     }
                 }
             } else {

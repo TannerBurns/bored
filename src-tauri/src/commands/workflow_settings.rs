@@ -270,6 +270,8 @@ mod tests {
         assert_eq!(settings.stage_max_retries, 2);
         assert_eq!(settings.diagnostic_model, "claude-sonnet-4-6");
         assert!(!settings.synced, "default settings should not be marked as synced");
+        assert!(!settings.auto_code_review_on_complete);
+        assert!(!settings.debug_mode);
     }
 
     #[test]
@@ -337,6 +339,34 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("diagnosticModel"));
         assert!(json.contains("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn workflow_settings_deserializes_new_bool_fields() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2,
+            "autoCodeReviewOnComplete":true,
+            "debugMode":true
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_code_review_on_complete);
+        assert!(settings.debug_mode);
+    }
+
+    #[test]
+    fn workflow_settings_new_bool_fields_default_to_false_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.auto_code_review_on_complete);
+        assert!(!settings.debug_mode);
     }
 
     #[test]

@@ -2464,3 +2464,372 @@ async fn command_selection_excludes_forced_commands_from_prompt() {
         "Exclusion note should mention the forced command names"
     );
 }
+
+// -- auto_code_review_on_complete / debug_mode field tests --
+
+#[test]
+fn new_reads_auto_code_review_on_complete_from_synced_settings() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    assert!(orch.auto_code_review_on_complete);
+}
+
+#[test]
+fn new_reads_debug_mode_from_synced_settings() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.debug_mode = true;
+    }
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    assert!(orch.debug_mode);
+}
+
+#[test]
+fn new_falls_back_to_config_for_auto_code_review_when_not_synced() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, false);
+
+    let mut cfg = make_config(db, ticket, run_id, settings);
+    cfg.auto_code_review_on_complete = true;
+    cfg.debug_mode = true;
+    let orch = WorkflowOrchestrator::new(cfg);
+    assert!(orch.auto_code_review_on_complete);
+    assert!(orch.debug_mode);
+}
+
+// -- CR agent settings derivation --
+
+#[test]
+fn cr_agent_settings_derived_from_synced_workflow_settings() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let mut map = HashMap::new();
+    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
+    let default_stages: HashMap<String, StageConfig> = [
+        ("branchGen", stage), ("plan", stage), ("implement", stage),
+        ("code-review", stage), ("commit", stage),
+    ].into_iter().map(|(k, m)| (k.to_string(), StageConfig { enabled: true, model: m.to_string() })).collect();
+
+    map.insert("stub".to_string(), WorkflowSettings {
+        stage_configs: default_stages,
+        code_review_agent_model: "cr-custom-model".to_string(),
+        code_review_agent_max_iterations: 5,
+        code_review_agent_timeout_minutes: 45,
+        code_review_agent_max_retries: 3,
+        stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
+        synced: true,
+        ..Default::default()
+    });
+    let settings = Arc::new(Mutex::new(map));
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    assert_eq!(orch.cr_agent_model, "cr-custom-model");
+    assert_eq!(orch.cr_agent_max_iterations, 5);
+    assert_eq!(orch.cr_agent_timeout_secs, 45 * 60);
+    assert_eq!(orch.cr_agent_max_retries, 3);
+}
+
+#[test]
+fn cr_agent_zero_max_iterations_means_unlimited() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let mut map = HashMap::new();
+    map.insert("stub".to_string(), WorkflowSettings {
+        code_review_agent_max_iterations: 0,
+        code_review_agent_model: "some-model".to_string(),
+        stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
+        synced: true,
+        ..Default::default()
+    });
+    let settings = Arc::new(Mutex::new(map));
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    assert_eq!(orch.cr_agent_max_iterations, usize::MAX);
+}
+
+#[test]
+fn cr_agent_settings_default_when_not_synced() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, false);
+
+    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+
+    assert_eq!(orch.cr_agent_model, crate::agents::models::DEFAULT_STAGE_MODEL);
+    assert_eq!(orch.cr_agent_max_iterations, usize::MAX);
+    assert_eq!(orch.cr_agent_timeout_secs, 60 * 60);
+    assert_eq!(orch.cr_agent_max_retries, 2);
+}
+
+// -- maybe_run_auto_code_review tests --
+
+#[tokio::test]
+async fn maybe_run_auto_code_review_noop_when_disabled() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    let mut config = make_config(db, ticket, run_id, settings);
+    config.task = Some(task);
+    config.auto_code_review_on_complete = false;
+    let mut orch = WorkflowOrchestrator::new(config);
+
+    let runner = MockStageRunner::new(10, "should not be called");
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(Arc::new(runner));
+
+    let result = orch.maybe_run_auto_code_review().await;
+    assert!(result.is_ok());
+    assert_eq!(call_count.load(Ordering::Relaxed), 0, "should not invoke any stages");
+}
+
+#[tokio::test]
+async fn maybe_run_auto_code_review_noop_when_no_task() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let config = make_config(db, ticket, run_id, settings);
+    assert!(config.task.is_none());
+    let mut orch = WorkflowOrchestrator::new(config);
+
+    let runner = MockStageRunner::new(10, "should not be called");
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(Arc::new(runner));
+
+    let result = orch.maybe_run_auto_code_review().await;
+    assert!(result.is_ok());
+    assert_eq!(call_count.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn maybe_run_auto_code_review_noop_when_pending_tasks_remain() {
+    use crate::db::models::{CreateTask, TaskType};
+
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    db.create_task(&CreateTask {
+        ticket_id: ticket.id.clone(),
+        task_type: TaskType::Custom,
+        title: Some("Second task".to_string()),
+        content: None,
+    })
+    .unwrap();
+
+    let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task1.id, &run_id).unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let mut config = make_config(db, ticket, run_id, settings);
+    config.task = Some(task1);
+    let mut orch = WorkflowOrchestrator::new(config);
+
+    let runner = MockStageRunner::new(10, "should not be called");
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(Arc::new(runner));
+
+    let result = orch.maybe_run_auto_code_review().await;
+    assert!(result.is_ok());
+    assert_eq!(call_count.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn maybe_run_auto_code_review_noop_when_cancelled() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let mut config = make_config(db, ticket, run_id, settings);
+    config.task = Some(task);
+    let mut orch = WorkflowOrchestrator::new(config);
+
+    let runner = MockStageRunner::new(10, "should not be called");
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(Arc::new(runner));
+
+    orch.cancelled.store(true, Ordering::Relaxed);
+    let result = orch.maybe_run_auto_code_review().await;
+    assert!(result.is_ok());
+    assert_eq!(call_count.load(Ordering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn maybe_run_auto_code_review_runs_when_last_task() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let mut config = make_config(db, ticket, run_id, settings);
+    config.task = Some(task);
+    let mut orch = WorkflowOrchestrator::new(config);
+
+    let review_output = "ISSUES_FOUND: 0\n\nNo issues found.";
+    let runner = MockStageRunner::always_succeed(review_output);
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(Arc::new(runner));
+
+    let result = orch.maybe_run_auto_code_review().await;
+    assert!(result.is_ok());
+    assert!(
+        call_count.load(Ordering::Relaxed) >= 1,
+        "should invoke at least the code-review stage"
+    );
+}
+
+// -- run_stage_with_overrides: timeout/retry override tests --
+
+/// A runner that captures the timeout from the AgentRunConfig for each invocation.
+struct TimeoutCapturingRunner {
+    captured_timeouts: std::sync::Mutex<Vec<Option<u64>>>,
+    failures_before_success: u32,
+    call_count: Arc<AtomicU32>,
+}
+
+impl TimeoutCapturingRunner {
+    fn new(failures: u32) -> Self {
+        Self {
+            captured_timeouts: std::sync::Mutex::new(Vec::new()),
+            failures_before_success: failures,
+            call_count: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    fn captured_timeouts(&self) -> Vec<Option<u64>> {
+        self.captured_timeouts.lock().unwrap().clone()
+    }
+}
+
+impl super::StageRunner for TimeoutCapturingRunner {
+    fn run(
+        &self,
+        _provider: &dyn AgentProvider,
+        config: &crate::agents::AgentRunConfig,
+        _on_log: Option<Arc<crate::agents::LogCallback>>,
+        _on_spawn: Option<crate::agents::spawner::OnSpawnCallback>,
+    ) -> Result<crate::agents::AgentRunResult, crate::agents::spawner::SpawnError> {
+        self.captured_timeouts.lock().unwrap().push(config.timeout_secs);
+        let n = self.call_count.fetch_add(1, Ordering::Relaxed);
+        if n < self.failures_before_success {
+            Ok(crate::agents::AgentRunResult {
+                run_id: config.run_id.clone(),
+                exit_code: Some(1),
+                status: crate::agents::RunOutcome::Error,
+                summary: Some("failed".to_string()),
+                duration_secs: 0.1,
+                captured_stdout: None,
+            })
+        } else {
+            Ok(crate::agents::AgentRunResult {
+                run_id: config.run_id.clone(),
+                exit_code: Some(0),
+                status: crate::agents::RunOutcome::Success,
+                summary: None,
+                duration_secs: 0.1,
+                captured_stdout: Some("ISSUES_FOUND: 0".to_string()),
+            })
+        }
+    }
+}
+
+#[tokio::test]
+async fn run_stage_uses_default_timeout_without_override() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.stage_timeout_secs = 7200;
+    let runner = Arc::new(TimeoutCapturingRunner::new(0));
+    orch.set_stage_runner(runner.clone());
+
+    let result = orch.run_stage("plan", "test").await;
+    assert!(result.is_ok());
+
+    let timeouts = runner.captured_timeouts();
+    assert_eq!(timeouts.len(), 1);
+    assert_eq!(timeouts[0], Some(7200));
+}
+
+#[tokio::test]
+async fn run_stage_with_overrides_applies_custom_retry_count() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+    let settings = make_workflow_settings(false, true);
+
+    let mut orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
+    orch.stage_max_retries = 0; // default: no retries
+    orch.stage_timeout_secs = 3600;
+
+    let runner = Arc::new(TimeoutCapturingRunner::new(2));
+    let call_count = runner.call_count.clone();
+    orch.set_stage_runner(runner.clone());
+
+    // Use run_stage (no overrides) — should fail after 1 attempt (0 retries)
+    let result = orch.run_stage("plan", "test").await;
+    assert!(result.is_err(), "should fail with 0 retries");
+    assert_eq!(call_count.load(Ordering::Relaxed), 1);
+}

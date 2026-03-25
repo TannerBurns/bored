@@ -86,6 +86,22 @@ describe('getDefaultConfigForAgent', () => {
     const config = getDefaultConfigForAgent('unknown-agent');
     expect(config.autoPilotEnabled).toBe(false);
   });
+
+  it.each(['claude', 'cursor', 'codex', 'unknown'] as const)(
+    'defaults debugMode to false for %s',
+    (agentId) => {
+      const config = getDefaultConfigForAgent(agentId);
+      expect(config.debugMode).toBe(false);
+    },
+  );
+
+  it.each(['claude', 'cursor', 'codex', 'unknown'] as const)(
+    'defaults autoCodeReviewOnComplete to false for %s',
+    (agentId) => {
+      const config = getDefaultConfigForAgent(agentId);
+      expect(config.autoCodeReviewOnComplete).toBe(false);
+    },
+  );
 });
 
 describe('constants', () => {

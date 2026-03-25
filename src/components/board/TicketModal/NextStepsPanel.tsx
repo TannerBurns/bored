@@ -61,6 +61,8 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
               branch: ticket.branchName || '',
               workingDir: '',
               hasChanges: files.length > 0,
+              hasUnpushed: false,
+              hasUncommitted: false,
               filesChanged: files.length,
               additions: totalAdd,
               deletions: totalDel,
