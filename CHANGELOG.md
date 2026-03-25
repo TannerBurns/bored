@@ -2,6 +2,48 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.60] - 2026-03-25
+
+Robust code-review JSON parsing with fallback extraction and smarter auto-clarification ticket routing. The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings instead of always landing in Ready.
+
+### Improvements
+
+- Fallback parser in `parse_structured_review` handles common LLM deviations when strict `CodeReviewOutput` deserialization fails — unwraps single-key wrapper objects (e.g. `{"review": {…}}`), derives `issues_found` from `issues` array length when missing, and tolerates `files` (array) in place of `file` (string)
+- Code-review.md prompt tightened with explicit field-level schema table, two concrete examples (issues found / no issues), and DO-NOT rules against wrapping in extra keys, renaming fields, or using arrays for the `file` field
+- Auto-clarification `DeleteTask` now routes tickets based on remaining tasks — Ready (pending tasks remain), Review (no pending, no auto-complete), or Done (no pending, auto-complete enabled) — matching the routing logic used by `finish_workflow`
+
+### Bug Fixes
+
+- Fixed code-review structured output parser silently returning `None` when LLMs wrap JSON in an extra key (e.g. `{"review": {...}}`), omit `issues_found`, or use `files` array instead of `file` string — `parse_structured_review` now falls back to `parse_structured_review_fallback` which extracts what it can from the raw JSON value
+- Fixed `issue_from_value` dropping numeric `lines` values — `as_str()` returns `None` for JSON numbers like `"lines": 42`, now falls back to `as_u64()` stringified
+- Fixed auto-clarification `DeleteTask` always moving tickets to Ready regardless of remaining tasks — tickets with no pending tasks now go to Review (or Done with auto-complete), preventing tickets from getting stuck in Ready with nothing to execute
+
+### Testing
+
+- npx tsc --noEmit: 0 errors
+- cargo clippy --all-targets -- -D warnings: 0 warnings
+- cargo test --lib: 1922 passed, 0 failed
+- npx vitest run: 47 files, 987 passed, 0 failed
+- 14 new Rust tests: 11 code-review fallback parser branch/path coverage tests, 2 integration tests for fallback flows, 1 auto-clarification DeleteTask→Done routing test
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.59, here is a summary of the major features introduced in recent releases:
+
+**beta.59 — Multi-Project Workspaces**
+Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames "Projects" to "Scopes" with a unified list. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via `.code-workspace` files and `--add-dir` flags.
+
+**beta.58 — Robust Fix-Task Parsing**
+Multi-strategy fallback chain for the review agent's `create_fix_tasks` parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
+
+**beta.57 — Real-Time Title Bar Status**
+Title bar queued/active status pills now update instantly when tickets move via user drag-and-drop or backend agent workflows, instead of waiting for the 5-second polling interval. The Tauri `ticket-moved` event listener lifecycle is ref-counted alongside the existing polling interval, with promise-based cleanup to prevent leaks under React strict mode.
+
+**beta.56 — Custom Title Bar & Task Execution UI**
+Native OS title bar replaced with a custom bar showing live worker count, queue depth, and active ticket counts with a Workers dropdown for starting/stopping workers from any view. Task execution in chat redesigned with a structured TaskExecutionCard showing real-time task status and a workflow stage progress stepper (Branch → Plan → Implement → Code Review → Commit). Dashboard trend charts now bucket events by local date instead of UTC.
+
+---
+
 ## [0.1.0-beta.59] - 2026-03-24
 
 Multi-project workspace support. Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. The sidebar navigation renames "Projects" to "Scopes" with a unified list showing both projects and workspaces. Per-project branch status, diffs, push, and PR creation are shown in a collapsible accordion in the ticket detail panel. Cursor, Claude Code, and Codex agents all receive multi-root context via `.code-workspace` files and `--add-dir` flags. Also adds Claude Code `--effort` flag support, macOS native Edit menus for Cmd+C/V/X and dictation, and a "Validate with" button in the ticket sidebar.
