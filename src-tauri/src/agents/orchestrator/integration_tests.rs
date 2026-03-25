@@ -2514,107 +2514,17 @@ fn new_falls_back_to_config_for_auto_code_review_when_not_synced() {
     assert!(orch.debug_mode);
 }
 
-// -- CR agent settings derivation --
+// -- auto_code_review_on_complete / finish_workflow / CodeReview task tests --
 
 #[test]
-fn cr_agent_settings_derived_from_synced_workflow_settings() {
+fn finish_workflow_creates_code_review_task_when_last_task_and_enabled() {
     let db = create_test_db();
     let ticket = seed_ticket(&db);
     let run_id = seed_parent_run(&db, &ticket.id);
-
-    let mut map = HashMap::new();
-    let stage = crate::agents::models::DEFAULT_STAGE_MODEL;
-    let default_stages: HashMap<String, StageConfig> = [
-        ("branchGen", stage), ("plan", stage), ("implement", stage),
-        ("code-review", stage), ("commit", stage),
-    ].into_iter().map(|(k, m)| (k.to_string(), StageConfig { enabled: true, model: m.to_string() })).collect();
-
-    map.insert("stub".to_string(), WorkflowSettings {
-        stage_configs: default_stages,
-        code_review_agent_model: "cr-custom-model".to_string(),
-        code_review_agent_max_iterations: 5,
-        code_review_agent_timeout_minutes: 45,
-        code_review_agent_max_retries: 3,
-        stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
-        synced: true,
-        ..Default::default()
-    });
-    let settings = Arc::new(Mutex::new(map));
-
-    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
-
-    assert_eq!(orch.cr_agent_model, "cr-custom-model");
-    assert_eq!(orch.cr_agent_max_iterations, 5);
-    assert_eq!(orch.cr_agent_timeout_secs, 45 * 60);
-    assert_eq!(orch.cr_agent_max_retries, 3);
-}
-
-#[test]
-fn cr_agent_zero_max_iterations_means_unlimited() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
-
-    let mut map = HashMap::new();
-    map.insert("stub".to_string(), WorkflowSettings {
-        code_review_agent_max_iterations: 0,
-        code_review_agent_model: "some-model".to_string(),
-        stage_order: Some(DEFAULT_STAGE_ORDER.iter().map(|s| s.to_string()).collect()),
-        synced: true,
-        ..Default::default()
-    });
-    let settings = Arc::new(Mutex::new(map));
-
-    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
-    assert_eq!(orch.cr_agent_max_iterations, usize::MAX);
-}
-
-#[test]
-fn cr_agent_settings_default_when_not_synced() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
-    let settings = make_workflow_settings(false, false);
-
-    let orch = WorkflowOrchestrator::new(make_config(db, ticket, run_id, settings));
-
-    assert_eq!(orch.cr_agent_model, crate::agents::models::DEFAULT_STAGE_MODEL);
-    assert_eq!(orch.cr_agent_max_iterations, usize::MAX);
-    assert_eq!(orch.cr_agent_timeout_secs, 60 * 60);
-    assert_eq!(orch.cr_agent_max_retries, 2);
-}
-
-// -- maybe_run_auto_code_review tests --
-
-#[tokio::test]
-async fn maybe_run_auto_code_review_noop_when_disabled() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
-    let settings = make_workflow_settings(false, true);
 
     let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
     db.start_task(&task.id, &run_id).unwrap();
-
-    let mut config = make_config(db, ticket, run_id, settings);
-    config.task = Some(task);
-    config.auto_code_review_on_complete = false;
-    let mut orch = WorkflowOrchestrator::new(config);
-
-    let runner = MockStageRunner::new(10, "should not be called");
-    let call_count = runner.call_count.clone();
-    orch.set_stage_runner(Arc::new(runner));
-
-    let result = orch.maybe_run_auto_code_review().await;
-    assert!(result.is_ok());
-    assert_eq!(call_count.load(Ordering::Relaxed), 0, "should not invoke any stages");
-}
-
-#[tokio::test]
-async fn maybe_run_auto_code_review_noop_when_no_task() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
+    db.complete_task(&task.id).unwrap();
 
     let settings = make_workflow_settings(false, true);
     {
@@ -2623,23 +2533,44 @@ async fn maybe_run_auto_code_review_noop_when_no_task() {
         ws.auto_code_review_on_complete = true;
     }
 
-    let config = make_config(db, ticket, run_id, settings);
-    assert!(config.task.is_none());
-    let mut orch = WorkflowOrchestrator::new(config);
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task);
+    let orch = WorkflowOrchestrator::new(config);
 
-    let runner = MockStageRunner::new(10, "should not be called");
-    let call_count = runner.call_count.clone();
-    orch.set_stage_runner(Arc::new(runner));
+    orch.finish_workflow("Multi-stage");
 
-    let result = orch.maybe_run_auto_code_review().await;
-    assert!(result.is_ok());
-    assert_eq!(call_count.load(Ordering::Relaxed), 0);
+    let pending = db.get_next_pending_task(&ticket.id).unwrap();
+    assert!(pending.is_some(), "should have created a CodeReview task");
+    let cr_task = pending.unwrap();
+    assert_eq!(cr_task.task_type, TaskType::CodeReview);
+    assert_eq!(cr_task.title.as_deref(), Some("Code Review"));
 }
 
-#[tokio::test]
-async fn maybe_run_auto_code_review_noop_when_pending_tasks_remain() {
-    use crate::db::models::{CreateTask, TaskType};
+#[test]
+fn finish_workflow_no_code_review_task_when_disabled() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
 
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+    db.complete_task(&task.id).unwrap();
+
+    let settings = make_workflow_settings(false, true);
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task);
+    config.auto_code_review_on_complete = false;
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("Multi-stage");
+
+    let pending = db.get_next_pending_task(&ticket.id).unwrap();
+    assert!(pending.is_none(), "should not create a CodeReview task when disabled");
+}
+
+#[test]
+fn finish_workflow_no_code_review_task_when_pending_tasks_remain() {
     let db = create_test_db();
     let ticket = seed_ticket(&db);
     let run_id = seed_parent_run(&db, &ticket.id);
@@ -2654,6 +2585,7 @@ async fn maybe_run_auto_code_review_noop_when_pending_tasks_remain() {
 
     let task1 = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
     db.start_task(&task1.id, &run_id).unwrap();
+    db.complete_task(&task1.id).unwrap();
 
     let settings = make_workflow_settings(false, true);
     {
@@ -2662,80 +2594,96 @@ async fn maybe_run_auto_code_review_noop_when_pending_tasks_remain() {
         ws.auto_code_review_on_complete = true;
     }
 
-    let mut config = make_config(db, ticket, run_id, settings);
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
     config.task = Some(task1);
-    let mut orch = WorkflowOrchestrator::new(config);
+    let orch = WorkflowOrchestrator::new(config);
 
-    let runner = MockStageRunner::new(10, "should not be called");
-    let call_count = runner.call_count.clone();
-    orch.set_stage_runner(Arc::new(runner));
+    orch.finish_workflow("Multi-stage");
 
-    let result = orch.maybe_run_auto_code_review().await;
-    assert!(result.is_ok());
-    assert_eq!(call_count.load(Ordering::Relaxed), 0);
-}
-
-#[tokio::test]
-async fn maybe_run_auto_code_review_noop_when_cancelled() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
-
-    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
-    db.start_task(&task.id, &run_id).unwrap();
-
-    let settings = make_workflow_settings(false, true);
-    {
-        let mut map = settings.lock().unwrap();
-        let ws = map.get_mut("stub").unwrap();
-        ws.auto_code_review_on_complete = true;
-    }
-
-    let mut config = make_config(db, ticket, run_id, settings);
-    config.task = Some(task);
-    let mut orch = WorkflowOrchestrator::new(config);
-
-    let runner = MockStageRunner::new(10, "should not be called");
-    let call_count = runner.call_count.clone();
-    orch.set_stage_runner(Arc::new(runner));
-
-    orch.cancelled.store(true, Ordering::Relaxed);
-    let result = orch.maybe_run_auto_code_review().await;
-    assert!(result.is_ok());
-    assert_eq!(call_count.load(Ordering::Relaxed), 0);
-}
-
-#[tokio::test]
-async fn maybe_run_auto_code_review_runs_when_last_task() {
-    let db = create_test_db();
-    let ticket = seed_ticket(&db);
-    let run_id = seed_parent_run(&db, &ticket.id);
-
-    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
-    db.start_task(&task.id, &run_id).unwrap();
-
-    let settings = make_workflow_settings(false, true);
-    {
-        let mut map = settings.lock().unwrap();
-        let ws = map.get_mut("stub").unwrap();
-        ws.auto_code_review_on_complete = true;
-    }
-
-    let mut config = make_config(db, ticket, run_id, settings);
-    config.task = Some(task);
-    let mut orch = WorkflowOrchestrator::new(config);
-
-    let review_output = "ISSUES_FOUND: 0\n\nNo issues found.";
-    let runner = MockStageRunner::always_succeed(review_output);
-    let call_count = runner.call_count.clone();
-    orch.set_stage_runner(Arc::new(runner));
-
-    let result = orch.maybe_run_auto_code_review().await;
-    assert!(result.is_ok());
-    assert!(
-        call_count.load(Ordering::Relaxed) >= 1,
-        "should invoke at least the code-review stage"
+    let next = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    assert_eq!(
+        next.task_type,
+        TaskType::Custom,
+        "next task should be the second custom task, not a new CodeReview task"
     );
+}
+
+#[test]
+fn finish_workflow_no_code_review_task_when_already_code_review_only() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let task = db.get_next_pending_task(&ticket.id).unwrap().unwrap();
+    db.start_task(&task.id, &run_id).unwrap();
+    db.complete_task(&task.id).unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let mut config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    config.task = Some(task);
+    config.workflow_mode_override = Some("code_review_only".to_string());
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("Code-review-only");
+
+    let pending = db.get_next_pending_task(&ticket.id).unwrap();
+    assert!(
+        pending.is_none(),
+        "should not create a CodeReview task when already in CodeReviewOnly mode"
+    );
+}
+
+#[test]
+fn finish_workflow_no_code_review_task_when_no_task() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let settings = make_workflow_settings(false, true);
+    {
+        let mut map = settings.lock().unwrap();
+        let ws = map.get_mut("stub").unwrap();
+        ws.auto_code_review_on_complete = true;
+    }
+
+    let config = make_config(db.clone(), ticket.clone(), run_id, settings);
+    assert!(config.task.is_none());
+    let orch = WorkflowOrchestrator::new(config);
+
+    orch.finish_workflow("Multi-stage");
+
+    let tasks = db.get_tasks_for_ticket(&ticket.id).unwrap();
+    let cr_tasks: Vec<_> = tasks.iter().filter(|t| t.task_type == TaskType::CodeReview).collect();
+    assert!(cr_tasks.is_empty(), "should not create a CodeReview task when no task context");
+}
+
+#[test]
+fn code_review_task_type_triggers_code_review_only_mode() {
+    let db = create_test_db();
+    let ticket = seed_ticket(&db);
+    let run_id = seed_parent_run(&db, &ticket.id);
+
+    let cr_task = db
+        .create_task(&CreateTask {
+            ticket_id: ticket.id.clone(),
+            task_type: TaskType::CodeReview,
+            title: Some("Code Review".to_string()),
+            content: None,
+        })
+        .unwrap();
+
+    let settings = make_workflow_settings(false, true);
+    let mut config = make_config(db, ticket, run_id, settings);
+    config.task = Some(cr_task);
+    let orch = WorkflowOrchestrator::new(config);
+
+    assert_eq!(orch.workflow_mode, WorkflowMode::CodeReviewOnly);
 }
 
 // -- run_stage_with_overrides: timeout/retry override tests --

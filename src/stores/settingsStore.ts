@@ -703,8 +703,8 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       codeReviewAgentTimeoutMinutes: config.codeReviewAgentTimeoutMinutes,
       codeReviewAgentMaxRetries: config.codeReviewAgentMaxRetries,
       codeReviewAgentMaxIterations: config.codeReviewAgentMaxIterations,
-      autoCodeReviewOnComplete: config.autoCodeReviewOnComplete ?? false,
-      debugMode: config.debugMode ?? false,
+      autoCodeReviewOnComplete: config.autoCodeReviewOnComplete,
+      debugMode: config.debugMode,
       stageOrder: config.stageOrder,
     };
   }

@@ -275,6 +275,7 @@ export function getCommandId(taskType: string): string | null {
  *  Handles both DB format ("command:fix-lint") and serde/IPC format ("fix-lint"). */
 export function getTaskTypeLabel(taskType: string): string {
   if (taskType === 'custom') return 'Custom';
+  if (taskType === 'code_review') return 'Code Review';
   const id = getCommandId(taskType) ?? taskType;
   return id
     .split('-')

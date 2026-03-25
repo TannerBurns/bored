@@ -152,8 +152,19 @@ describe('NextStepsPanel', () => {
 
   describe('branch status loading', () => {
     it('renders ProjectBranchRow after loading for non-workspace ticket', async () => {
-      const { invoke } = await import('@tauri-apps/api/core');
-      vi.mocked(invoke).mockResolvedValueOnce([]);
+      const { getWorkspaceBranchStatus } = await import('../../../lib/tauri');
+      vi.mocked(getWorkspaceBranchStatus).mockResolvedValueOnce([{
+        projectId: 'proj-1',
+        projectName: 'test-project',
+        branch: 'feat/test-branch',
+        workingDir: '/tmp',
+        hasChanges: false,
+        hasUnpushed: false,
+        hasUncommitted: false,
+        filesChanged: 0,
+        additions: 0,
+        deletions: 0,
+      }]);
 
       await act(async () => {
         render(

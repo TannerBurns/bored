@@ -535,20 +535,6 @@ impl WorkflowOrchestrator {
         .await
     }
 
-    /// Run the code review loop using the Code Review Agent settings
-    /// (model, max iterations, timeout, retries) rather than the pipeline defaults.
-    pub(super) async fn run_code_review_loop_with_cr_agent_settings(
-        &self,
-    ) -> Result<(), String> {
-        self.run_code_review_loop_inner(
-            &self.cr_agent_model,
-            self.cr_agent_max_iterations,
-            Some(self.cr_agent_timeout_secs),
-            Some(self.cr_agent_max_retries),
-        )
-        .await
-    }
-
     async fn run_code_review_loop_inner(
         &self,
         model: &str,

@@ -63,7 +63,6 @@ impl WorkflowOrchestrator {
         }
 
         self.run_detour_sync_if_needed().await?;
-        self.maybe_run_auto_code_review().await?;
         self.finish_workflow("Multi-stage");
         Ok(())
     }
@@ -179,7 +178,6 @@ impl WorkflowOrchestrator {
         self.run_commit_stage().await?;
 
         self.run_detour_sync_if_needed().await?;
-        self.maybe_run_auto_code_review().await?;
         self.finish_workflow("Auto-pilot");
         Ok(())
     }
@@ -227,36 +225,6 @@ impl WorkflowOrchestrator {
         }
     }
 
-    /// If auto_code_review_on_complete is enabled and this is the last task
-    /// of the ticket, run the code review loop followed by a commit stage.
-    pub(super) async fn maybe_run_auto_code_review(&self) -> Result<(), String> {
-        if !self.auto_code_review_on_complete {
-            return Ok(());
-        }
-
-        let is_last_task = self.get_task().is_some()
-            && !self
-                .db
-                .has_pending_tasks(&self.ticket.id)
-                .unwrap_or(true);
-
-        if !is_last_task || self.is_cancelled() {
-            return Ok(());
-        }
-
-        tracing::info!(
-            "Auto code review: last task of ticket {} completed, running code review loop \
-             (model={}, timeout={}s, retries={})",
-            self.ticket.id,
-            self.cr_agent_model,
-            self.cr_agent_timeout_secs,
-            self.cr_agent_max_retries,
-        );
-        self.run_code_review_loop_with_cr_agent_settings().await?;
-        self.run_commit_stage().await?;
-        Ok(())
-    }
-
     pub(super) fn finish_workflow(&self, mode_label: &str) {
         let has_pending = self.get_task().is_some()
             && self
@@ -264,7 +232,36 @@ impl WorkflowOrchestrator {
                 .has_pending_tasks(&self.ticket.id)
                 .unwrap_or(false);
 
-        if has_pending {
+        let should_auto_code_review = self.auto_code_review_on_complete
+            && self.get_task().is_some()
+            && !has_pending
+            && self.workflow_mode != WorkflowMode::CodeReviewOnly;
+
+        if should_auto_code_review {
+            match self.db.create_task(&crate::db::models::CreateTask {
+                ticket_id: self.ticket.id.clone(),
+                task_type: TaskType::CodeReview,
+                title: Some("Code Review".to_string()),
+                content: None,
+            }) {
+                Ok(task) => {
+                    tracing::info!(
+                        "Auto code review: created CodeReview task {} for ticket {} (last task completed)",
+                        task.id,
+                        self.ticket.id,
+                    );
+                    self.move_ticket_to_column("Ready");
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create auto code review task for ticket {}: {}",
+                        self.ticket.id,
+                        e,
+                    );
+                    self.move_ticket_to_column("Review");
+                }
+            }
+        } else if has_pending {
             tracing::info!(
                 "Ticket {} has more pending tasks, moving back to Ready",
                 self.ticket.id
