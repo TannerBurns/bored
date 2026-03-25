@@ -129,9 +129,12 @@ fn issue_from_value(val: &serde_json::Value) -> Option<CodeReviewIssue> {
 
     let lines = obj
         .get("lines")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .unwrap_or_default();
     let severity = obj
         .get("severity")
         .and_then(|v| v.as_str())
@@ -596,6 +599,15 @@ mod tests {
 ```"#;
         let result = parse_structured_review(text).unwrap();
         assert_eq!(result.issues[0].file, "preferred.rs");
+    }
+
+    #[test]
+    fn fallback_issue_numeric_lines() {
+        let text = r#"```json
+{"issues": [{"title": "X", "file": "a.rs", "lines": 42}]}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues[0].lines, "42");
     }
 
     #[test]
