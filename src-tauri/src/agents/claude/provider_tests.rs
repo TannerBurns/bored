@@ -36,10 +36,11 @@ fn build_command_returns_claude() {
 }
 
 #[test]
-fn build_env_vars_empty_when_no_config() {
+fn build_env_vars_only_effort_when_no_config() {
     let p = ClaudeProvider::new();
     let env = p.build_env_vars(&make_config());
-    assert!(env.is_empty());
+    assert_eq!(env.len(), 1);
+    assert!(env.iter().any(|(k, v)| k == "CLAUDE_CODE_EFFORT_LEVEL" && v == "medium"));
 }
 
 #[test]
@@ -65,25 +66,27 @@ fn build_env_vars_skips_empty_values() {
 }
 
 #[test]
-fn build_env_vars_empty_when_local_provider_enabled_without_base_url() {
+fn build_env_vars_only_effort_when_local_provider_enabled_without_base_url() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
     config.agent_config.insert("auth_token".into(), serde_json::json!("tok"));
     config.agent_config.insert("api_key".into(), serde_json::json!("key"));
     let env = p.build_env_vars(&config);
-    assert!(env.is_empty(), "env vars should not be set without a base_url");
+    assert_eq!(env.len(), 1, "only effort env var should be set without a base_url");
+    assert!(env.iter().any(|(k, _)| k == "CLAUDE_CODE_EFFORT_LEVEL"));
 }
 
 #[test]
-fn build_env_vars_empty_when_local_provider_disabled() {
+fn build_env_vars_only_effort_when_local_provider_disabled() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.agent_config.insert("use_local_provider".into(), serde_json::json!(false));
     config.agent_config.insert("auth_token".into(), serde_json::json!("tok"));
     config.agent_config.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
     let env = p.build_env_vars(&config);
-    assert!(env.is_empty(), "env vars should not be set when local provider is disabled");
+    assert_eq!(env.len(), 1, "only effort env var should be set when local provider is disabled");
+    assert!(env.iter().any(|(k, _)| k == "CLAUDE_CODE_EFFORT_LEVEL"));
 }
 
 #[test]
@@ -133,7 +136,7 @@ fn build_env_vars_includes_api_key_and_base_url() {
 }
 
 #[test]
-fn build_env_vars_all_three_vars() {
+fn build_env_vars_all_provider_vars_plus_effort() {
     let p = ClaudeProvider::new();
     let mut config = make_config();
     config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
@@ -141,7 +144,8 @@ fn build_env_vars_all_three_vars() {
     config.agent_config.insert("api_key".into(), serde_json::json!("b"));
     config.agent_config.insert("base_url".into(), serde_json::json!("c"));
     let env = p.build_env_vars(&config);
-    assert_eq!(env.len(), 3);
+    assert_eq!(env.len(), 4);
+    assert!(env.iter().any(|(k, _)| k == "CLAUDE_CODE_EFFORT_LEVEL"));
 }
 
 // ── extract_cost coverage ───────────────────────────────────────
@@ -736,6 +740,48 @@ fn lightweight_config_sets_effort_low() {
     let p = ClaudeProvider::new();
     let cfg = p.lightweight_agent_config(&HashMap::new());
     assert_eq!(cfg.get("effort"), Some(&serde_json::json!("low")));
+}
+
+#[test]
+fn build_env_vars_custom_effort() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.agent_config.insert("effort".into(), serde_json::json!("max"));
+    let env = p.build_env_vars(&config);
+    assert!(env.iter().any(|(k, v)| k == "CLAUDE_CODE_EFFORT_LEVEL" && v == "max"));
+}
+
+#[test]
+fn build_env_vars_empty_effort_falls_back_to_medium() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.agent_config.insert("effort".into(), serde_json::json!(""));
+    let env = p.build_env_vars(&config);
+    assert!(env.iter().any(|(k, v)| k == "CLAUDE_CODE_EFFORT_LEVEL" && v == "medium"));
+}
+
+#[test]
+fn build_env_vars_effort_set_even_with_local_provider() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.agent_config.insert("use_local_provider".into(), serde_json::json!(true));
+    config.agent_config.insert("base_url".into(), serde_json::json!("http://localhost:8080"));
+    config.agent_config.insert("effort".into(), serde_json::json!("high"));
+    let env = p.build_env_vars(&config);
+    assert!(env.iter().any(|(k, v)| k == "CLAUDE_CODE_EFFORT_LEVEL" && v == "high"));
+}
+
+#[test]
+fn build_command_extended_context_1m_suffix_via_provider_trait() {
+    let p = ClaudeProvider::new();
+    let mut config = make_config();
+    config.model = Some("claude-opus-4-6".to_string());
+    config.agent_config.insert("extended_context_enabled".into(), serde_json::json!(true));
+    let (_, args) = p.build_command(&config);
+    assert!(
+        args.contains(&"claude-opus-4-6[1m]".to_string()),
+        "Provider trait should pass through [1m] suffix from command builder"
+    );
 }
 
 // is_dangerous_command tests live in agents::cli_utils::tests

@@ -70,13 +70,44 @@ fn provider_build_disables_thinking_via_agent_config() {
 }
 
 #[test]
-fn provider_build_enables_betas_via_agent_config() {
+fn provider_build_extended_context_appends_1m_suffix_opus() {
     let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
     config
         .agent_config
         .insert("extended_context_enabled".to_string(), serde_json::json!(true));
     let (_, args) = build_command_from_provider_config(&config);
-    assert!(args.contains(&"--betas".to_string()));
+    assert!(args.contains(&"claude-opus-4-6[1m]".to_string()));
+    assert!(!args.contains(&"--betas".to_string()));
+}
+
+#[test]
+fn provider_build_extended_context_appends_1m_suffix_sonnet() {
+    let mut config = create_provider_config();
+    config.model = Some("claude-sonnet-4-6".to_string());
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(args.contains(&"claude-sonnet-4-6[1m]".to_string()));
+}
+
+#[test]
+fn provider_build_extended_context_skips_ineligible_model() {
+    let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-5".to_string());
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(
+        args.contains(&"claude-opus-4-5".to_string()),
+        "4.5 model should not get [1m] suffix"
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("[1m]")),
+        "No argument should contain [1m] for ineligible models"
+    );
 }
 
 #[test]
@@ -103,11 +134,16 @@ fn provider_build_prompt_is_last() {
 }
 
 #[test]
-fn provider_build_excludes_betas_by_default() {
-    let config = create_provider_config();
+fn provider_build_no_1m_suffix_by_default() {
+    let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
     let (_, args) = build_command_from_provider_config(&config);
     assert!(
-        !args.contains(&"--betas".to_string()),
+        args.contains(&"claude-opus-4-6".to_string()),
+        "Model should not have [1m] suffix when extended context is off"
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("[1m]")),
         "Extended context should be off by default"
     );
 }
@@ -125,6 +161,7 @@ fn provider_build_excludes_chrome_by_default() {
 #[test]
 fn provider_build_all_cli_options_enabled() {
     let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
     config
         .agent_config
         .insert("thinking_enabled".to_string(), serde_json::json!(true));
@@ -136,13 +173,14 @@ fn provider_build_all_cli_options_enabled() {
         .insert("chrome_enabled".to_string(), serde_json::json!(true));
     let (_, args) = build_command_from_provider_config(&config);
     assert!(args.contains(&"--settings".to_string()));
-    assert!(args.contains(&"--betas".to_string()));
+    assert!(args.contains(&"claude-opus-4-6[1m]".to_string()));
     assert!(args.contains(&"--chrome".to_string()));
 }
 
 #[test]
 fn provider_build_all_cli_options_disabled() {
     let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
     config
         .agent_config
         .insert("thinking_enabled".to_string(), serde_json::json!(false));
@@ -154,7 +192,10 @@ fn provider_build_all_cli_options_disabled() {
         .insert("chrome_enabled".to_string(), serde_json::json!(false));
     let (_, args) = build_command_from_provider_config(&config);
     assert!(!args.contains(&"--settings".to_string()));
-    assert!(!args.contains(&"--betas".to_string()));
+    assert!(
+        args.contains(&"claude-opus-4-6".to_string()),
+        "Model should not have [1m] suffix when disabled"
+    );
     assert!(!args.contains(&"--chrome".to_string()));
 }
 
@@ -238,6 +279,7 @@ fn provider_build_prompt_immediately_follows_p_flag() {
 #[test]
 fn provider_build_prompt_is_last_with_cli_options() {
     let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
     config
         .agent_config
         .insert("thinking_enabled".to_string(), serde_json::json!(true));
@@ -285,39 +327,104 @@ fn build_command_without_session_id_omits_resume() {
 }
 
 #[test]
-fn provider_build_default_effort_is_medium() {
+fn provider_build_does_not_include_effort_arg() {
     let config = create_provider_config();
     let (_, args) = build_command_from_provider_config(&config);
-    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
-    assert_eq!(args[idx + 1], "medium");
+    assert!(
+        !args.contains(&"--effort".to_string()),
+        "effort is set via CLAUDE_CODE_EFFORT_LEVEL env var, not CLI arg"
+    );
 }
 
 #[test]
-fn provider_build_custom_effort() {
+fn provider_build_effort_not_in_args_even_when_configured() {
     let mut config = create_provider_config();
     config.agent_config.insert("effort".to_string(), serde_json::json!("max"));
     let (_, args) = build_command_from_provider_config(&config);
-    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
-    assert_eq!(args[idx + 1], "max");
+    assert!(
+        !args.contains(&"--effort".to_string()),
+        "effort is set via CLAUDE_CODE_EFFORT_LEVEL env var, not CLI arg"
+    );
 }
 
 #[test]
-fn provider_build_empty_effort_falls_back_to_medium() {
+fn provider_build_extended_context_with_short_model_name() {
     let mut config = create_provider_config();
-    config.agent_config.insert("effort".to_string(), serde_json::json!(""));
+    config.model = Some("opus-4.6".to_string());
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
     let (_, args) = build_command_from_provider_config(&config);
-    let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
-    assert_eq!(args[idx + 1], "medium");
+    assert!(
+        args.contains(&"claude-opus-4-6[1m]".to_string()),
+        "Short name should be normalized then get [1m] suffix"
+    );
 }
 
 #[test]
-fn provider_build_effort_appears_before_prompt() {
+fn provider_build_extended_context_with_model_override_ineligible() {
     let mut config = create_provider_config();
-    config.agent_config.insert("effort".to_string(), serde_json::json!("high"));
+    config.model = Some("claude-opus-4-6".to_string());
+    config.agent_config.insert("model_override".to_string(), serde_json::json!("my-local-llama"));
+    config.agent_config.insert("extended_context_enabled".to_string(), serde_json::json!(true));
     let (_, args) = build_command_from_provider_config(&config);
-    let effort_idx = args.iter().position(|a| a == "--effort").unwrap();
-    let p_idx = args.iter().position(|a| a == "-p").unwrap();
-    assert!(effort_idx < p_idx, "--effort must appear before -p");
+    assert!(
+        args.contains(&"my-local-llama".to_string()),
+        "Override model should be used"
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("[1m]")),
+        "Non-eligible override model should not get [1m] suffix"
+    );
+}
+
+#[test]
+fn provider_build_extended_context_no_model_omits_suffix() {
+    let mut config = create_provider_config();
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(
+        !args.contains(&"--model".to_string()),
+        "No model arg when model is None"
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("[1m]")),
+        "No [1m] suffix when no model is set"
+    );
+}
+
+#[test]
+fn provider_build_extended_context_with_short_sonnet_name() {
+    let mut config = create_provider_config();
+    config.model = Some("sonnet-4.6".to_string());
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(
+        args.contains(&"claude-sonnet-4-6[1m]".to_string()),
+        "Short sonnet name should be normalized then get [1m] suffix"
+    );
+}
+
+#[test]
+fn provider_build_extended_context_short_name_ineligible() {
+    let mut config = create_provider_config();
+    config.model = Some("sonnet-4.5".to_string());
+    config
+        .agent_config
+        .insert("extended_context_enabled".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(
+        args.contains(&"claude-sonnet-4-5".to_string()),
+        "Ineligible short name should be normalized but not get [1m] suffix"
+    );
+    assert!(
+        !args.iter().any(|a| a.contains("[1m]")),
+        "No [1m] suffix for ineligible models"
+    );
 }
 
 #[test]

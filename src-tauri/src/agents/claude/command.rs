@@ -17,21 +17,20 @@ pub fn normalize_model_for_cli(model: &str) -> String {
     }
 }
 
+/// Check whether a normalized CLI model ID supports the `[1m]` context suffix.
+fn is_1m_eligible(model: &str) -> bool {
+    matches!(model, "claude-opus-4-6" | "claude-sonnet-4-6")
+}
+
 /// Push conditional CLI flags from raw booleans.
 fn push_cli_option_flags_raw(
     args: &mut Vec<String>,
     thinking: bool,
-    extended_context: bool,
     chrome: bool,
 ) {
     if thinking {
         args.push("--settings".to_string());
         args.push(r#"{"alwaysThinkingEnabled": true}"#.to_string());
-    }
-
-    if extended_context {
-        args.push("--betas".to_string());
-        args.push("context-1m-2025-08-07".to_string());
     }
 
     if chrome {
@@ -60,23 +59,19 @@ pub fn build_command_from_provider_config(config: &AgentRunConfig) -> (String, V
         .cloned()
         .or_else(|| config.model.clone());
 
+    let extended_context = api_config.extended_context_enabled.unwrap_or(false);
+
     if let Some(ref model) = effective_model {
+        let mut model_arg = normalize_model_for_cli(model);
+        if extended_context && is_1m_eligible(&model_arg) {
+            model_arg.push_str("[1m]");
+        }
         args.push("--model".to_string());
-        args.push(normalize_model_for_cli(model));
+        args.push(model_arg);
     }
     let thinking = api_config.thinking_enabled.unwrap_or(true);
-    let extended_context = api_config.extended_context_enabled.unwrap_or(false);
     let chrome = api_config.chrome_enabled.unwrap_or(false);
-    push_cli_option_flags_raw(&mut args, thinking, extended_context, chrome);
-
-    let effort = api_config
-        .effort
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .unwrap_or_else(|| "medium".to_string());
-    args.push("--effort".to_string());
-    args.push(effort);
+    push_cli_option_flags_raw(&mut args, thinking, chrome);
 
     if let Some(ref tools) = api_config.allowed_tools {
         args.push("--tools".to_string());

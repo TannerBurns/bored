@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -259,6 +259,129 @@ function ZoneSeparator({ label }: { label: string }) {
   );
 }
 
+function AutoPilotRow({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
+  const [modelsExpanded, setModelsExpanded] = useState(false);
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+
+  const enabledModels = config.autoPilotEnabledModels ?? [];
+  const allEnabled = enabledModels.length === 0;
+
+  const isModelEnabled = (modelValue: string) =>
+    allEnabled || enabledModels.includes(modelValue);
+
+  const enabledCount = allEnabled
+    ? models.length
+    : models.filter((m) => enabledModels.includes(m.value)).length;
+
+  const handleModelToggle = (modelValue: string) => {
+    if (allEnabled) {
+      const next = models.map((m) => m.value).filter((v) => v !== modelValue);
+      if (next.length === 0) return;
+      updateConfig(agentId, { autoPilotEnabledModels: next });
+    } else {
+      const wasEnabled = enabledModels.includes(modelValue);
+      if (wasEnabled) {
+        if (enabledCount <= 1) return;
+        updateConfig(agentId, { autoPilotEnabledModels: enabledModels.filter((v) => v !== modelValue) });
+      } else {
+        updateConfig(agentId, { autoPilotEnabledModels: [...enabledModels, modelValue] });
+      }
+    }
+  };
+
+  return (
+    <div className="glass-subtle rounded-lg px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="mr-3">
+          <span className="text-sm font-medium text-board-text">Auto-Pilot</span>
+          <p className="text-xs text-board-text-muted">Let the agent decide which commands to run after implementation</p>
+        </div>
+        <button
+          onClick={() => updateConfig(agentId, { autoPilotEnabled: !config.autoPilotEnabled })}
+          className={cn(
+            'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-board-accent',
+            config.autoPilotEnabled ? 'bg-board-accent' : 'glass',
+          )}
+        >
+          <span className={cn(
+            'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+            config.autoPilotEnabled ? 'translate-x-4' : 'translate-x-0.5',
+          )} style={{ marginTop: '2px' }} />
+        </button>
+      </div>
+
+      {config.autoPilotEnabled && (
+        <div className="mt-3 space-y-2 border-t border-board-border/20 pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-board-text-muted">Selection Model</p>
+            </div>
+            <select
+              value={config.autoPilotModel}
+              onChange={(e) => updateConfig(agentId, { autoPilotModel: e.target.value as AIModel })}
+              style={{ maxWidth: modelColWidth }}
+              className="w-full px-2 py-1 text-xs glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
+            >
+              {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setModelsExpanded(!modelsExpanded)}
+            className="flex items-center gap-1.5 w-full text-left"
+          >
+            <svg
+              className={cn(
+                'w-3 h-3 text-board-text-muted transition-transform duration-200 flex-shrink-0',
+                modelsExpanded && 'rotate-90',
+              )}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-medium text-board-text-muted">
+              Available Models
+            </span>
+            <span className="text-[10px] text-board-text-muted/60">
+              ({enabledCount}/{models.length})
+            </span>
+          </button>
+
+          {modelsExpanded && (
+            <div className="space-y-0.5 pl-4">
+              {models.map((opt) => {
+                const enabled = isModelEnabled(opt.value);
+                const isLast = enabled && enabledCount <= 1;
+                return (
+                  <div key={opt.value} className="flex items-center justify-between gap-3 py-0.5">
+                    <span className="text-xs text-board-text">{opt.label}</span>
+                    <button
+                      onClick={() => handleModelToggle(opt.value)}
+                      disabled={isLast}
+                      className={cn(
+                        'relative inline-flex h-4 w-7 flex-shrink-0 rounded-full transition-colors duration-200',
+                        isLast ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                        enabled ? 'bg-board-accent' : 'glass',
+                      )}
+                      title={isLast ? 'At least one model must remain enabled' : `${enabled ? 'Disable' : 'Enable'} ${opt.label} for auto-pilot`}
+                    >
+                      <span className={cn(
+                        'pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200',
+                        enabled ? 'translate-x-3.5' : 'translate-x-0.5',
+                      )} style={{ marginTop: '2px' }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: string; config: AgentConfig; models: { value: AIModel; label: string }[]; modelColWidth: number }) {
   const setStageOrder = useSettingsStore((s) => s.setAgentConfigStageOrder);
   const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
@@ -382,12 +505,7 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">
-        <ToggleRow
-          label="Auto-Pilot"
-          description="Let the agent decide which commands to run after implementation instead of using the static stage pipeline"
-          enabled={config.autoPilotEnabled}
-          onChange={(v) => updateConfig(agentId, { autoPilotEnabled: v })}
-        />
+        <AutoPilotRow agentId={agentId} config={config} models={models} modelColWidth={modelColWidth} />
         <ToggleRow
           label="Auto-Complete Tickets"
           description="Automatically move tickets to Done instead of Review when the agent finishes work"
@@ -400,22 +518,6 @@ function WorkflowSection({ agentId, config, models, modelColWidth }: { agentId: 
           enabled={config.autoClarification}
           onChange={(v) => updateConfig(agentId, { autoClarification: v })}
         />
-        {config.autoPilotEnabled && (
-          <div className="flex items-center justify-between gap-3 pt-1">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-board-text">Model</p>
-              <p className="text-xs text-board-text-muted">Model used for the auto-pilot command selection call</p>
-            </div>
-            <select
-              value={config.autoPilotModel}
-              onChange={(e) => updateConfig(agentId, { autoPilotModel: e.target.value as AIModel })}
-              style={{ maxWidth: modelColWidth }}
-              className="w-full px-2 py-1 text-sm glass rounded-lg text-board-text focus:ring-1 focus:ring-board-accent"
-            >
-              {models.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-          </div>
-        )}
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">

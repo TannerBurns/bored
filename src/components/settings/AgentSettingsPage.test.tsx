@@ -9,6 +9,7 @@ const mockSetStageOrder = vi.fn();
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
     autoPilotEnabled: false,
+    autoPilotEnabledModels: [] as string[],
     workflowStages: {
       branchGen:        { enabled: true, model: 'claude-sonnet-4-6' },
       plan:             { enabled: true, model: 'claude-opus-4-6' },
@@ -168,26 +169,69 @@ describe('AgentSettingsPage', () => {
   });
 
   describe('auto-pilot toggle', () => {
-    it('renders auto-pilot toggle', () => {
+    it('renders auto-pilot label', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      expect(screen.getByTestId('toggle-auto-pilot')).toBeInTheDocument();
+      expect(screen.getByText('Auto-Pilot')).toBeInTheDocument();
     });
 
-    it('shows OFF when autoPilotEnabled is false', () => {
+    it('does not show selection model when disabled', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      expect(screen.getByTestId('toggle-btn-auto-pilot')).toHaveTextContent('OFF');
+      expect(screen.queryByText('Selection Model')).not.toBeInTheDocument();
     });
 
-    it('shows ON when autoPilotEnabled is true', () => {
+    it('shows selection model when enabled', () => {
       storeState.agentConfigs.claude = makeConfig({ autoPilotEnabled: true });
       render(<AgentSettingsPage agentId="claude" />);
-      expect(screen.getByTestId('toggle-btn-auto-pilot')).toHaveTextContent('ON');
+      expect(screen.getByText('Selection Model')).toBeInTheDocument();
     });
 
     it('calls updateAgentConfig when toggled', () => {
       render(<AgentSettingsPage agentId="claude" />);
-      fireEvent.click(screen.getByTestId('toggle-btn-auto-pilot'));
+      const label = screen.getByText('Auto-Pilot');
+      const row = label.closest('.glass-subtle')!;
+      const toggle = row.querySelector('button')!;
+      fireEvent.click(toggle);
       expect(mockUpdateConfig).toHaveBeenCalledWith('claude', { autoPilotEnabled: true });
+    });
+  });
+
+  describe('auto-pilot available models', () => {
+    it('does not show Available Models when auto-pilot disabled', () => {
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.queryByText('Available Models')).not.toBeInTheDocument();
+    });
+
+    it('shows Available Models button when auto-pilot enabled', () => {
+      storeState.agentConfigs.claude = makeConfig({ autoPilotEnabled: true });
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.getByText('Available Models')).toBeInTheDocument();
+    });
+
+    it('shows model count badge when auto-pilot enabled', () => {
+      storeState.agentConfigs.claude = makeConfig({
+        autoPilotEnabled: true,
+        autoPilotEnabledModels: ['claude-opus-4-6', 'claude-sonnet-4-6'],
+      });
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.getByText('(2/4)')).toBeInTheDocument();
+    });
+
+    it('shows full count when all models enabled', () => {
+      storeState.agentConfigs.claude = makeConfig({
+        autoPilotEnabled: true,
+        autoPilotEnabledModels: ['claude-opus-4-6', 'claude-opus-4-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5'],
+      });
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.getByText('(4/4)')).toBeInTheDocument();
+    });
+
+    it('shows all/total count when enabledModels is empty (all enabled)', () => {
+      storeState.agentConfigs.claude = makeConfig({
+        autoPilotEnabled: true,
+        autoPilotEnabledModels: [],
+      });
+      render(<AgentSettingsPage agentId="claude" />);
+      expect(screen.getByText('(4/4)')).toBeInTheDocument();
     });
   });
 
