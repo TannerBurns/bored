@@ -62,10 +62,11 @@ pub fn parse_structured_review(text: &str) -> Option<CodeReviewOutput> {
 }
 
 /// Best-effort extraction from a JSON block that doesn't match the strict
-/// `CodeReviewOutput` schema. Handles two common LLM deviations:
+/// `CodeReviewOutput` schema. Handles common LLM deviations:
 ///
 /// 1. Wrapper objects — `{ "review": { "issues_found": …, "issues": … } }`
 /// 2. Missing `issues_found` — derives from the `issues` array length
+/// 3. Status fields — `"review_status": "pass"` used instead of `"issues_found": 0`
 fn parse_structured_review_fallback(block: &str) -> Option<CodeReviewOutput> {
     let val: serde_json::Value = serde_json::from_str(block).ok()?;
     let obj = unwrap_to_inner_object(&val)?;
@@ -76,13 +77,28 @@ fn parse_structured_review_fallback(block: &str) -> Option<CodeReviewOutput> {
         .map(|arr| arr.iter().filter_map(issue_from_value).collect::<Vec<_>>())
         .unwrap_or_default();
 
+    let has_pass_status = obj
+        .get("review_status")
+        .or_else(|| obj.get("status"))
+        .and_then(|v| v.as_str())
+        .map(|s| {
+            let lower = s.to_lowercase();
+            lower == "pass" || lower == "clean" || lower == "approved"
+        })
+        .unwrap_or(false);
+
     let issues_found = obj
         .get("issues_found")
         .and_then(|v| v.as_u64())
         .map(|n| n as usize)
         .unwrap_or(issues.len());
 
-    if issues_found == 0 && issues.is_empty() && !obj.contains_key("issues_found") {
+    if issues_found == 0
+        && issues.is_empty()
+        && !obj.contains_key("issues_found")
+        && !obj.contains_key("issues")
+        && !has_pass_status
+    {
         return None;
     }
 
@@ -668,5 +684,145 @@ mod tests {
         let text = "```python\nprint('hi')\n```\nISSUES_FOUND: 4";
         assert!(parse_structured_review(text).is_none());
         assert_eq!(parse_code_review_issues(text), Some(4));
+    }
+
+    // ── pass-status / explicit empty issues ───────────────────────
+
+    #[test]
+    fn fallback_review_status_pass_with_empty_issues() {
+        let text = r#"## Code Review — Pass 2
+
+**Scope**: 5 files changed.
+
+### Verdict
+
+**No issues found.**
+
+```json
+{
+  "review_status": "pass",
+  "issues": [],
+  "summary": "All changes are clean."
+}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_explicit_empty_issues_without_issues_found() {
+        let text = "```json\n{\"issues\": []}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_status_pass_no_issues_key() {
+        let text = "```json\n{\"review_status\": \"pass\"}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_status_clean_recognized() {
+        let text = "```json\n{\"status\": \"clean\"}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_status_approved_recognized() {
+        let text = "```json\n{\"review_status\": \"APPROVED\", \"issues\": []}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_status_fail_still_needs_issues() {
+        let text = "```json\n{\"review_status\": \"fail\"}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_review_status_pass_issues_count_via_public_api() {
+        let text = "```json\n{\"review_status\": \"pass\", \"issues\": []}\n```";
+        assert_eq!(parse_code_review_issues(text), Some(0));
+    }
+
+    #[test]
+    fn fallback_status_non_string_value_ignored() {
+        let text = "```json\n{\"review_status\": true}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_status_numeric_value_ignored() {
+        let text = "```json\n{\"review_status\": 0}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn fallback_review_status_takes_priority_over_status() {
+        let text =
+            "```json\n{\"review_status\": \"pass\", \"status\": \"fail\"}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+    }
+
+    #[test]
+    fn fallback_status_mixed_case_pass() {
+        let text = "```json\n{\"review_status\": \"Pass\"}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+    }
+
+    #[test]
+    fn fallback_status_mixed_case_clean() {
+        let text = "```json\n{\"status\": \"CLEAN\"}\n```";
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+    }
+
+    #[test]
+    fn fallback_pass_status_with_issues_still_reports() {
+        let text = r#"```json
+{"review_status": "pass", "issues": [{"title": "Missed bug", "file": "a.rs"}]}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 1);
+        assert_eq!(result.issues.len(), 1);
+        assert_eq!(result.issues[0].title, "Missed bug");
+    }
+
+    #[test]
+    fn fallback_pass_status_in_wrapper_object() {
+        let text = r#"```json
+{"review": {"review_status": "pass", "issues": []}}
+```"#;
+        let result = parse_structured_review(text).unwrap();
+        assert_eq!(result.issues_found, 0);
+        assert!(result.issues.is_empty());
+    }
+
+    #[test]
+    fn fallback_unknown_status_string_rejected() {
+        let text = "```json\n{\"review_status\": \"pending\"}\n```";
+        assert!(parse_structured_review(text).is_none());
+    }
+
+    #[test]
+    fn extract_issues_section_with_pass_status() {
+        let text = r#"Review done.
+
+```json
+{"review_status": "pass", "issues": [], "summary": "All clean."}
+```"#;
+        let result = extract_issues_section(text);
+        assert_eq!(result, text);
     }
 }

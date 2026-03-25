@@ -114,7 +114,7 @@ Example (no issues):
 
 **Do NOT** deviate from this schema:
 - Do NOT wrap the object inside another key (e.g. `{"review": {...}}` or `{"results": {...}}`).
-- Do NOT rename `issues_found` to `summary`, `count`, `total`, or anything else.
+- Do NOT rename `issues_found` to `summary`, `count`, `total`, `review_status`, `status`, or anything else.
 - Do NOT use `files` (array) — always use `file` (single string). For multi-file issues pick the primary file.
 - Do NOT add extra top-level keys like `summary`, `branch`, or `review`.
 
