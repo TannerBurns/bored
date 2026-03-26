@@ -1,5 +1,62 @@
 [
   {
+    "version": "0.1.0-beta.62",
+    "published_at": "2026-03-25",
+    "summary": "Debug mode, automatic code review on ticket completion, and detour-sync stage. A new per-provider Debug Mode toggle causes every CLI subprocess invocation to emit a bored_system JSON log line containing the full command string, visible in the log timeline as system entries. Sensitive environment variables are automatically filtered from debug output. A new Run on Ticket Complete setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated CodeReview task type. Per-project push and PR creation now route correctly for workspace tickets. Chat UX gains optimistic user message insertion and stale-chat guards.",
+    "notes": [
+      {
+        "category": "New Features",
+        "items": [
+          "Debug Mode — new per-provider toggle that emits bored_system JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries; works in both agent workflows and chat mode",
+          "Auto Code Review on Ticket Complete — new Run on Ticket Complete setting triggers the code review loop automatically after the last task finishes successfully, followed by a commit stage; skipped in code-review-only mode",
+          "TaskType::CodeReview variant with full to_db_string/parse/display_name/command_id support, enabling the orchestrator to schedule auto code review as a discrete task",
+          "Detour-sync stage — new reserved internal stage ID (detour-sync) that merges agent work back to the target branch, mapped to the Commit stage group in the UI stepper"
+        ]
+      },
+      {
+        "category": "Improvements",
+        "items": [
+          "Debug environment filtering via debug_env_prefix() strips sensitive environment variables (API keys, git identity) from CLI command output in debug mode",
+          "Per-project push and PR creation — resolve_ticket_project_dir() dispatches to per-project or fallback resolution so push/PR commands work correctly for workspace tickets",
+          "ProjectBranchStatus extended with check_has_unpushed and has_uncommitted fields for accurate button state",
+          "Chat live event filter broadened from allowlist to SSE skip-list, allowing bored_system events to flow through",
+          "Optimistic user message insertion in chatStore — messages appear immediately before the backend responds",
+          "Stale-chat guards in loadMessages and loadChatEvents prevent overwriting current chat messages when async loads from a previously selected chat resolve late",
+          "Debug command building extracted into shared build_debug_command_line and build_debug_log_line helpers",
+          "finish_workflow caches get_task() result instead of calling it twice, avoiding a redundant RwLock acquisition",
+          "Worktree branch_name used for detour branch resolution instead of ticket branch name",
+          "Debug Mode toggle moved from WorkflowSection to per-agent CLI Options sections in settings UI",
+          "extendedContext added as frontend alias for extended_context_enabled"
+        ]
+      },
+      {
+        "category": "Bug Fixes",
+        "items": [
+          "Fixed NextStepsPanel to always call getWorkspaceBranchStatus — backend now handles non-workspace tickets",
+          "Fixed buildSyncPayload containing redundant defaults"
+        ]
+      }
+    ],
+    "previous_versions": [
+      {
+        "version": "0.1.0-beta.61",
+        "highlight": "Extended context model suffix, auto-pilot model filtering, and code-review pass-status parsing. Claude Code extended context now uses the [1m] model suffix instead of the deprecated --betas flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The --effort CLI argument moves to the CLAUDE_CODE_EFFORT_LEVEL environment variable. Auto-pilot settings gain per-model enable/disable toggles. The code-review fallback parser now accepts pass-status JSON where LLMs use review_status or status fields instead of issues_found: 0."
+      },
+      {
+        "version": "0.1.0-beta.60",
+        "highlight": "Robust code-review JSON parsing with fallback extraction and smarter auto-clarification ticket routing. The review agent's structured output parser handles common LLM deviations — wrapper objects, missing issues_found, files arrays instead of file strings, and numeric lines values — via a best-effort fallback when strict deserialization fails. Auto-clarification DeleteTask correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings."
+      },
+      {
+        "version": "0.1.0-beta.59",
+        "highlight": "Multi-project workspace support. Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames Projects to Scopes. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via .code-workspace files and --add-dir flags."
+      },
+      {
+        "version": "0.1.0-beta.58",
+        "highlight": "Multi-strategy fallback chain for the review agent's create_fix_tasks parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular create_fix_task form, and the frontend strips malformed JSON blocks from displayed review messages."
+      }
+    ]
+  },
+  {
     "version": "0.1.0-beta.61",
     "published_at": "2026-03-25",
     "summary": "Extended context model suffix, auto-pilot model filtering, and code-review pass-status parsing. Claude Code extended context now uses the [1m] model suffix instead of the deprecated --betas flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The --effort CLI argument moves to the CLAUDE_CODE_EFFORT_LEVEL environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use review_status or status fields instead of issues_found: 0.",
