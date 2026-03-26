@@ -86,6 +86,12 @@ pub struct WorkflowSettings {
     /// Max iterations for the code-review-only loop (0 = unlimited).
     #[serde(default)]
     pub code_review_agent_max_iterations: usize,
+    /// Whether to automatically run the Code Review Agent when the last task of a ticket completes.
+    #[serde(default)]
+    pub auto_code_review_on_complete: bool,
+    /// When enabled, CLI commands are captured and displayed as system entries in the timeline.
+    #[serde(default)]
+    pub debug_mode: bool,
     /// Full stage ordering (frontend stage keys, e.g. "code-review", "cleanup").
     /// Contains all stage keys including required stages.
     #[serde(default)]
@@ -156,6 +162,8 @@ impl Default for WorkflowSettings {
             code_review_agent_timeout_minutes: default_code_review_agent_timeout(),
             code_review_agent_max_retries: default_code_review_agent_retries(),
             code_review_agent_max_iterations: 0,
+            auto_code_review_on_complete: false,
+            debug_mode: false,
             stage_order: None,
             synced: false,
         }
@@ -262,6 +270,8 @@ mod tests {
         assert_eq!(settings.stage_max_retries, 2);
         assert_eq!(settings.diagnostic_model, "claude-sonnet-4-6");
         assert!(!settings.synced, "default settings should not be marked as synced");
+        assert!(!settings.auto_code_review_on_complete);
+        assert!(!settings.debug_mode);
     }
 
     #[test]
@@ -329,6 +339,34 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("diagnosticModel"));
         assert!(json.contains("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn workflow_settings_deserializes_new_bool_fields() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2,
+            "autoCodeReviewOnComplete":true,
+            "debugMode":true
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.auto_code_review_on_complete);
+        assert!(settings.debug_mode);
+    }
+
+    #[test]
+    fn workflow_settings_new_bool_fields_default_to_false_when_absent() {
+        let json = r#"{
+            "stageConfigs":{},
+            "codeReviewMaxIterations":3,
+            "stageTimeoutHours":1,
+            "stageMaxRetries":2
+        }"#;
+        let settings: WorkflowSettings = serde_json::from_str(json).unwrap();
+        assert!(!settings.auto_code_review_on_complete);
+        assert!(!settings.debug_mode);
     }
 
     #[test]

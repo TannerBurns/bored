@@ -494,6 +494,58 @@ describe('parseLogEvents', () => {
 
       expect(entries).toHaveLength(0);
     });
+
+    it('parses bored_system event as system entry', () => {
+      const entries = parseLogEvents(
+        [mkEvent({
+          id: 'bs-1',
+          payload: jsonPayload({
+            type: 'bored_system',
+            message: 'CLI Command [plan]',
+            command: 'claude --model sonnet-4.5 exec -p "plan prompt"',
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('system');
+      expect(entries[0].id).toBe('bs-1');
+      expect(entries[0].summary).toBe('CLI Command [plan]');
+      expect(entries[0].content).toBe('claude --model sonnet-4.5 exec -p "plan prompt"');
+    });
+
+    it('bored_system falls back to default summary when message missing', () => {
+      const entries = parseLogEvents(
+        [mkEvent({
+          payload: jsonPayload({
+            type: 'bored_system',
+            command: 'some-cmd',
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].summary).toBe('Bored System');
+    });
+
+    it('bored_system is handled for codex agent type too', () => {
+      const entries = parseLogEvents(
+        [mkEvent({
+          payload: jsonPayload({
+            type: 'bored_system',
+            message: 'CLI Command [implement]',
+            command: 'codex exec -p "impl"',
+          }),
+        })],
+        'codex',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('system');
+      expect(entries[0].summary).toBe('CLI Command [implement]');
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -952,6 +1004,72 @@ describe('parseAgentLogToEntries', () => {
       );
 
       expect(entries).toHaveLength(0);
+    });
+  });
+
+  describe('bored_system events', () => {
+    it('parses bored_system as system entry with message and command', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'bored_system',
+            message: 'CLI Command [implement]',
+            command: 'claude --model opus-4 --prompt "hello"',
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('system');
+      expect(entries[0].summary).toBe('CLI Command [implement]');
+      expect(entries[0].content).toBe('claude --model opus-4 --prompt "hello"');
+      expect(entries[0].isStderr).toBe(false);
+    });
+
+    it('falls back to "Bored System" when message is missing', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({ type: 'bored_system', command: 'echo test' }),
+        })],
+        'claude',
+      );
+
+      expect(entries[0].summary).toBe('Bored System');
+      expect(entries[0].content).toBe('echo test');
+    });
+
+    it('is parsed before agent-specific routing for codex', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          message: JSON.stringify({
+            type: 'bored_system',
+            message: 'CLI Command [plan]',
+            command: 'codex exec',
+          }),
+        })],
+        'codex',
+      );
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].type).toBe('system');
+    });
+
+    it('marks stderr flag when log stream is stderr', () => {
+      const entries = parseAgentLogToEntries(
+        [mkLog({
+          stream: 'stderr',
+          message: JSON.stringify({
+            type: 'bored_system',
+            message: 'CLI Command [plan]',
+            command: 'claude --print',
+          }),
+        })],
+        'claude',
+      );
+
+      expect(entries[0].type).toBe('system');
+      expect(entries[0].isStderr).toBe(true);
     });
   });
 

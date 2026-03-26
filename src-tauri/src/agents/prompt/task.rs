@@ -28,7 +28,9 @@ pub fn generate_task_prompt(
     workspace: Option<(&str, &[(String, String)])>,
 ) -> String {
     match &task.task_type {
-        TaskType::Custom => generate_custom_task_prompt(task, ticket, workspace),
+        TaskType::Custom | TaskType::CodeReview => {
+            generate_custom_task_prompt(task, ticket, workspace)
+        }
         TaskType::Command(id) => {
             let mut body = generate_command_task_prompt(id, custom_commands_dir);
             if let Some((name, projects)) = workspace {

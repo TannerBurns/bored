@@ -124,6 +124,7 @@ impl ChatAgent {
             session_id: stored_session_id.clone(),
             workspace_file: self.config.workspace_file.clone(),
             workspace_paths: self.config.workspace_paths.clone(),
+            debug_mode: self.config.debug_mode,
         };
 
         if stored_session_id.is_some() {
@@ -150,6 +151,18 @@ impl ChatAgent {
                     });
                 cb
             });
+
+        if self.config.debug_mode {
+            let command = super::build_debug_command_line(&*provider, &run_config);
+            let log_line = super::build_debug_log_line(
+                self.config.mode.as_str(),
+                &command,
+                stored_session_id.as_deref(),
+            );
+            if let Some(ref cb) = log_callback {
+                cb(log_line);
+            }
+        }
 
         let spawn_result = tokio::task::spawn_blocking(move || {
             spawner::run_agent_via_provider_with_cancel(
@@ -237,6 +250,11 @@ impl ChatAgent {
                     tracing::warn!("Failed to persist agent session id: {}", e);
                 }
             }
+        } else if stored_session_id.is_none() {
+            tracing::warn!(
+                "No session_id found in agent output for chat {} — subsequent turns will rebuild full conversation history",
+                self.config.chat_id
+            );
         }
 
         if text.is_empty() {
@@ -389,17 +407,28 @@ impl ChatAgent {
 
             if content.starts_with('{') {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-                    let dominated = json.get("type").and_then(|t| t.as_str());
-                    match dominated {
-                        Some("assistant") | Some("system") | Some("tool_call") => {
-                            let _ = tx.send(LiveEvent::ChatLogEntry {
-                                chat_id: chat_id.clone(),
-                                stream: stream_str.to_string(),
-                                message: content.to_string(),
-                                timestamp: ts,
-                            });
-                        }
-                        _ => {}
+                    let event_type = json.get("type").and_then(|t| t.as_str());
+                    const SSE_SKIP: &[&str] = &[
+                        "thinking",
+                        "content_block_delta",
+                        "stream_event",
+                        "content_block_start",
+                        "content_block_stop",
+                        "message_start",
+                        "message_delta",
+                        "message_stop",
+                    ];
+                    let should_send = match event_type {
+                        Some(t) => !SSE_SKIP.contains(&t),
+                        None => false,
+                    };
+                    if should_send {
+                        let _ = tx.send(LiveEvent::ChatLogEntry {
+                            chat_id: chat_id.clone(),
+                            stream: stream_str.to_string(),
+                            message: content.to_string(),
+                            timestamp: ts,
+                        });
                     }
                 }
             } else {
@@ -503,6 +532,7 @@ mod tests {
                 timeout_secs: Some(120),
                 workspace_file: None,
                 workspace_paths: vec![],
+                debug_mode: false,
             },
             tx,
             Arc::new(registry),

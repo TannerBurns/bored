@@ -432,6 +432,7 @@ fn build_command_uses_exec_resume_when_session_set() {
         session_id: Some("thread-resume-456".to_string()),
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     let (cmd, args) = p.build_command(&config);
     assert_eq!(cmd, "codex");
@@ -457,6 +458,7 @@ fn build_command_uses_plain_exec_when_no_session() {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     let (_, args) = p.build_command(&config);
     assert_eq!(args[0], "exec");

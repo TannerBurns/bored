@@ -40,7 +40,7 @@ export const REQUIRED_STAGE_KEYS: ReadonlySet<string> = new Set([
  *  resume logic breaks due to duplicate positions in `full_execution_order`. */
 export const RESERVED_INTERNAL_STAGE_IDS: ReadonlySet<string> = new Set([
   'branch-gen', 'branch', 'plan-validation', 'plan-decompose',
-  'code-review-fix', 'add-and-commit',
+  'code-review-fix', 'add-and-commit', 'detour-sync',
 ]);
 
 export const DEFAULT_STAGE_ORDER: string[] = [
@@ -152,6 +152,9 @@ export interface AgentConfig {
   codeReviewAgentTimeoutMinutes: number;
   codeReviewAgentMaxRetries: number;
   codeReviewAgentMaxIterations: number;
+  autoCodeReviewOnComplete: boolean;
+
+  debugMode: boolean;
 
   settings: Record<string, unknown>;
 }
@@ -234,6 +237,8 @@ const DEFAULT_CLAUDE_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {
     authToken: '',
     apiKey: '',
@@ -277,6 +282,8 @@ const DEFAULT_CURSOR_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {},
 };
 
@@ -312,6 +319,8 @@ const DEFAULT_CODEX_CONFIG: AgentConfig = {
   codeReviewAgentTimeoutMinutes: 60,
   codeReviewAgentMaxRetries: 2,
   codeReviewAgentMaxIterations: 0,
+  autoCodeReviewOnComplete: false,
+  debugMode: false,
   settings: {
     ossEnabled: false,
     localProvider: 'ollama',

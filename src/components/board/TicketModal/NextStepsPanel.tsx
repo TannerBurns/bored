@@ -46,25 +46,12 @@ export function NextStepsPanel({ ticket, columns }: NextStepsPanelProps) {
     const load = async () => {
       try {
         setDiffLoading(true);
-        if (ticket.workspaceId) {
-          const status = await getWorkspaceBranchStatus(ticket.id);
-          if (!cancelled) setBranchStatus(status);
-        } else {
-          const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId: ticket.id });
-          if (!cancelled) {
-            setDiffFiles(files);
-            const totalAdd = files.reduce((s, f) => s + f.additions, 0);
-            const totalDel = files.reduce((s, f) => s + f.deletions, 0);
-            setBranchStatus([{
-              projectId: ticket.projectId || '',
-              projectName: '',
-              branch: ticket.branchName || '',
-              workingDir: '',
-              hasChanges: files.length > 0,
-              filesChanged: files.length,
-              additions: totalAdd,
-              deletions: totalDel,
-            }]);
+        const status = await getWorkspaceBranchStatus(ticket.id);
+        if (!cancelled) {
+          setBranchStatus(status);
+          if (!ticket.workspaceId) {
+            const files = await invoke<FileDiff[]>('get_branch_diff_files', { ticketId: ticket.id });
+            if (!cancelled) setDiffFiles(files);
           }
         }
       } catch (e) {

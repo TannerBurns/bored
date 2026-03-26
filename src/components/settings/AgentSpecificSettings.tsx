@@ -3,6 +3,19 @@ import { getAgentSettings as getAgentSettingsBackend, setAgentSettings as setAge
 import { useSettingsStore } from '../../stores/settingsStore';
 import { cn } from '../../lib/utils';
 
+function DebugModeToggle({ agentId }: { agentId: string }) {
+  const config = useSettingsStore((s) => s.getAgentConfig(agentId));
+  const updateConfig = useSettingsStore((s) => s.updateAgentConfig);
+  return (
+    <ToggleRow
+      label="Enable Debug Mode"
+      description="Capture CLI commands submitted to agent processes and display them as system entries in the timeline view"
+      enabled={config.debugMode}
+      onChange={(v) => updateConfig(agentId, { debugMode: v })}
+    />
+  );
+}
+
 export function ToggleRow({ label, description, enabled, onChange, disabled }: {
   label: string;
   description: string;
@@ -107,6 +120,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
           enabled={chromeEnabled}
           onChange={(v) => updateSetting('chromeEnabled', v)}
         />
+        <DebugModeToggle agentId={agentId} />
         <div className="glass-subtle rounded-lg px-3 py-2 space-y-1.5">
           <label className="block text-sm font-medium text-board-text">Effort</label>
           <p className="text-xs text-board-text-muted">Controls how much effort the model spends on each response.</p>
@@ -183,7 +197,7 @@ function ClaudeSpecificSettings({ agentId }: { agentId: string }) {
   );
 }
 
-function CursorSpecificSettings({ agentId: _agentId }: { agentId: string }) {
+function CursorSpecificSettings({ agentId }: { agentId: string }) {
   const cursorModels = useSettingsStore((s) => s.cursorModels);
   const syncCursorModels = useSettingsStore((s) => s.syncCursorModels);
   const [syncing, setSyncing] = useState(false);
@@ -202,6 +216,14 @@ function CursorSpecificSettings({ agentId: _agentId }: { agentId: string }) {
   }, [syncCursorModels]);
 
   return (
+    <>
+    <div className="glass rounded-lg p-3 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium text-board-text">CLI Options</h3>
+        <p className="text-xs text-board-text-muted">Agent-specific options saved automatically.</p>
+      </div>
+      <DebugModeToggle agentId={agentId} />
+    </div>
     <div className="glass rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between">
         <div>
@@ -225,6 +247,7 @@ function CursorSpecificSettings({ agentId: _agentId }: { agentId: string }) {
         </button>
       </div>
     </div>
+    </>
   );
 }
 
@@ -309,6 +332,7 @@ function CodexSpecificSettings({ agentId }: { agentId: string }) {
           enabled={multiAgentEnabled}
           onChange={(v) => updateSetting('multiAgentEnabled', v)}
         />
+        <DebugModeToggle agentId={agentId} />
       </div>
 
       <div className="glass rounded-lg p-3 space-y-3">

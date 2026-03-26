@@ -45,6 +45,8 @@ pub struct ProjectBranchStatus {
     pub branch: String,
     pub working_dir: String,
     pub has_changes: bool,
+    pub has_unpushed: bool,
+    pub has_uncommitted: bool,
     pub files_changed: usize,
     pub additions: usize,
     pub deletions: usize,
@@ -207,6 +209,29 @@ fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<S
     Ok(working_dir)
 }
 
+/// Resolve working dir + branch for a specific project within a ticket, or fall
+/// back to `get_ticket_working_dir` when no project_id is given.
+fn resolve_ticket_project_dir(
+    db: &Database,
+    ticket_id: &str,
+    project_id: Option<&str>,
+) -> Result<(String, String), String> {
+    if let Some(pid) = project_id {
+        let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
+        let branch = ticket
+            .branch_name
+            .ok_or_else(|| "Ticket has no branch name".to_string())?;
+        let project = db
+            .get_project(pid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Project not found: {}", pid))?;
+        let working_dir = resolve_working_dir_for_project(&project.path, &branch)?;
+        Ok((working_dir, branch))
+    } else {
+        get_ticket_working_dir(db, ticket_id)
+    }
+}
+
 /// Extract a conventional commit type from the branch name prefix.
 /// Falls back to "chore" when the prefix isn't a recognized commitizen type.
 fn infer_commit_type_from_branch(branch: &str) -> &'static str {
@@ -230,9 +255,10 @@ fn infer_commit_type_from_branch(branch: &str) -> &'static str {
 #[tauri::command]
 pub async fn push_branch(
     ticket_id: String,
+    project_id: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<PushResult, String> {
-    let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
+    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
 
     if has_uncommitted_changes(&working_dir) {
         let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
@@ -273,6 +299,28 @@ pub async fn push_branch(
             message: format!("{}{}", stdout, stderr),
             branch,
         })
+    }
+}
+
+/// Check whether there are local commits not yet pushed to `origin/<branch>`.
+/// Returns `true` when `origin/<branch>` doesn't exist (never pushed) or when
+/// there are commits ahead of the remote tracking ref.
+fn check_has_unpushed(working_dir: &str, branch: &str) -> bool {
+    let remote_ref = format!("origin/{}", branch);
+    let output = Command::new("git")
+        .args(["rev-list", "--count", &format!("{}..{}", remote_ref, branch)])
+        .current_dir(working_dir)
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let count: usize = String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            count > 0
+        }
+        // Remote tracking branch doesn't exist yet – everything is unpushed.
+        _ => true,
     }
 }
 
@@ -322,11 +370,12 @@ fn commit_all_changes(working_dir: &str, message: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn create_pull_request(
     ticket_id: String,
+    project_id: Option<String>,
     title: Option<String>,
     body: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<PullRequestResult, String> {
-    let (working_dir, branch) = get_ticket_working_dir(&db, &ticket_id)?;
+    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
     if has_uncommitted_changes(&working_dir) {
@@ -572,12 +621,17 @@ pub async fn get_workspace_branch_status(
             (false, 0, 0, 0)
         };
 
+        let has_unpushed = check_has_unpushed(working_dir, branch);
+        let has_uncommitted = has_uncommitted_changes(working_dir);
+
         results.push(ProjectBranchStatus {
             project_id: project_id.clone(),
             project_name: project_name.clone(),
             branch: branch.clone(),
             working_dir: working_dir.clone(),
             has_changes,
+            has_unpushed,
+            has_uncommitted,
             files_changed,
             additions,
             deletions,
@@ -724,6 +778,96 @@ mod tests {
     fn commit_all_changes_invalid_dir_returns_err() {
         let result = commit_all_changes("/nonexistent/path/that/does/not/exist", "msg");
         assert!(result.is_err());
+    }
+
+    // --- check_has_unpushed ---
+
+    #[test]
+    fn check_has_unpushed_no_remote_returns_true() {
+        let (_dir, path) = init_temp_repo();
+        assert!(check_has_unpushed(&path, "main"));
+    }
+
+    #[test]
+    fn check_has_unpushed_invalid_dir_returns_true() {
+        assert!(check_has_unpushed("/nonexistent/path/that/does/not/exist", "main"));
+    }
+
+    #[test]
+    fn check_has_unpushed_with_local_remote_up_to_date() {
+        let (_dir, path) = init_temp_repo();
+
+        let bare_dir = tempfile::tempdir().expect("create bare dir");
+        let bare_path = bare_dir.path().to_str().unwrap();
+
+        Command::new("git")
+            .args(["clone", "--bare", &path, bare_path])
+            .output()
+            .expect("git clone --bare");
+
+        Command::new("git")
+            .args(["remote", "add", "origin", bare_path])
+            .current_dir(&path)
+            .output()
+            .expect("git remote add");
+
+        Command::new("git")
+            .args(["fetch", "origin"])
+            .current_dir(&path)
+            .output()
+            .expect("git fetch");
+
+        let branch_output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&path)
+            .output()
+            .expect("git branch");
+        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+
+        Command::new("git")
+            .args(["push", "-u", "origin", &branch])
+            .current_dir(&path)
+            .output()
+            .expect("git push");
+
+        assert!(!check_has_unpushed(&path, &branch));
+    }
+
+    #[test]
+    fn check_has_unpushed_with_local_commit_ahead() {
+        let (dir, path) = init_temp_repo();
+
+        let bare_dir = tempfile::tempdir().expect("create bare dir");
+        let bare_path = bare_dir.path().to_str().unwrap();
+
+        Command::new("git")
+            .args(["clone", "--bare", &path, bare_path])
+            .output()
+            .expect("git clone --bare");
+
+        Command::new("git")
+            .args(["remote", "add", "origin", bare_path])
+            .current_dir(&path)
+            .output()
+            .expect("git remote add");
+
+        let branch_output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&path)
+            .output()
+            .expect("git branch");
+        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+
+        Command::new("git")
+            .args(["push", "-u", "origin", &branch])
+            .current_dir(&path)
+            .output()
+            .expect("git push");
+
+        std::fs::write(dir.path().join("new.txt"), "local only").unwrap();
+        commit_all_changes(&path, "local commit").unwrap();
+
+        assert!(check_has_unpushed(&path, &branch));
     }
 
     // --- infer_commit_type_from_branch ---

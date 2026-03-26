@@ -308,7 +308,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'bored-settings',
-      version: 24,
+      version: 25,
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...((persistedState ?? {}) as Partial<SettingsState>) };
         const builtinById = new Map(BUILTIN_CATALOG_COMMANDS.map((c) => [c.id, c]));
@@ -429,6 +429,8 @@ export const useSettingsStore = create<SettingsState>()(
               codeReviewAgentTimeoutMinutes: base.codeReviewAgentTimeoutMinutes,
               codeReviewAgentMaxRetries: base.codeReviewAgentMaxRetries,
               codeReviewAgentMaxIterations: base.codeReviewAgentMaxIterations,
+              autoCodeReviewOnComplete: false,
+              debugMode: false,
               settings: agentSettings[agentId] ?? base.settings,
             };
           };
@@ -639,6 +641,16 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
 
+        if (version < 25) {
+          const configs = state.agentConfigs as Record<string, Record<string, unknown>> | undefined;
+          if (configs) {
+            for (const cfg of Object.values(configs)) {
+              if (cfg.debugMode === undefined) cfg.debugMode = false;
+              if (cfg.autoCodeReviewOnComplete === undefined) cfg.autoCodeReviewOnComplete = false;
+            }
+          }
+        }
+
         return state as unknown as SettingsState;
       },
     }
@@ -666,6 +678,8 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
     codeReviewAgentTimeoutMinutes: number;
     codeReviewAgentMaxRetries: number;
     codeReviewAgentMaxIterations: number;
+    autoCodeReviewOnComplete: boolean;
+    debugMode: boolean;
     stageOrder: string[];
   }> = {};
   for (const [agentId, config] of Object.entries(configs)) {
@@ -689,6 +703,8 @@ function buildSyncPayload(configs: Record<string, AgentConfig>) {
       codeReviewAgentTimeoutMinutes: config.codeReviewAgentTimeoutMinutes,
       codeReviewAgentMaxRetries: config.codeReviewAgentMaxRetries,
       codeReviewAgentMaxIterations: config.codeReviewAgentMaxIterations,
+      autoCodeReviewOnComplete: config.autoCodeReviewOnComplete,
+      debugMode: config.debugMode,
       stageOrder: config.stageOrder,
     };
   }

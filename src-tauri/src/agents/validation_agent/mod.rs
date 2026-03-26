@@ -111,6 +111,7 @@ impl ValidationAgent {
             session_id: None,
             workspace_file: None,
             workspace_paths: vec![],
+            debug_mode: false,
         };
 
         let tx = self.event_tx.clone();

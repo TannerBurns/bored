@@ -66,6 +66,7 @@ pub async fn validate_plan_for_clarification(
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
 
     let db = config.db.clone();
@@ -202,6 +203,7 @@ pub async fn generate_clarification_message(
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
 
     let db = config.db.clone();
@@ -331,6 +333,7 @@ pub async fn rewrite_task_with_clarification(
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
 
     let db = config.db.clone();
@@ -465,6 +468,7 @@ pub async fn auto_resolve_clarification(
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
 
     let db = config.db.clone();

@@ -490,6 +490,27 @@ describe('useChatStore', () => {
       });
     });
 
+    it('inserts optimistic user message before invoke', async () => {
+      useChatStore.setState({ currentChat: mockChat, messages: [] });
+      let capturedMessages: ChatMessage[] = [];
+      vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+        if (cmd === 'send_chat_message') {
+          capturedMessages = [...useChatStore.getState().messages];
+          return undefined;
+        }
+        if (cmd === 'get_chat') return mockChat;
+        return [];
+      });
+
+      await useChatStore.getState().sendMessage('Hello optimistic');
+
+      expect(capturedMessages).toHaveLength(1);
+      expect(capturedMessages[0].role).toBe('user');
+      expect(capturedMessages[0].content).toBe('Hello optimistic');
+      expect(capturedMessages[0].id).toMatch(/^optimistic-/);
+      expect(capturedMessages[0].chatId).toBe('chat-1');
+    });
+
     it('no-ops when no current chat', async () => {
       await useChatStore.getState().sendMessage('orphan message');
 
@@ -524,6 +545,57 @@ describe('useChatStore', () => {
       expect(invoke).not.toHaveBeenCalledWith('get_chat_messages', expect.anything());
       expect(invoke).not.toHaveBeenCalledWith('get_chat_events', expect.anything());
       expect(invoke).toHaveBeenCalledWith('get_chat', { chatId: 'chat-1' });
+    });
+  });
+
+  describe('loadMessages (stale-chat guard)', () => {
+    it('sets messages when currentChat matches', async () => {
+      useChatStore.setState({ currentChat: mockChat, messages: [] });
+      vi.mocked(invoke).mockResolvedValueOnce(mockMessages);
+
+      await useChatStore.getState().loadMessages('chat-1');
+
+      expect(useChatStore.getState().messages).toHaveLength(2);
+    });
+
+    it('discards messages when currentChat has changed', async () => {
+      const otherChat: Chat = { ...mockChat, id: 'chat-other' };
+      useChatStore.setState({ currentChat: otherChat, messages: [] });
+      vi.mocked(invoke).mockResolvedValueOnce(mockMessages);
+
+      await useChatStore.getState().loadMessages('chat-1');
+
+      expect(useChatStore.getState().messages).toHaveLength(0);
+    });
+
+    it('discards messages when no currentChat', async () => {
+      useChatStore.setState({ currentChat: null, messages: [] });
+      vi.mocked(invoke).mockResolvedValueOnce(mockMessages);
+
+      await useChatStore.getState().loadMessages('chat-1');
+
+      expect(useChatStore.getState().messages).toHaveLength(0);
+    });
+  });
+
+  describe('loadChatEvents (stale-chat guard)', () => {
+    it('sets events when currentChat matches', async () => {
+      useChatStore.setState({ currentChat: mockChat, chatEvents: [] });
+      vi.mocked(invoke).mockResolvedValueOnce(mockEvents);
+
+      await useChatStore.getState().loadChatEvents('chat-1');
+
+      expect(useChatStore.getState().chatEvents).toHaveLength(1);
+    });
+
+    it('discards events when currentChat has changed', async () => {
+      const otherChat: Chat = { ...mockChat, id: 'chat-other' };
+      useChatStore.setState({ currentChat: otherChat, chatEvents: [] });
+      vi.mocked(invoke).mockResolvedValueOnce(mockEvents);
+
+      await useChatStore.getState().loadChatEvents('chat-1');
+
+      expect(useChatStore.getState().chatEvents).toHaveLength(0);
     });
   });
 

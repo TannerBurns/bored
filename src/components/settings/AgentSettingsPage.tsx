@@ -681,6 +681,12 @@ function CodeReviewAgentSection({ agentId, config, models, modelColWidth }: {
           </div>
         </div>
         <ToggleRow
+          label="Run on Ticket Complete"
+          description="Automatically run the Code Review Agent when all tasks of a ticket finish successfully"
+          enabled={config.autoCodeReviewOnComplete}
+          onChange={(v) => updateConfig(agentId, { autoCodeReviewOnComplete: v })}
+        />
+        <ToggleRow
           label="Run until clean"
           description="Keep iterating until no issues are found, or you manually stop it"
           enabled={isUnlimited}

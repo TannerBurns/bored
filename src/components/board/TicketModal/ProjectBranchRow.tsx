@@ -62,7 +62,7 @@ export function ProjectBranchRow({
   const handlePush = async () => {
     try {
       setActionLoading(`push-${status.projectId}`);
-      const result = await invoke<{ message: string; success: boolean }>('push_branch', { ticketId });
+      const result = await invoke<{ message: string; success: boolean }>('push_branch', { ticketId, projectId: status.projectId || undefined });
       onPushResult(result);
     } catch (e) {
       onPushResult({ message: String(e), success: false });
@@ -74,7 +74,7 @@ export function ProjectBranchRow({
   const handleCreatePR = async () => {
     try {
       setActionLoading(`pr-${status.projectId}`);
-      const result = await invoke<{ message: string; url?: string; success: boolean }>('create_pull_request', { ticketId });
+      const result = await invoke<{ message: string; url?: string; success: boolean }>('create_pull_request', { ticketId, projectId: status.projectId || undefined });
       onPrResult({ message: result.message, url: result.url ?? undefined, success: result.success });
     } catch (e) {
       onPrResult({ message: String(e), success: false });
@@ -132,7 +132,7 @@ export function ProjectBranchRow({
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={handlePush}
-            disabled={isPushing || isAnyLoading}
+            disabled={(!status.hasUnpushed && !status.hasUncommitted) || isPushing || isAnyLoading}
             className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded bg-board-hover text-board-text-secondary hover:bg-board-border/50 transition-colors disabled:opacity-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -143,7 +143,7 @@ export function ProjectBranchRow({
           </button>
           <button
             onClick={handleCreatePR}
-            disabled={isCreatingPR || isAnyLoading}
+            disabled={!status.hasChanges || isCreatingPR || isAnyLoading}
             className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium rounded bg-board-hover text-board-text-secondary hover:bg-board-border/50 transition-colors disabled:opacity-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

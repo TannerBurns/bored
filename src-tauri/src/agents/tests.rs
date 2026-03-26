@@ -242,6 +242,7 @@ fn agent_run_config_basic_fields() {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     assert_eq!(config.agent_id, "claude");
     assert_eq!(config.ticket_id, "ticket-1");
@@ -269,6 +270,7 @@ fn agent_run_config_with_agent_config() {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     assert_eq!(
         config.agent_config.get("auth_token").and_then(|v| v.as_str()),
@@ -297,6 +299,7 @@ fn agent_run_config_empty_agent_config() {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     assert!(config.agent_config.is_empty());
     assert_eq!(config.agent_id, "cursor");
@@ -316,6 +319,7 @@ fn agent_run_config_with_session_id() {
         session_id: Some("sess-abc-123".to_string()),
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     };
     assert_eq!(config.session_id, Some("sess-abc-123".to_string()));
 }
@@ -405,4 +409,59 @@ fn provider_trait_no_longer_has_install_or_check_methods() {
     assert_eq!(p.config_dir_name(), ".stub");
     assert_eq!(p.command_instructions_subdir(), "commands");
     assert_eq!(p.format_command_reference("test"), "/test");
+}
+
+// ── debug_env_prefix tests ──────────────────────────────────
+
+#[test]
+fn debug_env_prefix_empty_input() {
+    assert_eq!(super::debug_env_prefix(&[]), "");
+}
+
+#[test]
+fn debug_env_prefix_all_safe_vars() {
+    let vars = vec![
+        ("FOO".into(), "bar".into()),
+        ("BAZ".into(), "qux".into()),
+    ];
+    assert_eq!(super::debug_env_prefix(&vars), "FOO=bar BAZ=qux ");
+}
+
+#[test]
+fn debug_env_prefix_filters_sensitive_vars() {
+    let vars = vec![
+        ("SAFE_VAR".into(), "ok".into()),
+        ("ANTHROPIC_API_KEY".into(), "sk-secret".into()),
+        ("ANTHROPIC_AUTH_TOKEN".into(), "tok-secret".into()),
+        ("GIT_AUTHOR_NAME".into(), "Someone".into()),
+        ("GIT_COMMITTER_EMAIL".into(), "someone@example.com".into()),
+    ];
+    assert_eq!(super::debug_env_prefix(&vars), "SAFE_VAR=ok ");
+}
+
+#[test]
+fn debug_env_prefix_all_sensitive_returns_empty() {
+    let vars = vec![
+        ("ANTHROPIC_API_KEY".into(), "sk-secret".into()),
+        ("GIT_AUTHOR_NAME".into(), "Someone".into()),
+    ];
+    assert_eq!(super::debug_env_prefix(&vars), "");
+}
+
+#[test]
+fn debug_env_prefix_mixed_preserves_order() {
+    let vars = vec![
+        ("A".into(), "1".into()),
+        ("ANTHROPIC_API_KEY_EXTRA".into(), "hidden".into()),
+        ("B".into(), "2".into()),
+        ("GIT_COMMITTER_DATE".into(), "hidden".into()),
+        ("C".into(), "3".into()),
+    ];
+    assert_eq!(super::debug_env_prefix(&vars), "A=1 B=2 C=3 ");
+}
+
+#[test]
+fn debug_env_prefix_single_safe_var() {
+    let vars = vec![("ONLY".into(), "one".into())];
+    assert_eq!(super::debug_env_prefix(&vars), "ONLY=one ");
 }

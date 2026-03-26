@@ -441,9 +441,12 @@ impl Worker {
             }
         }
 
-        // Build runner config
+        // Prefer worktree.branch_name over ticket.branch_name — on detour
+        // branches the two differ and the orchestrator needs the actual checkout.
         let (worktree_branch, branch_already_created, is_temp_branch) =
-            if ticket.branch_name.is_some() {
+            if worktree.target_branch.is_some() {
+                (Some(worktree.branch_name.clone()), true, false)
+            } else if ticket.branch_name.is_some() {
                 (ticket.branch_name.clone(), true, false)
             } else {
                 (

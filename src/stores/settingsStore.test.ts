@@ -531,10 +531,10 @@ describe('useSettingsStore', () => {
   });
 
   describe('persist config', () => {
-    it('uses version 24', () => {
+    it('uses version 25', () => {
       const { persist } = useSettingsStore;
       const options = persist.getOptions();
-      expect(options.version).toBe(24);
+      expect(options.version).toBe(25);
     });
   });
 
@@ -993,6 +993,27 @@ describe('useSettingsStore', () => {
       expect(config.stageOrder).toBeDefined();
       expect(config.generalModel).toBeDefined();
     });
+
+    it('agentConfigs include debugMode and autoCodeReviewOnComplete for all agents', () => {
+      const state = useSettingsStore.getState();
+      for (const agentId of ['claude', 'cursor', 'codex']) {
+        const config = state.getAgentConfig(agentId);
+        expect(typeof config.debugMode).toBe('boolean');
+        expect(typeof config.autoCodeReviewOnComplete).toBe('boolean');
+      }
+    });
+
+    it('debugMode survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('claude', { debugMode: true });
+      const config = useSettingsStore.getState().agentConfigs.claude;
+      expect(config.debugMode).toBe(true);
+    });
+
+    it('autoCodeReviewOnComplete survives updateAgentConfig round-trip', () => {
+      useSettingsStore.getState().updateAgentConfig('cursor', { autoCodeReviewOnComplete: true });
+      const config = useSettingsStore.getState().agentConfigs.cursor;
+      expect(config.autoCodeReviewOnComplete).toBe(true);
+    });
   });
 
   describe('diagnostic agent settings', () => {
@@ -1331,6 +1352,69 @@ describe('useSettingsStore', () => {
         { command: 'cleanup', phase: 'before' },
         { command: 'deslop', phase: 'after' },
       ]);
+    });
+  });
+
+  describe('persist migration v24->v25 (debugMode & autoCodeReviewOnComplete)', () => {
+    it('adds debugMode: false and autoCodeReviewOnComplete: false when missing', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              workflowStages: {},
+              stageOrder: [],
+            },
+            cursor: {
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        24
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { debugMode?: boolean; autoCodeReviewOnComplete?: boolean }>;
+      expect(configs.claude.debugMode).toBe(false);
+      expect(configs.claude.autoCodeReviewOnComplete).toBe(false);
+      expect(configs.cursor.debugMode).toBe(false);
+      expect(configs.cursor.autoCodeReviewOnComplete).toBe(false);
+    });
+
+    it('preserves existing debugMode: true through migration', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        {
+          agentConfigs: {
+            claude: {
+              debugMode: true,
+              autoCodeReviewOnComplete: true,
+              workflowStages: {},
+              stageOrder: [],
+            },
+          },
+          commandsCatalog: [],
+        } as unknown,
+        24
+      ) as unknown as Record<string, unknown>;
+
+      const configs = migrated.agentConfigs as Record<string, { debugMode?: boolean; autoCodeReviewOnComplete?: boolean }>;
+      expect(configs.claude.debugMode).toBe(true);
+      expect(configs.claude.autoCodeReviewOnComplete).toBe(true);
+    });
+
+    it('handles missing agentConfigs gracefully', () => {
+      const { persist } = useSettingsStore;
+      const options = persist.getOptions();
+      const migrated = options.migrate!(
+        { commandsCatalog: [] } as unknown,
+        24
+      ) as unknown as Record<string, unknown>;
+
+      expect(migrated).toBeDefined();
     });
   });
 

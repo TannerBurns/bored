@@ -17,6 +17,7 @@ fn create_provider_config() -> AgentRunConfig {
         session_id: None,
         workspace_file: None,
         workspace_paths: vec![],
+        debug_mode: false,
     }
 }
 
@@ -406,6 +407,20 @@ fn provider_build_extended_context_with_short_sonnet_name() {
     assert!(
         args.contains(&"claude-sonnet-4-6[1m]".to_string()),
         "Short sonnet name should be normalized then get [1m] suffix"
+    );
+}
+
+#[test]
+fn provider_build_extended_context_frontend_key() {
+    let mut config = create_provider_config();
+    config.model = Some("claude-opus-4-6".to_string());
+    config
+        .agent_config
+        .insert("extendedContext".to_string(), serde_json::json!(true));
+    let (_, args) = build_command_from_provider_config(&config);
+    assert!(
+        args.contains(&"claude-opus-4-6[1m]".to_string()),
+        "Frontend key 'extendedContext' should be accepted as alias for extended_context_enabled"
     );
 }
 

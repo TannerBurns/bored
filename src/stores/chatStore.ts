@@ -199,7 +199,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const messages = await invoke<ChatMessage[]>('get_chat_messages', {
         chatId,
       });
-      set({ messages });
+      if (get().currentChat?.id === chatId) {
+        set({ messages });
+      }
     } catch (e) {
       logger.error('Failed to load chat messages', e);
     }
@@ -210,7 +212,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const chatEvents = await invoke<ChatEvent[]>('get_chat_events', {
         chatId,
       });
-      set({ chatEvents });
+      if (get().currentChat?.id === chatId) {
+        set({ chatEvents });
+      }
     } catch (e) {
       logger.error('Failed to load chat events', e);
     }
@@ -221,6 +225,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!currentChat) return;
 
     const chatId = currentChat.id;
+
+    const optimisticMsg: ChatMessage = {
+      id: `optimistic-${Date.now()}`,
+      chatId,
+      role: 'user',
+      content,
+      createdAt: new Date(),
+    };
+    set((state) => ({ messages: [...state.messages, optimisticMsg] }));
+
     get().setAgentThinking(chatId, true);
 
     try {

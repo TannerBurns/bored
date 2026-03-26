@@ -40,7 +40,8 @@ impl ClaudeApiConfig {
             base_url: Self::get_str(map, "base_url", "baseUrl"),
             model_override: Self::get_str(map, "model_override", "modelOverride"),
             thinking_enabled: Self::get_bool(map, "thinking_enabled", "thinkingEnabled"),
-            extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled"),
+            extended_context_enabled: Self::get_bool(map, "extended_context_enabled", "extendedContextEnabled")
+                .or_else(|| map.get("extendedContext").and_then(|v| v.as_bool())),
             chrome_enabled: Self::get_bool(map, "chrome_enabled", "chromeEnabled"),
             allowed_tools: Self::get_str(map, "allowed_tools", "allowedTools"),
             effort: Self::get_str(map, "effort", "effort"),

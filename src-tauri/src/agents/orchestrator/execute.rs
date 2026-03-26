@@ -226,13 +226,43 @@ impl WorkflowOrchestrator {
     }
 
     pub(super) fn finish_workflow(&self, mode_label: &str) {
-        let has_pending = self.get_task().is_some()
+        let has_task = self.get_task().is_some();
+        let has_pending = has_task
             && self
                 .db
                 .has_pending_tasks(&self.ticket.id)
                 .unwrap_or(false);
 
-        if has_pending {
+        let should_auto_code_review = self.auto_code_review_on_complete
+            && has_task
+            && !has_pending
+            && self.workflow_mode != WorkflowMode::CodeReviewOnly;
+
+        if should_auto_code_review {
+            match self.db.create_task(&crate::db::models::CreateTask {
+                ticket_id: self.ticket.id.clone(),
+                task_type: TaskType::CodeReview,
+                title: Some("Code Review".to_string()),
+                content: None,
+            }) {
+                Ok(task) => {
+                    tracing::info!(
+                        "Auto code review: created CodeReview task {} for ticket {} (last task completed)",
+                        task.id,
+                        self.ticket.id,
+                    );
+                    self.move_ticket_to_column("Ready");
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create auto code review task for ticket {}: {}",
+                        self.ticket.id,
+                        e,
+                    );
+                    self.move_ticket_to_column("Review");
+                }
+            }
+        } else if has_pending {
             tracing::info!(
                 "Ticket {} has more pending tasks, moving back to Ready",
                 self.ticket.id

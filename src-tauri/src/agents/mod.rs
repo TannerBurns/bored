@@ -112,5 +112,66 @@ pub enum LogStream {
     Stderr,
 }
 
+const SENSITIVE_ENV_PREFIXES: &[&str] = &[
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "GIT_AUTHOR_",
+    "GIT_COMMITTER_",
+];
+
+/// Build a `KEY=value ` prefix string from env vars, filtering out secrets and
+/// git identity overrides so the debug output is both useful and safe.
+pub fn debug_env_prefix(env_vars: &[(String, String)]) -> String {
+    let safe: Vec<String> = env_vars
+        .iter()
+        .filter(|(k, _)| {
+            !SENSITIVE_ENV_PREFIXES
+                .iter()
+                .any(|prefix| k.starts_with(prefix))
+        })
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    if safe.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", safe.join(" "))
+    }
+}
+
+/// Build the full CLI command string from a provider and config, with env vars
+/// filtered for safe display.
+pub fn build_debug_command_line(
+    provider: &dyn provider::AgentProvider,
+    config: &provider::AgentRunConfig,
+) -> String {
+    let (cmd, args) = provider.build_command(config);
+    let env_vars = provider.build_env_vars(config);
+    let prefix = debug_env_prefix(&env_vars);
+    format!(
+        "{}{}",
+        prefix,
+        std::iter::once(cmd).chain(args).collect::<Vec<_>>().join(" "),
+    )
+}
+
+/// Build a `LogLine` containing a `bored_system` debug entry for a CLI command.
+pub fn build_debug_log_line(
+    label: &str,
+    command: &str,
+    session_id: Option<&str>,
+) -> LogLine {
+    let json = serde_json::json!({
+        "type": "bored_system",
+        "message": format!("CLI Command [{}]", label),
+        "command": command,
+        "session_id": session_id,
+    });
+    LogLine {
+        stream: LogStream::Stdout,
+        content: json.to_string(),
+        timestamp: chrono::Utc::now(),
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -86,6 +86,22 @@ describe('getDefaultConfigForAgent', () => {
     const config = getDefaultConfigForAgent('unknown-agent');
     expect(config.autoPilotEnabled).toBe(false);
   });
+
+  it.each(['claude', 'cursor', 'codex', 'unknown'] as const)(
+    'defaults debugMode to false for %s',
+    (agentId) => {
+      const config = getDefaultConfigForAgent(agentId);
+      expect(config.debugMode).toBe(false);
+    },
+  );
+
+  it.each(['claude', 'cursor', 'codex', 'unknown'] as const)(
+    'defaults autoCodeReviewOnComplete to false for %s',
+    (agentId) => {
+      const config = getDefaultConfigForAgent(agentId);
+      expect(config.autoCodeReviewOnComplete).toBe(false);
+    },
+  );
 });
 
 describe('constants', () => {
@@ -134,6 +150,7 @@ describe('constants', () => {
     expect(RESERVED_INTERNAL_STAGE_IDS.has('plan-decompose')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('code-review-fix')).toBe(true);
     expect(RESERVED_INTERNAL_STAGE_IDS.has('add-and-commit')).toBe(true);
+    expect(RESERVED_INTERNAL_STAGE_IDS.has('detour-sync')).toBe(true);
   });
 
   it('RESERVED_INTERNAL_STAGE_IDS does not overlap with REQUIRED_STAGE_KEYS', () => {

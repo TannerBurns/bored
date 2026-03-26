@@ -8,6 +8,9 @@ pub enum TaskType {
     /// User-defined instructions (from description or manual entry)
     #[default]
     Custom,
+    /// Auto-triggered code review workflow (created by the orchestrator when
+    /// `auto_code_review_on_complete` is enabled and the last task finishes).
+    CodeReview,
     /// A catalog command (built-in or custom) identified by its ID
     #[serde(untagged)]
     Command(String),
@@ -17,6 +20,7 @@ impl TaskType {
     pub fn to_db_string(&self) -> String {
         match self {
             TaskType::Custom => "custom".to_string(),
+            TaskType::CodeReview => "code_review".to_string(),
             TaskType::Command(id) => format!("command:{}", id),
         }
     }
@@ -24,6 +28,7 @@ impl TaskType {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "custom" => Some(TaskType::Custom),
+            "code_review" => Some(TaskType::CodeReview),
             // Legacy preset values -> Command with hyphenated IDs
             "sync_with_main" => Some(TaskType::Command("sync-with-main".to_string())),
             "add_tests" => Some(TaskType::Command("add-tests".to_string())),
@@ -45,6 +50,7 @@ impl TaskType {
     pub fn display_name(&self) -> String {
         match self {
             TaskType::Custom => "Custom Task".to_string(),
+            TaskType::CodeReview => "Code Review".to_string(),
             TaskType::Command(id) => id
                 .split('-')
                 .map(|w| {
@@ -62,7 +68,7 @@ impl TaskType {
     pub fn command_id(&self) -> Option<&str> {
         match self {
             TaskType::Command(id) => Some(id),
-            _ => None,
+            TaskType::Custom | TaskType::CodeReview => None,
         }
     }
 }
@@ -157,6 +163,11 @@ mod tests {
         }
 
         #[test]
+        fn to_db_string_code_review() {
+            assert_eq!(TaskType::CodeReview.to_db_string(), "code_review");
+        }
+
+        #[test]
         fn to_db_string_command() {
             assert_eq!(
                 TaskType::Command("fix-lint".to_string()).to_db_string(),
@@ -171,6 +182,11 @@ mod tests {
         #[test]
         fn parse_custom() {
             assert_eq!(TaskType::parse("custom"), Some(TaskType::Custom));
+        }
+
+        #[test]
+        fn parse_code_review() {
+            assert_eq!(TaskType::parse("code_review"), Some(TaskType::CodeReview));
         }
 
         #[test]
@@ -214,6 +230,11 @@ mod tests {
         }
 
         #[test]
+        fn display_name_code_review() {
+            assert_eq!(TaskType::CodeReview.display_name(), "Code Review");
+        }
+
+        #[test]
         fn display_name_command() {
             assert_eq!(
                 TaskType::Command("fix-lint".to_string()).display_name(),
@@ -241,6 +262,12 @@ mod tests {
         }
 
         #[test]
+        fn roundtrip_code_review() {
+            let t = TaskType::CodeReview;
+            assert_eq!(TaskType::parse(&t.to_db_string()), Some(t));
+        }
+
+        #[test]
         fn roundtrip_command() {
             for id in ["fix-lint", "code-review", "my-custom-cmd"] {
                 let t = TaskType::Command(id.to_string());
@@ -255,6 +282,7 @@ mod tests {
                 Some("fix-lint")
             );
             assert_eq!(TaskType::Custom.command_id(), None);
+            assert_eq!(TaskType::CodeReview.command_id(), None);
         }
     }
 

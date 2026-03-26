@@ -43,6 +43,10 @@ describe('getStageGroupLabel', () => {
     expect(getStageGroupLabel('add-and-commit')).toBe('Commit');
   });
 
+  it('maps detour-sync to Commit', () => {
+    expect(getStageGroupLabel('detour-sync')).toBe('Commit');
+  });
+
   it('formats unknown command IDs as title case', () => {
     expect(getStageGroupLabel('unit-tests')).toBe('Unit Tests');
     expect(getStageGroupLabel('cleanup')).toBe('Cleanup');
@@ -145,6 +149,28 @@ describe('deriveStageGroups', () => {
       { label: 'Branch', status: 'finished' },
       { label: 'Plan', status: 'finished' },
       { label: 'Implement', status: 'running' },
+    ]);
+  });
+
+  it('collapses detour-sync into Commit group with add-and-commit', () => {
+    const result = deriveStageGroups([
+      { stage: 'implement', status: 'finished' },
+      { stage: 'add-and-commit', status: 'finished' },
+      { stage: 'detour-sync', status: 'finished' },
+    ]);
+    expect(result).toEqual([
+      { label: 'Implement', status: 'finished' },
+      { label: 'Commit', status: 'finished' },
+    ]);
+  });
+
+  it('shows Commit as running when detour-sync is running', () => {
+    const result = deriveStageGroups([
+      { stage: 'add-and-commit', status: 'finished' },
+      { stage: 'detour-sync', status: 'running' },
+    ]);
+    expect(result).toEqual([
+      { label: 'Commit', status: 'running' },
     ]);
   });
 
