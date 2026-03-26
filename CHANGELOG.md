@@ -2,6 +2,55 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.63] - 2026-03-26
+
+Workspace multi-project awareness across push, PR, diff, and review flows. Workspace tickets now correctly push, create pull requests, collect diffs, and aggregate git stats across all projects instead of only the primary project. Agent prompts include a combined workspace diff so the code review agent sees changes in every repo. Secondary workspace worktrees are auto-committed after each orchestrator stage, and worktree resolution gracefully handles stale references. The git helper layer has been extracted into a dedicated `commands/git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines.
+
+### New Features
+
+- Combined workspace diff context — agent prompts for workspace tickets now include a unified diff aggregated from all workspace projects via `build_workspace_diff_context` in `orchestrator/stages.rs`, giving the code review agent full visibility into cross-repo changes
+- Auto-commit secondary workspace worktrees — secondary workspace project worktrees are automatically committed after each orchestrator stage via `commit_secondary_workspace_worktrees` in `orchestrator/execute.rs`, ensuring all workspace changes are captured
+- `RunCommandBlock` gains an optional `cwd` field, allowing review commands to target a specific working directory for multi-project workspaces
+
+### Improvements
+
+- Git helper extraction — pure git operations (push, PR, commit, diff, branch inference) extracted from `next_steps.rs` into a dedicated `commands/git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines
+- Workspace-aware push and PR creation — `push_branch` and `create_pull_request` now iterate over all workspace projects with changes instead of only the primary project
+- Workspace-aware diff collection — `get_branch_diff_sync` and `get_branch_diff_files_sync` aggregate diffs across all workspace projects
+- Git stats backfill across workspace projects — `backfill_git_stats` now collects stats from all workspace project directories
+- Worktree resolution with stale reference handling — worktree lookups now prune stale references and fall back gracefully when a worktree path no longer exists
+- Workspace readiness validation checks all project paths instead of only the first
+- `resolve_clarification` supports workspace tickets with fallback to the first project
+- Deduplicated `find_worktree_or_project` in `db/git_stats.rs` by delegating to `resolve_working_dir_for_project`
+
+### Bug Fixes
+
+- Fixed workspace tickets only pushing and creating PRs for the primary project, leaving secondary project changes uncommitted and unpushed
+- Fixed workspace diff and stats collection only operating on the primary project directory
+
+### Testing
+
+- cargo clippy --tests -- -D warnings: 0 warnings
+- cargo test --lib: 1989 passed, 0 failed
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.62, here is a summary of the major features introduced in recent releases:
+
+**beta.62 — Debug Mode, Auto Code Review & Detour-Sync**
+A new per-provider Debug Mode toggle emits `bored_system` JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries with sensitive environment variables automatically filtered. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type. The detour-sync stage merges agent work back to the target branch. Chat UX gains optimistic user message insertion and stale-chat guards.
+
+**beta.61 — Extended Context Model Suffix & Auto-Pilot Model Filtering**
+Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
+
+**beta.60 — Robust Code-Review Parsing & Auto-Clarification Routing**
+The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings.
+
+**beta.59 — Multi-Project Workspaces**
+Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames "Projects" to "Scopes" with a unified list. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via `.code-workspace` files and `--add-dir` flags.
+
+---
+
 ## [0.1.0-beta.62] - 2026-03-25
 
 Debug mode, automatic code review on ticket completion, and detour-sync stage. A new per-provider Debug Mode toggle causes every CLI subprocess invocation to emit a `bored_system` JSON log line containing the full command string, visible in the log timeline as system entries — giving full visibility into what exact commands Bored submits to agents. Sensitive environment variables (API keys, git identity) are automatically filtered from debug output. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type so the orchestrator schedules it as a discrete task rather than running it inline. Per-project push and PR creation now route correctly for workspace tickets. Chat UX gains optimistic user message insertion and stale-chat guards to prevent showing messages from a previously selected chat.
