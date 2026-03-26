@@ -9,23 +9,13 @@ use crate::db::Database;
 pub use super::diff_parser::{DiffHunk, DiffLine, FileDiff};
 use super::diff_parser::parse_unified_diff;
 
-/// Result of a git push operation
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PushResult {
-    pub success: bool,
-    pub message: String,
-    pub branch: String,
-}
-
-/// Result of creating a pull request
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PullRequestResult {
-    pub success: bool,
-    pub url: Option<String>,
-    pub message: String,
-}
+pub use super::git_helpers::{
+    PullRequestResult, PushResult,
+    commit_all_changes, get_default_branch, has_uncommitted_changes,
+};
+use super::git_helpers::{
+    check_has_unpushed, create_pr_for_project, get_single_project_diff, push_single_branch,
+};
 
 /// Result of getting a branch diff
 #[derive(Debug, serde::Serialize)]
@@ -87,7 +77,6 @@ pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String,
         .branch_name
         .ok_or_else(|| "Ticket has no branch name".to_string())?;
 
-    // Try to find a project path for this ticket
     let project_path = if let Some(ref project_id) = ticket.project_id {
         let project = db
             .get_project(project_id)
@@ -106,33 +95,7 @@ pub fn get_ticket_working_dir(db: &Database, ticket_id: &str) -> Result<(String,
         return Err("Ticket has no associated project or workspace".to_string());
     };
 
-    // Check if there's a worktree for this branch
-    let worktree_output = Command::new("git")
-        .args(["worktree", "list", "--porcelain"])
-        .current_dir(&project_path)
-        .output()
-        .map_err(|e| format!("Failed to list worktrees: {}", e))?;
-
-    let worktree_list = String::from_utf8_lossy(&worktree_output.stdout);
-    let mut working_dir = project_path.clone();
-
-    // Parse worktree list to find one matching our branch
-    let mut current_worktree = String::new();
-    for line in worktree_list.lines() {
-        if let Some(path) = line.strip_prefix("worktree ") {
-            current_worktree = path.to_string();
-        }
-        if let Some(branch_ref) = line.strip_prefix("branch ") {
-            let wt_branch = branch_ref
-                .strip_prefix("refs/heads/")
-                .unwrap_or(branch_ref);
-            if wt_branch == branch {
-                working_dir = current_worktree.clone();
-                break;
-            }
-        }
-    }
-
+    let working_dir = resolve_working_dir_for_project(&project_path, &branch)?;
     Ok((working_dir, branch))
 }
 
@@ -182,7 +145,8 @@ pub fn get_ticket_working_dirs(
 }
 
 /// Resolve the working directory for a specific project and branch.
-fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<String, String> {
+/// Returns the worktree path if one exists for this branch, otherwise the project path.
+pub fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<String, String> {
     let worktree_output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(project_path)
@@ -190,7 +154,6 @@ fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<S
         .map_err(|e| format!("Failed to list worktrees: {}", e))?;
 
     let worktree_list = String::from_utf8_lossy(&worktree_output.stdout);
-    let mut working_dir = project_path.to_string();
     let mut current_worktree = String::new();
 
     for line in worktree_list.lines() {
@@ -200,13 +163,24 @@ fn resolve_working_dir_for_project(project_path: &str, branch: &str) -> Result<S
         if let Some(branch_ref) = line.strip_prefix("branch ") {
             let wt_branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
             if wt_branch == branch {
-                working_dir = current_worktree.clone();
+                if std::path::Path::new(&current_worktree).exists() {
+                    return Ok(current_worktree);
+                }
+                tracing::warn!(
+                    "Worktree for branch {} listed at {} but directory missing, pruning stale reference",
+                    branch,
+                    current_worktree
+                );
+                let _ = Command::new("git")
+                    .args(["worktree", "prune"])
+                    .current_dir(project_path)
+                    .output();
                 break;
             }
         }
     }
 
-    Ok(working_dir)
+    Ok(project_path.to_string())
 }
 
 /// Resolve working dir + branch for a specific project within a ticket, or fall
@@ -232,139 +206,44 @@ fn resolve_ticket_project_dir(
     }
 }
 
-/// Extract a conventional commit type from the branch name prefix.
-/// Falls back to "chore" when the prefix isn't a recognized commitizen type.
-fn infer_commit_type_from_branch(branch: &str) -> &'static str {
-    let prefix = branch.split('/').next().unwrap_or("");
-    match prefix {
-        "feat" => "feat",
-        "fix" => "fix",
-        "docs" => "docs",
-        "style" => "style",
-        "refactor" => "refactor",
-        "perf" => "perf",
-        "test" => "test",
-        "build" => "build",
-        "ci" => "ci",
-        "chore" => "chore",
-        "revert" => "revert",
-        _ => "chore",
-    }
-}
-
 #[tauri::command]
 pub async fn push_branch(
     ticket_id: String,
     project_id: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<PushResult, String> {
-    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
-
-    if has_uncommitted_changes(&working_dir) {
+    if project_id.is_none() {
         let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
-        let commit_type = infer_commit_type_from_branch(&branch);
-        let commit_msg = format!("{}: {}", commit_type, ticket.title);
-        if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
-            return Ok(PushResult {
-                success: false,
-                message: format!("Failed to commit uncommitted changes: {}", e),
-                branch,
-            });
+        if ticket.workspace_id.is_some() {
+            let dirs = get_ticket_working_dirs(&db, &ticket_id)?;
+            if dirs.len() > 1 {
+                let mut any_success = false;
+                let mut messages = Vec::new();
+                let mut branch_name = String::new();
+
+                for (_, project_name, working_dir, branch) in &dirs {
+                    branch_name = branch.clone();
+                    let result = push_single_branch(working_dir, branch, &ticket.title);
+                    if result.success {
+                        any_success = true;
+                        messages.push(format!("[{}] pushed successfully", project_name));
+                    } else {
+                        messages.push(format!("[{}] {}", project_name, result.message));
+                    }
+                }
+
+                return Ok(PushResult {
+                    success: any_success,
+                    message: messages.join("\n"),
+                    branch: branch_name,
+                });
+            }
         }
     }
 
-    let output = Command::new("git")
-        .args(["push", "-u", "origin", &branch])
-        .current_dir(&working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git push: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(PushResult {
-            success: true,
-            message: if stderr.is_empty() {
-                stdout
-            } else {
-                // git push often writes to stderr even on success
-                format!("{}{}", stdout, stderr)
-            },
-            branch,
-        })
-    } else {
-        Ok(PushResult {
-            success: false,
-            message: format!("{}{}", stdout, stderr),
-            branch,
-        })
-    }
-}
-
-/// Check whether there are local commits not yet pushed to `origin/<branch>`.
-/// Returns `true` when `origin/<branch>` doesn't exist (never pushed) or when
-/// there are commits ahead of the remote tracking ref.
-fn check_has_unpushed(working_dir: &str, branch: &str) -> bool {
-    let remote_ref = format!("origin/{}", branch);
-    let output = Command::new("git")
-        .args(["rev-list", "--count", &format!("{}..{}", remote_ref, branch)])
-        .current_dir(working_dir)
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let count: usize = String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0);
-            count > 0
-        }
-        // Remote tracking branch doesn't exist yet – everything is unpushed.
-        _ => true,
-    }
-}
-
-/// Check whether there are uncommitted changes (staged or unstaged) in the working directory.
-fn has_uncommitted_changes(working_dir: &str) -> bool {
-    // `git status --porcelain` outputs one line per changed file; empty = clean
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(working_dir)
-        .output()
-        .map(|o| {
-            o.status.success()
-                && !String::from_utf8_lossy(&o.stdout).trim().is_empty()
-        })
-        .unwrap_or(false)
-}
-
-/// Stage all changes and commit them. Returns Ok(()) on success or an error message.
-fn commit_all_changes(working_dir: &str, message: &str) -> Result<(), String> {
-    // Stage everything (new, modified, deleted)
-    let add_output = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git add: {}", e))?;
-
-    if !add_output.status.success() {
-        let stderr = String::from_utf8_lossy(&add_output.stderr);
-        return Err(format!("git add -A failed: {}", stderr));
-    }
-
-    // Commit
-    let commit_output = Command::new("git")
-        .args(["commit", "-m", message])
-        .current_dir(working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git commit: {}", e))?;
-
-    if !commit_output.status.success() {
-        let stderr = String::from_utf8_lossy(&commit_output.stderr);
-        return Err(format!("git commit failed: {}", stderr));
-    }
-
-    Ok(())
+    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
+    let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
+    Ok(push_single_branch(&working_dir, &branch, &ticket.title))
 }
 
 #[tauri::command]
@@ -375,114 +254,121 @@ pub async fn create_pull_request(
     body: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<PullRequestResult, String> {
-    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
-    if has_uncommitted_changes(&working_dir) {
-        let commit_type = infer_commit_type_from_branch(&branch);
-        let commit_msg = format!("{}: {}", commit_type, ticket.title);
-        if let Err(e) = commit_all_changes(&working_dir, &commit_msg) {
+    if project_id.is_none() && ticket.workspace_id.is_some() {
+        let dirs = get_ticket_working_dirs(&db, &ticket_id)?;
+        if dirs.len() > 1 {
+            let mut urls = Vec::new();
+            let mut messages = Vec::new();
+            let mut all_success = true;
+
+            for (_, project_name, working_dir, branch) in &dirs {
+                let default_branch = get_default_branch(working_dir)
+                    .unwrap_or_else(|_| "origin/main".to_string());
+
+                let has_changes = Command::new("git")
+                    .args(["diff", "--stat", &format!("{}...{}", default_branch, branch)])
+                    .current_dir(working_dir)
+                    .output()
+                    .map(|o| {
+                        o.status.success()
+                            && o.stdout.len() > 1
+                    })
+                    .unwrap_or(false);
+
+                if !has_changes {
+                    messages.push(format!("[{}] no changes, skipped", project_name));
+                    continue;
+                }
+
+                let pr_title = title.clone().unwrap_or_else(|| ticket.title.clone());
+                let pr_body = body.clone().unwrap_or_else(|| {
+                    format!(
+                        "{}\n\n---\n*Created from branch `{}` (project: {})*",
+                        ticket.description_md, branch, project_name
+                    )
+                });
+
+                let result = create_pr_for_project(
+                    working_dir,
+                    branch,
+                    &ticket.title,
+                    &pr_title,
+                    &pr_body,
+                );
+
+                if result.success {
+                    if let Some(ref url) = result.url {
+                        urls.push(url.clone());
+                    }
+                    messages.push(format!("[{}] PR created successfully", project_name));
+                } else {
+                    all_success = false;
+                    messages.push(format!("[{}] {}", project_name, result.message));
+                }
+            }
+
             return Ok(PullRequestResult {
-                success: false,
-                url: None,
-                message: format!("Failed to commit uncommitted changes: {}", e),
+                success: all_success && !urls.is_empty(),
+                url: if urls.is_empty() { None } else { Some(urls.join("\n")) },
+                message: messages.join("\n"),
             });
         }
     }
 
-    // Always push to ensure the remote is up-to-date with local commits
-    let push_output = Command::new("git")
-        .args(["push", "-u", "origin", &branch])
-        .current_dir(&working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git push: {}", e))?;
-
-    if !push_output.status.success() {
-        let stdout = String::from_utf8_lossy(&push_output.stdout);
-        let stderr = String::from_utf8_lossy(&push_output.stderr);
-        return Ok(PullRequestResult {
-            success: false,
-            url: None,
-            message: format!("Failed to push branch to origin: {}{}", stdout, stderr),
-        });
-    }
+    let (working_dir, branch) = resolve_ticket_project_dir(&db, &ticket_id, project_id.as_deref())?;
 
     let pr_title = title.unwrap_or_else(|| ticket.title.clone());
     let pr_body = body.unwrap_or_else(|| {
-        let mut body_parts = vec![ticket.description_md.clone()];
-        body_parts.push(format!("\n---\n*Created from branch `{}`*", branch));
-        body_parts.join("\n")
+        format!("{}\n\n---\n*Created from branch `{}`*", ticket.description_md, branch)
     });
 
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "create",
-            "--title",
-            &pr_title,
-            "--body",
-            &pr_body,
-            "--head",
-            &branch,
-        ])
-        .current_dir(&working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run gh pr create: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        let url = stdout.trim().to_string();
-        Ok(PullRequestResult {
-            success: true,
-            url: if url.is_empty() { None } else { Some(url) },
-            message: "Pull request created successfully".to_string(),
-        })
-    } else {
-        Ok(PullRequestResult {
-            success: false,
-            url: None,
-            message: format!("{}{}", stdout, stderr),
-        })
-    }
+    Ok(create_pr_for_project(
+        &working_dir,
+        &branch,
+        &ticket.title,
+        &pr_title,
+        &pr_body,
+    ))
 }
 
 /// Get branch diff for a ticket (sync, for use from other commands).
 pub fn get_branch_diff_sync(db: &Database, ticket_id: &str) -> Result<BranchDiff, String> {
+    let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
+
+    if ticket.workspace_id.is_some() {
+        let dirs = get_ticket_working_dirs(db, ticket_id)?;
+        if dirs.len() > 1 {
+            let mut combined_diff = String::new();
+            let mut total_files_changed = 0usize;
+            let branch = dirs[0].3.clone();
+
+            for (_, project_name, working_dir, branch) in &dirs {
+                match get_single_project_diff(working_dir, branch) {
+                    Ok((diff, files_changed)) => {
+                        if !diff.trim().is_empty() {
+                            combined_diff.push_str(&format!("\n### Project: {}\n\n", project_name));
+                            combined_diff.push_str(&diff);
+                        }
+                        total_files_changed += files_changed;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get diff for project {}: {}", project_name, e);
+                    }
+                }
+            }
+
+            return Ok(BranchDiff {
+                diff: combined_diff,
+                files_changed: total_files_changed,
+                branch,
+            });
+        }
+    }
+
     let (working_dir, branch) = get_ticket_working_dir(db, ticket_id)?;
-    let default_branch = get_default_branch(&working_dir)?;
-
-    let diff_output = Command::new("git")
-        .args(["diff", &format!("{}...{}", default_branch, branch)])
-        .current_dir(&working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git diff: {}", e))?;
-
-    if !diff_output.status.success() {
-        let stderr = String::from_utf8_lossy(&diff_output.stderr);
-        return Err(format!("git diff failed (exit {}): {}", diff_output.status, stderr.trim()));
-    }
-
-    let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
-
-    let stat_output = Command::new("git")
-        .args([
-            "diff",
-            "--stat",
-            &format!("{}...{}", default_branch, branch),
-        ])
-        .current_dir(&working_dir)
-        .output()
-        .map_err(|e| format!("Failed to run git diff --stat: {}", e))?;
-
-    if !stat_output.status.success() {
-        let stderr = String::from_utf8_lossy(&stat_output.stderr);
-        return Err(format!("git diff --stat failed (exit {}): {}", stat_output.status, stderr.trim()));
-    }
-
-    let stat = String::from_utf8_lossy(&stat_output.stdout).to_string();
-    let files_changed = stat.lines().count().saturating_sub(1);
+    let (diff, files_changed) = get_single_project_diff(&working_dir, &branch)?;
 
     Ok(BranchDiff {
         diff,
@@ -493,6 +379,30 @@ pub fn get_branch_diff_sync(db: &Database, ticket_id: &str) -> Result<BranchDiff
 
 /// Get structured per-file diffs for a ticket's branch.
 pub fn get_branch_diff_files_sync(db: &Database, ticket_id: &str) -> Result<Vec<FileDiff>, String> {
+    let ticket = db.get_ticket(ticket_id).map_err(|e| e.to_string())?;
+
+    if ticket.workspace_id.is_some() {
+        let dirs = get_ticket_working_dirs(db, ticket_id)?;
+        if dirs.len() > 1 {
+            let mut all_files = Vec::new();
+            for (_, project_name, working_dir, branch) in &dirs {
+                match get_single_project_diff(working_dir, branch) {
+                    Ok((diff, _)) => {
+                        let mut files = parse_unified_diff(&diff);
+                        for file in &mut files {
+                            file.path = format!("[{}] {}", project_name, file.path);
+                        }
+                        all_files.extend(files);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to get diff for project {}: {}", project_name, e);
+                    }
+                }
+            }
+            return Ok(all_files);
+        }
+    }
+
     let BranchDiff { diff, .. } = get_branch_diff_sync(db, ticket_id)?;
     Ok(parse_unified_diff(&diff))
 }
@@ -539,39 +449,6 @@ pub async fn get_branch_diff(
     db: State<'_, Arc<Database>>,
 ) -> Result<BranchDiff, String> {
     get_branch_diff_sync(&db, &ticket_id)
-}
-
-pub fn get_default_branch(working_dir: &str) -> Result<String, String> {
-    // Try to determine the default branch
-    let output = Command::new("git")
-        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
-        .current_dir(working_dir)
-        .output();
-
-    if let Ok(output) = output {
-        if output.status.success() {
-            let branch = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .strip_prefix("refs/remotes/origin/")
-                .unwrap_or("main")
-                .to_string();
-            return Ok(format!("origin/{}", branch));
-        }
-    }
-
-    // Fallback: check if origin/main exists, otherwise try origin/master
-    let check_main = Command::new("git")
-        .args(["rev-parse", "--verify", "origin/main"])
-        .current_dir(working_dir)
-        .output();
-
-    if let Ok(output) = check_main {
-        if output.status.success() {
-            return Ok("origin/main".to_string());
-        }
-    }
-
-    Ok("origin/master".to_string())
 }
 
 #[tauri::command]
@@ -645,10 +522,6 @@ pub async fn get_workspace_branch_status(
 mod tests {
     use super::*;
 
-    // --- test helpers ---
-
-    /// Create a temporary git repo with an initial commit.
-    /// Returns the TempDir (keeps it alive) and its path as a String.
     fn init_temp_repo() -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().expect("create temp dir");
         let path = dir.path().to_str().unwrap().to_string();
@@ -658,20 +531,17 @@ mod tests {
             .current_dir(&path)
             .output()
             .expect("git init");
-
         Command::new("git")
             .args(["config", "user.email", "test@test.com"])
             .current_dir(&path)
             .output()
             .expect("git config email");
-
         Command::new("git")
             .args(["config", "user.name", "Test"])
             .current_dir(&path)
             .output()
             .expect("git config name");
 
-        // Create an initial commit so HEAD exists
         std::fs::write(dir.path().join("README.md"), "# init").unwrap();
         Command::new("git")
             .args(["add", "-A"])
@@ -687,227 +557,69 @@ mod tests {
         (dir, path)
     }
 
-    // --- has_uncommitted_changes ---
+    // --- resolve_working_dir_for_project ---
 
     #[test]
-    fn uncommitted_changes_clean_repo_returns_false() {
+    fn resolve_working_dir_no_worktree_returns_project_path() {
         let (_dir, path) = init_temp_repo();
-        assert!(!has_uncommitted_changes(&path));
+        let result = resolve_working_dir_for_project(&path, "feat/some-branch").unwrap();
+        assert_eq!(result, path);
     }
 
     #[test]
-    fn uncommitted_changes_modified_file_returns_true() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("README.md"), "# modified").unwrap();
-        assert!(has_uncommitted_changes(&path));
-    }
+    fn resolve_working_dir_with_worktree_returns_worktree_path() {
+        let (_dir, path) = init_temp_repo();
 
-    #[test]
-    fn uncommitted_changes_staged_file_returns_true() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("README.md"), "# staged").unwrap();
         Command::new("git")
-            .args(["add", "README.md"])
+            .args(["branch", "feat/wt-test"])
             .current_dir(&path)
             .output()
-            .expect("git add");
-        assert!(has_uncommitted_changes(&path));
-    }
+            .expect("create branch");
 
-    #[test]
-    fn uncommitted_changes_untracked_file_returns_true() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("new_file.txt"), "hello").unwrap();
-        assert!(has_uncommitted_changes(&path));
-    }
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
 
-    #[test]
-    fn uncommitted_changes_invalid_dir_returns_false() {
-        assert!(!has_uncommitted_changes("/nonexistent/path/that/does/not/exist"));
-    }
-
-    // --- commit_all_changes ---
-
-    #[test]
-    fn commit_all_changes_happy_path() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("README.md"), "# changed").unwrap();
-
-        let result = commit_all_changes(&path, "test commit");
-        assert!(result.is_ok());
-        // Working tree should be clean after commit
-        assert!(!has_uncommitted_changes(&path));
-    }
-
-    #[test]
-    fn commit_all_changes_includes_untracked_files() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("brand_new.txt"), "new content").unwrap();
-
-        let result = commit_all_changes(&path, "add new file");
-        assert!(result.is_ok());
-        assert!(!has_uncommitted_changes(&path));
-
-        // Verify the file is tracked by checking git log
-        let log = Command::new("git")
-            .args(["log", "--oneline", "--name-only", "-1"])
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/wt-test"])
             .current_dir(&path)
             .output()
-            .expect("git log");
-        let output = String::from_utf8_lossy(&log.stdout);
-        assert!(output.contains("brand_new.txt"));
+            .expect("git worktree add");
+
+        let result = resolve_working_dir_for_project(&path, "feat/wt-test").unwrap();
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result), canon(&wt_path));
     }
 
     #[test]
-    fn commit_all_changes_uses_provided_message() {
-        let (dir, path) = init_temp_repo();
-        std::fs::write(dir.path().join("README.md"), "# updated").unwrap();
+    fn resolve_working_dir_stale_worktree_falls_back_to_project() {
+        let (_dir, path) = init_temp_repo();
 
-        commit_all_changes(&path, "feat: my custom message").unwrap();
-
-        let log = Command::new("git")
-            .args(["log", "-1", "--format=%s"])
+        Command::new("git")
+            .args(["branch", "feat/stale"])
             .current_dir(&path)
             .output()
-            .expect("git log");
-        let msg = String::from_utf8_lossy(&log.stdout).trim().to_string();
-        assert_eq!(msg, "feat: my custom message");
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt temp dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/stale"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = resolve_working_dir_for_project(&path, "feat/stale").unwrap();
+        assert_eq!(result, path, "should fall back to project path when worktree dir is missing");
     }
 
     #[test]
-    fn commit_all_changes_invalid_dir_returns_err() {
-        let result = commit_all_changes("/nonexistent/path/that/does/not/exist", "msg");
+    fn resolve_working_dir_invalid_dir_returns_err() {
+        let result = resolve_working_dir_for_project("/nonexistent/path/xyz", "main");
         assert!(result.is_err());
-    }
-
-    // --- check_has_unpushed ---
-
-    #[test]
-    fn check_has_unpushed_no_remote_returns_true() {
-        let (_dir, path) = init_temp_repo();
-        assert!(check_has_unpushed(&path, "main"));
-    }
-
-    #[test]
-    fn check_has_unpushed_invalid_dir_returns_true() {
-        assert!(check_has_unpushed("/nonexistent/path/that/does/not/exist", "main"));
-    }
-
-    #[test]
-    fn check_has_unpushed_with_local_remote_up_to_date() {
-        let (_dir, path) = init_temp_repo();
-
-        let bare_dir = tempfile::tempdir().expect("create bare dir");
-        let bare_path = bare_dir.path().to_str().unwrap();
-
-        Command::new("git")
-            .args(["clone", "--bare", &path, bare_path])
-            .output()
-            .expect("git clone --bare");
-
-        Command::new("git")
-            .args(["remote", "add", "origin", bare_path])
-            .current_dir(&path)
-            .output()
-            .expect("git remote add");
-
-        Command::new("git")
-            .args(["fetch", "origin"])
-            .current_dir(&path)
-            .output()
-            .expect("git fetch");
-
-        let branch_output = Command::new("git")
-            .args(["branch", "--show-current"])
-            .current_dir(&path)
-            .output()
-            .expect("git branch");
-        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
-
-        Command::new("git")
-            .args(["push", "-u", "origin", &branch])
-            .current_dir(&path)
-            .output()
-            .expect("git push");
-
-        assert!(!check_has_unpushed(&path, &branch));
-    }
-
-    #[test]
-    fn check_has_unpushed_with_local_commit_ahead() {
-        let (dir, path) = init_temp_repo();
-
-        let bare_dir = tempfile::tempdir().expect("create bare dir");
-        let bare_path = bare_dir.path().to_str().unwrap();
-
-        Command::new("git")
-            .args(["clone", "--bare", &path, bare_path])
-            .output()
-            .expect("git clone --bare");
-
-        Command::new("git")
-            .args(["remote", "add", "origin", bare_path])
-            .current_dir(&path)
-            .output()
-            .expect("git remote add");
-
-        let branch_output = Command::new("git")
-            .args(["branch", "--show-current"])
-            .current_dir(&path)
-            .output()
-            .expect("git branch");
-        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
-
-        Command::new("git")
-            .args(["push", "-u", "origin", &branch])
-            .current_dir(&path)
-            .output()
-            .expect("git push");
-
-        std::fs::write(dir.path().join("new.txt"), "local only").unwrap();
-        commit_all_changes(&path, "local commit").unwrap();
-
-        assert!(check_has_unpushed(&path, &branch));
-    }
-
-    // --- infer_commit_type_from_branch ---
-
-    #[test]
-    fn infer_commit_type_recognizes_all_conventional_types() {
-        assert_eq!(infer_commit_type_from_branch("feat/add-feature"), "feat");
-        assert_eq!(infer_commit_type_from_branch("fix/login-bug"), "fix");
-        assert_eq!(infer_commit_type_from_branch("docs/update-readme"), "docs");
-        assert_eq!(infer_commit_type_from_branch("style/formatting"), "style");
-        assert_eq!(infer_commit_type_from_branch("refactor/auth-service"), "refactor");
-        assert_eq!(infer_commit_type_from_branch("perf/query-opt"), "perf");
-        assert_eq!(infer_commit_type_from_branch("test/add-tests"), "test");
-        assert_eq!(infer_commit_type_from_branch("build/webpack"), "build");
-        assert_eq!(infer_commit_type_from_branch("ci/github-actions"), "ci");
-        assert_eq!(infer_commit_type_from_branch("chore/deps"), "chore");
-        assert_eq!(infer_commit_type_from_branch("revert/bad-merge"), "revert");
-    }
-
-    #[test]
-    fn infer_commit_type_falls_back_to_chore() {
-        assert_eq!(infer_commit_type_from_branch("ticket/abc123/something"), "chore");
-        assert_eq!(infer_commit_type_from_branch("feature/not-a-type"), "chore");
-        assert_eq!(infer_commit_type_from_branch("hotfix/urgent"), "chore");
-    }
-
-    #[test]
-    fn infer_commit_type_no_slash_returns_chore() {
-        assert_eq!(infer_commit_type_from_branch("main"), "chore");
-        assert_eq!(infer_commit_type_from_branch("develop"), "chore");
-    }
-
-    #[test]
-    fn infer_commit_type_nested_path() {
-        assert_eq!(infer_commit_type_from_branch("feat/JIRA-123/add-oauth"), "feat");
-        assert_eq!(infer_commit_type_from_branch("fix/abc12345/user-login-error"), "fix");
-    }
-
-    #[test]
-    fn infer_commit_type_empty_string() {
-        assert_eq!(infer_commit_type_from_branch(""), "chore");
     }
 }

@@ -158,14 +158,29 @@ pub async fn send_chat_message(
         }
         let primary_path = PathBuf::from(&projects[0].path);
 
-        let ws_paths: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.path)).collect();
+        // For review chats with a ticket branch, resolve each project path to its
+        // worktree so the agent CLI sees branch changes in all projects.
+        let branch_name = chat.ticket_id.as_ref().and_then(|tid| {
+            db.get_ticket(tid).ok().and_then(|t| t.branch_name)
+        });
+
+        let ws_paths: Vec<PathBuf> = projects.iter().map(|p| {
+            if let Some(ref branch) = branch_name {
+                crate::commands::next_steps::resolve_working_dir_for_project(&p.path, branch)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from(&p.path))
+            } else {
+                PathBuf::from(&p.path)
+            }
+        }).collect();
 
         let ws_dir = std::env::temp_dir().join("bored").join("chat-workspaces");
         std::fs::create_dir_all(&ws_dir)
             .map_err(|e| format!("Failed to create workspace directory: {}", e))?;
         let ws_file = ws_dir.join(format!("{}.code-workspace", chat_id));
-        let folders: Vec<serde_json::Value> = projects.iter()
-            .map(|p| serde_json::json!({ "path": p.path, "name": p.name }))
+        let folders: Vec<serde_json::Value> = ws_paths.iter()
+            .zip(projects.iter())
+            .map(|(path, proj)| serde_json::json!({ "path": path.to_string_lossy(), "name": proj.name }))
             .collect();
         let ws_content = serde_json::json!({ "folders": folders });
         let ws_json = serde_json::to_string_pretty(&ws_content)

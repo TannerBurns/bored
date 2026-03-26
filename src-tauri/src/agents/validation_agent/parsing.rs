@@ -11,6 +11,7 @@ pub(crate) struct StartAppBlock {
 
 pub(crate) struct RunCommandBlock {
     pub command: String,
+    pub cwd: Option<String>,
 }
 
 pub(crate) struct CreateFixTasksBlock {
@@ -45,8 +46,10 @@ pub(crate) fn parse_run_command_from_response(response_text: &str) -> Option<Run
     for v in parse_all_json_blocks(response_text) {
         if let Some(rc) = v.get("run_command").and_then(|s| s.as_object()) {
             if let Some(command) = rc.get("command").and_then(|c| c.as_str()) {
+                let cwd = rc.get("cwd").and_then(|c| c.as_str()).map(|s| s.to_string());
                 return Some(RunCommandBlock {
                     command: command.to_string(),
+                    cwd,
                 });
             }
         }
@@ -317,6 +320,27 @@ mod tests {
 ```"#;
         let result = parse_run_command_from_response(text).unwrap();
         assert_eq!(result.command, "npm install");
+        assert!(result.cwd.is_none());
+    }
+
+    #[test]
+    fn run_command_with_cwd() {
+        let text = r#"```json
+{ "run_command": { "command": "cargo test", "cwd": "/home/user/project" } }
+```"#;
+        let result = parse_run_command_from_response(text).unwrap();
+        assert_eq!(result.command, "cargo test");
+        assert_eq!(result.cwd.as_deref(), Some("/home/user/project"));
+    }
+
+    #[test]
+    fn run_command_with_null_cwd() {
+        let text = r#"```json
+{ "run_command": { "command": "make build", "cwd": null } }
+```"#;
+        let result = parse_run_command_from_response(text).unwrap();
+        assert_eq!(result.command, "make build");
+        assert!(result.cwd.is_none());
     }
 
     #[test]

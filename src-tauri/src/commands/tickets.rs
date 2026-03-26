@@ -470,14 +470,19 @@ pub async fn resolve_clarification(
 
     let ticket = db.get_ticket(&ticket_id).map_err(|e| e.to_string())?;
 
-    let project_id = ticket
-        .project_id
-        .as_ref()
-        .ok_or_else(|| "Ticket has no project assigned".to_string())?;
-    let project = db
-        .get_project(project_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Project '{}' not found", project_id))?;
+    let project = if let Some(ref project_id) = ticket.project_id {
+        db.get_project(project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Project '{}' not found", project_id))?
+    } else if let Some(ref workspace_id) = ticket.workspace_id {
+        let projects = db.get_workspace_projects(workspace_id).map_err(|e| e.to_string())?;
+        projects
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Workspace has no projects".to_string())?
+    } else {
+        return Err("Ticket has no project or workspace assigned".to_string());
+    };
 
     let comments = db.get_comments(&ticket_id).map_err(|e| e.to_string())?;
     let clarification_comment = comments
