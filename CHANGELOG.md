@@ -2,6 +2,68 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.62] - 2026-03-25
+
+Debug mode, automatic code review on ticket completion, and detour-sync stage. A new per-provider Debug Mode toggle causes every CLI subprocess invocation to emit a `bored_system` JSON log line containing the full command string, visible in the log timeline as system entries — giving full visibility into what exact commands Bored submits to agents. Sensitive environment variables (API keys, git identity) are automatically filtered from debug output. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type so the orchestrator schedules it as a discrete task rather than running it inline. Per-project push and PR creation now route correctly for workspace tickets. Chat UX gains optimistic user message insertion and stale-chat guards to prevent showing messages from a previously selected chat.
+
+### New Features
+
+- Debug Mode — new per-provider toggle that emits `bored_system` JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries; works in both agent workflows (orchestrator stages) and chat mode
+- Auto Code Review on Ticket Complete — new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes successfully, followed by a commit stage; skipped in code-review-only mode since that is already a review workflow
+- `TaskType::CodeReview` variant with full `to_db_string`/`parse`/`display_name`/`command_id` support, enabling the orchestrator to schedule auto code review as a discrete task
+- Detour-sync stage — new reserved internal stage ID (`detour-sync`) that merges agent work back to the target branch, mapped to the "Commit" stage group in the UI stepper
+
+### Improvements
+
+- Debug environment filtering via `debug_env_prefix()` strips sensitive environment variables (API keys, git identity) from CLI command output in debug mode using `SENSITIVE_ENV_PREFIXES`
+- Per-project push and PR creation — `resolve_ticket_project_dir()` dispatches to per-project or fallback resolution so push/PR commands work correctly for workspace tickets with multiple projects
+- `ProjectBranchStatus` extended with `check_has_unpushed` and `has_uncommitted` fields for accurate button state in the NextStepsPanel
+- Chat live event filter broadened from a 3-variant allowlist to an SSE skip-list (denylist), allowing `bored_system` events to flow through without explicit listing
+- Optimistic user message insertion in `chatStore` — messages appear immediately in the UI before the backend responds
+- Stale-chat guards in `loadMessages` and `loadChatEvents` prevent overwriting the current chat's messages when async loads from a previously selected chat resolve late
+- Debug command building extracted from duplicated call sites in `chat/mod.rs` and `stages.rs` into shared `build_debug_command_line` and `build_debug_log_line` helpers in `agents/mod.rs`
+- `finish_workflow` caches `get_task()` result instead of calling it twice, avoiding a redundant `RwLock` read guard acquisition and `Task` clone
+- Worktree `branch_name` used for detour branch resolution in worker and branch setup so the orchestrator gets the actual checkout name instead of the ticket branch name
+- Debug Mode toggle moved from WorkflowSection to per-agent CLI Options sections in the settings UI
+- `extendedContext` added as frontend alias for `extended_context_enabled` with inline lookup
+
+### Bug Fixes
+
+- Fixed NextStepsPanel to always call `getWorkspaceBranchStatus` — backend now handles non-workspace tickets, removing the need for the frontend to guard the call
+- Fixed `buildSyncPayload` containing redundant `?? false` defaults
+
+### Testing
+
+- cargo clippy --all-targets -- -D warnings: 0 warnings
+- cargo test --lib: 1969 passed, 0 failed
+- tsc --noEmit: 0 errors
+- vitest run: 47 files, 1026 passed, 0 failed
+- 6 new Rust unit tests for `debug_env_prefix` covering empty, safe, sensitive, mixed, ordering, and single-var cases
+- New Rust unit tests for `TaskType::CodeReview` roundtrip (`to_db_string`/`parse`/`display_name`/`command_id`)
+- 321-line orchestrator integration test suite for auto code review and detour-sync workflows
+- New TypeScript tests for `getTaskTypeLabel("code_review")`, `getCommandId("code_review")`, and `debugMode`/`autoCodeReviewOnComplete` sync payload round-trips
+- New `chatStore` tests for optimistic message insertion and stale-chat guards on `loadMessages`/`loadChatEvents`
+- New `settingsStore` migration v24→v25 tests with version assertion fix
+- New `parseLogEvents` tests for `bored_system` event rendering in the log timeline
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.61, here is a summary of the major features introduced in recent releases:
+
+**beta.61 — Extended Context Model Suffix & Auto-Pilot Model Filtering**
+Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
+
+**beta.60 — Robust Code-Review Parsing & Auto-Clarification Routing**
+The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings.
+
+**beta.59 — Multi-Project Workspaces**
+Projects can now be grouped into workspaces for coordinated multi-repo agent work. Tickets and chats can be scoped to a workspace instead of a single project, letting agents read, write, and branch across all workspace repos simultaneously. Sidebar renames "Projects" to "Scopes" with a unified list. Per-project branch status, diffs, push, and PR creation in a collapsible accordion. Cursor, Claude Code, and Codex agents receive multi-root context via `.code-workspace` files and `--add-dir` flags.
+
+**beta.58 — Robust Fix-Task Parsing**
+Multi-strategy fallback chain for the review agent's `create_fix_tasks` parser: primary JSON extraction, direct key-search with balanced brace matching, tail-parse, last-brace truncation, and malformed-JSON fallback. Both Rust and TypeScript parsers accept the singular `create_fix_task` form, and the frontend strips malformed JSON blocks from displayed review messages.
+
+---
+
 ## [0.1.0-beta.61] - 2026-03-25
 
 Extended context model suffix, auto-pilot model filtering, and code-review pass-status parsing. Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
