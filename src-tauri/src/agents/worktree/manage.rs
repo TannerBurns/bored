@@ -11,17 +11,20 @@ use super::git::{get_repo_root, git_command, is_git_repo};
 /// This removes the worktree directory and unregisters it from git.
 /// The branch created in the worktree is preserved in the main repo.
 pub fn remove_worktree(worktree_path: &Path, repo_path: &Path) -> Result<(), WorktreeError> {
-    if !worktree_path.exists() {
-        tracing::debug!("Worktree already removed: {}", worktree_path.display());
-        return Ok(());
-    }
-
-    // Get the actual repo root
     let repo_root = if is_git_repo(repo_path) {
         get_repo_root(repo_path)?
     } else {
         repo_path.to_path_buf()
     };
+
+    if !worktree_path.exists() {
+        tracing::debug!(
+            "Worktree directory already removed: {}, pruning stale git references",
+            worktree_path.display()
+        );
+        prune_worktree_refs(&repo_root);
+        return Ok(());
+    }
 
     // Remove the worktree using git
     let output = git_command()
@@ -44,21 +47,35 @@ pub fn remove_worktree(worktree_path: &Path, repo_path: &Path) -> Result<(), Wor
                 stderr.trim()
             );
 
-            // Remove the directory manually
             if let Err(e) = std::fs::remove_dir_all(worktree_path) {
                 tracing::error!("Failed to manually remove worktree directory: {}", e);
             }
-
-            // Prune worktree references
-            let _ = git_command()
-                .args(["worktree", "prune"])
-                .current_dir(&repo_root)
-                .output();
         }
+
+        prune_worktree_refs(&repo_root);
+    } else {
+        prune_worktree_refs(&repo_root);
     }
 
     tracing::info!("Removed worktree at {}", worktree_path.display());
     Ok(())
+}
+
+fn prune_worktree_refs(repo_root: &Path) {
+    match git_command()
+        .args(["worktree", "prune"])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(output) if !output.status.success() => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!("git worktree prune failed: {}", stderr.trim());
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run git worktree prune: {}", e);
+        }
+        _ => {}
+    }
 }
 
 /// List all worktrees for a repository

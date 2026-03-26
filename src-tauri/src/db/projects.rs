@@ -191,22 +191,26 @@ impl Database {
                     r#"SELECT p.id, p.path FROM projects p
                    JOIN workspace_projects wp ON p.id = wp.project_id
                    WHERE wp.workspace_id = ?
-                   ORDER BY wp.position LIMIT 1"#,
+                   ORDER BY wp.position"#,
                 )?;
-                let result: Option<(String, String)> = stmt
-                    .query_row([&wid], |row| Ok((row.get(0)?, row.get(1)?)))
-                    .ok();
+                let rows: Vec<(String, String)> = stmt
+                    .query_map([&wid], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .filter_map(|r| r.ok())
+                    .collect();
 
-                match result {
-                    Some((pid, path)) => {
-                        if std::path::Path::new(&path).exists() {
-                            Ok(ReadinessCheck::Ready { project_id: pid })
-                        } else {
-                            Ok(ReadinessCheck::ProjectPathMissing { path })
-                        }
-                    }
-                    None => Ok(ReadinessCheck::NoProject(None)),
+                if rows.is_empty() {
+                    return Ok(ReadinessCheck::NoProject(None));
                 }
+
+                for (_, path) in &rows {
+                    if !std::path::Path::new(path).exists() {
+                        return Ok(ReadinessCheck::ProjectPathMissing { path: path.clone() });
+                    }
+                }
+
+                Ok(ReadinessCheck::Ready {
+                    project_id: rows[0].0.clone(),
+                })
             } else {
                 Ok(ReadinessCheck::NoProject(None))
             }
@@ -433,5 +437,126 @@ mod tests {
 
         let updated = db.get_project(&project.id).unwrap().unwrap();
         assert!(!updated.requires_git);
+    }
+
+    // --- workspace readiness checks ---
+
+    fn make_unique_dir() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().to_str().unwrap().to_string();
+        (dir, path)
+    }
+
+    fn create_workspace_ticket(db: &Database, workspace_id: &str) -> crate::db::models::Ticket {
+        let board = db.create_board("Board").unwrap();
+        let columns = db.get_columns(&board.id).unwrap();
+        db.create_ticket(&CreateTicket {
+            board_id: board.id.clone(),
+            column_id: columns[0].id.clone(),
+            title: "WS Ticket".to_string(),
+            description_md: "".to_string(),
+            priority: Priority::Low,
+            labels: vec![],
+            project_id: None,
+            workspace_id: Some(workspace_id.to_string()),
+            workflow_type: WorkflowType::default(),
+            model: None,
+            branch_name: None,
+            is_epic: false,
+            epic_id: None,
+            depends_on_epic_id: None,
+            depends_on_epic_ids: vec![],
+            spec_version_id: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn can_move_to_ready_workspace_all_paths_exist() {
+        let db = create_test_db();
+        let ws = db.create_workspace("WS").unwrap();
+
+        let (_dir_a, path_a) = make_unique_dir();
+        let (_dir_b, path_b) = make_unique_dir();
+
+        let p1 = db
+            .create_project(&CreateProject {
+                name: "ProjA".to_string(),
+                path: path_a,
+                requires_git: true,
+            })
+            .unwrap();
+        let p2 = db
+            .create_project(&CreateProject {
+                name: "ProjB".to_string(),
+                path: path_b,
+                requires_git: true,
+            })
+            .unwrap();
+
+        db.add_project_to_workspace(&ws.id, &p1.id, 0).unwrap();
+        db.add_project_to_workspace(&ws.id, &p2.id, 1).unwrap();
+
+        let ticket = create_workspace_ticket(&db, &ws.id);
+
+        let check = db.can_move_to_ready(&ticket.id).unwrap();
+        match check {
+            ReadinessCheck::Ready { project_id } => assert_eq!(project_id, p1.id),
+            other => panic!("Expected Ready, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn can_move_to_ready_workspace_missing_path() {
+        let db = create_test_db();
+        let ws = db.create_workspace("WS").unwrap();
+
+        let (_dir_a, path_a) = make_unique_dir();
+        let missing_path = "/nonexistent/path/for_test_12345".to_string();
+
+        let p1 = db
+            .create_project(&CreateProject {
+                name: "ProjA".to_string(),
+                path: path_a,
+                requires_git: true,
+            })
+            .unwrap();
+
+        db.with_conn(|conn| {
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO projects (id, name, path, allow_shell_commands, allow_file_writes, blocked_patterns_json, requires_git, created_at, updated_at) VALUES (?, ?, ?, 1, 1, '[]', 1, ?, ?)",
+                rusqlite::params![id, "ProjB", missing_path, now, now],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO workspace_projects (workspace_id, project_id, position) VALUES (?, ?, ?)",
+                rusqlite::params![ws.id, id, 1],
+            )?;
+            Ok::<_, crate::db::DbError>(())
+        })
+        .unwrap();
+
+        db.add_project_to_workspace(&ws.id, &p1.id, 0).unwrap();
+
+        let ticket = create_workspace_ticket(&db, &ws.id);
+
+        let check = db.can_move_to_ready(&ticket.id).unwrap();
+        match check {
+            ReadinessCheck::ProjectPathMissing { path } => {
+                assert_eq!(path, missing_path);
+            }
+            other => panic!("Expected ProjectPathMissing, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn can_move_to_ready_workspace_no_projects() {
+        let db = create_test_db();
+        let ws = db.create_workspace("Empty WS").unwrap();
+        let ticket = create_workspace_ticket(&db, &ws.id);
+
+        let check = db.can_move_to_ready(&ticket.id).unwrap();
+        assert!(matches!(check, ReadinessCheck::NoProject(_)));
     }
 }

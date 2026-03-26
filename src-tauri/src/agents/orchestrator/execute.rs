@@ -215,9 +215,11 @@ impl WorkflowOrchestrator {
             self.run_code_review_loop_with_model(&selection.model)
                 .await
         } else {
+            let base_prompt = generate_command_prompt(&selection.command, custom_dir);
+            let prompt = self.append_workspace_context_to_prompt(&base_prompt);
             self.run_stage_with_model(
                 &selection.command,
-                &generate_command_prompt(&selection.command, custom_dir),
+                &prompt,
                 &selection.model,
             )
             .await
@@ -604,13 +606,59 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         } else {
             let custom_dir = self.custom_commands_dir();
-            self.run_stage(
-                cmd,
-                &generate_command_prompt(cmd, custom_dir.as_deref()),
-            )
-            .await?;
+            let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
+            let prompt = self.append_workspace_context_to_prompt(&base_prompt);
+            self.run_stage(cmd, &prompt).await?;
         }
+
+        self.commit_secondary_workspace_worktrees();
+
         Ok(())
+    }
+
+    /// For workspace tickets, commit any uncommitted changes in secondary project
+    /// worktrees. The agent's add-and-commit only commits in the primary worktree
+    /// (its CWD), but stages may have written changes to secondary projects via
+    /// --add-dir paths.
+    fn commit_secondary_workspace_worktrees(&self) {
+        if self.ticket.workspace_id.is_none() {
+            return;
+        }
+
+        let dirs = match crate::commands::next_steps::get_ticket_working_dirs(
+            &self.db,
+            &self.ticket.id,
+        ) {
+            Ok(dirs) if dirs.len() > 1 => dirs,
+            _ => return,
+        };
+
+        let primary = self.repo_path.to_string_lossy().to_string();
+        let commit_msg = format!("chore: {}", self.ticket.title);
+
+        for (_, project_name, working_dir, _) in &dirs {
+            if *working_dir == primary {
+                continue;
+            }
+
+            if !crate::commands::next_steps::has_uncommitted_changes(working_dir) {
+                continue;
+            }
+
+            tracing::info!(
+                "Committing uncommitted changes in workspace project '{}' ({})",
+                project_name,
+                working_dir
+            );
+
+            if let Err(e) = crate::commands::next_steps::commit_all_changes(working_dir, &commit_msg) {
+                tracing::error!(
+                    "Failed to commit changes in workspace project '{}': {}",
+                    project_name,
+                    e
+                );
+            }
+        }
     }
 
     async fn run_command_stage(&self, cmd: &str) -> Result<(), String> {
@@ -626,11 +674,9 @@ impl WorkflowOrchestrator {
             return Err("Workflow cancelled".to_string());
         }
         let custom_dir = self.custom_commands_dir();
-        self.run_stage(
-            cmd,
-            &generate_command_prompt(cmd, custom_dir.as_deref()),
-        )
-        .await?;
+        let base_prompt = generate_command_prompt(cmd, custom_dir.as_deref());
+        let prompt = self.append_workspace_context_to_prompt(&base_prompt);
+        self.run_stage(cmd, &prompt).await?;
         Ok(())
     }
 

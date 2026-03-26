@@ -6,6 +6,7 @@ pub mod boards;
 pub mod chat;
 pub mod dashboard;
 mod diff_parser;
+mod git_helpers;
 pub mod next_steps;
 pub mod projects;
 pub mod release_notes;

@@ -149,7 +149,7 @@ impl Database {
     /// Refresh git stats for all tickets that have a branch_name.
     /// Returns the number of tickets updated.
     pub fn backfill_git_stats(&self) -> Result<u32, DbError> {
-        let tickets: Vec<(String, String, Option<String>)> = self.with_conn(|conn| {
+        let single_project_tickets: Vec<(String, String, Option<String>)> = self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT t.id, t.branch_name, p.path
                    FROM tickets t
@@ -167,7 +167,7 @@ impl Database {
         })?;
 
         let mut count = 0u32;
-        for (ticket_id, branch_name, project_path) in tickets {
+        for (ticket_id, branch_name, project_path) in single_project_tickets {
             let project_path = match project_path {
                 Some(p) => p,
                 None => continue,
@@ -190,6 +190,65 @@ impl Database {
             }
         }
 
+        let workspace_tickets: Vec<(String, String, String)> = self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT t.id, t.branch_name, p.path
+                   FROM tickets t
+                   JOIN workspace_projects wp ON t.workspace_id = wp.workspace_id
+                   JOIN projects p ON wp.project_id = p.id
+                   WHERE t.branch_name IS NOT NULL
+                     AND t.workspace_id IS NOT NULL
+                     AND t.project_id IS NULL
+                   ORDER BY t.id, wp.position"#,
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            Ok(rows.flatten().collect())
+        })?;
+
+        let mut current_ticket_id: Option<String> = None;
+        let mut total = TicketGitStats::default();
+
+        for (ticket_id, branch_name, project_path) in &workspace_tickets {
+            if current_ticket_id.as_deref() != Some(ticket_id) {
+                if let Some(ref prev_id) = current_ticket_id {
+                    total.collected_at = chrono::Utc::now().to_rfc3339();
+                    if self.upsert_git_stats(prev_id, &total).is_ok() {
+                        count += 1;
+                    }
+                }
+                current_ticket_id = Some(ticket_id.clone());
+                total = TicketGitStats::default();
+            }
+
+            let working_dir = find_worktree_or_project(project_path, branch_name);
+            let default_branch = match crate::commands::next_steps::get_default_branch(&working_dir) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+
+            if !branch_ref_exists(&working_dir, branch_name) {
+                continue;
+            }
+
+            let s = collect_git_stats_for_ticket(&working_dir, branch_name, &default_branch);
+            total.commits += s.commits;
+            total.lines_added += s.lines_added;
+            total.lines_removed += s.lines_removed;
+            total.files_changed += s.files_changed;
+        }
+
+        if let Some(ref prev_id) = current_ticket_id {
+            total.collected_at = chrono::Utc::now().to_rfc3339();
+            if self.upsert_git_stats(prev_id, &total).is_ok() {
+                count += 1;
+            }
+        }
         Ok(count)
     }
 }
@@ -206,32 +265,8 @@ fn branch_ref_exists(working_dir: &str, branch: &str) -> bool {
 
 /// Find the worktree path for a branch, falling back to the project path.
 fn find_worktree_or_project(project_path: &str, branch: &str) -> String {
-    let output = Command::new("git")
-        .args(["worktree", "list", "--porcelain"])
-        .current_dir(project_path)
-        .output();
-
-    if let Ok(o) = output {
-        if o.status.success() {
-            let text = String::from_utf8_lossy(&o.stdout);
-            let mut current_wt = String::new();
-            for line in text.lines() {
-                if let Some(path) = line.strip_prefix("worktree ") {
-                    current_wt = path.to_string();
-                }
-                if let Some(branch_ref) = line.strip_prefix("branch ") {
-                    let wt_branch = branch_ref
-                        .strip_prefix("refs/heads/")
-                        .unwrap_or(branch_ref);
-                    if wt_branch == branch {
-                        return current_wt;
-                    }
-                }
-            }
-        }
-    }
-
-    project_path.to_string()
+    crate::commands::next_steps::resolve_working_dir_for_project(project_path, branch)
+        .unwrap_or_else(|_| project_path.to_string())
 }
 
 #[cfg(test)]
@@ -469,5 +504,128 @@ mod tests {
             .unwrap();
 
         assert_eq!(prs, 3);
+    }
+
+    // --- find_worktree_or_project ---
+
+    fn init_temp_repo() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().to_str().unwrap().to_string();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(&path)
+            .output()
+            .expect("git init");
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&path)
+            .output()
+            .expect("git config email");
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&path)
+            .output()
+            .expect("git config name");
+
+        std::fs::write(dir.path().join("README.md"), "# init").unwrap();
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(&path)
+            .output()
+            .expect("git add");
+        Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&path)
+            .output()
+            .expect("git commit");
+
+        (dir, path)
+    }
+
+    #[test]
+    fn find_worktree_no_match_returns_project_path() {
+        let (_dir, path) = init_temp_repo();
+        let result = find_worktree_or_project(&path, "feat/nonexistent");
+        assert_eq!(result, path);
+    }
+
+    #[test]
+    fn find_worktree_with_matching_worktree() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/wt-match"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/wt-match"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        let result = find_worktree_or_project(&path, "feat/wt-match");
+        let canon = |p: &str| std::fs::canonicalize(p).unwrap_or_else(|_| std::path::PathBuf::from(p));
+        assert_eq!(canon(&result), canon(&wt_path));
+    }
+
+    #[test]
+    fn find_worktree_stale_reference_falls_back() {
+        let (_dir, path) = init_temp_repo();
+
+        Command::new("git")
+            .args(["branch", "feat/stale-wt"])
+            .current_dir(&path)
+            .output()
+            .expect("create branch");
+
+        let wt_dir = tempfile::tempdir().expect("wt dir");
+        let wt_path = wt_dir.path().to_str().unwrap().to_string();
+        std::fs::remove_dir(&wt_path).ok();
+
+        Command::new("git")
+            .args(["worktree", "add", &wt_path, "feat/stale-wt"])
+            .current_dir(&path)
+            .output()
+            .expect("git worktree add");
+
+        // Remove directory to make it stale
+        std::fs::remove_dir_all(&wt_path).expect("remove wt dir");
+
+        let result = find_worktree_or_project(&path, "feat/stale-wt");
+        assert_eq!(result, path, "stale worktree should fall back to project path");
+    }
+
+    #[test]
+    fn find_worktree_invalid_path_returns_project_path() {
+        let result = find_worktree_or_project("/nonexistent/path/xyz", "main");
+        assert_eq!(result, "/nonexistent/path/xyz");
+    }
+
+    // --- branch_ref_exists ---
+
+    #[test]
+    fn branch_ref_exists_returns_true_for_existing_branch() {
+        let (_dir, path) = init_temp_repo();
+        let branch_output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&path)
+            .output()
+            .expect("git branch");
+        let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+
+        assert!(branch_ref_exists(&path, &branch));
+    }
+
+    #[test]
+    fn branch_ref_exists_returns_false_for_missing_branch() {
+        let (_dir, path) = init_temp_repo();
+        assert!(!branch_ref_exists(&path, "feat/does-not-exist"));
     }
 }

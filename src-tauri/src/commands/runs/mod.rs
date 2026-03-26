@@ -283,8 +283,12 @@ pub async fn start_agent_run(
             .unwrap_or_default();
         let paths: Vec<std::path::PathBuf> = projects
             .iter()
-            .map(|p| std::path::PathBuf::from(&p.path))
-            .filter(|p| *p != main_repo_path)
+            .filter(|p| std::path::PathBuf::from(&p.path) != main_repo_path)
+            .map(|p| {
+                crate::commands::next_steps::resolve_working_dir_for_project(&p.path, &branch_name)
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&p.path))
+            })
             .collect();
         (None, paths)
     } else {

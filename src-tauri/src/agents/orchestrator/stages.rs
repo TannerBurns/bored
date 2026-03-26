@@ -515,6 +515,84 @@ impl WorkflowOrchestrator {
         .await
     }
 
+    /// For workspace tickets, append the combined workspace diff context to a prompt.
+    pub(super) fn append_workspace_context_to_prompt(&self, prompt: &str) -> String {
+        match self.build_workspace_diff_context() {
+            Some(ws_context) => format!(
+                "{}\n\n{}\n\n\
+                 IMPORTANT: The git commands above will only show changes for the primary \
+                 project. This ticket spans multiple projects in a workspace. The full \
+                 workspace diff is provided above — use it to see changes in ALL projects. \
+                 You can also access other project directories via `--add-dir` paths.",
+                prompt, ws_context
+            ),
+            None => prompt.to_string(),
+        }
+    }
+
+    fn build_workspace_diff_context(&self) -> Option<String> {
+        self.ticket.workspace_id.as_ref()?;
+
+        match crate::commands::next_steps::get_ticket_working_dirs(&self.db, &self.ticket.id) {
+            Ok(dirs) if dirs.len() > 1 => {
+                let mut sections = Vec::new();
+                for (_, project_name, working_dir, branch) in &dirs {
+                    let default_branch = crate::commands::next_steps::get_default_branch(working_dir)
+                        .unwrap_or_else(|_| "origin/main".to_string());
+
+                    let stat = std::process::Command::new("git")
+                        .args(["diff", "--stat", &format!("{}...{}", default_branch, branch)])
+                        .current_dir(working_dir)
+                        .output();
+
+                    let diff = std::process::Command::new("git")
+                        .args(["diff", &format!("{}...{}", default_branch, branch)])
+                        .current_dir(working_dir)
+                        .output();
+
+                    let stat_text = stat
+                        .as_ref()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                        .unwrap_or_default();
+
+                    let diff_text = diff
+                        .as_ref()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                        .unwrap_or_default();
+
+                    if !diff_text.trim().is_empty() {
+                        sections.push(format!(
+                            "### Project: {}\n\nWorking directory: `{}`\n\n```\n{}\n```\n\nFull diff:\n```diff\n{}\n```",
+                            project_name, working_dir, stat_text.trim(), diff_text.trim()
+                        ));
+                    } else {
+                        sections.push(format!(
+                            "### Project: {}\n\nNo changes on this branch.",
+                            project_name
+                        ));
+                    }
+                }
+
+                if sections.iter().all(|s| s.contains("No changes")) {
+                    return None;
+                }
+
+                Some(format!(
+                    "## Workspace Change Set\n\n\
+                     This ticket spans multiple projects in a workspace. Below is the combined \
+                     diff across all projects. You MUST review changes in ALL projects, not just \
+                     the primary working directory.\n\n{}",
+                    sections.join("\n\n---\n\n")
+                ))
+            }
+            _ => None,
+        }
+    }
+
     async fn run_code_review_loop_inner(
         &self,
         model: &str,
@@ -551,7 +629,9 @@ impl WorkflowOrchestrator {
 
             tracing::info!("Code review iteration {}/{}", iteration, display_max);
 
-            let review_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
+            let base_prompt = generate_command_prompt("code-review", custom_dir.as_deref());
+            let review_prompt = self.append_workspace_context_to_prompt(&base_prompt);
+
             let review_result = self
                 .run_stage_with_overrides("code-review", &review_prompt, model, timeout, retries)
                 .await?;

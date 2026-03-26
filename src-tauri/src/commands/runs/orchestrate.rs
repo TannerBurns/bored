@@ -295,18 +295,55 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         }
     }
 
-    // Collect git stats after detour merge so the ticket branch reflects all changes
+    // Collect git stats after detour merge so the ticket branch reflects all changes.
     if let Some(ref branch) = ticket.branch_name {
-        let repo_dir = main_repo_path.to_string_lossy().to_string();
-        match crate::commands::next_steps::get_default_branch(&repo_dir) {
-            Ok(default_branch) => {
-                let stats = collect_git_stats_for_ticket(&repo_dir, branch, &default_branch);
-                if let Err(e) = db.upsert_git_stats(&ticket_id, &stats) {
-                    tracing::warn!("Failed to upsert git stats for ticket {}: {}", ticket_id, e);
+        if ticket.workspace_id.is_some() {
+            match crate::commands::next_steps::get_ticket_working_dirs(&db, &ticket_id) {
+                Ok(dirs) if dirs.len() > 1 => {
+                    let mut total = crate::db::git_stats::TicketGitStats {
+                        collected_at: chrono::Utc::now().to_rfc3339(),
+                        ..Default::default()
+                    };
+                    for (_, _, working_dir, branch) in &dirs {
+                        match crate::commands::next_steps::get_default_branch(working_dir) {
+                            Ok(default_branch) => {
+                                let s = collect_git_stats_for_ticket(working_dir, branch, &default_branch);
+                                total.commits += s.commits;
+                                total.lines_added += s.lines_added;
+                                total.lines_removed += s.lines_removed;
+                                total.files_changed += s.files_changed;
+                            }
+                            Err(e) => {
+                                tracing::debug!("Could not determine default branch for git stats in {}: {}", working_dir, e);
+                            }
+                        }
+                    }
+                    if let Err(e) = db.upsert_git_stats(&ticket_id, &total) {
+                        tracing::warn!("Failed to upsert workspace git stats for ticket {}: {}", ticket_id, e);
+                    }
+                }
+                _ => {
+                    let repo_dir = main_repo_path.to_string_lossy().to_string();
+                    if let Ok(default_branch) = crate::commands::next_steps::get_default_branch(&repo_dir) {
+                        let stats = collect_git_stats_for_ticket(&repo_dir, branch, &default_branch);
+                        if let Err(e) = db.upsert_git_stats(&ticket_id, &stats) {
+                            tracing::warn!("Failed to upsert git stats for ticket {}: {}", ticket_id, e);
+                        }
+                    }
                 }
             }
-            Err(e) => {
-                tracing::debug!("Could not determine default branch for git stats: {}", e);
+        } else {
+            let repo_dir = main_repo_path.to_string_lossy().to_string();
+            match crate::commands::next_steps::get_default_branch(&repo_dir) {
+                Ok(default_branch) => {
+                    let stats = collect_git_stats_for_ticket(&repo_dir, branch, &default_branch);
+                    if let Err(e) = db.upsert_git_stats(&ticket_id, &stats) {
+                        tracing::warn!("Failed to upsert git stats for ticket {}: {}", ticket_id, e);
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Could not determine default branch for git stats: {}", e);
+                }
             }
         }
     }
