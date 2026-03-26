@@ -131,11 +131,12 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 fn main() {
-    // Fix PATH for bundled apps on macOS/Linux
-    // When launched from Finder, apps get a minimal PATH that doesn't include
-    // directories where CLI tools like `cursor` and `claude` are installed
+    // Import all shell-configured environment variables for bundled apps on
+    // macOS/Linux. When launched from Finder/Dock/Spotlight, apps get a minimal
+    // environment that lacks PATH entries, API keys, and other vars the user
+    // has configured in their shell profile (.zshrc, .bash_profile, etc.).
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fix_path_env::fix().ok();
+    fix_path_env::fix_all_vars().ok();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
