@@ -2,6 +2,39 @@
 
 All notable changes to Bored are documented in this file.
 
+## [0.1.0-beta.64] - 2026-03-27
+
+Session-ID extraction fix for Claude Code hooks and full shell environment inheritance for GUI-launched builds. The `extract_session_id_from_stream_json` parser now requires `subtype == "init"` so that `hook_started` and `hook_response` system events emitted before the init message are skipped, preventing the wrong session_id from being captured during `--resume` flows. The macOS/Linux environment bootstrap switches from `fix_path_env::fix()` (PATH only) to `fix_all_vars()`, ensuring API keys, custom variables, and other shell-profile configuration are available when the app is launched from Finder, Dock, or Spotlight.
+
+### Bug Fixes
+
+- Fixed session_id extraction picking up the wrong ID from Claude Code hook events — `extract_session_id_from_stream_json` now requires `subtype == "init"` in addition to `type == "system"`, skipping `hook_started` and `hook_response` events that carry a different session_id than the actual conversation; both Claude and Cursor providers are fixed by this single change
+- Fixed GUI-launched builds on macOS/Linux missing API keys and custom environment variables — switched from `fix_path_env::fix()` (PATH only) to `fix_all_vars()` so all shell-profile-configured variables are inherited when launched from Finder, Dock, or Spotlight
+
+### Testing
+
+- cargo clippy --lib -- -D warnings: 0 warnings
+- cargo test extract_session_id: 18 passed, 0 failed
+- 2 new test cases covering hook events before init (startup and resume scenarios)
+
+### Upgrading from Previous Versions
+
+If you are upgrading from a version older than beta.63, here is a summary of the major features introduced in recent releases:
+
+**beta.63 — Workspace Multi-Project Awareness**
+Workspace tickets now correctly push, create pull requests, collect diffs, and aggregate git stats across all projects instead of only the primary project. Agent prompts include a combined workspace diff so the code review agent sees changes in every repo. Secondary workspace worktrees are auto-committed after each orchestrator stage, and worktree resolution gracefully handles stale references. The git helper layer has been extracted into a dedicated `git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines.
+
+**beta.62 — Debug Mode, Auto Code Review & Detour-Sync**
+A new per-provider Debug Mode toggle emits `bored_system` JSON log lines for every CLI subprocess invocation, showing the full command string in the log timeline as system entries with sensitive environment variables automatically filtered. A new "Run on Ticket Complete" setting triggers the code review loop automatically after the last task of a ticket finishes, using a dedicated `CodeReview` task type. The detour-sync stage merges agent work back to the target branch. Chat UX gains optimistic user message insertion and stale-chat guards.
+
+**beta.61 — Extended Context Model Suffix & Auto-Pilot Model Filtering**
+Claude Code extended context now uses the `[1m]` model suffix instead of the deprecated `--betas` flag, with eligibility gated to claude-opus-4-6 and claude-sonnet-4-6. The `--effort` CLI argument moves to the `CLAUDE_CODE_EFFORT_LEVEL` environment variable. Auto-pilot settings gain per-model enable/disable toggles so users can restrict which models the auto-pilot command selector can choose. The code-review fallback parser now accepts pass-status JSON where LLMs use `review_status` or `status` fields instead of `issues_found: 0`.
+
+**beta.60 — Robust Code-Review Parsing & Auto-Clarification Routing**
+The review agent's structured output parser now handles common LLM deviations — wrapper objects, missing `issues_found`, `files` arrays instead of `file` strings, and numeric `lines` values — via a best-effort fallback when strict deserialization fails. The code-review prompt is tightened with an explicit schema table, concrete examples, and DO-NOT rules to reduce deviations at the source. Auto-clarification `DeleteTask` now correctly routes tickets to Ready, Review, or Done based on remaining tasks and auto-complete settings.
+
+---
+
 ## [0.1.0-beta.63] - 2026-03-26
 
 Workspace multi-project awareness across push, PR, diff, and review flows. Workspace tickets now correctly push, create pull requests, collect diffs, and aggregate git stats across all projects instead of only the primary project. Agent prompts include a combined workspace diff so the code review agent sees changes in every repo. Secondary workspace worktrees are auto-committed after each orchestrator stage, and worktree resolution gracefully handles stale references. The git helper layer has been extracted into a dedicated `commands/git_helpers.rs` module, reducing `next_steps.rs` from 1,299 to 629 lines.
