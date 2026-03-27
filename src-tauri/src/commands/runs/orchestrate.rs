@@ -365,9 +365,12 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
         worktree::delete_branch(&main_repo_path, &worktree_info.branch_name);
     }
 
-    // Clean up secondary workspace worktrees
+    // Clean up secondary workspace worktrees.
+    // Must remove the worktree before deleting the branch — git refuses to
+    // delete a branch that is checked out in any worktree.
     for extra_wt in &workspace_secondary_worktrees {
         let _ = worktree::safety_commit_if_needed(&extra_wt.path, &run_id);
+        let mut extra_detour_merged = false;
         if let (Some(ref target), Some(ref fork_point)) =
             (&extra_wt.target_branch, &extra_wt.detour_fork_point)
         {
@@ -383,7 +386,7 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                     | worktree::DetourMergeResult::MergedWorkingTreeStale { .. }
                     | worktree::DetourMergeResult::NothingToMerge,
                 ) => {
-                    worktree::delete_branch(&extra_wt.repo_path, &extra_wt.branch_name);
+                    extra_detour_merged = true;
                 }
                 Ok(worktree::DetourMergeResult::Diverged { .. }) | Err(_) => {
                     tracing::warn!(
@@ -401,6 +404,9 @@ pub(super) async fn execute_workflow_task(ctx: WorkflowTaskContext) {
                 extra_wt.path.display(),
                 e
             );
+        }
+        if extra_detour_merged {
+            worktree::delete_branch(&extra_wt.repo_path, &extra_wt.branch_name);
         }
     }
 }
