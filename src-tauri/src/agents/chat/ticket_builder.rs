@@ -248,19 +248,84 @@ fn repair_unquoted_values(text: &str) -> String {
     re.replace_all(text, r#""$1": "$2"#).to_string()
 }
 
+/// Walk from the opening brace and find the matching closing brace, correctly
+/// skipping braces inside JSON string literals so that embedded markdown code
+/// blocks inside description values don't break extraction.
+fn extract_balanced_json(text: &str) -> Option<&str> {
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let ch = bytes[i];
+        if in_string {
+            if ch == b'\\' {
+                i += 2;
+                continue;
+            }
+            if ch == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[..i + 1]);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 fn extract_json_block(text: &str) -> Option<&str> {
-    if let Some(start) = text.find("```json") {
-        let content_start = start + "```json".len();
-        if let Some(end) = text[content_start..].find("```") {
-            return Some(text[content_start..content_start + end].trim());
+    // Strategy 1: fenced ```json block with balanced brace matching.
+    // A naive find("```") for the closing fence fails when JSON string values
+    // themselves contain ``` markers (e.g. markdown code blocks in descriptions).
+    if let Some(fence_start) = text.find("```json") {
+        let after_fence = &text[fence_start + 7..];
+        if let Some(brace_offset) = after_fence.find('{') {
+            if let Some(json) = extract_balanced_json(&after_fence[brace_offset..]) {
+                return Some(json.trim());
+            }
+            // Fallback for malformed JSON (e.g. missing opening quotes) where
+            // balanced brace tracking fails: scan for a closing ``` fence that
+            // starts a new line, which won't match escaped \n``` inside strings.
+            if let Some(end) = after_fence[brace_offset..].find("\n```") {
+                let candidate = &after_fence[brace_offset..brace_offset + end].trim();
+                if !candidate.is_empty() {
+                    return Some(candidate);
+                }
+            }
         }
     }
-    // Fall back to finding a top-level JSON object with "tickets"
-    if let Some(start) = text.find('{') {
-        if let Some(end) = text.rfind('}') {
-            let candidate = &text[start..=end];
-            if candidate.contains("\"tickets\"") {
-                return Some(candidate);
+    // Strategy 2: bare JSON — search backward from "tickets" for the enclosing {.
+    if let Some(tickets_idx) = text.find("\"tickets\"") {
+        let before = &text[..tickets_idx];
+        for (i, ch) in before.char_indices().rev() {
+            if ch == '{' {
+                if let Some(json) = extract_balanced_json(&text[i..]) {
+                    let candidate = json.trim();
+                    if candidate.contains("\"tickets\"") {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+        // Fallback: first { before "tickets" to last }
+        if let Some(brace_start) = before.rfind('{') {
+            if let Some(rel_end) = text[brace_start..].rfind('}') {
+                let candidate = &text[brace_start..brace_start + rel_end + 1];
+                if candidate.contains("\"tickets\"") {
+                    return Some(candidate.trim());
+                }
             }
         }
     }
@@ -313,6 +378,62 @@ Let me know if you want changes."###;
             Some("## Spec\nBuild the form with email and password fields.")
         );
         assert!(tasks[1].content.is_none());
+    }
+
+    #[test]
+    fn parse_json_block_with_nested_code_fences() {
+        let text = r###"Here is my analysis:
+
+**Root cause:** The frontend ignores metadata.
+
+```json
+{
+  "tickets": [
+    {
+      "title": "Fix metadata display",
+      "description": "## Overview\n\nTool artifacts have metadata.\n\n### Example\n\n```json\n{\n  \"tool_name\": \"Bash\"\n}\n```\n\nThe frontend ignores it.\n\n```bash\ncd /app && npm test\n```",
+      "priority": "high",
+      "tasks": [
+        {
+          "title": "Update frontend",
+          "content": "## Steps\n\nModify the component.\n\n```typescript\nconst x = 1;\n```"
+        }
+      ]
+    }
+  ]
+}
+```
+"###;
+
+        let parsed = parse_ticket_builder_response(text).unwrap();
+        assert_eq!(parsed.tickets.len(), 1);
+        assert_eq!(parsed.tickets[0].title, "Fix metadata display");
+        assert!(parsed.tickets[0].description.contains("tool_name"));
+        let tasks = parsed.tickets[0].tasks.as_ref().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert!(tasks[0].content.as_ref().unwrap().contains("typescript"));
+    }
+
+    #[test]
+    fn parse_json_with_braces_in_preamble() {
+        let text = r#"The `Metadata map[string]interface{}` field stores JSONB.
+
+```json
+{
+  "tickets": [
+    {
+      "title": "Fix it",
+      "description": "Description here",
+      "priority": "medium"
+    }
+  ]
+}
+```
+"#;
+
+        let parsed = parse_ticket_builder_response(text).unwrap();
+        assert_eq!(parsed.tickets.len(), 1);
+        assert_eq!(parsed.tickets[0].title, "Fix it");
     }
 
     #[test]
