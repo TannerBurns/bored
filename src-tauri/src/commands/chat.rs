@@ -164,13 +164,21 @@ pub async fn send_chat_message(
             db.get_ticket(tid).ok().and_then(|t| t.branch_name)
         });
 
-        let ws_paths: Vec<PathBuf> = projects.iter().map(|p| {
+        let ws_paths: Vec<PathBuf> = projects.iter().filter_map(|p| {
             if let Some(ref branch) = branch_name {
-                crate::commands::next_steps::resolve_working_dir_for_project(&p.path, branch)
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from(&p.path))
+                match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
+                    Ok(resolved) => Some(PathBuf::from(resolved)),
+                    Err(_) => {
+                        tracing::warn!(
+                            "No worktree found for project '{}', excluding from chat workspace \
+                             to prevent operating on main checkout",
+                            p.name
+                        );
+                        None
+                    }
+                }
             } else {
-                PathBuf::from(&p.path)
+                Some(PathBuf::from(&p.path))
             }
         }).collect();
 
