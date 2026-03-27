@@ -316,16 +316,10 @@ pub async fn start_agent_run(
                         ..
                     } => {
                         tracing::warn!(
-                            "Failed to create worktree for workspace project '{}': {}, \
-                             falling back to resolved path",
+                            "Failed to create worktree for workspace project '{}': {}. \
+                             Excluding from workspace paths to prevent writing to main checkout.",
                             project.name, message
                         );
-                        let fallback_path = crate::commands::next_steps::resolve_working_dir_for_project(
-                            &project.path, &branch_name,
-                        )
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(|_| std::path::PathBuf::from(&project.path));
-                        secondary_paths.push(fallback_path);
                     }
                 }
             }
