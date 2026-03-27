@@ -333,9 +333,17 @@ impl WorkflowOrchestrator {
             return None;
         }
 
+        // Re-read the branch name from the DB since self.ticket is a snapshot
+        // from orchestrator construction and won't reflect branch names set
+        // during the branch stage of the current run.
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+
         let mut pairs: Vec<(String, String)> = Vec::new();
         for p in &projects {
-            let worktree_path = match self.ticket.branch_name.as_deref() {
+            let worktree_path = match current_branch.as_deref() {
                 Some(branch) => match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
                     Ok(resolved) => resolved,
                     Err(_) => {
@@ -346,7 +354,7 @@ impl WorkflowOrchestrator {
                         continue;
                     }
                 },
-                None => self.repo_path.to_string_lossy().to_string(),
+                None => p.path.clone(),
             };
             pairs.push((p.name.clone(), worktree_path));
         }

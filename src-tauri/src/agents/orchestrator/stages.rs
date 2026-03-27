@@ -560,10 +560,16 @@ impl WorkflowOrchestrator {
             return None;
         }
 
-        let branch = self.ticket.branch_name.as_deref().unwrap_or("");
-        if branch.is_empty() {
-            return None;
-        }
+        // Re-read from DB since self.ticket is a snapshot that won't reflect
+        // branch names set during the branch stage of the current run.
+        let current_branch = self.db.get_ticket(&self.ticket.id)
+            .ok()
+            .and_then(|t| t.branch_name)
+            .or_else(|| self.worktree_branch.clone());
+        let branch = match current_branch.as_deref() {
+            Some(b) if !b.is_empty() => b,
+            _ => return None,
+        };
 
         let projects = self.db.get_workspace_projects(workspace_id).ok()?;
         if projects.len() < 2 {
