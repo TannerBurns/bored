@@ -631,6 +631,37 @@ fn extract_session_id_skips_whitespace_only_lines() {
 }
 
 #[test]
+fn extract_session_id_skips_hook_events_uses_init() {
+    let output = concat!(
+        r#"{"type":"system","subtype":"hook_started","hook_id":"h1","hook_name":"SessionStart:startup","session_id":"hook-session-id"}"#, "\n",
+        r#"{"type":"system","subtype":"hook_response","hook_id":"h1","hook_name":"SessionStart:startup","exit_code":0,"session_id":"hook-session-id"}"#, "\n",
+        r#"{"type":"system","subtype":"init","cwd":"/tmp","session_id":"real-session-id","model":"claude-sonnet-4-6"}"#, "\n",
+        r#"{"type":"result","subtype":"success","result":"done","session_id":"real-session-id"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("real-session-id".to_string()),
+        "should return init session_id, not hook event session_id",
+    );
+}
+
+#[test]
+fn extract_session_id_skips_hook_events_on_resume() {
+    let output = concat!(
+        r#"{"type":"system","subtype":"hook_started","hook_id":"h2","hook_name":"SessionStart:resume","session_id":"hook-resume-id"}"#, "\n",
+        r#"{"type":"system","subtype":"hook_response","hook_id":"h2","hook_name":"SessionStart:resume","exit_code":0,"session_id":"hook-resume-id"}"#, "\n",
+        r#"{"type":"system","subtype":"init","cwd":"/tmp","session_id":"original-conversation-id","model":"claude-sonnet-4-6"}"#, "\n",
+        r#"{"type":"assistant","message":{"role":"assistant","content":[]},"session_id":"original-conversation-id"}"#, "\n",
+        r#"{"type":"result","subtype":"success","result":"ok","session_id":"original-conversation-id"}"#,
+    );
+    assert_eq!(
+        extract_session_id_from_stream_json(output),
+        Some("original-conversation-id".to_string()),
+        "on resume, hook events have a different session_id than the conversation being resumed",
+    );
+}
+
+#[test]
 fn extract_session_id_via_provider_trait() {
     let provider = ClaudeProvider::new();
     let output = r#"{"type":"system","subtype":"init","session_id":"provider-test","model":"m"}"#;
