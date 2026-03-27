@@ -320,6 +320,11 @@ impl WorkflowOrchestrator {
     }
 
     /// Workspace display name and (project name, path) pairs for multi-repo prompts.
+    ///
+    /// Resolves each project to its worktree path so the agent never sees the
+    /// main checkout paths in the prompt. Without this, the prompt would expose
+    /// the original project directories (checked out on main) and the agent
+    /// could cd into them and commit directly to main.
     fn workspace_prompt_owned(&self) -> Option<(String, Vec<(String, String)>)> {
         let workspace_id = self.ticket.workspace_id.as_ref()?;
         let ws = self.db.get_workspace(workspace_id).ok().flatten()?;
@@ -327,10 +332,20 @@ impl WorkflowOrchestrator {
         if projects.is_empty() {
             return None;
         }
-        Some((
-            ws.name,
-            projects.into_iter().map(|p| (p.name, p.path)).collect(),
-        ))
+
+        let pairs: Vec<(String, String)> = projects
+            .iter()
+            .map(|p| {
+                let worktree_path = self.ticket.branch_name.as_deref()
+                    .and_then(|branch| {
+                        crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch).ok()
+                    })
+                    .unwrap_or_else(|| self.repo_path.to_string_lossy().to_string());
+                (p.name.clone(), worktree_path)
+            })
+            .collect();
+
+        Some((ws.name, pairs))
     }
 
     /// Run the plan stage and return the extracted plan.
