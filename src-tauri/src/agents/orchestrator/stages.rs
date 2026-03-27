@@ -576,11 +576,16 @@ impl WorkflowOrchestrator {
         // via resolve_working_dir_strict.
         let mut dir_pairs: Vec<(String, String)> = Vec::new();
         for project in &projects {
-            let worktree_dir = self.ticket.branch_name.as_deref()
-                .and_then(|b| {
-                    crate::commands::next_steps::resolve_working_dir_strict(&project.path, b).ok()
-                })
-                .unwrap_or_else(|| project.path.clone());
+            let worktree_dir = match crate::commands::next_steps::resolve_working_dir_strict(&project.path, branch) {
+                Ok(resolved) => resolved,
+                Err(_) => {
+                    tracing::warn!(
+                        "No worktree found for project '{}', excluding from diff context",
+                        project.name
+                    );
+                    continue;
+                }
+            };
             dir_pairs.push((project.name.clone(), worktree_dir));
         }
 

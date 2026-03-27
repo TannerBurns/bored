@@ -333,17 +333,23 @@ impl WorkflowOrchestrator {
             return None;
         }
 
-        let pairs: Vec<(String, String)> = projects
-            .iter()
-            .map(|p| {
-                let worktree_path = self.ticket.branch_name.as_deref()
-                    .and_then(|branch| {
-                        crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch).ok()
-                    })
-                    .unwrap_or_else(|| p.path.clone());
-                (p.name.clone(), worktree_path)
-            })
-            .collect();
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for p in &projects {
+            let worktree_path = match self.ticket.branch_name.as_deref() {
+                Some(branch) => match crate::commands::next_steps::resolve_working_dir_strict(&p.path, branch) {
+                    Ok(resolved) => resolved,
+                    Err(_) => {
+                        tracing::warn!(
+                            "No worktree found for project '{}', excluding from workspace prompt",
+                            p.name
+                        );
+                        continue;
+                    }
+                },
+                None => self.repo_path.to_string_lossy().to_string(),
+            };
+            pairs.push((p.name.clone(), worktree_path));
+        }
 
         Some((ws.name, pairs))
     }
