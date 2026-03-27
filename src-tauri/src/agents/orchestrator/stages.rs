@@ -595,6 +595,10 @@ impl WorkflowOrchestrator {
             dir_pairs.push((project.name.clone(), worktree_dir));
         }
 
+        if dir_pairs.is_empty() {
+            return None;
+        }
+
         let mut sections = Vec::new();
         for (project_name, working_dir) in &dir_pairs {
             let default_branch = crate::commands::next_steps::get_default_branch(working_dir)

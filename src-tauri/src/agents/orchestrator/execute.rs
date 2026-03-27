@@ -359,6 +359,10 @@ impl WorkflowOrchestrator {
             pairs.push((p.name.clone(), worktree_path));
         }
 
+        if pairs.is_empty() {
+            return None;
+        }
+
         Some((ws.name, pairs))
     }
 
