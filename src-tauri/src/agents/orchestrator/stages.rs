@@ -60,14 +60,17 @@ impl WorkflowOrchestrator {
 
     /// Run a single stage in a specific directory (instead of the primary repo_path).
     /// Used by the commit stage to run add-and-commit in each workspace project.
+    ///
+    /// Does not pass or capture the workflow session ID — secondary worktree
+    /// runs must not overwrite the shared session, which would cause subsequent
+    /// stages (e.g. code-review) to attempt --resume with a stale context.
     pub(super) async fn run_stage_in_dir(
         &self,
         stage: &str,
         prompt: &str,
         dir: &std::path::Path,
     ) -> Result<AgentRunResult, String> {
-        let sid = self.get_workflow_session_id();
-        self.run_stage_inner(stage, prompt, None, sid.as_deref(), None, None, Some(dir))
+        self.run_stage_inner(stage, prompt, None, None, None, None, Some(dir))
             .await
     }
 
@@ -395,26 +398,28 @@ impl WorkflowOrchestrator {
             ));
         }
 
-        if let Some(ref stdout) = result.captured_stdout {
-            if let Some(sid) = self.provider.extract_session_id(stdout) {
-                let is_new = self
-                    .get_workflow_session_id()
-                    .as_ref()
-                    .map(|old| *old != sid)
-                    .unwrap_or(true);
-                if is_new {
-                    tracing::info!(
-                        "Captured workflow session id from '{}' stage: {}",
+        if dir_override.is_none() {
+            if let Some(ref stdout) = result.captured_stdout {
+                if let Some(sid) = self.provider.extract_session_id(stdout) {
+                    let is_new = self
+                        .get_workflow_session_id()
+                        .as_ref()
+                        .map(|old| *old != sid)
+                        .unwrap_or(true);
+                    if is_new {
+                        tracing::info!(
+                            "Captured workflow session id from '{}' stage: {}",
+                            stage,
+                            sid,
+                        );
+                        self.set_workflow_session_id(&sid);
+                    }
+                } else if session_id.is_none() {
+                    tracing::warn!(
+                        "No session_id found in agent output for stage '{}' — subsequent stages will not use --resume",
                         stage,
-                        sid,
                     );
-                    self.set_workflow_session_id(&sid);
                 }
-            } else if session_id.is_none() {
-                tracing::warn!(
-                    "No session_id found in agent output for stage '{}' — subsequent stages will not use --resume",
-                    stage,
-                );
             }
         }
 
